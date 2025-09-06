@@ -17,8 +17,8 @@ class TestZODBStorage():
         data2.ticker = '000002'
         stock.add_data(data2)
 
-        assert len(stock.get_data()) == 2
-        assert stock.get_data()[0] == data1
-        assert stock.get_data()[1] == data2
+        assert len(stock.get_datas()) == 2
+        assert stock.get_datas()[0] == data1
+        assert stock.get_datas()[1] == data2
 
 
