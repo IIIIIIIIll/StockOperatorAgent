@@ -6,7 +6,7 @@ class ZODBStorageInstance():
 
 
     def __init__(self):
-        self.storage = ZODB.FileStorage.FileStorage('data/china_stock_data.fs')
+        self.storage = ZODB.FileStorage.FileStorage('database/china_stock_data.fs')
         self.db = ZODB.DB(self.storage)
         self.connection = self.db.open()
         self.root = self.connection.root
