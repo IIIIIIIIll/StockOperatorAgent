@@ -1,5 +1,4 @@
-import pytest
-from data_storage import ZODBStorage
+from data_storage.chinese_mainland import ZODBStorage
 from data_structure.chinese_mainland.ChinaStock import ChinaStock
 
 
