@@ -1,5 +1,7 @@
 from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
 from loguru import logger
+
+from data_structure.chinese_mainland.ChinaStockData import ChinaStockData
 from data_structure.chinese_mainland.StockInfo import StockInfo
 from data_structure.chinese_mainland.StockOverview import StockOverview
 
@@ -65,3 +67,16 @@ class TestAKShare():
             logger.info(stock_overview)
 
         logger.info(bjex_stocks)
+
+
+    def test_get_stock_hist(self):
+        akshare_source = AKShareSource()
+        stocks_hist = akshare_source.fetch_stock_history('601188')
+        assert stocks_hist is not None
+        stocks_hist_dict = stocks_hist.to_dict(orient='records')
+        for row in stocks_hist_dict:
+            stock_data = ChinaStockData(*list(row.values()))
+            logger.info(row)
+            logger.info(stock_data)
+
+        logger.info(stocks_hist)
