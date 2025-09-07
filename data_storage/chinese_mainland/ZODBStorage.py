@@ -17,7 +17,7 @@ class ZODBStorageInstance():
         self.db = ZODB.DB(self.storage)
         self.connection = self.db.open()
         self.root = self.connection.root
-        self.overview_last_updated = getattr(self.root, 'overview_last_updated', default_start)
+        self.root.overview_last_updated = getattr(self.root, 'overview_last_updated', default_start)
         if is_new_db:
             self.root.stocks = BTrees.OOBTree.BTree()
 
