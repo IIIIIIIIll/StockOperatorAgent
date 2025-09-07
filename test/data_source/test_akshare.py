@@ -3,6 +3,7 @@ from loguru import logger
 
 from data_structure.chinese_mainland.ChinaStockData import ChinaStockData
 from data_structure.chinese_mainland.StockInfo import StockInfo
+from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
 from data_structure.chinese_mainland.StockOverview import StockOverview
 
 
@@ -80,3 +81,17 @@ class TestAKShare():
             logger.info(stock_data)
 
         logger.info(stocks_hist)
+
+
+    def test_get_stock_performance_report(self):
+        akshare_source = AKShareSource()
+        market_report = akshare_source.fetch_performance_report('20250630')
+        assert market_report is not None
+        perf_report_dict = market_report.to_dict(orient='records')
+
+        for row  in perf_report_dict:
+            stock_report = StockPerformanceReport(*list(row.values())[1:])
+            # logger.info(row)
+            logger.info(stock_report)
+
+        logger.info(market_report)

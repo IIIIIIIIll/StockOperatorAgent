@@ -31,3 +31,7 @@ class AKShareSource():
         stock_hist = ak.stock_zh_a_hist(symbol=ticker, period="daily", start_date=(datetime.date.today()-timedelta(days=look_back_days+1)).strftime('%Y%m%d'),
                                                 end_date=datetime.date.today().strftime('%Y%m%d'), adjust="qfq")
         return stock_hist
+
+    def fetch_performance_report(self, date):
+        performance = ak.stock_yjbb_em(date=date)
+        return performance
