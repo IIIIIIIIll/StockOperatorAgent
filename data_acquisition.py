@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
 from data_structure.chinese_mainland import ChinaStock, ChinaStockData
 from data_structure.chinese_mainland.StockOverview import StockOverview
@@ -44,4 +45,28 @@ class DataAcquisition:
             stock.update_overview(new_overview=stock_overview)
             self.storage.put_stock(stock_overview.ticker, stock)
         logger.info(stock_overview)
+        return True
+
+    def acquire_historical_data(self, ticker):
+        stock = self.storage.get_stock(ticker)
+        if stock is None:
+            logger.error(f"Stock {ticker} not found in database.")
+            return False
+        else:
+            logger.debug(f"Stock {ticker} found in database, last data date is {stock.last_data_update}.")
+            if stock.last_data_update == datetime.today():
+                logger.info(f"Stock {ticker} historical data is already up to date.")
+                return True
+
+        look_back_days = 120
+        if datetime.today().date() - stock.last_data_update < timedelta(days=120):
+            look_back_days = (datetime.today().date() - stock.last_data_update).days
+
+        for row in AKShareSource().fetch_stock_history(ticker, look_back_days=look_back_days).to_dict(orient='records'):
+            stock_data = ChinaStockData.ChinaStockData(*list(row.values()))
+            logger.debug(stock_data)
+            stock.add_data(stock_data)
+
+        self.storage.put_stock(ticker, stock)
+        logger.info(f"Historical data for stock {ticker} updated until {stock.last_data_update}.")
         return True

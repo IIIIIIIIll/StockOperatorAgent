@@ -1,7 +1,7 @@
 import datetime
 import persistent
 import transaction
-
+from loguru import logger
 from utils.constants import default_start
 
 class ChinaStock(persistent.Persistent):
@@ -29,9 +29,10 @@ class ChinaStock(persistent.Persistent):
             return self.info
 
         def add_data(self, data):
-           self.datas.append(data)
-           self.last_data_update = datetime.datetime.today()
-           transaction.commit()
+            self.datas.append(data)
+            self.last_data_update = data.date
+            logger.debug("Add data on {} to stock {}", data.date, self.ticker)
+            transaction.commit()
 
         def get_datas(self):
            return self.datas

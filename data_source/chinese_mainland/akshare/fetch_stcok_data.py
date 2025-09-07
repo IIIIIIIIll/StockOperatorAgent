@@ -28,6 +28,6 @@ class AKShareSource():
         return stock_info
 
     def fetch_stock_history(self, ticker, look_back_days=120):
-        stock_hist = ak.stock_zh_a_hist(symbol=ticker, period="daily", start_date=(datetime.date.today()-timedelta(days=look_back_days)).strftime('%Y%m%d'),
+        stock_hist = ak.stock_zh_a_hist(symbol=ticker, period="daily", start_date=(datetime.date.today()-timedelta(days=look_back_days+1)).strftime('%Y%m%d'),
                                                 end_date=datetime.date.today().strftime('%Y%m%d'), adjust="qfq")
         return stock_hist

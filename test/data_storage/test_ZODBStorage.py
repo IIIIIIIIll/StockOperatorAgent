@@ -51,3 +51,13 @@ class TestZODBStorage():
         assert stock is not None
         assert stock.ticker == '600188'
         logger.debug(stock.ticker)
+
+    def test_exist_stock_data(self):
+        storage = ZODBStorage.ZODBStorageInstance()
+        print(storage.root.overview_last_updated)
+        stock = storage.get_stock('002741')
+        assert stock is not None
+        assert stock.ticker == '002741'
+        assert len(stock.datas) > 0
+        print(len(stock.datas))
+        logger.debug(stock.ticker)
