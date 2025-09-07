@@ -3,6 +3,7 @@ import persistent
 import transaction
 from loguru import logger
 from utils.constants import default_start
+from persistent.list import PersistentList
 
 class ChinaStock(persistent.Persistent):
 
@@ -10,7 +11,8 @@ class ChinaStock(persistent.Persistent):
         def __init__(self, name, ticker, overview):
             self.name = name
             self.ticker = ticker
-            self.datas = []
+            self.datas = PersistentList()
+            self.performance_reports = PersistentList()
             self.overview = overview
             self.info = None
             self.overview_last_update = datetime.datetime.now()
@@ -36,3 +38,12 @@ class ChinaStock(persistent.Persistent):
 
         def get_datas(self):
            return self.datas
+
+        def add_performance_report(self, performance_report):
+            logger.debug(performance_report)
+            self.performance_reports.append(performance_report)
+            logger.debug("Add performance_report on {} to stock {}, current reports {}", performance_report.report_date, self.ticker, len(self.performance_reports))
+            transaction.commit()
+
+        def get_performance_reports(self):
+            return self.performance_reports
