@@ -1,5 +1,6 @@
 from data_acquisition import DataAcquisition
 from data_storage.chinese_mainland import ZODBStorage
+from loguru import logger
 
 
 class TestDataAcquisition():
@@ -28,11 +29,18 @@ class TestDataAcquisition():
 
     def test_acquire_historical_data(self):
         da = DataAcquisition()
-        assert da.acquire_historical_data('002741') is True
-        stock = da.storage.get_stock('002741')
+        assert da.acquire_historical_data('002714') is True
+        stock = da.storage.get_stock('002714')
         assert stock is not None
         assert len(stock.get_datas()) > 0
 
     def test_acquire_historical_data_failed(self):
         da = DataAcquisition()
         assert da.acquire_historical_data('999999') is False
+
+    def test_acquire_stock_performance_report(self):
+        da = DataAcquisition()
+        assert da.acquire_performance_report() is True
+        stock = da.storage.get_stock('002714')
+        assert stock is not None
+        assert len(stock.get_performance_reports()) > 0
