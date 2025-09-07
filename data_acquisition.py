@@ -10,6 +10,7 @@ class DataAcquisition:
 
     def acquire_daily_overview(self):
         if self.storage.check_need_update_overview():
+            logger.info("Updating stock overview data...")
             self.update_shex_overview()
             self.update_szex_overview()
             self.update_bjex_overview()
@@ -40,7 +41,7 @@ class DataAcquisition:
         else:
             logger.debug(f"Stock overview for {stock_overview.ticker} found in database, updating.")
             stock = self.storage.get_stock(stock_overview.ticker)
-            stock.update_overview(overview=stock_overview)
+            stock.update_overview(new_overview=stock_overview)
             self.storage.put_stock(stock_overview.ticker, stock)
         logger.info(stock_overview)
         return True
