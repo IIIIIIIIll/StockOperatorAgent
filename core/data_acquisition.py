@@ -115,7 +115,6 @@ class DataAcquisition:
         latest_possible_date = datetime.strptime(f"{latest_possible_date_year}{latest_possible_date_marker}", '%Y%m%d').date()
 
         next_report_date = self.get_next_report_date(last_report_date)
-        logger.info(f"Start to get report from {next_report_date}.")
         logger.debug(f"Lastest report date is {latest_possible_date}.")
         while next_report_date <= latest_possible_date:
             logger.info(f"Fetching report for {next_report_date}.")

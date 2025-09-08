@@ -1,6 +1,4 @@
-from data_acquisition import DataAcquisition
-from data_storage.chinese_mainland import ZODBStorage
-from loguru import logger
+from core.data_acquisition import DataAcquisition
 
 
 class TestDataAcquisition():
