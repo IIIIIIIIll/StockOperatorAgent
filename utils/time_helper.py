@@ -13,5 +13,5 @@ def get_last_business_day(input_date: type[datetime.date]) -> type[datetime.date
 
     # subtracting diff
     res = input_date - timedelta(days=diff)
-    logger.info("Last business day before {} is {}", input_date.date(), res.date())
+    logger.debug("Last business day before {} is {}", input_date, res)
     return res

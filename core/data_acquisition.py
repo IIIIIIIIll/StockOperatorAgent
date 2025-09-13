@@ -5,6 +5,7 @@ from data_structure.chinese_mainland.StockOverview import StockOverview
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
 from loguru import logger
 from data_storage.chinese_mainland.ZODBStorage import ZODBStorageInstance
+from utils.time_helper import get_last_business_day
 
 class DataAcquisition:
     def __init__(self):
@@ -60,8 +61,12 @@ class DataAcquisition:
                 return True
 
         look_back_days = 120
-        if datetime.today().date() - stock.last_data_update < timedelta(days=120):
-            look_back_days = (datetime.today().date() - stock.last_data_update).days
+        if get_last_business_day(datetime.today().date()) - stock.last_data_update < timedelta(days=120):
+            look_back_days = (get_last_business_day(datetime.today().date()) - stock.last_data_update).days
+
+        if not look_back_days > 0:
+            logger.info(f"Stock {ticker} historical data is already up to date.")
+            return True
 
         for row in AKShareSource().fetch_stock_history(ticker, look_back_days=look_back_days).to_dict(orient='records'):
             stock_data = ChinaStockData.ChinaStockData(*list(row.values()))
