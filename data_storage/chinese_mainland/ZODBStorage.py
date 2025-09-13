@@ -4,6 +4,7 @@ from loguru import logger
 import ZODB, ZODB.FileStorage, BTrees.OOBTree
 from data_structure.chinese_mainland import ChinaStock
 from utils.constants import default_start
+from utils.time_helper import get_last_business_day
 import transaction
 import os.path
 
@@ -26,7 +27,7 @@ class ZODBStorageInstance():
         self.db.close()
 
     def check_need_update_overview(self):
-        if self.root.overview_last_updated > datetime.datetime.combine(datetime.date.today(), datetime.time(17, 00)):
+        if self.root.overview_last_updated > datetime.datetime.combine(get_last_business_day(datetime.date.today()), datetime.time(17, 00)):
             logger.info("No update required as latest overview is already updated at {}", self.root.overview_last_updated)
             return False
         logger.debug("Overview last updated at {}, updating...", self.root.overview_last_updated)
