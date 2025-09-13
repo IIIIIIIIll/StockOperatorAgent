@@ -60,7 +60,7 @@ class DataAcquisition:
                 return True
 
         look_back_days = 120
-        if datetime.today().date() - stock.last_data_update.date() < timedelta(days=120):
+        if datetime.today().date() - stock.last_data_update < timedelta(days=120):
             look_back_days = (datetime.today().date() - stock.last_data_update).days
 
         for row in AKShareSource().fetch_stock_history(ticker, look_back_days=look_back_days).to_dict(orient='records'):
@@ -138,3 +138,9 @@ class DataAcquisition:
             stock.add_performance_report(performance_report=stock_performance)
             self.storage.put_stock(stock.ticker, stock)
         return True
+
+    def get_stock_data(self, ticker):
+        self.acquire_daily_overview()
+        self.acquire_performance_report()
+        self.acquire_historical_data(ticker)
+        return self.storage.get_stock(ticker)

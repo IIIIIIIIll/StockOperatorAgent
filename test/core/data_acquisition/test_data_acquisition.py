@@ -1,5 +1,6 @@
 from core.data_acquisition import DataAcquisition
-
+from core.stock_output_formatter import StockOutputFormatter
+from loguru import logger
 
 class TestDataAcquisition():
 
@@ -42,3 +43,9 @@ class TestDataAcquisition():
         stock = da.storage.get_stock('002714')
         assert stock is not None
         assert len(stock.get_performance_reports()) > 0
+
+    def test_acquire_stock_data(self):
+        da = DataAcquisition()
+        stock = da.get_stock_data('002714')
+        logger.info(StockOutputFormatter.format_stock_output(stock))
+        assert stock is not None

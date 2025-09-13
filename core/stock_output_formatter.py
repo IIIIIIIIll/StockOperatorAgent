@@ -1,5 +1,6 @@
 from core.data_acquisition import DataAcquisition
 from data_structure.chinese_mainland.ChinaStock import ChinaStock
+from data_structure.chinese_mainland.ChinaStockData import ChinaStockData
 
 class StockOutputFormatter:
 
@@ -13,7 +14,7 @@ class StockOutputFormatter:
         output += f"Last 60 days prices:\n"
         historical_data = stock.get_datas()
         for data in historical_data[-60:]:
-            output += f"  Date: {data.date}, Close: {data.close}, Change Percent: {data.change_percent}%\n"
+            output += f"  Date: {data.date}, Close: {data.close}, Change Percent: {data.percentage_gain}%\n"
         output += f"Last 4 financial abstracts:\n"
         performance_reports = stock.get_performance_reports()
         for report in performance_reports[-4:]:
