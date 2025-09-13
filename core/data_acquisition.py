@@ -98,7 +98,8 @@ class DataAcquisition:
             logger.error(f"Stock {ticker} not found in database.")
             return False
 
-        last_report_date = datetime.strptime('20231231', '%Y%m%d').date()
+        last_report_year = (datetime.now() - timedelta(6*365)).year
+        last_report_date = datetime.strptime(f"{last_report_year}1231", '%Y%m%d').date()
         if  len(stock.performance_reports) == 0:
             logger.debug(f"Stocks has no performance reports in database.")
         else:

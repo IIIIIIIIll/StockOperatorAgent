@@ -15,9 +15,9 @@ class StockOutputFormatter:
         historical_data = stock.get_datas()
         for data in historical_data[-60:]:
             output += f"  Date: {data.date}, Open:{data.open}, Close: {data.close}, Change Percent: {data.percentage_gain}%\n"
-        output += f"Last 4 financial abstracts:\n"
+        output += f"Last 20 financial abstracts:\n"
         performance_reports = stock.get_performance_reports()
-        for report in performance_reports[-4:]:
+        for report in performance_reports[-20:]:
             output += (f"  Report Date: {report.report_date}, "
                        f"EPS: {report.eps}, "
                        f"Net Profit: {report.net_profit}, "
