@@ -2,6 +2,11 @@ from core.data_acquisition import DataAcquisition
 from core.stock_output_formatter import StockOutputFormatter
 
 def get_stock_info(ticker: str) -> str:
+    """
+    Get the stock information for a given ticker symbol.
+    :param ticker:
+    :return: Formatted stock information string.
+    """
     data_acquisition = DataAcquisition()
     if not data_acquisition.acquire_historical_data(ticker):
         raise Exception('Data acquisition failed')
