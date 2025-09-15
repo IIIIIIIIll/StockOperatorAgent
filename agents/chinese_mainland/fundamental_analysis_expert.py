@@ -11,7 +11,7 @@ from langgraph.prebuilt import create_react_agent
 class FundamentalAnalysisExpert:
 
     def __init__(self, llm: BaseChatModel, tools: list):
-        self.llm = llm.bind_tools(tools)
+        self.llm = llm
 
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),

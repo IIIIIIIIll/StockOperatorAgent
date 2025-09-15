@@ -23,8 +23,9 @@ class TestBasicAgent:
         llm = QwenApi()
         tool = get_stock_info
         tools = [tool]
-        agent = FundamentalAnalysisExpert(llm, tools)
+        llm = llm.bind_tools(tools)
 
+        agent = FundamentalAnalysisExpert(llm, tools)
         graph_builder.add_node("fundamental_analysis_expert", agent.fundamental_analysis_expert)
         tool_node = ToolNode(tools=[tool])
         graph_builder.add_node("tools", tool_node)
