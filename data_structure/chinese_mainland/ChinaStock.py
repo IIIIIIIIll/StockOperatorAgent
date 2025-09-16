@@ -16,7 +16,7 @@ class ChinaStock(persistent.Persistent):
             self.overview = overview
             self.info = None
             self.overview_last_update = datetime.datetime.now()
-            self.last_data_update = default_start
+            self.last_data_update = default_start.date()
 
         def update_overview(self, new_overview):
             self.info = new_overview
