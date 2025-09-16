@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from dotenv import load_dotenv
+from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
 
@@ -10,6 +11,8 @@ from utils.state import State
 from core.llms.qwen.qwen_api import QwenApi
 from core.llms.tools.get_company_info import get_stock_info
 from agents.chinese_mainland.fundamental_analysis_expert import FundamentalAnalysisExpert
+from langgraph.checkpoint.memory import InMemorySaver
+from loguru import logger
 
 from IPython.display import Image, display
 
@@ -23,9 +26,8 @@ class TestBasicAgent:
         llm = QwenApi()
         tool = get_stock_info
         tools = [tool]
-        llm = llm.bind_tools(tools)
-
-        agent = FundamentalAnalysisExpert(llm, tools)
+        config: RunnableConfig = {"configurable": {"thread_id": "1"}}
+        agent = FundamentalAnalysisExpert(llm, tools, config)
         graph_builder.add_node("fundamental_analysis_expert", agent.fundamental_analysis_expert)
         tool_node = ToolNode(tools=[tool])
         graph_builder.add_node("tools", tool_node)
@@ -63,10 +65,11 @@ class TestBasicAgent:
         # Any time a tool is called, we return to the fundamental_analysis_expert to decide the next step
         graph_builder.add_edge("tools", "fundamental_analysis_expert")
         graph_builder.add_edge(START, "fundamental_analysis_expert")
-        graph = graph_builder.compile()
+        checkpointer = InMemorySaver()
+        graph = graph_builder.compile(checkpointer=checkpointer)
 
         def stream_graph_updates(user_input: str):
-            for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
+            for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}, config=config):
                 for value in event.values():
                     print("Assistant:", value["messages"][-1].content)
 
