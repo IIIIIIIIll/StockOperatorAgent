@@ -4,9 +4,9 @@ from loguru import logger
 def get_last_business_day(input_date: type[datetime.date]) -> type[datetime.date]:
     # getting difference
     diff = 0
-    if input_date.weekday() == 7:
+    if input_date.weekday() == 6:
         diff = 2
-    elif input_date.weekday() == 1:
+    elif input_date.weekday() == 5:
         diff = 1
     else:
         diff = 0
