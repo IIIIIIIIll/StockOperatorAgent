@@ -39,12 +39,24 @@ class TestBasicAgent:
             Use in the conditional_edge to route to the ToolNode if the last message
             has tool calls. Otherwise, route to the end.
             """
-            if isinstance(state, list):
-                ai_message = state[-1]
-            elif messages := state.get("messages", []):
+            if messages := state.get("messages", []):
                 ai_message = messages[-1]
             else:
                 raise ValueError(f"No messages found in input state to tool_edge: {state}")
+
+            # Count tool calls to prevent infinite loops
+            tool_call_count = sum(
+                1 for msg in messages if hasattr(msg, "tool_calls") and msg.tool_calls
+            )
+
+            # Limit maximum tool calls
+            MAX_TOOL_CALLS = 1
+            if tool_call_count > MAX_TOOL_CALLS:
+                logger.warning(
+                    f"Reached maximum tool calls ({MAX_TOOL_CALLS}), ending conversation"
+                )
+                return END
+
             if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
                 return "tools"
             return END
