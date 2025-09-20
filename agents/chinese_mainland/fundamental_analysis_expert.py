@@ -7,7 +7,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, fundamental_analysis_expert_message
 from utils.time_helper import get_last_business_day
-from langgraph.prebuilt import create_react_agent
 
 
 class FundamentalAnalysisExpert:
