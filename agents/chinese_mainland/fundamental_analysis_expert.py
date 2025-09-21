@@ -27,4 +27,5 @@ class FundamentalAnalysisExpert:
 
 
     def fundamental_analysis_expert(self, state: State):
-        return {"messages": [self.llm.invoke(state["messages"], config=self.config)]}
+        response = self.llm.invoke(state["messages"], config=self.config)
+        return {"messages": [response], "fundamental_analysis": response}

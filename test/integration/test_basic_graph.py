@@ -91,6 +91,16 @@ class TestBasicAgent:
         print("User: " + user_input)
         stream_graph_updates(user_input)
 
+        states = list(graph.get_state_history(config))
+
+        for state in states:
+            print(state.next)
+            print(state.config["configurable"]["checkpoint_id"])
+            print(state.values)
+            print()
+
+        print(states[0].values["fundamental_analysis"].content)
+
 
     def test_trend_analysis_agent(self):
         load_dotenv()  # This loads the variables from .env
@@ -161,3 +171,13 @@ class TestBasicAgent:
         user_input = "请帮我分析一下 中国银行 601988 ，给出合理的估值区间和目标价"
         print("User: " + user_input)
         stream_graph_updates(user_input)
+
+        states = list(graph.get_state_history(config))
+
+        for state in states:
+            print(state.next)
+            print(state.config["configurable"]["checkpoint_id"])
+            print(state.values)
+            print()
+
+        print(states[0].values["trend_analysis"].content)

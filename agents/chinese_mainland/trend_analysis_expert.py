@@ -27,4 +27,5 @@ class TrendAnalysisExpert:
 
 
     def trend_analysis_expert(self, state: State):
-        return {"messages": [self.llm.invoke(state["messages"], config=self.config)]}
+        response = self.llm.invoke(state["messages"], config=self.config)
+        return {"messages": [response], "trend_analysis": response}
