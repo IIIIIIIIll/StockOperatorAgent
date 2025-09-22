@@ -21,10 +21,12 @@ class ZODBStorageInstance():
         self.root.overview_last_updated = getattr(self.root, 'overview_last_updated', default_start)
         if is_new_db:
             self.root.stocks = BTrees.OOBTree.BTree()
+        logger.info("ZODB connected, overview last updated at {}", self.root.overview_last_updated)
 
     def __del__(self):
         self.connection.close()
         self.db.close()
+        logger.info("ZODBStorage instance closed")
 
     def check_need_update_overview(self):
         if self.root.overview_last_updated > datetime.datetime.combine(get_last_business_day(datetime.date.today()), datetime.time(17, 00)):
