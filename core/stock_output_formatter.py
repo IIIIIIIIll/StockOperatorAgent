@@ -1,3 +1,5 @@
+from openpyxl.styles.builtins import output
+
 from core.data_acquisition import DataAcquisition
 from data_structure.chinese_mainland.ChinaStock import ChinaStock
 from data_structure.chinese_mainland.ChinaStockData import ChinaStockData
@@ -6,7 +8,8 @@ class StockOutputFormatter:
 
     def format_stock_output(stock: ChinaStock) -> str:
         overview = stock.overview
-        output = f"Stock: {stock.name} ({stock.ticker})\n"
+        output = "\n-----------\n"
+        output += f"Stock: {stock.name} ({stock.ticker})\n"
         output += f"Latest price: {overview.latest_price}\n"
         output += f"Dynamic PE: {overview.pe_dynamic}\n"
         output += f"Pb: {overview.pb}\n"
@@ -27,4 +30,5 @@ class StockOutputFormatter:
                        f"Return on Equity percent {report.net_worth_return_rate}, "
                        f"Cash flow per share {report.cash_flow_per_share}, "
                        f"Sales gross margin percent {report.sales_gross_margin}\n")
+        output += "-----------\n"
         return output
