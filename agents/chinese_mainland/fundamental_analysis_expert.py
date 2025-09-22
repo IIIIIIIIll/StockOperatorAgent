@@ -11,12 +11,10 @@ from utils.time_helper import get_last_business_day
 
 class FundamentalAnalysisExpert:
 
-    def __init__(self, llm: BaseChatModel, tools: list, config: RunnableConfig):
-        llm = llm.bind_tools(tools)
-
+    def __init__(self, llm: BaseChatModel, config: RunnableConfig):
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
-            MessagesPlaceholder(variable_name="messages"),
+            MessagesPlaceholder(variable_name="query"),
         ])
 
         self.prompt = self.prompt.partial(system_message=fundamental_analysis_expert_message)
@@ -27,5 +25,10 @@ class FundamentalAnalysisExpert:
 
 
     def fundamental_analysis_expert(self, state: State):
-        response = self.llm.invoke(state["messages"], config=self.config)
-        return {"messages": [response], "fundamental_analysis": response}
+        fundamental_analysis_expert_query = f"""
+        请基于以下真实数据给出你对股票代码{state['target_stock_ticker']}的基本面分析\n
+        {state['stock_information']}
+        """
+        query = [("human", fundamental_analysis_expert_query)]
+        response = self.llm.invoke({"query" : query}, config=self.config)
+        return {"messages": [query[0], response], "fundamental_analysis": response}
