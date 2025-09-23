@@ -581,7 +581,7 @@ class TestBasicAgent:
             print(state.values)
             print()
 
-        print(states[0].values["fundamental_analysis"].content)
+        print(states[0].values["fundamental_analysis"])
 
 
     def test_trend_analysis_agent(self):
@@ -620,7 +620,7 @@ class TestBasicAgent:
             print(state.values)
             print()
 
-        print(states[0].values["trend_analysis"].content)
+        print(states[0].values["trend_analysis"])
 
     def test_bullish_trader_agent(self):
         load_dotenv()  # This loads the variables from .env
@@ -660,7 +660,7 @@ class TestBasicAgent:
             print(state.values)
             print()
 
-        print(states[0].values["bullish_opinions"][-1].content)
+        print(states[0].values["bullish_opinions"][-1])
 
 
     def test_bearish_trader_agent(self):
@@ -701,7 +701,7 @@ class TestBasicAgent:
             print(state.values)
             print()
 
-        print(states[0].values["bearish_opinions"][-1].content)
+        print(states[0].values["bearish_opinions"][-1])
 
     def test_investment_management_agent(self):
         load_dotenv()  # This loads the variables from .env
@@ -743,4 +743,4 @@ class TestBasicAgent:
             print(state.values)
             print()
 
-        print(states[0].values["final_decision"].content)
+        print(states[0].values["final_decision"])
