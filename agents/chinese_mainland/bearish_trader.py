@@ -36,4 +36,4 @@ class BearishTrader:
         """
         query = [("human", bearish_trader_query)]
         response = self.llm.invoke({"query" : query}, config=self.config)
-        return {"messages": [query[0], response], "bearish_opinions": response}
+        return {"messages": [query[0], response], "bearish_opinions": response.content}

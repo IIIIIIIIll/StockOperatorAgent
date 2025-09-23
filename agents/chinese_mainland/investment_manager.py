@@ -42,4 +42,4 @@ class InvestmentManager:
         """
         query = [("human", bearish_trader_query)]
         response = self.llm.invoke({"query" : query}, config=self.config)
-        return {"messages": [query[0], response], "final_decision": response}
+        return {"messages": [query[0], response], "final_decision": response.content}

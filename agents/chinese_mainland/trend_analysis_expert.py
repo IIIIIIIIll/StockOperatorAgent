@@ -31,4 +31,4 @@ class TrendAnalysisExpert:
         """
         query = [("human", trend_analysis_expert_query)]
         response = self.llm.invoke({"query" : query}, config=self.config)
-        return {"messages": [query[0], response], "trend_analysis": response}
+        return {"messages": [query[0], response], "trend_analysis": response.content}

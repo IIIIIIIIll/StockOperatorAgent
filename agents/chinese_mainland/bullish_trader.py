@@ -36,4 +36,4 @@ class BullishTrader:
         """
         query = [("human", bullish_trader_query)]
         response = self.llm.invoke({"query" : query}, config=self.config)
-        return {"messages": [query[0], response], "bullish_opinions": response}
+        return {"messages": [query[0], response], "bullish_opinions": response.content}
