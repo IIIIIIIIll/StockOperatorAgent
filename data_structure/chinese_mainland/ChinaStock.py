@@ -2,6 +2,8 @@ import datetime
 import persistent
 import transaction
 from loguru import logger
+
+from data_structure.chinese_mainland.ChinaStockData import ChinaStockData
 from utils.constants import default_start
 from persistent.list import PersistentList
 
@@ -30,7 +32,10 @@ class ChinaStock(persistent.Persistent):
         def get_info(self):
             return self.info
 
-        def add_data(self, data):
+        def add_data(self, data: ChinaStockData):
+            if not data.date > self.last_data_update:
+                logger.debug("Data on {} already exists for stock {}, last data date is {}", data.date, self.ticker, self.last_data_update)
+                return
             self.datas.append(data)
             self.last_data_update = data.date
             logger.debug("Add data on {} to stock {}", data.date, self.ticker)
