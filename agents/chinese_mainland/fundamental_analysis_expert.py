@@ -7,6 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, fundamental_analysis_expert_message
 from utils.time_helper import get_last_business_day
+from loguru import logger
 
 
 class FundamentalAnalysisExpert:
@@ -30,5 +31,7 @@ class FundamentalAnalysisExpert:
         {state['stock_information']}
         """
         query = [("human", fundamental_analysis_expert_query)]
+        logger.debug("Fundamental Analysis Expert Query: {}", fundamental_analysis_expert_query)
         response = self.llm.invoke({"query" : query}, config=self.config)
+        logger.debug("Fundamental Analysis Expert Response: {}", response.content)
         return {"messages": [query[0], response], "fundamental_analysis": response.content}

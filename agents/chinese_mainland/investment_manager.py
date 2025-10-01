@@ -7,6 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, investment_manager_message
 from utils.time_helper import get_last_business_day
+from loguru import logger
 
 
 class InvestmentManager:
@@ -25,7 +26,7 @@ class InvestmentManager:
 
 
     def investment_manager(self, state: State):
-        bearish_trader_query = f"""
+        investment_manager_query = f"""
         现在请基于以下信息，给出你对股票代码${state['target_stock_ticker']}的最终投资建议：
         基本面报告: \n
         ${state['fundamental_analysis']}
@@ -40,6 +41,8 @@ class InvestmentManager:
         ${state['bearish_opinions']}
         \n
         """
-        query = [("human", bearish_trader_query)]
+        query = [("human", investment_manager_query)]
+        logger.debug("Investment Manager Query: {}", investment_manager_query)
         response = self.llm.invoke({"query" : query}, config=self.config)
+        logger.debug("Investment Manager Response: {}", response.content)
         return {"messages": [query[0], response], "final_decision": response.content}

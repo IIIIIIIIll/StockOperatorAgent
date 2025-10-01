@@ -7,6 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, bearish_trader_message
 from utils.time_helper import get_last_business_day
+from loguru import logger
 
 
 class BearishTrader:
@@ -35,5 +36,7 @@ class BearishTrader:
         \n
         """
         query = [("human", bearish_trader_query)]
+        logger.debug("Bearish Trader Query: {}", bearish_trader_query)
         response = self.llm.invoke({"query" : query}, config=self.config)
+        logger.debug("Bearish Trader Response: {}", response.content)
         return {"messages": [query[0], response], "bearish_opinions": response.content}
