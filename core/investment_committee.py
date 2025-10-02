@@ -16,7 +16,7 @@ from loguru import logger
 
 class InvestmentCommittee:
 
-    def make_investment_committee(self, config: RunnableConfig):
+    def make_investment_committee(self, config: RunnableConfig, progress_updater = None):
         load_dotenv()
 
         graph_builder = StateGraph(State)
@@ -25,19 +25,19 @@ class InvestmentCommittee:
 
         checkpointer = InMemorySaver()
 
-        fundamental_expert = FundamentalAnalysisExpert(llm, config)
+        fundamental_expert = FundamentalAnalysisExpert(llm, config, progress_updater)
         graph_builder.add_node("fundamental_analysis_expert", fundamental_expert.fundamental_analysis_expert)
 
-        trend_expert = TrendAnalysisExpert(llm, config)
+        trend_expert = TrendAnalysisExpert(llm, config, progress_updater)
         graph_builder.add_node("trend_analysis_expert", trend_expert.trend_analysis_expert)
 
-        bullish_trader = BullishTrader(llm, config)
+        bullish_trader = BullishTrader(llm, config, progress_updater)
         graph_builder.add_node("bullish_trader", bullish_trader.bullish_trader)
 
-        bearish_trader = BearishTrader(llm, config)
+        bearish_trader = BearishTrader(llm, config, progress_updater)
         graph_builder.add_node("bearish_trader", bearish_trader.bearish_trader)
 
-        investment_manager = InvestmentManager(llm, config)
+        investment_manager = InvestmentManager(llm, config, progress_updater)
         graph_builder.add_node("investment_manager", investment_manager.investment_manager)
 
         graph_builder.add_edge(START, "fundamental_analysis_expert")

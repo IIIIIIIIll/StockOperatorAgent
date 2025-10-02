@@ -12,7 +12,7 @@ from loguru import logger
 
 class InvestmentManager:
 
-    def __init__(self, llm: BaseChatModel, config: RunnableConfig):
+    def __init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater = None):
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             MessagesPlaceholder(variable_name="query"),
@@ -23,6 +23,7 @@ class InvestmentManager:
         self.prompt = self.prompt.partial(current_date=current_date)
         self.llm = self.prompt | llm
         self.config = config
+        self.progress_updater = progress_updater
 
 
     def investment_manager(self, state: State):
@@ -43,6 +44,10 @@ class InvestmentManager:
         """
         query = [("human", investment_manager_query)]
         logger.debug("Investment Manager Query: {}", investment_manager_query)
+        if self.progress_updater is not None:
+            self.progress_updater.info("开始最终投资建议生成。。。")
         response = self.llm.invoke({"query" : query}, config=self.config)
+        if self.progress_updater is not None:
+            self.progress_updater.info("最终投资建议生成完成。。。")
         logger.debug("Investment Manager Response: {}", response.content)
         return {"messages": [query[0], response], "final_decision": response.content}

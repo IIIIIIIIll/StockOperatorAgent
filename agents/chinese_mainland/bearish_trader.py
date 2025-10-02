@@ -12,7 +12,7 @@ from loguru import logger
 
 class BearishTrader:
 
-    def __init__(self, llm: BaseChatModel, config: RunnableConfig):
+    def __init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater = None):
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             MessagesPlaceholder(variable_name="query"),
@@ -23,6 +23,7 @@ class BearishTrader:
         self.prompt = self.prompt.partial(current_date=current_date)
         self.llm = self.prompt | llm
         self.config = config
+        self.progress_updater = progress_updater
 
 
     def bearish_trader(self, state: State):
@@ -37,6 +38,10 @@ class BearishTrader:
         """
         query = [("human", bearish_trader_query)]
         logger.debug("Bearish Trader Query: {}", bearish_trader_query)
+        if self.progress_updater is not None:
+            self.progress_updater.info("开始空方观点生成。。。")
         response = self.llm.invoke({"query" : query}, config=self.config)
+        if self.progress_updater is not None:
+            self.progress_updater.info("空方观点生成完成。。。")
         logger.debug("Bearish Trader Response: {}", response.content)
         return {"messages": [query[0], response], "bearish_opinions": response.content}
