@@ -46,6 +46,9 @@ class ChinaStock(persistent.Persistent):
 
         def add_performance_report(self, performance_report):
             logger.debug(performance_report)
+            if self.performance_reports and self.performance_reports[-1].report_date >= performance_report.report_date:
+                logger.debug("Performance report on {} already exists for stock {}, last report date is {}", performance_report.report_date, self.ticker, self.performance_reports[-1].report_date)
+                return
             self.performance_reports.append(performance_report)
             logger.debug("Add performance_report on {} to stock {}, current reports {}", performance_report.report_date, self.ticker, len(self.performance_reports))
             transaction.commit()
