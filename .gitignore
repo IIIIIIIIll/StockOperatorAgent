@@ -2,4 +2,9 @@
 *.fs
 *.fs.*
 .env
+pyvenv.cfg
 logs
+bin
+include
+lib
+lib64
