@@ -22,6 +22,9 @@ class AKShareSource():
         stock_bj_a_spot_em_df = ak.stock_bj_a_spot_em()
         return stock_bj_a_spot_em_df
 
+    def fetch_a_share_stocks_sina(self):
+        stock_sh_a_spot_sina_df = ak.stock_zh_a_spot()
+        return stock_sh_a_spot_sina_df
 
     def fetch_stock_info(self, ticker):
         stock_info = ak.stock_individual_info_em(symbol=ticker)

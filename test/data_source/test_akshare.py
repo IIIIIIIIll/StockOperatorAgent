@@ -69,6 +69,27 @@ class TestAKShare():
 
         logger.info(bjex_stocks)
 
+    def test_get_shsz_stock_overview_sina(self):
+        akshare_source = AKShareSource()
+        shsz_stocks = akshare_source.fetch_a_share_stocks_sina()
+        assert shsz_stocks is not None
+        shsz_stocks_dict = shsz_stocks.to_dict(orient='records')
+        for row in shsz_stocks_dict:
+            # stock_overview = StockOverview(*list(row.values())[1:])
+            # logger.info(stock_overview)
+            logger.info(row)
+            logger.info(*list(row.values())[1:])
+
+        logger.info(shsz_stocks)
+
+    def test_get_row(self):
+        row = {'代码': 'bj920000', '名称': '安徽凤凰', '最新价': 21.15, '涨跌额': -0.62, '涨跌幅': -2.848, '买入': 21.14,
+         '卖出': 21.15, '昨收': 21.77, '今开': 21.66, '最高': 22.19, '最低': 21.05, '成交量': 2109502.0,
+         '成交额': 45000437.0, '时间戳': '15:30:00'}
+        logger.info(list(row.values())[1:])
+        logger.info(list(row.values())[0:-1])
+        logger.info(*list(row.values())[1:])
+
 
     def test_get_stock_hist(self):
         akshare_source = AKShareSource()

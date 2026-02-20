@@ -35,6 +35,11 @@ class DataAcquisition:
             self.update_overview_in_storage(row)
         return True
 
+    def update_a_spot_overview(self):
+        for row in AKShareSource().fetch_a_share_stocks_sina().to_dict(orient='records'):
+            # self.update_overview_in_storage(row)
+            logger.info("{}", row)
+
     def update_overview_in_storage(self, row):
         stock_overview = StockOverview(*list(row.values())[1:])
         if self.storage.get_stock(stock_overview.ticker) is None:
