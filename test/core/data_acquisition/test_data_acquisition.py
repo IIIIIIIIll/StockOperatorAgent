@@ -4,27 +4,13 @@ from loguru import logger
 
 class TestDataAcquisition():
 
-    def test_acquire_bjex_overview(self):
+    def test_acquire_stock_info(self):
         da = DataAcquisition()
-        assert da.update_bjex_overview() is True
-        assert da.storage.get_stock('871263') is not None
-
-    def test_acquire_szex_overview(self):
-        da = DataAcquisition()
-        assert da.update_szex_overview() is True
-        assert da.storage.get_stock('002741') is not None
-
-    def test_acquire_shex_overview(self):
-        da = DataAcquisition()
-        assert da.update_shex_overview() is True
-        assert da.storage.get_stock('601188') is not None
-
-    def test_acquire_day_overview(self):
-        da = DataAcquisition()
-        assert da.acquire_daily_overview() is True
-        assert da.storage.get_stock('002741') is not None
-        assert da.storage.get_stock('871263') is not None
-        assert da.storage.get_stock('601188') is not None
+        da.acquire_stock_info('002714')
+        stock = da.storage.get_stock('002714')
+        assert stock is not None
+        assert stock.ticker == '002714'
+        assert stock.name is not None
 
     def test_acquire_historical_data(self):
         da = DataAcquisition()
@@ -39,7 +25,7 @@ class TestDataAcquisition():
 
     def test_acquire_stock_performance_report(self):
         da = DataAcquisition()
-        assert da.acquire_performance_report() is True
+        assert da.fetch_all_performance_report('002714') is True
         stock = da.storage.get_stock('002714')
         assert stock is not None
         assert len(stock.get_performance_reports()) > 0
