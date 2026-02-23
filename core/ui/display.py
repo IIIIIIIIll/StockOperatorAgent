@@ -14,7 +14,7 @@ def write_ui():
         st.error("请在环境变量或.env中设置DASHSCOPE_API_KEY后重启应用")
         return
 
-    st.write("输入您想要分析的沪深京A股六位股票代码")
+    st.write("输入您想要分析的沪深京A股六位股票代码, 注意请输入正确的代码")
     with st.form(key='stock_ticker_form'):
         stock_ticker = st.text_input("股票代码", max_chars=6)
         submit_button = st.form_submit_button(label='提交')

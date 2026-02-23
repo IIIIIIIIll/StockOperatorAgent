@@ -170,7 +170,6 @@ class DataAcquisition:
         return True
 
     def get_stock_data(self, ticker):
-
         self.acquire_historical_data(ticker)
         self.fetch_all_performance_report(ticker)
         return self.storage.get_stock(ticker)
