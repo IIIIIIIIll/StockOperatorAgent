@@ -28,18 +28,6 @@ class ZODBStorageInstance():
         self.db.close()
         logger.info("ZODBStorage instance closed")
 
-    def check_need_update_overview(self):
-        if self.root.overview_last_updated > datetime.datetime.combine(get_last_business_day(datetime.date.today()), datetime.time(17, 00)):
-            logger.info("No update required as latest overview is already updated at {}", self.root.overview_last_updated)
-            return False
-        logger.debug("Overview last updated at {}, updating...", self.root.overview_last_updated)
-        return True
-
-    def set_overview_updated_now(self):
-        self.root.overview_last_updated = datetime.datetime.now()
-        logger.debug("Overview last updated at {}", self.root.overview_last_updated)
-        transaction.commit()
-
     def put_stock(self, ticker, stock):
         self.root.stocks[ticker] = stock
         transaction.commit()
