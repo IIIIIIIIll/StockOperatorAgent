@@ -10,20 +10,18 @@ from persistent.list import PersistentList
 class ChinaStock(persistent.Persistent):
 
 
-        def __init__(self, name, ticker, overview):
+        def __init__(self, name, ticker):
             self.name = name
             self.ticker = ticker
-            self.datas = PersistentList()
+            self.day_datas = PersistentList()
+            self.week_datas = PersistentList()
+            self.month_datas = PersistentList()
             self.performance_reports = PersistentList()
-            self.overview = overview
             self.info = None
             self.overview_last_update = datetime.datetime.now()
-            self.last_data_update = default_start.date()
-
-        def update_overview(self, new_overview):
-            self.info = new_overview
-            self.overview_last_update = datetime.datetime.now()
-            transaction.commit()
+            self.last_day_data_update = default_start.date()
+            self.last_week_data_update = default_start.date()
+            self.last_month_data_update = default_start.date()
 
         def add_info(self, info):
             self.info = info
@@ -32,17 +30,41 @@ class ChinaStock(persistent.Persistent):
         def get_info(self):
             return self.info
 
-        def add_data(self, data: ChinaStockData):
-            if not data.date > self.last_data_update:
-                logger.debug("Data on {} already exists for stock {}, last data date is {}", data.date, self.ticker, self.last_data_update)
+        def add_day_data(self, data: ChinaStockData):
+            if not data.date > self.last_day_data_update:
+                logger.debug("Data on {} already exists for stock {}, last data date is {}", data.date, self.ticker, self.last_day_data_update)
                 return
-            self.datas.append(data)
-            self.last_data_update = data.date
-            logger.debug("Add data on {} to stock {}", data.date, self.ticker)
+            self.day_datas.append(data)
+            self.last_day_data_update = data.date
+            logger.debug("Add day data on {} to stock {}", data.date, self.ticker)
             transaction.commit()
 
-        def get_datas(self):
-           return self.datas
+        def add_week_data(self, data: ChinaStockData):
+            if not data.date > self.last_week_data_update:
+                logger.debug("Data on {} already exists for stock {}, last data week is {}", data.date, self.ticker, self.last_week_data_update)
+                return
+            self.week_datas.append(data)
+            self.last_week_data_update = data.date
+            logger.debug("Add week data on {} to stock {}", data.date, self.ticker)
+            transaction.commit()
+
+        def add_month_data(self, data: ChinaStockData):
+            if not data.date > self.last_month_data_update:
+                logger.debug("Data on {} already exists for stock {}, last data month is {}", data.date, self.ticker, self.last_month_data_update)
+                return
+            self.month_datas.append(data)
+            self.last_month_data_update = data.date
+            logger.debug("Add month data on {} to stock {}", data.date, self.ticker)
+            transaction.commit()
+
+        def get_day_datas(self):
+            return self.day_datas
+
+        def get_week_datas(self):
+            return self.week_datas
+
+        def get_month_datas(self):
+            return self.month_datas
 
         def add_performance_report(self, performance_report):
             logger.debug(performance_report)
