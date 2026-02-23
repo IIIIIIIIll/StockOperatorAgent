@@ -14,10 +14,22 @@ class StockOutputFormatter:
         output += f"Dynamic PE: {overview.pe_dynamic}\n"
         output += f"Pb: {overview.pb}\n"
         output += f"Momentum: {overview.momentum}%\n"
+        output += "\n-----------\n"
         output += f"Last 60 days prices:\n"
-        historical_data = stock.get_datas()
-        for data in historical_data[-60:]:
+        historical_day_data = stock.get_day_datas()
+        for data in historical_day_data[-60:]:
             output += f"  Date: {data.date}, Open:{data.open}, Close: {data.close}, High: {data.high}, Low: {data.low}, Change Percent: {data.percentage_gain}%, Volume: {data.volume}lots, Turnover Rate: {data.turnover_rate}%\n"
+        output += "\n-----------\n"
+        output += f"Last 60 weeks prices:\n"
+        historical_week_data = stock.get_week_datas()
+        for data in historical_week_data[-60:]:
+            output += f"  Week: {data.date}, Open:{data.open}, Close: {data.close}, High: {data.high}, Low: {data.low}, Change Percent: {data.percentage_gain}%, Volume: {data.volume}lots, Turnover Rate: {data.turnover_rate}%\n"
+        output += "\n-----------\n"
+        output += f"Last 60 months prices:\n"
+        historical_month_data = stock.get_month_datas()
+        for data in historical_month_data[-60:]:
+            output += f"  Month: {data.date}, Open:{data.open}, Close: {data.close}, High: {data.high}, Low: {data.low}, Change Percent: {data.percentage_gain}%, Volume: {data.volume}lots, Turnover Rate: {data.turnover_rate}%\n"
+        output = "\n-----------\n"
         output += f"Last 20 financial abstracts:\n"
         performance_reports = stock.get_performance_reports()
         for report in performance_reports[-20:]:
