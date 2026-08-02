@@ -165,3 +165,26 @@ acquire_performance_report_tdx 加 ZODB 优先 freshness 门：最新 report_dat
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: UI 报告边算边渲染：节点完成即填充对应 Tab
+
+**Date**: 2026-08-02
+**Task**: UI 报告边算边渲染：节点完成即填充对应 Tab
+**Branch**: `master`
+
+### Summary
+
+display.py 改流式渲染：stream 循环内按节点 update 即时填充五个报告 Tab，删除 stream 结束后 get_state_history 全量填充；REPORT_TABS/iter_report_items/_report_content 纯函数映射（离线测试 6 用例）；stream update 值形态实测为原始字符串（reducer 未应用）。全量回归 156P/20S 零失败。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ea7c475` | (see git log) |
+| `8a8e593` | (see git log) |
+| `e3b6b4f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
