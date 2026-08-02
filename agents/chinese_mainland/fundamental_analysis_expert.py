@@ -7,6 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, fundamental_analysis_expert_message
 from core.llms.retry import invoke_with_retry
+from core.llms.progress import safe_progress
 from utils.time_helper import get_last_business_day
 from loguru import logger
 
@@ -34,10 +35,8 @@ class FundamentalAnalysisExpert:
         """
         query = [("human", fundamental_analysis_expert_query)]
         logger.debug("Fundamental Analysis Expert Query: {}", fundamental_analysis_expert_query)
-        if self.progress_updater is not None:
-            self.progress_updater.info("开始基本面分析报告生成。。。")
+        safe_progress(self.progress_updater, "开始基本面分析报告生成。。。")
         response = invoke_with_retry(self.llm, {"query": query}, config=self.config)
-        if self.progress_updater is not None:
-            self.progress_updater.info("基本面分析报告生成完成。。。")
+        safe_progress(self.progress_updater, "基本面分析报告生成完成。。。")
         logger.debug("Fundamental Analysis Expert Response: {}", response.content)
         return {"messages": [query[0], response], "fundamental_analysis": response.content}

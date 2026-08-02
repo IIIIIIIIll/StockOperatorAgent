@@ -25,7 +25,11 @@ when adding an agent — do not redesign it.** The pattern:
    Chinese human query from `state` (see `core/llms/prompt.py` for the system
    messages), invokes **`invoke_with_retry(self.llm, {"query": query},
    config=self.config)`**（2026-08-02，review #6——见下方重试约定），reports
-   progress via `progress_updater.info("...")`, and returns a state-update
+   progress via **`safe_progress(self.progress_updater, "...")`**
+   （2026-08-02，`core/llms/progress.py`——并行节点运行在 LangGraph 工作
+   线程，Streamlit DeltaGenerator 只能在脚本线程 enqueue，工作线程 info()
+   抛 NoSessionContext 会把分析打崩；safe_progress 降级为 debug 日志，
+   manager 等 join 后脚本线程节点照常显示），and returns a state-update
    dict: `{"messages": [query[0], response], "<state_key>": response.content}`.
 
 Reference: any of the five agents, plus their wiring in

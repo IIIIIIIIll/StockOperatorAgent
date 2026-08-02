@@ -22,10 +22,10 @@ MANAGER = "MANAGER_MARKER 最终决策：持有"
 _RESPONSES = [FUNDAMENTAL, TREND, BULL, BEAR, MANAGER]
 
 
-def _run_graph(llm) -> dict:
+def _run_graph(llm, progress_updater=None) -> dict:
     config: RunnableConfig = {"configurable": {"thread_id": "1"}}
     committee = InvestmentCommittee()
-    graph = committee.make_investment_committee(config, _llm=llm)
+    graph = committee.make_investment_committee(config, progress_updater=progress_updater, _llm=llm)
     for _ in graph.stream({
         "messages": [{"role": "user", "content": "请帮我分析一下 000001"}],
         "target_stock_ticker": "000001",
@@ -33,6 +33,18 @@ def _run_graph(llm) -> dict:
     }, config=config):
         pass
     return list(graph.get_state_history(config))[0].values
+
+
+class _ThrowingUpdater:
+    """模拟 Streamlit DeltaGenerator 在非脚本线程的行为：info 抛错。
+
+    并行节点运行在 LangGraph 工作线程——真实 Streamlit 抛
+    NoSessionContext（2026-08-02 实测 002027 分析崩溃）。safe_progress
+    必须把它降级为日志，分析不受影响。
+    """
+
+    def info(self, message):
+        raise RuntimeError("not a script-run thread")
 
 
 class _RoutedLlm(FakeListChatModel):
@@ -107,3 +119,14 @@ class TestGraphParallel:
         _run_graph(_SlowRoutedLlm(responses=[]))
         elapsed = time.monotonic() - start
         assert elapsed < 8.5, f"expected parallel 3-stage wall clock, got {elapsed:.1f}s"
+
+    def test_throwing_progress_updater_does_not_break_graph(self):
+        """并行节点 + 抛错 updater（非脚本线程）：safe_progress 降级，分析完成。
+
+        回归（2026-08-02）：并行化后 Streamlit DeltaGenerator 在工作线程
+        info() 抛 NoSessionContext，整个分析崩溃——修复为安全调用后图形状
+        与结果不受影响。
+        """
+        final = _run_graph(_RoutedLlm(responses=[]), progress_updater=_ThrowingUpdater())
+        assert final["final_decision"] == MANAGER
+        assert len(final["messages"]) == 11
