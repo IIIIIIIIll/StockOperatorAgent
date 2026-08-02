@@ -3,7 +3,7 @@
   "name": "small-fixes-polish",
   "title": "chore: 小修集合（review #8-#12）",
   "description": "review #8 docstring/spec 的 akshare 回退措辞与实际不符；#9 数据阶段零进度反馈（三个工具调用间插 info）；#10 deprecated akshare ~200 行移 legacy 模块；#11 API 路径 BJ 报错更清晰；#12 agent debug 日志截断。",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

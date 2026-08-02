@@ -14,7 +14,8 @@ from datetime import date
 
 import pandas as pd
 
-from core.data_acquisition import DataAcquisition, YJBB_COLUMN_MAP
+from core.data_acquisition import DataAcquisition
+from core.legacy_akshare import YJBB_COLUMN_MAP
 
 
 def _yjbb_row(**overrides):

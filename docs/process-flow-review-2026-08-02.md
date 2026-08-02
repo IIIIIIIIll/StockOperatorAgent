@@ -160,7 +160,7 @@ there is no fallback (PRD: 纯 TDX 不兜底).
 
 **Fix:** update docstring + spec to match reality, or decide the fallback question.
 
-**Status:** [ ] **Effort:** trivial
+**Status:** [x] **Effort:** trivial — implemented 2026-08-02 in task `08-02-small-fixes-polish` (docstring + error-handling spec now state "PRD 纯 TDX 无 akshare 兜底"; grep-clean of "回退 akshare")
 
 ## 9. Data phase has zero progress feedback
 
@@ -171,7 +171,7 @@ progress updates; the UI shows a single "请耐心等待" message
 **Fix:** interleave `updatable_container.info()` between the three tool calls
 (data / indicators / market intel).
 
-**Status:** [ ] **Effort:** trivial
+**Status:** [x] **Effort:** trivial — implemented 2026-08-02 in task `08-02-small-fixes-polish` (`build_stock_information(ticker, progress=None)` optional callback; display passes `updatable_container.info` — 3 step messages during the data phase)
 
 ## 10. Legacy weight in the main flow file
 
@@ -179,7 +179,7 @@ progress updates; the UI shows a single "请耐心等待" message
 (`:40-308`, 7 methods). If "备用路径" is truly legacy, move them to a
 `legacy/` module to halve the main flow file.
 
-**Status:** [ ] **Effort:** small — move + import fix
+**Status:** [x] **Effort:** small — implemented 2026-08-02 in task `08-02-small-fixes-polish` (moved to `core/legacy_akshare.py` as a `LegacyAksharePaths` mixin; `da.*` call sites and skipped-test references unchanged; main flow file halved)
 
 ## 11. BJ ticker via the API path gives a confusing error
 
@@ -190,7 +190,7 @@ found')` from `get_company_info.py`.
 **Fix:** clearer message in `get_stock_info` (or check `is_bj_ticker` at the
 committee entry).
 
-**Status:** [ ] **Effort:** trivial
+**Status:** [x] **Effort:** trivial — implemented 2026-08-02 in task `08-02-small-fixes-polish` (BJ check in `get_stock_info` before opening ZODB, raises the same clear Chinese message the UI shows; offline test asserts it)
 
 ## 12. Agent debug logs dump full prompts
 

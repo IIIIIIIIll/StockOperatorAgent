@@ -1,1 +1,2 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/error-handling.md", "reason": "#8 回退措辞与实际对齐（纯 TDX 无 akshare 兜底）"}
+{"file": ".trellis/spec/core/index.md", "reason": "display 数据阶段进度反馈约定"}

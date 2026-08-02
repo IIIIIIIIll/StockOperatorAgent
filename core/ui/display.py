@@ -49,7 +49,10 @@ def write_ui():
             try:
                 # 图前 enrichment（与 make_investment_decision 共用同一组装点）：
                 # 个股信息 + 技术指标 + TDX 实时情报（无 TDX_API_KEY 时降级文本）
-                stock_info = build_stock_information(stock_ticker)
+                # progress（review #9）：三个工具调用之间输出分步进度
+                stock_info = build_stock_information(
+                    stock_ticker, progress=lambda msg: updatable_container.info(msg)
+                )
             except Exception as e:
                 # UI 层守护（error-handling spec 允许）：数据问题（如股票缺失
                 # 抛出的 Exception）不裸 traceback 红屏，中文提示 + 记录日志

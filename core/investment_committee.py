@@ -15,19 +15,29 @@ from langgraph.checkpoint.memory import InMemorySaver
 from loguru import logger
 
 
-def build_stock_information(target_ticker: str) -> str:
+def build_stock_information(target_ticker: str, progress=None) -> str:
     """图前 enrichment：个股信息 + 技术指标 + TDX 实时情报拼接成 stock_information。
 
     唯一组装点（display 与 make_investment_decision 共用）：get_stock_info
     （stock 缺失 raise，唯一 raise 点）→ get_trend_indicators（无行情数据
     降级占位文本）→ get_market_intel（无 TDX_API_KEY / 查询失败降级占位
     文本）。工具在函数内 import——避免无 key / 无行情数据环境的模块级副作用。
+
+    progress（review #9，2026-08-02）：可选回调 progress(str)——三个工具
+    调用之间输出进度（display 传 updatable_container.info 包装；缺省 None
+    不输出，无 UI 上下文路径不受影响）。
     """
     from core.llms.tools.get_market_intel import get_market_intel
     from core.llms.tools.get_trend_indicators import get_trend_indicators
 
+    if progress is not None:
+        progress(f"正在获取 {target_ticker} 的个股信息与财务数据...")
     stock_information = get_stock_info(target_ticker)
+    if progress is not None:
+        progress(f"正在计算 {target_ticker} 的技术指标...")
     stock_information += "\n" + get_trend_indicators(target_ticker)
+    if progress is not None:
+        progress(f"正在获取 {target_ticker} 的实时市场情报...")
     stock_information += "\n" + get_market_intel(target_ticker)
     return stock_information
 

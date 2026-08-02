@@ -37,7 +37,9 @@ as fatal). `data_storage/.../ZODBStorage.py` follows the sibling convention:
 "expected absence"). The sanctioned catch sites convert to the layer's
 protocol:
 - `acquire_historical_data_tdx` (acquisition boundary): daily fetch failure →
-  `False` (caller falls back to akshare);
+  `False`——**PRD 纯 TDX 无 akshare 兜底**（2026-08-02 措辞对齐：`get_stock_data`
+  忽略返回值记日志不阻断，返回已构建的 stock；历史缺失由 trend 指标降级
+  占位兜底）；
 `fetch_finance_capital` / `fetch_xdxr` failure → `logger.warning` + degrade
 (换手率 NaN / 未复权) without blocking the main path.
 - `overview.py` / `reports.py` 构建层（data_source 内，2026-08-02 新增）：

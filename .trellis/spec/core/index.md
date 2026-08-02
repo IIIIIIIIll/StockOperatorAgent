@@ -81,11 +81,14 @@ Orchestrates data freshness and ingestion. Local patterns:
 - akshare 方法（`acquire_daily_overview` / `acquire_performance_report` /
   `update_*_overview` / `acquire_historical_data` / `get_next_report_date` /
   `get_latest_possible_report_date` / `build_performance_report_from_row` /
-  `add_performance_report_in_storage` / `update_overview_in_storage`）**保留
-  不删**（备用 + 既有测试引用），但主流程不再调用——docstring 统一标注
-  `deprecated（备用路径，主流程不调用）`（2026-08-02）。
-- **AKShareSource 惰性导入**（2026-08-02）：`data_acquisition.py` 无模块级
-  akshare import——每个 deprecated 方法内部局部 import，纯 TDX 启动不付出
+  `add_performance_report_in_storage` / `update_overview_in_storage`）
+  **迁出至 `core/legacy_akshare.py`**（2026-08-02，review #10）：`YJBB_COLUMN_MAP`
+  随迁；`DataAcquisition(LegacyAksharePaths)` mixin 继承——`da.update_*(...)`
+  等既有调用与测试引用不变（deprecated 测试照常 skip）。主流程文件减半，
+  备用路径可独立演进。
+- **AKShareSource 惰性导入**（2026-08-02）：`core/data_acquisition.py` 与
+  `core/legacy_akshare.py` 均无模块级 akshare import——每个 deprecated 方法
+  内部局部 import，纯 TDX 启动不付出
   akshare 重依赖成本（`import core.data_acquisition` 不触发 akshare 加载，
   test_module_import_lazy_akshare 钉死）。
 - `acquire_historical_data_tdx(ticker, _scope=None)` — freshness-first + boolean
