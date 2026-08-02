@@ -167,11 +167,24 @@ Keep it that way; do not add a second storage abstraction.
   `st.error` 中文提示 + `logger.exception`，不裸 traceback 红屏、不吞错误。
 - **2026-08-02（日志修复）**：`logger.debug("Assistant: {}", ...)` 正确
   占位符风格（原 `logger.debug("\nAssistant:", value)` 消息被 loguru 丢弃）。
-- After streaming, results are pulled from `graph.get_state_history(config)[0].values`
-  — including `bullish_opinions[-1].content` (works because the `add_messages`
-  reducer wraps agent strings into message lists — see `agents/index.md`).
-- The UI is the only consumer of `get_state_history`; keep the committee API
-  (`make_investment_committee` / `make_investment_decision`) unchanged.
+- **2026-08-02（边算边渲染）**：报告在**其节点完成即填充**对应 Tab——`graph.stream`
+  循环内对每个节点 update 调 `iter_report_items(value)` 得 `(key, title,
+  content)` 渲染项，按 `report_tabs` 查表 dispatch 到 Tab（`st.header` +
+  `st.write`）；**不再**等 stream 结束用 `get_state_history` 一次性填充
+  （五 key 各自只写一次、stream update 全覆盖 → 无遗漏无重复）。循环体
+  运行于脚本线程（LangGraph sync stream 在调用线程 yield；仅并行节点内部
+  的进度调用在工作线程，需 `safe_progress`）——`st.write` 安全。
+- **流式渲染契约（2026-08-02）**：`REPORT_TABS` 五元组（state key → Tab
+  标题）顺序 = `st.tabs` 创建顺序，渲染 dispatch 依赖该契约；`_report_content`
+  消化两种值形态——stream update 中报告为**原始字符串**（节点返回即写，
+  reducer 未应用；实测 2026-08-02），最终 state 里 bullish/bearish 为
+  add_messages 消息列表（`[-1].content`，见 `agents/index.md`）——展示
+  语义与旧实现一致。`iter_report_items` / `_report_content` 为纯函数
+  （与 Streamlit 解耦，display.py 仍是薄渲染层），离线测试喂合成 update
+  验证映射（`test/core/ui/test_display.py::TestDisplayIncrementalRender`）。
+- `get_state_history` 现仅测试消费（如 `test_graph_parallel._run_graph`
+  取最终 state 断言）；UI 不再调用。保留 committee API
+  （`make_investment_committee` / `make_investment_decision`）不变。
 
 ## Anti-Patterns
 
