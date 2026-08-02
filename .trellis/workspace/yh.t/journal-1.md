@@ -144,3 +144,24 @@ M1 概览层（overview.py 22 列序 + get_stock_name 名称索引，离线 gold
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: 业绩报告 freshness 门（ZODB 优先免重复拉 F10）
+
+**Date**: 2026-08-02
+**Task**: 业绩报告 freshness 门（ZODB 优先免重复拉 F10）
+**Branch**: `master`
+
+### Summary
+
+acquire_performance_report_tdx 加 ZODB 优先 freshness 门：最新 report_date 命中最近季度末（_latest_past_quarter_end）即跳过远端 F10（debug+True），披露滞后语义保持（未披露继续拉、入库去重）。_fetch_reports 注入点实现无 mock 测试（计数包装证明门命中零网络）。+4 用例，全量 116P/20S/0F。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f26a85c` | (see git log) |
+
+### Status
+
+[OK] **Completed**
