@@ -227,22 +227,28 @@ def _fetch_degraded(fetch, source_name: str, ticker: str) -> pd.DataFrame | None
     return df
 
 
-def build_overview(ticker: str) -> pd.DataFrame | None:
+def build_overview(ticker: str, _scope=None) -> pd.DataFrame | None:
     """按需单股构建 22 列概览 DataFrame（单行；列序 = OVERVIEW_COLUMNS）。
 
     逐源降级：snapshot/F10/股本/日K 单项失败 → 该源字段 NaN + warning；
     name 失败回退 ticker（永不 NaN）。snapshot 与日K 都失败（无任何价格来源）
     → 返回 None（调用方按失败处理）。
+
+    _scope（review #2+#3）：FetchScope（core.data_acquisition）透传——给出时
+    各源拉取走 scope 复用（与历史/业绩共享同一 DataFrame）；None → 独立直拉
+    （独立调用语义不变）。FetchScope 与 TdxSource 方法名同构（fetch_*），
+    `_scope or src` 直接作 fetcher。
     """
     src = TdxSource()
     name = src.get_stock_name(ticker)
+    fetcher = _scope or src
 
-    snapshot_df = _fetch_degraded(lambda: src.fetch_snapshot(ticker), "snapshot", ticker)
+    snapshot_df = _fetch_degraded(lambda: fetcher.fetch_snapshot(ticker), "snapshot", ticker)
     daily_df = _fetch_degraded(
-        lambda: src.fetch_daily(ticker, max_bars=OVERVIEW_DAILY_MAX_BARS), "daily", ticker
+        lambda: fetcher.fetch_daily(ticker, max_bars=OVERVIEW_DAILY_MAX_BARS), "daily", ticker
     )
-    capital_df = _fetch_degraded(lambda: src.fetch_finance_capital(ticker), "finance_capital", ticker)
-    f10_df = _fetch_degraded(lambda: src.fetch_company_finance(ticker), "company_finance", ticker)
+    capital_df = _fetch_degraded(lambda: fetcher.fetch_finance_capital(ticker), "finance_capital", ticker)
+    f10_df = _fetch_degraded(lambda: fetcher.fetch_company_finance(ticker), "company_finance", ticker)
 
     if snapshot_df is None and daily_df is None:
         logger.error(

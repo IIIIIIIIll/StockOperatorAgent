@@ -83,7 +83,7 @@ once and feed the same DataFrames into `compose_overview` + history append +
 `compose_reports` (all three are already pure functions; only the plumbing is
 missing).
 
-**Status:** [ ] **Effort:** medium — restructure `get_stock_data`, keep pure functions
+**Status:** [x] **Effort:** medium — implemented 2026-08-02 in task `08-02-data-onepass-bulk-commit` (FetchScope per-call fetch dedup + coordinator pre-seed: first build 7→4 fetches, steady stale day 6→4, all-fresh 0)
 
 ## 3. Commit-per-row ZODB writes
 
@@ -97,7 +97,7 @@ dominant cost of the first-build path ("10+ min first load" in README).
 single commit. Deviates from the spec'd "every mutator commits" rule →
 requires a `.trellis/spec` amendment (data_structure + data_storage indexes).
 
-**Status:** [ ] **Effort:** medium — batch API + spec amendment + tests
+**Status:** [x] **Effort:** medium — implemented 2026-08-02 in task `08-02-data-onepass-bulk-commit` (`add_datas` / `add_performance_reports` single-commit batch mutators; single-row versions delegate; spec amended with the batch exception)
 
 ## 4. Serial LLM chain — two independent pairs
 

@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "mutator commit 规则——批量 mutator 单次 commit 例外需修订"}
+{"file": ".trellis/spec/core/index.md", "reason": "get_stock_data 单遍拉取语义 + FetchScope + 预播种 + _scope 参数"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "build_overview/build_reports 的 _scope 透传与 thin wrapper 契约不变确认"}
+{"file": "docs/process-flow-review-2026-08-02.md", "reason": "#2 #3 的 checkbox 与实现状态"}

@@ -14,7 +14,7 @@ import pandas as pd
 import transaction
 from numpy import float64
 
-from core.data_acquisition import DataAcquisition
+from core.data_acquisition import DataAcquisition, FetchScope
 from data_source.chinese_mainland.tdx.overview import OVERVIEW_COLUMNS
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 from data_structure.chinese_mainland import ChinaStock
@@ -53,6 +53,49 @@ def _seed_report(stock, report_date):
     )
     stock.performance_reports.append(report)
     transaction.commit()
+
+
+class _CountingSrc:
+    """计数假数据源（review #2+#3）：fetch_* 返回满足主链路合成需求的最小
+    DataFrame（compose_overview / to_akshare_hist_schema / qfq_adjust /
+    compose_reports 的列契约），记录每源调用次数。"""
+
+    def __init__(self):
+        self.calls = {}
+
+    def _count(self, method, ticker):
+        key = (method, ticker)
+        self.calls[key] = self.calls.get(key, 0) + 1
+
+    def fetch_daily(self, ticker, max_bars=None):
+        self._count("fetch_daily", ticker)
+        n = 250 if max_bars is None or max_bars > 250 else max_bars
+        dates = pd.date_range(end=asia_today(), periods=n, freq="D")
+        return pd.DataFrame({
+            "datetime": dates,
+            "open": [10.0] * n, "high": [10.5] * n, "low": [9.5] * n,
+            "close": [10.2] * n, "vol": [1000] * n, "amount": [1e6] * n,
+        })
+
+    def fetch_snapshot(self, ticker):
+        self._count("fetch_snapshot", ticker)
+        return pd.DataFrame([{"price": 10.2, "open": 10.0, "high": 10.5, "low": 9.5}])
+
+    def fetch_finance_capital(self, ticker):
+        self._count("fetch_finance_capital", ticker)
+        return pd.DataFrame([{"zongguben": 1e10, "liutongguben": 1e10}])
+
+    def fetch_company_finance(self, ticker):
+        self._count("fetch_company_finance", ticker)
+        return pd.DataFrame([
+            {"metric": "基本每股收益(元)", "period": "2026-03-31", "value_num": 0.5},
+            {"metric": "每股净资产(元)", "period": "2026-03-31", "value_num": 11.5},
+            {"metric": "净利润(元)", "period": "2026-03-31", "value_num": 1e9},
+        ])
+
+    def fetch_xdxr(self, ticker):
+        self._count("fetch_xdxr", ticker)
+        return pd.DataFrame()
 
 
 class TestDataAcquisitionTdx:
@@ -209,10 +252,74 @@ class TestDataAcquisitionTdx:
         assert da.storage.get_stock("999998").overview.name == name_before
         assert da.storage.get_stock("999998").overview_last_update == stamp_before
 
+    # ---------- review #2+#3：单遍拉取（2026-08-02） ----------
+
     def test_acquire_performance_report_tdx_missing_stock_returns_false(self):
         da = DataAcquisition()
         _seed_stock(da, "000001")
         assert da.acquire_performance_report_tdx("999999") is False
+
+    def test_get_stock_data_first_build_fetches_each_source_once(self):
+        """首建（storage 无该股）：5 源各恰一次。
+
+        daily 全量预拉（get_stock_data 首建分支）覆盖 overview 250 窗口与
+        history 全量回填；capital/f10 被 overview 与 history/reports 共享
+        ——旧实现为 daily/capital/f10 各 2 次。
+
+        前置条件：先删除 999996——共享 DB 持久化跨运行，前次运行的构建会
+        让本用例变成"已有股票"路径（门判定随状态漂移），删除后首建语义
+        确定。
+        """
+        da = DataAcquisition()
+        ticker = "999996"  # 专用 dummy（999996 非 BJ 前缀，TDX 符号域外）
+        if da.storage.get_stock(ticker) is not None:
+            del da.storage.root.stocks[ticker]
+            transaction.commit()
+        fake = _CountingSrc()
+        scope = FetchScope(fake)
+        assert da.get_stock_data(ticker, _scope=scope) is not None
+        assert fake.calls.get(("fetch_daily", ticker), 0) == 1
+        assert fake.calls.get(("fetch_snapshot", ticker), 0) == 1
+        assert fake.calls.get(("fetch_finance_capital", ticker), 0) == 1
+        assert fake.calls.get(("fetch_company_finance", ticker), 0) == 1
+        assert fake.calls.get(("fetch_xdxr", ticker), 0) == 1
+
+    def test_get_stock_data_existing_stock_stale_gates_each_source_once(self):
+        """已有股票 + 概览/历史双 stale：各源仍恰一次（预播种 250 覆盖）。"""
+        da = DataAcquisition()
+        ticker = "999995"
+        stock = _seed_stock(da, ticker)
+        stock.overview_last_update = datetime.datetime.combine(
+            asia_today() - datetime.timedelta(days=3), datetime.time(12, 0)
+        )
+        stock.last_data_update = asia_today() - datetime.timedelta(days=3)
+        transaction.commit()
+        fake = _CountingSrc()
+        scope = FetchScope(fake)
+        assert da.get_stock_data(ticker, _scope=scope) is not None
+        assert fake.calls.get(("fetch_daily", ticker), 0) == 1
+        assert fake.calls.get(("fetch_snapshot", ticker), 0) == 1
+        assert fake.calls.get(("fetch_finance_capital", ticker), 0) == 1
+        assert fake.calls.get(("fetch_company_finance", ticker), 0) == 1
+        assert fake.calls.get(("fetch_xdxr", ticker), 0) == 1
+
+    def test_get_stock_data_fresh_gates_zero_fetch(self):
+        """概览/历史/业绩三门全 fresh（含最新季度报告）：零拉取（纯门短路）。"""
+        da = DataAcquisition()
+        ticker = "999994"
+        stock = _seed_stock(da, ticker)
+        stock.overview_last_update = datetime.datetime.now()
+        stock.last_data_update = asia_today()
+        _seed_report(stock, "20260630")  # 最近季度末（2026-08-02 → 0630）
+        transaction.commit()
+        fake = _CountingSrc()
+        scope = FetchScope(fake)
+        assert da.get_stock_data(ticker, _scope=scope) is not None
+        assert fake.calls.get(("fetch_daily", ticker), 0) == 0
+        assert fake.calls.get(("fetch_snapshot", ticker), 0) == 0
+        assert fake.calls.get(("fetch_finance_capital", ticker), 0) == 0
+        assert fake.calls.get(("fetch_company_finance", ticker), 0) == 0
+        assert fake.calls.get(("fetch_xdxr", ticker), 0) == 0
 
     def test_acquire_performance_report_tdx(self):
         da = DataAcquisition()

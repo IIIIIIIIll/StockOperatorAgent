@@ -57,6 +57,12 @@ Behavior rules:
 - Every mutating method ends with `transaction.commit()` — the persistent-object
   write pattern (see `data_storage/index.md`). (`update_overview` 同步
   `overview_last_update` + commit；`add_info`/`get_info` 已删，勿再添加。)
+- **批量 mutator 例外（2026-08-02，review #3）**：`add_datas(list) -> int` /
+  `add_performance_reports(list) -> int` 整批**一次 commit**（返回实际追加数，
+  0 = 全部重复不 commit；输入须按 date / report_date 升序——数据链路保证）。
+  单行版 `add_data` / `add_performance_report` 委托批量版（行为逐行等价）。
+  批量语义动机：首建全量回填数千行 = 数千次 FileStorage 事务（tpc + 索引
+  更新 + 每条事务记录），批量后 = 1 次。**逐行 commit 是 anti-pattern**。
 - Constructor signature is `(name, ticker, overview)` — the tests that call
   `ChinaStock('dummy')` (`test/data_structure/test_ChinaStock.py`,
   `test/data_storage/test_ZODBStorage.py`) are stale and broken; new tests must

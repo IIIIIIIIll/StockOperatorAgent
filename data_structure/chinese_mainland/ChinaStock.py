@@ -30,25 +30,45 @@ class ChinaStock(persistent.Persistent):
             transaction.commit()
 
         def add_data(self, data: ChinaStockData):
-            if not data.date > self.last_data_update:
-                logger.debug("Data on {} already exists for stock {}, last data date is {}", data.date, self.ticker, self.last_data_update)
-                return
-            self.datas.append(data)
-            self.last_data_update = data.date
-            logger.debug("Add data on {} to stock {}", data.date, self.ticker)
+            """单行追加（review #3：委托批量版，行为逐行等价——去重 + commit）。"""
+            self.add_datas([data])
+
+        def add_datas(self, datas: list[ChinaStockData]) -> int:
+            """批量追加（review #3）：date > last_data_update 的行全量追加，
+            一次 commit；返回实际追加数（0 = 全部重复，不 commit）。输入须
+            date 升序（数据链路保证：TDX 历史升序）。首建全量回填数千行 =
+            1 个事务（逐行 commit 是 anti-pattern，见 data_structure spec）。"""
+            fresh = [d for d in datas if d.date > self.last_data_update]
+            if not fresh:
+                logger.debug("No new data on {}; last data date is {}", self.ticker, self.last_data_update)
+                return 0
+            self.datas.extend(fresh)
+            self.last_data_update = fresh[-1].date
+            logger.debug("Add {} data rows to stock {} until {}", len(fresh), self.ticker, self.last_data_update)
             transaction.commit()
+            return len(fresh)
 
         def get_datas(self):
            return self.datas
 
         def add_performance_report(self, performance_report):
-            logger.debug(performance_report)
-            if self.performance_reports and self.performance_reports[-1].report_date >= performance_report.report_date:
-                logger.debug("Performance report on {} already exists for stock {}, last report date is {}", performance_report.report_date, self.ticker, self.performance_reports[-1].report_date)
-                return
-            self.performance_reports.append(performance_report)
-            logger.debug("Add performance_report on {} to stock {}, current reports {}", performance_report.report_date, self.ticker, len(self.performance_reports))
+            """单行追加（review #3：委托批量版，行为逐行等价——去重 + commit）。"""
+            self.add_performance_reports([performance_report])
+
+        def add_performance_reports(self, reports: list) -> int:
+            """批量追加（review #3）：report_date 递增去重（仅 > 最后一份者），
+            一次 commit；返回追加数（0 = 全部重复，不 commit）。输入须
+            report_date 升序（compose_reports period 升序保证）。"""
+            fresh = [r for r in reports
+                     if not self.performance_reports
+                     or r.report_date > self.performance_reports[-1].report_date]
+            if not fresh:
+                logger.debug("No new performance reports for {}; last report date is {}", self.ticker, self.performance_reports[-1].report_date if self.performance_reports else None)
+                return 0
+            self.performance_reports.extend(fresh)
+            logger.debug("Add {} performance reports to stock {}", len(fresh), self.ticker)
             transaction.commit()
+            return len(fresh)
 
         def get_performance_reports(self):
             return self.performance_reports

@@ -150,16 +150,20 @@ def compose_reports(
     return pd.DataFrame(rows, columns=REPORT_COLUMNS)
 
 
-def build_reports(ticker: str) -> pd.DataFrame | None:
+def build_reports(ticker: str, _scope=None) -> pd.DataFrame | None:
     """按需单股构建业绩报告 DataFrame（每报告期一行；列序契约见模块 docstring）。
 
     逐源降级：F10 拉取失败 / 无数据 → logger.warning + None（不 raise，调用方
     按失败处理，见 error-handling.md）；name 失败回退 ticker（永不 NaN）。
+
+    _scope（review #2+#3）：FetchScope（core.data_acquisition）透传——给出时
+    F10 拉取走 scope 复用（与概览共享同一 DataFrame）；None → 独立直拉。
     """
     src = TdxSource()
     name = src.get_stock_name(ticker)
+    fetcher = _scope or src
     try:
-        f10_df = src.fetch_company_finance(ticker)
+        f10_df = fetcher.fetch_company_finance(ticker)
     except Exception:
         logger.warning("TDX company_finance fetch failed for {}; performance reports unavailable.", ticker)
         return None

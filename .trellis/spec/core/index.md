@@ -39,20 +39,35 @@ Orchestrates data freshness and ingestion. Local patterns:
   `ensure_stock` 失败（overview None）→ `return None`（纯 TDX，无 akshare 兜底；
   `core/llms/tools/get_company_info.py` 的 `raise Exception('Stock not found')`
   由此触发）。
-- `ensure_stock(ticker, _build_overview=None) -> bool` — 按需构建语义 + 概览
-  freshness 门（review #1，2026-08-02）：storage 已有 → `overview_last_update`
-  （真实 freshness 标记，`update_overview` 同步 + commit）**早于当前交易日**
-  （date 比较：同日多次分析稳定，跨交易日必刷新）→ 重建概览（best-effort：
-  `build_overview` None → `logger.warning` + 保留旧概览，仍 `True`）；当日已
-  更新 → `True`（幂等）。`_build_overview` 为测试注入点（house style，同
-  `acquire_performance_report_tdx` 的 `_fetch_reports`）。首建 `build_overview`
-  None（无价格来源）→ `logger.error` + `False`。
-- `acquire_performance_report_tdx(ticker, _fetch_reports=None) -> bool` — storage
-  无该股票 → `False`；`build_reports` 返回单表多行，逐行
+- **单遍拉取（2026-08-02，review #2+#3）**：`get_stock_data(ticker, _scope=None)`
+  创建 `FetchScope`（data_acquisition.py 内的拉取去重，方法名与 TdxSource
+  同构 `fetch_*`）贯穿三个消费者——各源（daily/snapshot/capital/F10/xdxr）
+  每次分析调用只拉一次。**预播种 daily 在 ensure_stock 之前**：首建（storage
+  无该股）→ 全量 `max_bars=None` 预拉（覆盖 overview 250 窗口与 history
+  全量回填）；已有股票 → 门 helper（`_overview_stale` / `_history_gap` /
+  `_reports_stale`，与消费者共用同一实现，不双份逻辑）算本次最大尺寸：
+  gap>120 → 全量，否则 250 覆盖两者；三门全 fresh → 零拉取。预播种失败 →
+  warning + scope 标记 failed（消费者后续请求空 → 各自降级，保首建不阻断）。
+  FetchScope 复用判定按**请求尺寸**（cached_bars ≥ 请求）而非实际行数——
+  短历史股票 250 拉取返回 <250 行是完整数据，按 len 判定会错误重拉。三个
+  消费者均有 `_scope=None` 可选参数：None → 独立直拉（独立调用语义与既有
+  测试不变）；`overview.build_overview` / `reports.build_reports` 同样接受
+  `_scope` 透传。
+- `ensure_stock(ticker, _build_overview=None, _scope=None) -> bool` — 按需构建
+  语义 + 概览 freshness 门（review #1，2026-08-02）：storage 已有 →
+  `overview_last_update`（真实 freshness 标记，`update_overview` 同步 +
+  commit）**早于当前交易日**（date 比较：同日多次分析稳定，跨交易日必刷新）
+  → 重建概览（best-effort：`build_overview` None → `logger.warning` + 保留旧
+  概览，仍 `True`）；当日已更新 → `True`（幂等）。`_build_overview` 为测试
+  注入点（house style，同 `acquire_performance_report_tdx` 的
+  `_fetch_reports`，优先级最高）；`_scope` 透传（review #2+#3，见单遍拉取
+  段）。首建 `build_overview` None（无价格来源）→ `logger.error` + `False`。
+- `acquire_performance_report_tdx(ticker, _fetch_reports=None, _scope=None) -> bool`
+  — storage 无该股票 → `False`；`build_reports` 返回单表多行，批量
   `StockPerformanceReport(*list(row.values()))`（15 列无切片）→
-  `add_performance_report`（内部 commit，report_date 字符串去重）→ `put_stock`
-  → `True`；`build_reports` None（无报告）→ `logger.warning` + `True`（无报告
-  不是失败）。
+  `add_performance_reports`（单次 commit，report_date 字符串去重）→
+  `put_stock` → `True`；`build_reports` None（无报告）→ `logger.warning` +
+  `True`（无报告不是失败）。`_scope` 透传（review #2+#3，见单遍拉取段）。
 - **业绩 freshness 门**（2026-08-02，对齐日K"先查再拉"）：调 `build_reports`
   （远端 F10）前先读 ZODB 最新 `report_date`（`performance_reports[-1]`，无报告
   → 门未命中直接拉）。门命中 = 最新 `report_date` == 最近一个已到截止日的季度末
@@ -73,11 +88,12 @@ Orchestrates data freshness and ingestion. Local patterns:
   akshare import——每个 deprecated 方法内部局部 import，纯 TDX 启动不付出
   akshare 重依赖成本（`import core.data_acquisition` 不触发 akshare 加载，
   test_module_import_lazy_akshare 钉死）。
-- `acquire_historical_data_tdx(ticker)` — freshness-first + boolean 协议；
-  chain: `TdxSource.fetch_finance_capital`（流通股本, 失败降级 → 换手率 NaN）
-  → `fetch_daily` (失败 → `False`) → `fetch_xdxr` (失败降级 → 未复权) →
-  `mapping.to_akshare_hist_schema` → `adjust.qfq_adjust` →
-  `ChinaStockData(*list(row.values()))` → `add_data`.
+- `acquire_historical_data_tdx(ticker, _scope=None)` — freshness-first + boolean
+  协议；chain: `TdxSource.fetch_finance_capital`（流通股本, 失败降级 → 换手率
+  NaN）→ `fetch_daily` (失败 → `False`) → `fetch_xdxr` (失败降级 → 未复权) →
+  `mapping.to_akshare_hist_schema` → `adjust.qfq_adjust` → 批量
+  `ChinaStockData(*list(row.values()))` → `add_datas`（单次 commit，review #3）。
+  `_scope` 透传（review #2+#3，见单遍拉取段）。
   See `data_source/index.md` for the layer contracts.
 
 `self.storage = get_zodb_storage()` in the constructor — a lazy **process-wide
