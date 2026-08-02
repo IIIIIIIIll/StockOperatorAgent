@@ -6,6 +6,11 @@
 约定（对齐 error-handling spec）：
 - 无 TDX_API_KEY 或查询失败 → 返回占位说明文本，**不 raise**（图可继续）
 - 只有构造 TdxMcpClient 需要 API key；查询结果转中文摘要文本
+
+缓存（08-02-mcp-intel-cache）：非交易时段（utils.market_time.is_trading_time
+判 False——收盘后到次日开盘前行情不变）优先读缓存（mcp_intel_cache，
+按 ticker JSON 落 data/tdx_cache/mcp_intel/）；交易时段实时查询并写
+缓存。无 key 不读写缓存。
 """
 
 from __future__ import annotations
@@ -20,11 +25,12 @@ from scripts.tdx_mcp.tdx_client import TdxMcpClient  # noqa: E402
 _FALLBACK_TEXT = "（未配置 TDX_API_KEY，跳过实时市场情报）"
 
 
-def get_market_intel(ticker: str) -> str:
-    """按目标股票查询实时行情/资金流向/所属概念板块，返回中文摘要文本。"""
-    api_key = os.getenv("TDX_API_KEY", "")
-    if not api_key:
-        return _FALLBACK_TEXT
+def _query_mcp(ticker: str, api_key: str) -> str:
+    """实时查询 MCP 并拼中文摘要；失败 → 降级占位（不 raise）。
+
+    与缓存判定解耦（08-02-mcp-intel-cache）：查询 + 文本拼装独立成
+    模块函数——测试可注入/计数，缓存分支只做判定与读写。
+    """
     try:
         client = TdxMcpClient(api_key=api_key)
         result = client.query(f"{ticker} 实时行情 资金流向 所属概念板块", size=50)
@@ -38,6 +44,31 @@ def get_market_intel(ticker: str) -> str:
     except Exception:
         # MCP 网络/解析异常不阻断主流程（图可继续）
         return f"（通达信 MCP 查询异常，跳过{ticker}的实时情报）"
+
+
+def get_market_intel(ticker: str) -> str:
+    """按目标股票查询实时行情/资金流向/所属概念板块，返回中文摘要文本。
+
+    缓存语义（08-02-mcp-intel-cache）：非交易时段（收盘后到次日开盘
+    前）优先读缓存——省网络往返；交易时段（或缓存缺失）实时查询，
+    成功写缓存。查询失败 → 降级占位（不静默用旧缓存——盘中数据必须
+    新鲜）。
+    """
+    from core.llms.tools.mcp_intel_cache import DEFAULT_CACHE_ROOT, read_cache, write_cache
+    from utils.market_time import is_trading_time
+
+    api_key = os.getenv("TDX_API_KEY", "")
+    if not api_key:
+        return _FALLBACK_TEXT
+
+    if not is_trading_time():
+        cached = read_cache(DEFAULT_CACHE_ROOT, ticker)
+        if cached is not None:
+            return cached
+
+    text = _query_mcp(ticker, api_key)
+    write_cache(DEFAULT_CACHE_ROOT, ticker, text)
+    return text
 
 
 def row_to_text(row: dict) -> str:

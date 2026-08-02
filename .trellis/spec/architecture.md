@@ -73,6 +73,14 @@ Cross-layer rules of thumb:
 - `utils/time_helper.get_last_business_day(date)` — the only trading-calendar helper.
   Handles **weekends only**; public holidays are not modeled. Used by agents
   (`current_date` prompt partial), `DataAcquisition`, and `ZODBStorage` (17:00 gate).
+- `utils/market_time.py`（2026-08-02，08-02-market-hours-util）— A 股交易
+  时段判定：`is_trading_time(now=None)` 北京时间工作日 9:30–11:30 /
+  13:00–15:00 判交易时段（15:00 整起判非交易时段——行情不再变化）；
+  周末/节假日无日历 → 判非交易时段（保守：休市行情不变，下游"用缓存"
+  正确）。`latest_trading_day(stock)` 从 ZODB 日K 末根 bar 取最近交易日
+  （零网络——pytdx 无交易日历接口，akshare 完全弃用）。复用
+  `get_last_business_day`，时区 Asia/Shanghai 与 time_helper 同约定。
+  消费方：`get_market_intel` 缓存判定（MCP 情报）。
 - `utils/state.py` — the LangGraph `State` TypedDict (documented in `agents/index.md`).
 - `utils/constants.py` — see above.
 

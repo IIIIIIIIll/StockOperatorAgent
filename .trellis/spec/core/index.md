@@ -136,6 +136,15 @@ Keep it that way; do not add a second storage abstraction.
   文本) 拼接——顺序：个股信息 → 技术指标 → 财务指标 → 实时情报，
   四段 display 与 make_investment_decision 共用。不改 State/图/agent
   模式。工具在函数内 import，避免无 key 环境的模块级副作用。
+- **MCP 情报缓存（2026-08-02，08-02-mcp-intel-cache）**：`get_market_intel`
+  非交易时段（`utils.market_time.is_trading_time`，收盘后到次日开盘前
+  行情不变）优先读缓存——按 ticker JSON 落 `data/tdx_cache/mcp_intel/
+  ticker=<T>/data.json`（`core/llms/tools/mcp_intel_cache.py`，
+  `{"fetched_at": 北京时间 ISO, "text": 结果文本}`，原子写；读缺失/
+  损坏 → None 回退实时）。交易时段（或缓存缺失）实时查询并写缓存；
+  查询失败 → 降级占位（**不静默用旧缓存**——盘中必须新鲜）；无
+  TDX_API_KEY 不读写缓存。查询+拼文本独立为 `_query_mcp`（模块级，
+  测试计数注入）。缓存只省网络往返，展示/LLM 语义零变化。
 - New agents mean: new node registration here, a new edge, a new `State` key,
   and a new prompt in `core/llms/prompt.py`.
 

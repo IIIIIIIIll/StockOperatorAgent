@@ -270,3 +270,24 @@ F10 财务分析页除【主要财务指标】外还有【盈利能力指标】�
 ### Status
 
 [OK] **Completed**
+
+## Session 10: MCP 情报缓存 + A股交易时段判定
+
+**Date**: 2026-08-02
+**Task**: A股交易时段/交易日判定工具 + TDX MCP 情报结果缓存
+**Branch**: `master`
+
+### Summary
+
+拆两任务（用户指定）：① utils/market_time.py——is_trading_time（北京时间工作日 9:30–11:30/13:00–15:00，15:00 整起判非交易时段）+ latest_trading_day（ZODB 日K 末根 bar 零网络推断；pytdx 无交易日历接口，akshare 完全弃用）；② get_market_intel 加缓存层——mcp_intel_cache.py（按 ticker JSON 落 data/tdx_cache/mcp_intel/，原子写，损坏→None 回退），非交易时段读缓存零查询、交易时段实时查+写缓存、失败降级不静默用旧缓存（盘中必须新鲜）、无 key 不读写。测试 9+11 用例。全量回归 0F/216P/20S。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| 14571f4 feat(utils): A股交易时段判定——market_time |
+| (see git log for mcp-intel-cache commit) |
+
+### Status
+
+[OK] **Completed**
