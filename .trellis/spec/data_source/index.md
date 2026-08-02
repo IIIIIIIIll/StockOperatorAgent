@@ -22,6 +22,16 @@ The only module that talks to akshare. Local patterns:
   endpoint, raw DataFrame out.
 - Note the filename typo `fetch_stcok_data.py` — intentional to keep, renaming
   breaks imports (`core/data_acquisition.py:2`, `test/data_source/test_akshare.py:1`).
+- **akshare 版本注记**（2026-08-02 升级 1.18.25 → 1.18.81，源码级对比确认 4 个
+  使用中接口列序零变化：`stock_zh_a_hist` / `stock_*_a_spot_em` / `stock_yjbb_em`
+  / `stock_individual_info_em`）。
+- **既有映射疑点（未修，待流程梳理任务实测）**：akshare 源码显示
+  `stock_zh_a_hist` 的"股票代码"列在**末尾**（日期,开盘,收盘,最高,最低,成交量,
+  成交额,振幅,涨跌幅,涨跌额,换手率,股票代码），`stock_*_a_spot_em` 第 2 列是
+  "_" 占位——与位置构造假设（ticker 第 2 位）不匹配。本环境东方财富端点不可达
+  无法实测实际输出；若实测确认错位，需按列名构造或调整映射（TDX 路径的
+  `mapping.to_akshare_hist_schema` 输出 12 列序与 ChinaStockData 字段**对齐**，
+  不受此影响）。
 
 ## TdxSource (`data_source/chinese_mainland/tdx/`)
 

@@ -59,3 +59,22 @@ Captured how the spec system itself operates into `.trellis/spec/spec-system.md`
   `deepseek-v4-flash` 响应正常。
 - 测试：`test/core/llms/deepseek/test_deepseek_api.py` 4 个离线用例（默认模型/
   覆盖/无 key 抛错/无私有参数）；全量 32 过（基线 28 + 4）/ 29 环境性失败不变。
+
+## 2026-08-02 — akshare 升级（task 08-02-akshare-upgrade）
+
+- 升级 akshare 1.18.25 → 1.18.81（落后 56 版本）。**升级前源码级对比**（pip
+  download 新版 whl 解包 grep 列定义）确认 4 个使用中接口列序零变化：
+  `stock_zh_a_hist` / `stock_*_a_spot_em` / `stock_yjbb_em` /
+  `stock_individual_info_em` —— 升级零风险。
+- **重大发现（既有疑点，未修）**：akshare 源码显示 `stock_zh_a_hist` 的
+  "股票代码"列在**末尾**（日期,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,
+  涨跌额,换手率,股票代码），`stock_*_a_spot_em` 第 2 列是 "_" 占位——与位置
+  构造假设（ticker 第 2 位）不匹配。本环境东财端点不可达无法实测；用户环境若
+  真错位会有数据错乱。待"数据获取流程梳理"任务在可通网络下实测后统一修复。
+  注意：TDX 路径的 mapping.py 12 列序与 ChinaStockData 字段对齐，不受影响。
+- 回归：29F/32P 与升级前完全一致，零新增失败（test_acquire_historical_data_failed
+  偶发翻转，ZODB 状态依赖）。pip check 无 akshare 相关冲突。
+- 测试环境耦合修复：test_get_market_intel 的降级断言显式清 TDX_API_KEY
+  （开发者配置 key 后测试曾误挂）。
+- 后续任务：数据获取流程梳理（实测 akshare 输出列序 → 修复位置映射 → TDX/akshare
+  分工重构）。

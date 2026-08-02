@@ -22,7 +22,13 @@ class TestGetMarketIntel:
                 os.environ["TDX_API_KEY"] = saved
 
     def test_placeholder_does_not_break_enrichment(self):
-        # make_investment_decision 的拼接契约：任何降级文本可直接追加
-        stock_information = "基本面数据…\n【技术指标…】"
-        enriched = stock_information + "\n" + get_market_intel("000001")
-        assert "实时市场情报" not in enriched or "未配置 TDX_API_KEY" in enriched
+        # make_investment_decision 的拼接契约：降级文本可直接追加。
+        # 显式清除 TDX_API_KEY（开发者本机可能已配置），保证降级路径可测
+        saved = os.environ.pop("TDX_API_KEY", None)
+        try:
+            stock_information = "基本面数据…\n【技术指标…】"
+            enriched = stock_information + "\n" + get_market_intel("000001")
+            assert "实时市场情报" not in enriched or "未配置 TDX_API_KEY" in enriched
+        finally:
+            if saved is not None:
+                os.environ["TDX_API_KEY"] = saved
