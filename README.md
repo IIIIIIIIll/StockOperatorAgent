@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 ## 使用
 
-1. **配置API密钥**：在`.env`文件中设置你的阿里云千问密钥，获取具体步骤请参考[阿里云官网](https://bailian.console.aliyun.com/?spm=5176.29597918.J_SEsSjsNv72yRuRFS2VknO.2.53477b08ZGAW8r&tab=api#/api)。可将密钥填入本地.env.example文件将其重命名为.env。
+1. **配置API密钥**：在`.env`文件中设置 **DeepSeek API 密钥**（默认 LLM，https://platform.deepseek.com）。模型默认 `deepseek-v4-flash`，可用 `DEEPSEEK_MODEL=deepseek-v4-pro` 切换。可选配置阿里云千问密钥（`DASHSCOPE_API_KEY`，https://bailian.console.aliyun.com）以保留 Qwen 支持。可将密钥填入本地.env.example文件将其重命名为.env。
    - 可选：设置 `TDX_API_KEY`（通达信 MCP）启用实时市场情报（概念板块/资金流/大盘概况）注入 agent 决策。未配置时应用正常降级运行，仅跳过实时情报。
 2. 运行主程序：
 

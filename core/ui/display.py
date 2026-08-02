@@ -10,8 +10,10 @@ committee = InvestmentCommittee()
 def write_ui():
     st.title("超绝AI股票分析系统")
 
-    if "DASHSCOPE_API_KEY" not in os.environ:
-        st.error("请在环境变量或.env中设置DASHSCOPE_API_KEY后重启应用")
+    # 默认 DeepSeek（DEEPSEEK_API_KEY），Qwen 可选（DASHSCOPE_API_KEY）；
+    # 任一 key 存在即可运行
+    if "DEEPSEEK_API_KEY" not in os.environ and "DASHSCOPE_API_KEY" not in os.environ:
+        st.error("请在环境变量或.env中设置 DEEPSEEK_API_KEY（默认）或 DASHSCOPE_API_KEY（可选）后重启应用")
         return
 
     st.write("输入您想要分析的沪深京A股六位股票代码")

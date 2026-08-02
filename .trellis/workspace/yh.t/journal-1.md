@@ -45,3 +45,17 @@ Captured how the spec system itself operates into `.trellis/spec/spec-system.md`
 
 - 全量回归：28 passed / 29 failed（均为环境性：缺 DASHSCOPE_API_KEY、akshare 网络不可达、`ChinaStock('dummy')` 已知损坏），归一化 diff 零新增。
 - 提交：chore(tdx): integrate tdx_quant pytdx data pipeline
+
+## 2026-08-02 — DeepSeek LLM 默认启用（task 08-02-deepseek-llm）
+
+- 新增 `core/llms/deepseek/deepseek_api.py`：DeepSeekApi(ChatOpenAI)，默认模型
+  `deepseek-v4-flash`（`DEEPSEEK_MODEL` 可切 `deepseek-v4-pro`）、base_url
+  https://api.deepseek.com、`DEEPSEEK_API_KEY`；**不传 enable_search**（DashScope
+  私有参数，DeepSeek 不支持——投资经理 prompt 的联网搜索指示在默认路径失效）。
+- `investment_committee.py` 图装配改用 `DeepSeekApi()`；QwenApi 保留可切（改一行）。
+- `display.py` key 检查兼容 `DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY` 任一存在。
+- 无 key 时构造即抛 OpenAIError（与 QwenApi 同构，UI 层负责提示）。
+- 用户提供真实 key（sk-55ea…）写入本地 .env（gitignored，不入库），live 实测
+  `deepseek-v4-flash` 响应正常。
+- 测试：`test/core/llms/deepseek/test_deepseek_api.py` 4 个离线用例（默认模型/
+  覆盖/无 key 抛错/无私有参数）；全量 32 过（基线 28 + 4）/ 29 环境性失败不变。

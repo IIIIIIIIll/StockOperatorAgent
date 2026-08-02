@@ -50,9 +50,12 @@ when a change touches only one agent.
   `stocks` BTree 使测试自包含（不依赖 akshare 填充）。
 - `test_get_trend_indicators.py` / `test_get_market_intel.py` — 指标输出结构
   + 无 key 降级文本（显式清 `TDX_API_KEY` 环境变量，与开发者本机 key 解耦）。
+- `test/core/llms/deepseek/test_deepseek_api.py` — 离线：默认模型
+  `deepseek-v4-flash` / `DEEPSEEK_MODEL` 覆盖 / 无 key 构造抛错（与 QwenApi
+  同构，UI 层负责提示）/ 不传 DashScope 私有参数。
 - 基线（本环境无 .env/网络受限）：既有套件 29F/3P，失败均为环境性（缺
-  `DASHSCOPE_API_KEY`、akshare 网络、`ChinaStock('dummy')` 已知损坏）。
-  回归门槛 = 不新增失败。
+  `DASHSCOPE_API_KEY`/`DEEPSEEK_API_KEY`、akshare 网络、`ChinaStock('dummy')`
+  已知损坏）。回归门槛 = 不新增失败。
 
 ## Known Broken Tests (do not copy)
 

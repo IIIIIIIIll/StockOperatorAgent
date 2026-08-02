@@ -14,7 +14,7 @@ paths:
 Streamlit UI (core/ui/display.py)
   └─ InvestmentCommittee (core/investment_committee.py)  — LangGraph StateGraph
        └─ 5 agents (agents/chinese_mainland/)  — one node each, linear chain
-            └─ QwenApi (core/llms/qwen/qwen_api.py) — DashScope ChatOpenAI
+            └─ DeepSeekApi (core/llms/deepseek/deepseek_api.py) — 默认；QwenApi 可选
                  └─ tool: get_stock_info (core/llms/tools/get_company_info.py)
                       └─ DataAcquisition (core/data_acquisition.py)
                            ├─ AKShareSource (data_source/chinese_mainland/akshare/fetch_stcok_data.py)
@@ -39,13 +39,16 @@ Cross-layer rules of thumb:
 
 - Run with `streamlit run main.py` (README.md). `main.py` is minimal: it configures
   the loguru handler, calls `load_dotenv()`, then `write_ui()`.
-- `core/ui/display.py` checks `DASHSCOPE_API_KEY` in `os.environ` before rendering
-  and validates the ticker input (6-digit numeric) before analysis.
+- `core/ui/display.py` checks `DEEPSEEK_API_KEY` or `DASHSCOPE_API_KEY` in
+  `os.environ` before rendering and validates the ticker input (6-digit numeric)
+  before analysis.
 
 ## Configuration
 
-- API key: `DASHSCOPE_API_KEY` in `.env` (see `.env.example`), loaded with
-  `load_dotenv()` in `main.py`, `investment_committee.py`, and LLM tests.
+- API key: `DEEPSEEK_API_KEY`（默认 LLM）+ `DEEPSEEK_MODEL`（默认
+  `deepseek-v4-flash`，可切 `deepseek-v4-pro`）在 `.env`；`DASHSCOPE_API_KEY`
+  保留为 Qwen 可选项。loaded with `load_dotenv()` in `main.py`,
+  `investment_committee.py`, and LLM tests.
 - `utils/constants.py` holds the only module-level constants:
   - `default_start = 1997-01-01` — baseline for "no data yet" timestamps
     (`ChinaStock.last_data_update`, `ZODBStorageInstance.root.overview_last_updated`)

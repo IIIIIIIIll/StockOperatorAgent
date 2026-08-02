@@ -9,7 +9,7 @@ from agents.chinese_mainland.bearish_trader import BearishTrader
 from agents.chinese_mainland.investment_manager import InvestmentManager
 
 from langgraph.graph import StateGraph, START, END
-from core.llms.qwen.qwen_api import QwenApi
+from core.llms.deepseek.deepseek_api import DeepSeekApi
 from core.llms.tools.get_company_info import get_stock_info
 from langgraph.checkpoint.memory import InMemorySaver
 from loguru import logger
@@ -21,7 +21,7 @@ class InvestmentCommittee:
 
         graph_builder = StateGraph(State)
 
-        llm = QwenApi()
+        llm = DeepSeekApi()
 
         checkpointer = InMemorySaver()
 

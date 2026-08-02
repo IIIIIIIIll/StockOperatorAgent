@@ -53,18 +53,25 @@ in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
 - Prompts are Chinese. They hard-forbid fabrication ("不允许编造数据"),
   require real-data-backed numbers, and demand specific output structure
   (valuation methods, target prices, scenarios). Keep that style.
-- The investment-manager prompt is the only one that references web search —
-  matched by `enable_search` in the QwenApi config.
+- The investment-manager prompt references web search — matched by
+  `enable_search` in the QwenApi config only. **DeepSeek 不支持该参数**（DashScope
+  私有扩展），默认路径下该指示失效，agent 无法联网；如需联网分析可切回 QwenApi。
 
-## LLM Configuration (`core/llms/qwen/qwen_api.py`)
+## LLM Configuration (`core/llms/`)
 
-`QwenApi` subclasses `langchain_openai.ChatOpenAI`:
+**默认 DeepSeek**（`core/llms/deepseek/deepseek_api.py`）：
+`DeepSeekApi(ChatOpenAI)` — `model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")`
+（可切 `deepseek-v4-pro`）、`api_key=os.getenv("DEEPSEEK_API_KEY")`、
+`base_url="https://api.deepseek.com"`、`seed=114514`；不传 `extra_body`。
+无 key 时构造即抛 OpenAIError（与 QwenApi 一致），UI 层 display.py 渲染前检查
+`DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY` 任一存在。
 
-- `model="qwen-plus-latest"`, `base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"`
-- `api_key=os.getenv("DASHSCOPE_API_KEY")` — from `.env`
-- `extra_body` sets `enable_search` (and optionally `enable_thinking`); `seed=114514`
+**可选 Qwen**（`core/llms/qwen/qwen_api.py`）：`QwenApi` 同上形状 —
+`model="qwen-plus-latest"`、`base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"`、
+`api_key=os.getenv("DASHSCOPE_API_KEY")`；`extra_body` 传 `enable_search`。
 
-Use `QwenApi` everywhere; do not construct a second model/client for agent calls.
+图装配（`core/investment_committee.py`）用 `DeepSeekApi()`；换回 Qwen 只需改这一行。
+
 
 ## Tools (`core/llms/tools/`)
 
