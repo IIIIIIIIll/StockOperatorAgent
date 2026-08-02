@@ -1,15 +1,20 @@
 from datetime import datetime, timedelta
+import pandas as pd
 from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
+from data_source.chinese_mainland.tdx.adjust import qfq_adjust
+from data_source.chinese_mainland.tdx.mapping import to_akshare_hist_schema
+from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 from data_structure.chinese_mainland import ChinaStock, ChinaStockData
 from data_structure.chinese_mainland.StockOverview import StockOverview
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
 from loguru import logger
-from data_storage.chinese_mainland.ZODBStorage import ZODBStorageInstance
+from data_storage.chinese_mainland.ZODBStorage import get_zodb_storage
 from utils.time_helper import get_last_business_day
 
 class DataAcquisition:
     def __init__(self):
-        self.storage = ZODBStorageInstance()
+        # 进程级单例连接（见 get_zodb_storage docstring：FileStorage flock 不可重入）
+        self.storage = get_zodb_storage()
 
     def acquire_daily_overview(self):
         if self.storage.check_need_update_overview():
@@ -77,6 +82,66 @@ class DataAcquisition:
         logger.info(f"Historical data for stock {ticker} updated until {stock.last_data_update}.")
         return True
 
+    def acquire_historical_data_tdx(self, ticker):
+        """TDX(pytdx) 历史行情路径：akshare 路径的快速替代，失败返回 False 走兜底。
+
+        与 akshare 版本相同的约定：新鲜度优先、布尔结果协议、loguru {} 占位。
+        数据链路：TdxSource(fetch_daily + fetch_xdxr + fetch_finance_capital)
+        → mapping.to_akshare_hist_schema（12 列序，与 akshare 一致）
+        → qfq_adjust（前复权，对齐 akshare qfq 口径）→ ChinaStockData 位置构造。
+
+        异常处理约定（本方法为数据层唯一捕获点，见 spec 更新）：
+        - finance_capital / xdxr 失败降级（换手率 NaN / 未复权），不阻断主路径
+        - daily 拉取失败 → logger.error + return False → 调用方回退 akshare
+        """
+        stock = self.storage.get_stock(ticker)
+        if stock is None:
+            logger.error("Stock {} not found in database.", ticker)
+            return False
+        logger.debug("Stock {} found in database, last data date is {}.", ticker, stock.last_data_update)
+        if stock.last_data_update == datetime.today():
+            logger.info("Stock {} historical data is already up to date.", ticker)
+            return True
+
+        look_back_days = 120
+        if get_last_business_day(datetime.today().date()) - stock.last_data_update < timedelta(days=120):
+            look_back_days = (get_last_business_day(datetime.today().date()) - stock.last_data_update).days
+
+        if not look_back_days > 0:
+            logger.info("Stock {} historical data is already up to date.", ticker)
+            return True
+
+        tdx_source = TdxSource()
+
+        float_shares = None
+        try:
+            capital = tdx_source.fetch_finance_capital(ticker)
+            if not capital.empty and "liutongguben" in capital.columns:
+                float_shares = float(capital["liutongguben"].iloc[0])
+        except Exception:
+            logger.warning("Finance capital unavailable for {}; turnover_rate will be NaN.", ticker)
+
+        try:
+            daily = tdx_source.fetch_daily(ticker, max_bars=look_back_days)
+        except Exception:
+            logger.error("TDX daily fetch failed for {}; falling back to akshare.", ticker)
+            return False
+
+        xdxr = pd.DataFrame()
+        try:
+            xdxr = tdx_source.fetch_xdxr(ticker)
+        except Exception:
+            logger.warning("TDX xdxr fetch failed for {}; using unadjusted prices.", ticker)
+
+        mapped = to_akshare_hist_schema(daily, ticker, float_shares=float_shares)
+        adjusted = qfq_adjust(mapped, xdxr)
+        for row in adjusted.to_dict(orient='records'):
+            stock_data = ChinaStockData.ChinaStockData(*list(row.values()))
+            stock.add_data(stock_data)
+
+        self.storage.put_stock(ticker, stock)
+        logger.info("Historical data for stock {} updated until {}.", ticker, stock.last_data_update)
+        return True
 
     def get_next_report_date(self, last_report_date):
         year = last_report_date.year
@@ -148,5 +213,7 @@ class DataAcquisition:
     def get_stock_data(self, ticker):
         self.acquire_daily_overview()
         self.acquire_performance_report()
-        self.acquire_historical_data(ticker)
+        if not self.acquire_historical_data_tdx(ticker):
+            logger.warning("TDX history failed for {}; falling back to akshare.", ticker)
+            self.acquire_historical_data(ticker)
         return self.storage.get_stock(ticker)

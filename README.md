@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ## 使用
 
 1. **配置API密钥**：在`.env`文件中设置你的阿里云千问密钥，获取具体步骤请参考[阿里云官网](https://bailian.console.aliyun.com/?spm=5176.29597918.J_SEsSjsNv72yRuRFS2VknO.2.53477b08ZGAW8r&tab=api#/api)。可将密钥填入本地.env.example文件将其重命名为.env。
-   2. ~~支持9988.HK喵 支持9988.HK谢谢喵 2025年底目标价格250HKD喵~~
+   - 可选：设置 `TDX_API_KEY`（通达信 MCP）启用实时市场情报（概念板块/资金流/大盘概况）注入 agent 决策。未配置时应用正常降级运行，仅跳过实时情报。
 2. 运行主程序：
 
 ```bash
@@ -30,6 +30,14 @@ pip install -r requirements.txt
 1. 基于真实市场数据，提供基本面与趋势分析报告
 2. 支持多智能体协作决策
 3. 提供可视化的交易决策界面
+
+## 数据源
+
+- **历史行情主路径（TDX/pytdx）**：`data_source/chinese_mainland/tdx/` 薄包装
+  vendored [tdx_quant](https://github.com/henrylin99/tdx_quant)（pytdx 直连通达信
+  行情服务器，快且稳定）。数据经前复权（qfq）后写入 ZODB；失败自动回退 akshare。
+  更新 vendor 的方式见 `data_source/chinese_mainland/tdx/vendor/VENDOR.md`。
+- **akshare**：行情兜底 + 个股概览 + 业绩报告（原路径，未改动）。
 
 ## 注意事项
 - 请确保你的API密钥安全，不要泄露给他人。

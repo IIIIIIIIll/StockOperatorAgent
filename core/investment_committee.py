@@ -55,9 +55,18 @@ class InvestmentCommittee:
         config: RunnableConfig = {"configurable": {"thread_id": "1"}}
         committee = self.make_investment_committee(config)
 
+        # 图前 enrichment：TDX MCP 实时情报 + 技术指标追加进 stock_information。
+        # 函数内 import——无 TDX_API_KEY / 无行情数据时降级为占位文本，不改图结构。
+        from core.llms.tools.get_market_intel import get_market_intel
+        from core.llms.tools.get_trend_indicators import get_trend_indicators
+
+        stock_information = get_stock_info(target_ticker)
+        stock_information += "\n" + get_trend_indicators(target_ticker)
+        stock_information += "\n" + get_market_intel(target_ticker)
+
         responses = committee.stream({"messages": [{"role": "user", "content": f"请帮我分析一下 {target_ticker}"}],
                  "target_stock_ticker": target_ticker,
-                 "stock_information": get_stock_info(target_ticker)
+                 "stock_information": stock_information
                  }, config=config)
 
         return responses

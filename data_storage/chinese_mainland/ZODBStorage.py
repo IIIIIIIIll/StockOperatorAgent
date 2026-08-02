@@ -49,3 +49,21 @@ class ZODBStorageInstance():
     def get_stock(self, ticker):
         logger.debug("Getting stock {} from database", ticker)
         return self.root.stocks.get(ticker, None)
+
+
+_instance = None
+
+
+def get_zodb_storage():
+    """进程级单例：整个进程共享一个 ZODB 连接。
+
+    FileStorage 的 flock 锁在同一进程内不可重入——本环境（ZODB 6.2 +
+    Python 3.13）下实例的 __del__ 偶发无法关闭连接（ConnectionStateError），
+    锁泄漏会导致同进程第二个实例打开失败（zc.lockfile.LockError）。所有
+    DataAcquisition 共用本单例即消除该类问题（core spec 所述"module-level
+    singleton"的落地实现）。
+    """
+    global _instance
+    if _instance is None:
+        _instance = ZODBStorageInstance()
+    return _instance

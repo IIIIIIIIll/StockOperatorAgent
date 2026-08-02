@@ -31,11 +31,20 @@ Orchestrates data freshness and ingestion. Local patterns:
   (0331/0630/0930/1231) and `acquire_performance_report` fetches all reports
   between the last stored date and the latest possible date.
 - `get_stock_data(ticker)` is the single entry: overview → performance reports →
-  history → return `storage.get_stock(ticker)`.
+  history → return `storage.get_stock(ticker)`. History is **TDX-first**:
+  `acquire_historical_data_tdx(ticker)` fails (`False` + `logger.error`) →
+  falls back to `acquire_historical_data` (akshare). akshare method untouched.
+- `acquire_historical_data_tdx(ticker)` — same freshness-first + boolean
+  protocol as the akshare version; chain: `TdxSource.fetch_finance_capital`
+  (流通股本, 失败降级 → 换手率 NaN) → `fetch_daily` (失败 → `False`) →
+  `fetch_xdxr` (失败降级 → 未复权) → `mapping.to_akshare_hist_schema` →
+  `adjust.qfq_adjust` → `ChinaStockData(*list(row.values()))` → `add_data`.
+  See `data_source/index.md` for the layer contracts.
 
-`ZODBStorageInstance()` is instantiated in the constructor (not injected) — a
-module-level singleton in `ZODBStorage.py`. Keep it that way; do not add a second
-storage abstraction.
+`self.storage = get_zodb_storage()` in the constructor — a lazy **process-wide
+singleton** in `ZODBStorage.py` (FileStorage flock 不可重入，同进程第二个实例
+会 LockError；spec 原称"module-level singleton"，现已落地为 `get_zodb_storage`).
+Keep it that way; do not add a second storage abstraction.
 
 ## InvestmentCommittee (`core/investment_committee.py`)
 
@@ -45,7 +54,11 @@ storage abstraction.
 - Compiled with `InMemorySaver()` checkpointer; runtime `config` must carry
   `{"configurable": {"thread_id": "1"}}`.
 - `make_investment_decision(target_ticker)` streams the graph with the initial
-  state `{"messages": [...], "target_stock_ticker": ..., "stock_information": get_stock_info(...)}`.
+  state `{"messages": [...], "target_stock_ticker": ..., "stock_information": ...}`.
+  `stock_information` is **图前 enrichment**：`get_stock_info` + 技术指标
+  (`get_trend_indicators`) + 实时情报 (`get_market_intel`，无 `TDX_API_KEY`
+  时降级文本) 拼接——不改 State/图/agent 模式。工具在函数内 import，
+  避免无 key 环境的模块级副作用。
 - New agents mean: new node registration here, a new edge, a new `State` key,
   and a new prompt in `core/llms/prompt.py`.
 

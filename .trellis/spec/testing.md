@@ -40,6 +40,20 @@ seed upstream state with `dummy_*` module constants (e.g. `dummy_fundamental_ana
 `dummy_bullish_opinion`) instead of calling the real pipeline. Use this pattern
 when a change touches only one agent.
 
+## TDX Tests (`test/data_source/test_tdx_*.py`, `test/core/llms/tools/`)
+
+- `test_tdx_mapping.py` — 离线：12 列序契约（`AKSHARE_HIST_COLUMNS`）、首行
+  NaN、换手率、qfq golden values（每10股单位、先累乘后应用、事件日前后行为）。
+- `test_tdx_source.py` / `test_tdx_screener.py` — live smoke（TDX 服务器可达）：
+  真实拉取、12 列全链路、`screen()` 的 `RESULT_COLUMNS` 结构。
+- `test_data_acquisition_tdx.py` — 布尔协议 + 新鲜度跳过；`_seed_stock` 补种
+  `stocks` BTree 使测试自包含（不依赖 akshare 填充）。
+- `test_get_trend_indicators.py` / `test_get_market_intel.py` — 指标输出结构
+  + 无 key 降级文本（显式清 `TDX_API_KEY` 环境变量，与开发者本机 key 解耦）。
+- 基线（本环境无 .env/网络受限）：既有套件 29F/3P，失败均为环境性（缺
+  `DASHSCOPE_API_KEY`、akshare 网络、`ChinaStock('dummy')` 已知损坏）。
+  回归门槛 = 不新增失败。
+
 ## Known Broken Tests (do not copy)
 
 - `test/data_structure/test_ChinaStock.py:10` and

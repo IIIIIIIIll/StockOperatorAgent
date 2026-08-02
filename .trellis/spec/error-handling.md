@@ -31,6 +31,16 @@ and `acquire_historical_data`. Callers branch on the boolean
 as fatal). `data_storage/.../ZODBStorage.py` follows the sibling convention:
 `get_stock` returns `None` for missing keys and never raises.
 
+**Wrapper-source exception (TDX path)**: `acquire_historical_data_tdx` is the
+data layer's only sanctioned catch site — vendored pytdx raises
+`ValueError`/`ConnectionError` for invalid codes / server failures (not
+"expected absence"). It catches at the acquisition boundary and converts to the
+boolean protocol: daily fetch failure → `False` (caller falls back to akshare);
+`fetch_finance_capital` / `fetch_xdxr` failure → `logger.warning` + degrade
+(换手率 NaN / 未复权) without blocking the main path. Same shape in
+`get_trend_indicators` / `get_market_intel` (LLM tools): failures return
+placeholder text, never raise.
+
 ### 2. Raise at the boundary (LLM tool)
 
 `core/llms/tools/get_company_info.py` is the **only raise site in the codebase**:

@@ -66,11 +66,19 @@ in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
 
 Use `QwenApi` everywhere; do not construct a second model/client for agent calls.
 
-## Tool (`core/llms/tools/get_company_info.py`)
+## Tools (`core/llms/tools/`)
 
-`get_stock_info(ticker) -> str` wraps `DataAcquisition.get_stock_data` +
-`StockOutputFormatter.format_stock_output`. It is the only function passed to
-agents as a callable and the only place that raises on a missing stock.
+- `get_company_info.py` — `get_stock_info(ticker) -> str` wraps
+  `DataAcquisition.get_stock_data` + `StockOutputFormatter.format_stock_output`.
+  The only place that raises on a missing stock.
+- `get_trend_indicators.py` — `get_trend_indicators(ticker) -> str`：ZODB 日K →
+  vendored `compute_all`（通达信口径 MA/EMA/MACD/RSI/KDJ/BOLL/ATR/量比）→ 最近
+  一根 bar 中文摘要。无数据返回占位文本，不 raise。vendor 导入需先调用
+  `data_source...tdx_source.ensure_vendor_on_path()`（见 data_source spec）。
+- `get_market_intel.py` — `get_market_intel(ticker) -> str`：TDX MCP 实时情报
+  （概念/资金流/大盘）。无 `TDX_API_KEY` 或查询失败返回占位文本，不 raise。
+- 三者均不直接传给 agent 作为 callable——在 `make_investment_decision` 图前
+  拼接进 `stock_information`（见 core spec）。
 
 ## Anti-Patterns
 

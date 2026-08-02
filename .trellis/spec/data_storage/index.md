@@ -17,10 +17,13 @@ patterns:
   `utils.constants.china_db_path`, opens the DB + connection, and seeds
   `root.overview_last_updated` (defaults to `constants.default_start`). On a
   fresh file it creates `root.stocks = BTrees.OOBTree.BTree()`.
-- **Module-level singleton**: `ZODBStorageInstance()` is instantiated at import
-  time in `ZODBStorage.py`; `DataAcquisition.__init__` grabs it via
-  `ZODBStorageInstance()`. Keep this — do not add DI or a second storage class.
-- **`__del__`** closes connection and DB with an info log.
+- **Process-wide singleton**: `get_zodb_storage()` in `ZODBStorage.py` lazily
+  creates one shared instance; `DataAcquisition.__init__` grabs it via
+  `get_zodb_storage()`. **Do not open a second connection in one process** —
+  FileStorage 的 flock 锁不可重入，同进程第二个实例打开即 `zc.lockfile.LockError`
+  （本环境 ZODB 6.2 下 `__del__` 偶发无法关闭连接，锁会泄漏）。
+- **`__del__`** closes connection and DB with an info log; in this environment
+  it may raise `ConnectionStateError` at interpreter exit — cosmetic noise.
 
 ## Key-Value Semantics
 

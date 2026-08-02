@@ -27,3 +27,21 @@ Captured how the spec system itself operates into `.trellis/spec/spec-system.md`
 - `spec-system.md` self-routes via `paths: .trellis/spec/**` — verified live when the injection hook fired on write. `index.md` now links it from "How Specs Reach You".
 
 
+
+## 2026-08-02 — tdx_quant 集成（task 08-02-tdx-quant-integration）
+
+将 https://github.com/henrylin99/tdx_quant 集成进 StockOperatorAgent（M1→M2→M3 三个里程碑，用户批准的方案）：
+
+- **vendor 机制**：上游无打包文件（无 pyproject/setup.py），按 vendor 快照引入（commit b95d8e9，55 文件 → `data_source/chinese_mainland/tdx/vendor/`），`tdx_source.py` 模块级 `ensure_vendor_on_path()` 插入 sys.path 使上游绝对导入 `scripts.*` 原样可用，零改动；VENDOR.md 记录 commit 与更新流程。依赖仅新增 `pytdx==1.72`。
+- **M1 历史行情主路径**：`TdxSource` 薄包装（8 个 fetch_*，raw DataFrame out）；`mapping.to_akshare_hist_schema` 输出与 akshare `stock_zh_a_hist` 完全一致的 12 列序 → 既有 `ChinaStockData(*list(row.values()))` 位置构造零改动；`adjust.qfq_adjust` 前复权。**实测发现的非显然知识**：pytdx xdxr 的 `fenhong/songzhuangu/peigu` 是**每10股单位**（比亚迪 002594 事件 39.74/20.0 = 10转20派39.74元，除 10 才对）；qfq 因子**先累乘再应用**（事件日 bar 是基准，事件前 bar 乘更新后因子）；复权后需重算振幅/涨跌幅/涨跌额（除权跳空消除）。akshare qfq 黄金对照因本环境东方财富端点不可达改用除息日价格跳空实证（6/12 除息跳空 0.3 元 ↔ 0.36 元/股 ✓）。
+- **DataAcquisition**：`acquire_historical_data_tdx`（新鲜度优先 + 布尔协议 + 三个异常捕获点：finance_capital/xdxr 降级、daily 失败 → False），`get_stock_data` TDX 优先/akshare 兜底。
+- **M2**：`get_trend_indicators`（ZODB 日K → vendored compute_all 通达信口径指标摘要）；screener 离线冒烟通过。
+- **M3**：`get_market_intel`（TDX MCP，无 TDX_API_KEY 降级文本）+ `make_investment_decision` 图前 enrichment（stock_information 拼接），State/图/agent 模式零改动。
+- **根因修复（非计划内，spec 声称与代码不符）**：ZODBStorage spec 称"module-level singleton"但代码没有——FileStorage flock 不可重入，本环境（ZODB 6.2 + Py3.13）`__del__` 偶发无法关连接导致同进程第二个实例 LockError。落地 `get_zodb_storage()` 进程级懒单例，DataAcquisition 改用它。
+- **测试**：23 个新测试（离线 mapping/qfq golden、live smoke、布尔协议、无 key 降级），全量 28 过（基线 3）/ 29 环境性失败（零新增）。stocks BTree 补种使测试自包含。
+- **spec 更新**：data_source（TdxSource/vendor/mapping/qfq 约定）、core（TDX 路径 + enrichment）、data_storage（单例修正）、error-handling（包装源异常捕获点）、agents（新工具）、testing（TDX 测试 + 基线）。
+
+## 2026-08-02 — tdx_quant 集成（task 08-02-tdx-quant-integration）收尾
+
+- 全量回归：28 passed / 29 failed（均为环境性：缺 DASHSCOPE_API_KEY、akshare 网络不可达、`ChinaStock('dummy')` 已知损坏），归一化 diff 零新增。
+- 提交：chore(tdx): integrate tdx_quant pytdx data pipeline
