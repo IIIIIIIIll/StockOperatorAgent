@@ -23,13 +23,20 @@ fix-dead-code-cleanup （独立，但 formatter NaN 渲染归 fix-tdx-correctnes
 
 ## 跨子任务验收（父任务级）
 
-- [ ] 4 个子任务全部归档后，全量 `python3 -m pytest -q` **0 failed**
-      （67 passed / 20 skipped 保持），2.5-3.5 分钟内完成
-- [ ] 无新 spec 矛盾：architecture.md 的 key 检查断言与实现一致、data_source
-      spec 的列序疑点更新为实测结论、TDX 派生契约修正同步
-- [ ] deprecated 测试（akshare/qwen/DeepSeek live）零改动
-- [ ] 冒烟：`get_stock_data('000001')` 纯 TDX 全链路正常（overview+历史+业绩）
-- [ ] 审计清单逐项核对：27 项全部有处理结论（修复或标注"保留+理由"）
+- [x] 4 个子任务全部归档后，全量 `python3 -m pytest -q` **0 failed**
+      —— 实测 **112 passed / 20 skipped / 0 failed，2 分 31 秒**
+      （基线 67P → 112P，+45 新用例，0 新增失败）
+- [x] 无新 spec 矛盾：architecture.md key 检查断言与实现一致（只认
+      DEEPSEEK_API_KEY）、data_source spec 列序疑点更新为源码级实测结论
+      （hist/spot 对齐、yjbb 列名映射例外授权）、TDX 派生契约同步
+- [x] deprecated 测试（akshare/qwen/DeepSeek live）零改动（20 skip 不变）
+- [x] 冒烟：`get_stock_data('000001')` 正常——**1164 根日K**（120 根永久
+      缺口修复生效）+ 6 报告 + 平安银行；formatter 0 nan 字面 / 7 处 N/A
+- [x] 审计清单逐项核对：27 项全部有处理结论——3 高危 + 10 中危全修；
+      14 低危修 13、1 项（StockInfo 死类）标注保留（akshare 备用路径
+      组成部分，随备用路径共存）
+- [x] 执行顺序与依赖：时区工具 asia_today() 由子任务 1 产出，子任务 2
+      复用（无重复实现）——符合父任务规划
 
 ## Constraints（全局）
 
