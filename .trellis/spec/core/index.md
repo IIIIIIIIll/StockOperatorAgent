@@ -41,11 +41,22 @@ Orchestrates data freshness and ingestion. Local patterns:
   由此触发）。
 - `ensure_stock(ticker) -> bool` — 按需构建语义：storage 已有 → `True`（不
   每日刷新概览）；`build_overview` None → `logger.error` + `False`。
-- `acquire_performance_report_tdx(ticker) -> bool` — storage 无该股票 → `False`；
-  `build_reports` 返回单表多行，逐行 `StockPerformanceReport(*list(row.values()))`
-  （15 列无切片）→ `add_performance_report`（内部 commit，report_date 字符串
-  去重）→ `put_stock` → `True`；`build_reports` None（无报告）→ `logger.warning`
-  + `True`（无报告不是失败）。
+- `acquire_performance_report_tdx(ticker, _fetch_reports=None) -> bool` — storage
+  无该股票 → `False`；`build_reports` 返回单表多行，逐行
+  `StockPerformanceReport(*list(row.values()))`（15 列无切片）→
+  `add_performance_report`（内部 commit，report_date 字符串去重）→ `put_stock`
+  → `True`；`build_reports` None（无报告）→ `logger.warning` + `True`（无报告
+  不是失败）。
+- **业绩 freshness 门**（2026-08-02，对齐日K"先查再拉"）：调 `build_reports`
+  （远端 F10）前先读 ZODB 最新 `report_date`（`performance_reports[-1]`，无报告
+  → 门未命中直接拉）。门命中 = 最新 `report_date` == 最近一个已到截止日的季度末
+  （`_latest_past_quarter_end(asia_today())`，与 `get_latest_possible_report_date`
+  同季度末推算 0331/0630/0930/1231，'%Y%m%d' 字符串比较）→ `logger.debug` +
+  `True`（不拉远端）。披露滞后语义：公司未披露当期 → F10 最新期仍为上一季 →
+  门未命中 → 照常拉取（旧期由 `add_performance_report` 去重；同季重复拉直到
+  披露）——只承诺"该季截止日已过且已入库则不重复拉"，不引入跨季补拉。
+  `_fetch_reports` 为测试注入点（house style 无 mock 框架，计数包装验证门跳过
+  时不触发网络）。
 - akshare 方法（`acquire_daily_overview` / `acquire_performance_report` /
   `update_*_overview` / `acquire_historical_data` / `get_next_report_date` /
   `get_latest_possible_report_date` / `build_performance_report_from_row` /

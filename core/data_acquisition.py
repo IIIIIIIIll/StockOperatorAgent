@@ -337,20 +337,58 @@ class DataAcquisition:
         self.storage.put_stock(stock_overview.ticker, stock)
         return True
 
-    def acquire_performance_report_tdx(self, ticker):
-        """TDX F10 业绩报告路径：build_reports 单表多行 → 逐行入仓。
+    def _latest_past_quarter_end(self, today=None):
+        """最近一个已到截止日的季度末（'%Y%m%d' 字符串）——业绩 freshness 门基准。
+
+        与 get_next_report_date / get_latest_possible_report_date 同一季度末
+        推算（0331/0630/0930/1231）：1-3 月 → 上一年 1231；4-6 月 → 本年
+        0331；7-9 月 → 本年 0630；10-12 月 → 本年 0930（今天 2026-08-02 →
+        '20260630'）。返回字符串与 StockPerformanceReport.report_date
+        （'%Y%m%d'）协议一致，可直接 == 比较。
+        """
+        today = today or asia_today()
+        if today.month < 4:
+            return datetime(today.year - 1, 12, 31).strftime('%Y%m%d')
+        elif today.month < 7:
+            return datetime(today.year, 3, 31).strftime('%Y%m%d')
+        elif today.month < 10:
+            return datetime(today.year, 6, 30).strftime('%Y%m%d')
+        else:
+            return datetime(today.year, 9, 30).strftime('%Y%m%d')
+
+    def acquire_performance_report_tdx(self, ticker, _fetch_reports=None):
+        """TDX F10 业绩报告路径：freshness 门 → build_reports 单表多行 → 逐行入仓。
 
         布尔协议：storage 无该股票 → logger.error + False（expected absence）；
         有 → 每份 add_performance_report（内部已 commit，report_date 字符串
         比较去重）→ put_stock → True。build_reports 返回 None（F10 拉取失败/
         无报告）→ logger.warning + True——无报告不是失败，与 ensure_stock 的
         构建失败语义区分。
+
+        Freshness 门（2026-08-02，对齐日K"先查再拉"）：调 build_reports（远端
+        F10）前先读 ZODB 最新 report_date（performance_reports[-1]，无报告 →
+        门未命中直接拉）。门命中 = 最新 report_date == 最近一个已到截止日的
+        季度末（_latest_past_quarter_end）→ logger.debug + True（不拉远端）。
+        披露滞后语义：公司未披露当期报告时 F10 最新期仍为上一季 → 门未命中
+        → 照常拉取（拉到旧期由 add_performance_report 去重；同季重复拉直到
+        披露）——本门只承诺"该季截止日已过且已入库则不重复拉"，不引入跨季
+        补拉。
+
+        _fetch_reports：测试注入点（house style 无 mock 框架）——默认
+        TdxSource().build_reports（远端 F10），测试传计数包装验证门跳过时
+        不触发网络。
         """
         stock = self.storage.get_stock(ticker)
         if stock is None:
             logger.error("Stock {} not found in database.", ticker)
             return False
-        reports = TdxSource().build_reports(ticker)
+        latest_quarter_end = self._latest_past_quarter_end(asia_today())
+        if stock.performance_reports and stock.performance_reports[-1].report_date == latest_quarter_end:
+            logger.debug("Performance reports for {} already include the latest quarter {}; skipping F10 fetch.", ticker, latest_quarter_end)
+            return True
+        if _fetch_reports is None:
+            _fetch_reports = TdxSource().build_reports
+        reports = _fetch_reports(ticker)
         if reports is None:
             logger.warning("TDX performance reports unavailable for {}; skipped.", ticker)
             return True

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/core/index.md", "reason": "DataAcquisition 模式：acquire_performance_report_tdx 现状、布尔协议、freshness-first 模式（日K 先查再拉的参照）、add_performance_report 去重协议"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "ChinaStock.performance_reports 行为（report_date 字符串比较、更新才加）、report_date '%Y%m%d' 格式"}
+{"file": ".trellis/spec/testing.md", "reason": "回归门槛 112P/20S/0F、无 mock 的测试风格、_seed_stock 补种模式"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "日期格式跨层一致（%Y%m%d 字符串）、Freshness Gate 基准（get_last_business_day/季度末推算）"}

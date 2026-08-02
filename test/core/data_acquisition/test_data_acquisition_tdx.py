@@ -17,6 +17,7 @@ from core.data_acquisition import DataAcquisition
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 from data_structure.chinese_mainland import ChinaStock
 from data_structure.chinese_mainland.StockOverview import StockOverview
+from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
 from utils.time_helper import asia_today, get_last_business_day
 
 
@@ -37,6 +38,19 @@ def _seed_stock(da, ticker, name="测试"):
     stock = ChinaStock.ChinaStock(name, ticker, overview)
     da.storage.put_stock(ticker, stock)
     return stock
+
+
+def _seed_report(stock, report_date):
+    """直接向 performance_reports 追加一份最小报告（绕过 add_performance_report
+    的递增去重约束——测试需构造任意旧报告期）。report_date 为 '%Y%m%d' 字符串。"""
+    report = StockPerformanceReport(
+        stock.ticker, stock.name,
+        float64(0), float64(0), float64(0), float64(0), float64(0),
+        float64(0), float64(0), float64(0), float64(0), float64(0),
+        float64(0), "", report_date,
+    )
+    stock.performance_reports.append(report)
+    transaction.commit()
 
 
 class TestDataAcquisitionTdx:
@@ -165,3 +179,95 @@ class TestDataAcquisitionTdx:
         assert len(stock.get_datas()) > 0  # 历史（TDX 日K）
         if TdxSource().build_reports("000001") is not None:
             assert len(stock.get_performance_reports()) > 0
+
+    # ---------- 业绩报告 freshness 门（08-02-fix-report-freshness-gate） ----------
+    # 门判定：ZODB 最新 report_date == 最近季度末（今天 2026-08-02 → '20260630'）
+    # → 跳过远端 F10。验证方式（house style 无 mock 框架）：acquire_performance
+    # _report_tdx 的 _fetch_reports 注入点传计数包装——门命中时包装不被调用即
+    # 证明无 F10 网络。门未命中用例的包装返回 None（离线确定性：拉取路径进入
+    # 即可，F10 可达性不影响断言）。每个用例用独立专用 ticker（600000 浦发银行
+    # live / 600001 / 600002 离线），不触碰既有 000001 用例，seed 注入的报告
+    # 也不互相污染；报告数断言用"相对 seed 前后"而非绝对值（共享 DB，上次
+    # 运行可能已入库）。
+
+    def test_performance_report_gate_skips_fetch_when_latest_quarter_seeded(self):
+        """门命中：最新 report_date == 最近季度截止日 → build_reports 不被调用。"""
+        da = DataAcquisition()
+        stock = _seed_stock(da, "600000", "浦发银行")
+        _seed_report(stock, "20260630")
+        len_before = len(stock.get_performance_reports())
+        calls = []
+
+        def fake_fetch(t):
+            calls.append(t)
+            return TdxSource().build_reports(t)
+
+        assert da.acquire_performance_report_tdx("600000", _fetch_reports=fake_fetch) is True
+        assert calls == []  # 门跳过：无 F10 网络访问
+        assert len(stock.get_performance_reports()) == len_before  # 不新增
+
+    def test_performance_report_gate_miss_when_no_reports(self):
+        """门未命中（无报告）→ 正常走拉取路径（_fetch_reports 被调一次）。
+
+        专用 ticker 600001（离线，fake 返回 None 不触网），与 600000 用例
+        （种子注入 '20260630'）互不污染。
+        """
+        da = DataAcquisition()
+        stock = _seed_stock(da, "600001", "测试")
+        len_before = len(stock.get_performance_reports())
+        calls = []
+
+        def fake_fetch(t):
+            calls.append(t)
+            return None  # 模拟 F10 拉取失败/无报告降级
+
+        assert da.acquire_performance_report_tdx("600001", _fetch_reports=fake_fetch) is True
+        assert calls == ["600001"]  # 拉取路径进入
+        assert len(stock.get_performance_reports()) == len_before  # None 降级：不入库不报错
+
+    def test_performance_report_gate_miss_when_old_report_only(self):
+        """门未命中（最新期早于最近季度）→ 正常拉取；旧期不被破坏/重复。
+
+        专用 ticker 600002（离线，fake 返回 None 不触网），与 600000/600001
+        用例互不污染。
+        """
+        da = DataAcquisition()
+        stock = _seed_stock(da, "600002", "测试")
+        _seed_report(stock, "20250331")  # 上一季（中报未披露语义）
+        len_before = len(stock.get_performance_reports())
+        calls = []
+
+        def fake_fetch(t):
+            calls.append(t)
+            return None
+
+        assert da.acquire_performance_report_tdx("600002", _fetch_reports=fake_fetch) is True
+        assert calls == ["600002"]
+        assert len(stock.get_performance_reports()) == len_before
+        assert stock.get_performance_reports()[-1].report_date == "20250331"
+
+    def test_performance_report_gate_live_double_call(self):
+        """live：连续两次调用——首拉后最新期入库 → 第二次门命中不再拉 F10。
+
+        先注入旧报告期 '20250331' 保证首拉必走远端（门未命中，calls == 1）；
+        第二次是否命中取决于 F10 是否已披露 2026 中报：披露 → 门命中
+        （calls 仍 1，最新 report_date == '20260630'）；未披露/TDX 不可达 →
+        仍拉（calls == 2）——均为 prd 披露滞后语义的合法结果。
+        """
+        da = DataAcquisition()
+        stock = _seed_stock(da, "600000", "浦发银行")
+        _seed_report(stock, "20250331")
+        calls = []
+
+        def fake_fetch(t):
+            calls.append(t)
+            return TdxSource().build_reports(t)
+
+        assert da.acquire_performance_report_tdx("600000", _fetch_reports=fake_fetch) is True
+        assert len(calls) == 1  # 旧报告期 → 门未命中，首拉必走远端
+        assert da.acquire_performance_report_tdx("600000", _fetch_reports=fake_fetch) is True
+        if len(calls) == 1:
+            # 第二次未再拉 → 2026 中报已入库，门命中
+            assert stock.get_performance_reports()[-1].report_date == "20260630"
+        else:
+            assert len(calls) == 2
