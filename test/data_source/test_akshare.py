@@ -41,18 +41,6 @@ class TestAKShare():
         logger.info(shex_stocks)
 
 
-    def test_get_shex_stock_overview(self):
-        akshare_source = AKShareSource()
-        shex_stocks = akshare_source.fetch_shex_stocks()
-        assert shex_stocks is not None
-        shex_stocks_dict = shex_stocks.to_dict(orient='records')
-        for row in shex_stocks_dict:
-            stock_overview = StockOverview(*list(row.values())[1:])
-            logger.info(stock_overview)
-
-        logger.info(shex_stocks)
-
-
     def test_get_szex_stock_overview(self):
         akshare_source = AKShareSource()
         szex_stocks = akshare_source.fetch_szex_stocks()

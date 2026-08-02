@@ -74,27 +74,27 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 - `test/integration/test_investment_committee.py` — 整个文件（DeepSeek live
   E2E，本机 .env 有 key 但网络受限连 api.deepseek.com 挂起）
 
-## 基线（本环境，2026-08-02 deprecated 后实测）
+## 基线（本环境，2026-08-02 根治后实测）
 
-- **全量：8F/59P/20S，约 3.5 分钟**。回归门槛 = 不新增失败。
-- 8 个失败全为既有环境性失败：
-  - `ChinaStock('dummy')` 已知损坏（test_ChinaStock.py + test_ZODBStorage.py
-    的 test_storage，TypeError）→ 见 Known Broken Tests
-  - ZODB `test_exist_*` / `test_set_update_now` — 同进程前序 ZODB 实例
-    `__del__` 锁泄漏（BlockingIOError）传染，见 data_storage spec
-  - `test_need_update` — 周末日历边界：DB 里 `overview_last_updated` 若
-    晚于上工作日 17:00 则 check 返回 False 而测试期望 True
+- **全量：0F/67P/20S，约 2.5-3.5 分钟**。回归门槛 = 不新增失败。
+- 2026-08-02 修复（8F → 0F，详情见对应 spec/PRD）：
+  - `ZODBStorage.__del__` 锁泄漏根治：`transaction.abort()` + try/except
+    （data_storage spec）——`test_exist_*` / `test_set_update_now` 的
+    BlockingIOError/LockError 传染消失；
+  - `test_ZODBStorage.py` 改用进程级单例 `get_zodb_storage()`（flock 不可
+    重入：全量回归中 test/core 已创建单例，原"另开实例"写法必然 LockError）；
+  - `ChinaStock('dummy')` TypeError 修复：三参数构造 + 完整 `ChinaStockData`
+    字段（`date` 用递增 `datetime.date`，`datetime.datetime` 与 date 不可比）；
+  - `test_exist_*` 断言语义改为按需构建契约：未构建 ticker → `None`，
+    已构建 → `_seed_stock` 补种后返回数据（自包含，不依赖旧数据）；
+  - `test_need_update` 基准改用 `get_last_business_day` 的 17:00（与实现
+    完全一致，周末/工作日均成立）；`test_storage` 改专用 dummy ticker
+    `999998` 测往返，不触碰真实 000001；
+  - `test_akshare.py` 重复定义的 `test_get_shex_stock_overview` 删除；
+    `test_time_helper.py` 补真实断言（固定日期 + `date` 对象）；
+    `test_ChinaStock.py` 类名 `TestZODBStorage` → `TestChinaStock`。
 - 新增 TDX 测试（overview/reports/data_acquisition_tdx）全绿。
-
-## Known Broken Tests (do not copy)
-
-- `test/data_structure/test_ChinaStock.py:10` and
-  `test/data_storage/test_ZODBStorage.py:12` call `ChinaStock('dummy')` — the
-  constructor requires `(name, ticker, overview)`; these tests raise `TypeError`
-  and are stale.
-- `test/data_source/test_akshare.py` defines `test_get_shex_stock_overview`
-  twice (lines 25 and 37) — pytest keeps the last definition.
-- `test/utils/test_time_helper.py` calls the helper without asserting.
+- deprecated 20 个 skip 保持不变（akshare/qwen/DeepSeek live 零改动）。
 
 ## Anti-Patterns
 

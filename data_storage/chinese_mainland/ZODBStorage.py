@@ -24,9 +24,23 @@ class ZODBStorageInstance():
         logger.info("ZODB connected, overview last updated at {}", self.root.overview_last_updated)
 
     def __del__(self):
-        self.connection.close()
-        self.db.close()
-        logger.info("ZODBStorage instance closed")
+        # __del__ 不得向外抛异常。先 transaction.abort() 终止未提交事务
+        # （访问 root 即 join 事务），否则 connection.close() 抛
+        # ConnectionStateError → db.close() 不执行 → FileStorage flock 锁
+        # 泄漏，同进程下一个实例打开即 zc.lockfile.LockError / BlockingIOError。
+        # ZODB 6.0.1 实测：connection.abort(transaction) 是 storage-manager
+        # 接口需传事务参数，无参调用 TypeError；transaction.abort() 正确且
+        # abort → close → db.close 后锁必然释放。
+        try:
+            try:
+                transaction.abort()
+            except Exception:
+                pass  # abort 尽力而为；close/db.close 才是锁释放的关键
+            self.connection.close()
+            self.db.close()
+            logger.info("ZODBStorage instance closed")
+        except Exception:
+            logger.exception("ZODBStorage destructor failed")
 
     def check_need_update_overview(self):
         if self.root.overview_last_updated > datetime.datetime.combine(get_last_business_day(datetime.date.today()), datetime.time(17, 00)):

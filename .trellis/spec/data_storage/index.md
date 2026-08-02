@@ -20,10 +20,20 @@ patterns:
 - **Process-wide singleton**: `get_zodb_storage()` in `ZODBStorage.py` lazily
   creates one shared instance; `DataAcquisition.__init__` grabs it via
   `get_zodb_storage()`. **Do not open a second connection in one process** —
-  FileStorage 的 flock 锁不可重入，同进程第二个实例打开即 `zc.lockfile.LockError`
-  （本环境 ZODB 6.2 下 `__del__` 偶发无法关闭连接，锁会泄漏）。
-- **`__del__`** closes connection and DB with an info log; in this environment
-  it may raise `ConnectionStateError` at interpreter exit — cosmetic noise.
+  FileStorage 的 flock 锁不可重入，同进程第二个实例打开即 `zc.lockfile.LockError`。
+  全量回归中 test/core 套件已创建单例并持有锁，`test_ZODBStorage.py` 因此也走
+  `get_zodb_storage()` 而非另开实例（2026-08-02 修复）。
+- **`__del__`** (2026-08-02 根治锁泄漏)：先 `transaction.abort()` 终止未提交事务
+  （访问 root 即 join 事务，否则 `connection.close()` 抛
+  `ConnectionStateError` → `db.close()` 不执行 → flock 泄漏 → 同进程下一实例
+  `BlockingIOError`），再 `connection.close()` → `db.close()` → info 日志；整个
+  `__del__` 用 try/except 包裹（`__del__` 不得向外抛异常）。ZODB 6.0.1 实测：
+  `connection.abort(transaction)` 是 storage-manager 接口需传事务参数，无参调用
+  TypeError；`transaction.abort()` 正确且锁必然释放。残余噪音：解释器退出时若
+  处于未提交事务态，ZODB 内部 `FileStorage.close` 的 `_save_index` 在 builtins
+  拆除后打印 `NameError: name 'open' is not defined`（ZODB 自身捕获打印，非
+  本类抛出）——纯装饰性；全量 pytest 结束干净（末态已提交则 `connection.close()`
+  内部 KeyError 被本类 except 吞掉）。
 
 ## Key-Value Semantics
 
@@ -55,10 +65,19 @@ patterns:
 
 ## Tests
 
-`test/data_storage/test_ZODBStorage.py` runs against the real file database —
-it asserts known tickers exist (`871263`, `002741`, `600188`) and that
-`overview_last_updated` behaves. The file DB must already be populated (first
-run of the app or `DataAcquisition` tests) before these pass.
+`test/data_storage/test_ZODBStorage.py` runs against the real file database via
+the **process-wide singleton** (`get_zodb_storage()` — flock 不可重入，不得另开
+实例)，断言：
+
+- 未构建的 ticker → `get_stock()` 返回 `None`（按需构建契约：纯 TDX 架构下 DB
+  只含分析过的股票，`871263`/`002741`/`600188` 从未入仓，跨 run 稳定）；
+- 已构建的 ticker → 模块级 `_seed_stock` 补种（沿用 `test_data_acquisition_tdx.py`
+  模式，22 字段 `StockOverview` 合成 + `ChinaStock` 三参数构造）后返回数据，
+  测试自包含、不依赖 DB 历史状态；
+- `put/get` 往返用专用 dummy ticker（`999998`），不触碰真实数据
+  （`000001`/`002714` 的 datas/reports 在测试前后保持不变）；
+- `overview_last_updated` 新鲜度行为（`test_need_update` 基准与实现一致：
+  `get_last_business_day` 的 17:00，周末也成立）。
 
 ## Anti-Patterns
 

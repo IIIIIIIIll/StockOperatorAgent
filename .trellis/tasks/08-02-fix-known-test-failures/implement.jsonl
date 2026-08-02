@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/data_storage/index.md", "reason": "ZODBStorageInstance 模式：__del__ 现状（close 抛 ConnectionStateError 锁泄漏的 spec 记录）、put_stock/get_stock 键值语义、Freshness Gate 定义（get_last_business_day 17:00）、只动 __del__ 的约束"}
+{"file": ".trellis/spec/testing.md", "reason": "测试规范：类式无 mock、_seed_stock 补种模式（test_data_acquisition_tdx.py）、storage 测试不污染共享 DB 的 anti-pattern、Known Broken 清单（本任务修复对象）"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "ChinaStock 构造签名 (name,ticker,overview)、ChinaStockData 字段（13 字段无默认值）、add_data 按 date 去重语义"}
+{"file": ".trellis/spec/error-handling.md", "reason": "__del__ 不得向外抛异常（try/except 包裹的合理性）；数据层布尔协议不适用于 __del__"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "测试期望与实现基准一致性（test_need_update 的 17:00 基准）、DB 状态契约（按需构建架构下未构建 ticker 应为 None）"}

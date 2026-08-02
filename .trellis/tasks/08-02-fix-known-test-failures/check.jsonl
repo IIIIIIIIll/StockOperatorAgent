@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/testing.md", "reason": "回归门槛：全量 0F（deprecated 20S 保持）；无 mock 引入；无 ChinaStock('dummy') 残留；基线记录更新"}
+{"file": ".trellis/spec/data_storage/index.md", "reason": "验证 ZODBStorage.py 只动 __del__、__del__ 不抛异常、锁泄漏消除（同进程多实例连续打开）"}
+{"file": ".trellis/spec/error-handling.md", "reason": "验证 __del__ 的 try/except 包裹符合'不吞关键路径异常'与'析构不抛'边界"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "验证测试断言与实现契约一致（Freshness Gate 基准、按需构建语义）"}
