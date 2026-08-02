@@ -39,9 +39,14 @@ downstream agents from live LLM calls).
 - `target_stock_ticker`, `stock_information` — seeded by the caller (committee/UI)
 - `fundamental_analysis`, `trend_analysis` — produced by the first two nodes
 - `bullish_opinions`, `bearish_opinions` — `Annotated[list, add_messages]`: agents
-  return strings, the reducer wraps them into message lists
+  return strings, the reducer wraps them into message lists（LangGraph 0.6 对
+  初始输入同样应用 reducer，节点内读取恒为消息列表）
 - `final_decision` — produced by `investment_manager`
 - `messages` — `Annotated[list, add_messages]` conversation channel
+
+`investment_manager` 读取观点时取 `state['bullish_opinions'][-1].content` /
+`bearish_opinions[-1].content`（2026-08-02 修复：原插值整个列表 repr，prompt
+里是 `[HumanMessage(...)]` 元数据而非观点正文）。
 
 Node names in the graph and the `State` keys must stay in sync — the graph wiring
 in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.

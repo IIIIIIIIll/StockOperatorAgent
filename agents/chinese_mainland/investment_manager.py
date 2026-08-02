@@ -27,19 +27,25 @@ class InvestmentManager:
 
 
     def investment_manager(self, state: State):
+        # bullish_opinions / bearish_opinions 经 add_messages reducer 包装为
+        # 消息列表（agent 返回字符串被包装）——取 [-1].content 为观点正文，
+        # 不插值 [HumanMessage(...)] 列表 repr（修复：原 {state[...]} 插值
+        # 的是列表元数据而非观点内容）
+        bullish_opinion = state['bullish_opinions'][-1].content
+        bearish_opinion = state['bearish_opinions'][-1].content
         investment_manager_query = f"""
-        现在请基于以下信息，给出你对股票代码${state['target_stock_ticker']}的最终投资建议：
+        现在请基于以下信息，给出你对股票代码{state['target_stock_ticker']}的最终投资建议：
         基本面报告: \n
-        ${state['fundamental_analysis']}
+        {state['fundamental_analysis']}
         \n
         趋势报告: \n
-        ${state['trend_analysis']}
+        {state['trend_analysis']}
         \n
         多头观点: \n
-        ${state['bullish_opinions']}
+        {bullish_opinion}
         \n
         空头观点: \n
-        ${state['bearish_opinions']}
+        {bearish_opinion}
         \n
         """
         query = [("human", investment_manager_query)]

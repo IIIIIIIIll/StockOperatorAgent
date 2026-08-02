@@ -54,9 +54,10 @@ logger.add(str(LOG_DIR / "stock_operator_agent.log"), enqueue=True, rotation="50
 
 ## Anti-Patterns
 
-- `logger.debug("\nAssistant:", value["messages"][-1].content)` in
-  `core/ui/display.py:49` — loguru takes a format string + bound args, so the
-  message is dropped and only the arg prints. Use `logger.debug("Assistant: {}", ...)`.
+- `logger.debug("\nAssistant:", value["messages"][-1].content)` — loguru takes
+  a format string + bound args, so the message is dropped and only the arg
+  prints. Use `logger.debug("Assistant: {}", ...)`. （2026-08-02 已修复
+  `core/ui/display.py` 原该行。）
 - `print()` for diagnostics in tests is tolerated (existing tests do it), but
   production modules must use loguru.
 - Mixing stdlib `logging` into new modules — the project standardizes on loguru.

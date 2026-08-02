@@ -64,3 +64,28 @@ class TestDataAcquisition():
         stock = da.get_stock_data('002714')
         logger.info(StockOutputFormatter.format_stock_output(stock))
         assert stock is not None
+
+    def test_module_import_lazy_akshare(self):
+        """修复 4 验收：import core.data_acquisition 不触发 akshare import。
+
+        subprocess 隔离（采集期 test/data_source/test_akshare.py 已导入 akshare，
+        进程内 sys.modules 检查不可靠）。失败时 stderr 会带 assert 消息。
+        """
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[3]
+        code = (
+            "import sys; sys.path.insert(0, {repo!r})\n"
+            "import core.data_acquisition\n"
+            "assert 'data_source.chinese_mainland.akshare.fetch_stcok_data' not in sys.modules, "
+            "'akshare imported at module level'\n"
+        ).format(repo=str(repo_root))
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert out.returncode == 0, out.stderr

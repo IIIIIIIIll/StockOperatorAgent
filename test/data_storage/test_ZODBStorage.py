@@ -98,3 +98,47 @@ class TestZODBStorage():
         assert stock.ticker == "999004"
         assert len(stock.get_datas()) == 0  # 新补种无历史数据
         logger.debug(stock.ticker)
+
+    def test_singleton_concurrent_first_call(self):
+        """并发首调不双构造（修复 8）：threading.Lock 双重检查保护惰性初始化。
+
+        释放旧连接（flock 锁）→ 重置 _instance → 8 线程并发首调 → 恰好构造
+        一次、全部返回同一实例。无锁实现下并发构造第二个实例会
+        zc.lockfile.LockError（本用例失败）。本用例放在本文件末尾：替换单例后
+        套件后续（data_structure/integration/utils）不再触碰 ZODB，安全。
+        """
+        import threading
+        from data_storage.chinese_mainland import ZODBStorage as storage_module
+
+        old = storage_module.get_zodb_storage()
+        try:
+            transaction.abort()
+        except Exception:
+            pass
+        old.connection.close()
+        old.db.close()
+
+        init_count = {"n": 0}
+        orig_init = storage_module.ZODBStorageInstance.__init__
+
+        def counting_init(self, *args, **kwargs):
+            init_count["n"] += 1
+            orig_init(self, *args, **kwargs)
+
+        storage_module.ZODBStorageInstance.__init__ = counting_init
+        storage_module._instance = None
+        try:
+            results = []
+
+            def call():
+                results.append(storage_module.get_zodb_storage())
+
+            threads = [threading.Thread(target=call) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert init_count["n"] == 1
+            assert all(r is results[0] for r in results)
+        finally:
+            storage_module.ZODBStorageInstance.__init__ = orig_init

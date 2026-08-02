@@ -12,7 +12,7 @@ def asia_today() -> "datetime.date":
     """
     return datetime.now(ZoneInfo("Asia/Shanghai")).date()
 
-def get_last_business_day(input_date: type[datetime.date]) -> type[datetime.date]:
+def get_last_business_day(input_date: datetime.date) -> datetime.date:
     # getting difference
     diff = 0
     if input_date.weekday() == 6:

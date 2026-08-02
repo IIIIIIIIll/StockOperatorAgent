@@ -74,10 +74,12 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 - `test/integration/test_investment_committee.py` — 整个文件（DeepSeek live
   E2E，本机 .env 有 key 但网络受限连 api.deepseek.com 挂起）
 
-## 基线（本环境，2026-08-02 根治后实测）
+## 基线（本环境，2026-08-02 实测）
 
-- **全量：0F/100P/20S，约 3-4 分钟**（2026-08-02 fix-tdx-correctness 后；
-  历史基线 0F/83P/20S、0F/67P/20S）。回归门槛 = 不新增失败。
+- **全量：0F/112P/20S，约 2.5-4 分钟**（2026-08-02 fix-dead-code-cleanup 后，
+  较 106P/20S 增 6 用例：enrichment 组装、investment_manager 插值、display
+  组装点接线、update_overview 槽位、单例并发首调、akshare 惰性导入）。
+  历史基线 0F/100P/20S、0F/83P/20S、0F/67P/20S。回归门槛 = 不新增失败。
 - 2026-08-02 修复（8F → 0F，详情见对应 spec/PRD）：
   - `ZODBStorage.__del__` 锁泄漏根治：`transaction.abort()` + try/except
     （data_storage spec）——`test_exist_*` / `test_set_update_now` 的

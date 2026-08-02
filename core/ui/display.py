@@ -1,8 +1,7 @@
 import os
 import streamlit as st
 from langchain_core.runnables import RunnableConfig
-from core.investment_committee import InvestmentCommittee
-from core.llms.tools.get_company_info import get_stock_info
+from core.investment_committee import InvestmentCommittee, build_stock_information
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
 
@@ -46,19 +45,34 @@ def write_ui():
              bearish_opinion,
              final_decision) = st.tabs(["基本面分析", "趋势分析", "看涨观点", "看跌观点", "最终结论"])
 
-            updatable_container.info(f"正在获取 {stock_ticker} 的股票信息... 可能会需要一些时间，请耐心等待...")
-            stock_info = get_stock_info(stock_ticker)
+            updatable_container.info(f"正在获取 {stock_ticker} 的股票信息（含技术指标与实时情报）... 可能会需要一些时间，请耐心等待...")
+            try:
+                # 图前 enrichment（与 make_investment_decision 共用同一组装点）：
+                # 个股信息 + 技术指标 + TDX 实时情报（无 TDX_API_KEY 时降级文本）
+                stock_info = build_stock_information(stock_ticker)
+            except Exception as e:
+                # UI 层守护（error-handling spec 允许）：数据问题（如股票缺失
+                # 抛出的 Exception）不裸 traceback 红屏，中文提示 + 记录日志
+                logger.exception("Failed to build stock information for {}", stock_ticker)
+                st.error(f"获取 {stock_ticker} 的股票信息失败：{e}，请检查股票代码后重试")
+                return
             updatable_container.info(f"正在开始分析 {stock_ticker} 的股票信息... 可能会需要一些时间，请耐心等待...")
 
             config: RunnableConfig = {"configurable": {"thread_id": "1"}}
             graph = committee.make_investment_committee(config, progress_updater=updatable_container)
 
-            for responses in graph.stream({"messages": [{"role": "user", "content": f"请帮我分析一下 {stock_ticker}"}],
-                                       "target_stock_ticker": stock_ticker,
-                                       "stock_information": stock_info
-                                       }, config=config):
-                for value in responses.values():
-                    logger.debug("\nAssistant:", value["messages"][-1].content)
+            try:
+                for responses in graph.stream({"messages": [{"role": "user", "content": f"请帮我分析一下 {stock_ticker}"}],
+                                           "target_stock_ticker": stock_ticker,
+                                           "stock_information": stock_info
+                                           }, config=config):
+                    for value in responses.values():
+                        logger.debug("Assistant: {}", value["messages"][-1].content)
+            except Exception as e:
+                # LLM 调用失败（API key 失效/网络/限流）→ 中文提示，不裸 traceback
+                logger.exception("Agent graph streaming failed for {}", stock_ticker)
+                st.error(f"分析 {stock_ticker} 的过程中出错：{e}，请稍后重试或检查 LLM 配置")
+                return
 
             states = list(graph.get_state_history(config))
 

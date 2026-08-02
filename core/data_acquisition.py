@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 import pandas as pd
-from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
 from data_source.chinese_mainland.tdx.adjust import qfq_adjust
 from data_source.chinese_mainland.tdx.mapping import to_akshare_hist_schema
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource, is_bj_ticker
@@ -39,6 +38,13 @@ class DataAcquisition:
         self.storage = get_zodb_storage()
 
     def acquire_daily_overview(self):
+        """deprecated（备用路径，主流程不调用）：akshare 全市场概览刷新。
+
+        主流程为纯 TDX 按需单股构建（get_stock_data → ensure_stock），
+        不经过本方法；保留供 akshare 备用路径使用。
+        """
+        # AKShareSource 惰性导入：纯 TDX 启动不付出 akshare 重依赖成本
+        from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
         if self.storage.check_need_update_overview():
             logger.info("Updating stock overview data...")
             self.update_shex_overview()
@@ -48,21 +54,28 @@ class DataAcquisition:
         return True
 
     def update_shex_overview(self):
+        """deprecated（备用路径，主流程不调用）：akshare 沪市概览。"""
+        from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
         for row in AKShareSource().fetch_shex_stocks().to_dict(orient='records'):
             self.update_overview_in_storage(row)
         return True
 
     def update_szex_overview(self):
+        """deprecated（备用路径，主流程不调用）：akshare 深市概览。"""
+        from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
         for row in AKShareSource().fetch_szex_stocks().to_dict(orient='records'):
             self.update_overview_in_storage(row)
         return True
 
     def update_bjex_overview(self):
+        """deprecated（备用路径，主流程不调用）：akshare 北交所概览。"""
+        from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
         for row in AKShareSource().fetch_bjex_stocks().to_dict(orient='records'):
             self.update_overview_in_storage(row)
         return True
 
     def update_overview_in_storage(self, row):
+        """deprecated（备用路径，主流程不调用）：akshare 概览行 → storage。"""
         stock_overview = StockOverview(*list(row.values())[1:])
         if self.storage.get_stock(stock_overview.ticker) is None:
             logger.debug(f"Stock overview for {stock_overview.ticker} not found in database.")
@@ -77,6 +90,12 @@ class DataAcquisition:
         return True
 
     def acquire_historical_data(self, ticker):
+        """deprecated（备用路径，主流程不调用）：akshare 历史日K。
+
+        主流程用 acquire_historical_data_tdx（TDX 按需增量）；本方法保留
+        供 akshare 备用路径使用（既有测试引用）。
+        """
+        from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
         stock = self.storage.get_stock(ticker)
         if stock is None:
             logger.error(f"Stock {ticker} not found in database.")
@@ -172,6 +191,7 @@ class DataAcquisition:
         return True
 
     def get_next_report_date(self, last_report_date):
+        """deprecated（备用路径，主流程不调用）：业绩报表报告期步进。"""
         year = last_report_date.year
         month = last_report_date.month
         if month <= 3:
@@ -185,7 +205,7 @@ class DataAcquisition:
 
 
     def get_latest_possible_report_date(self, today=None):
-        """最近一个已结束报告期（acquire_performance_report 轮询上限）。
+        """deprecated（备用路径，主流程不调用）：最近一个已结束报告期（acquire_performance_report 轮询上限）。
 
         1-3 月 → 上一年年报（1231）：当年 1231 尚未发生，用它拉未来报告期
         且永远漏掉去年年报（原 '1230' 还差一天）；4-6 月 → 本年 0331；
@@ -204,7 +224,7 @@ class DataAcquisition:
             return datetime(year, 9, 30).date()
 
     def build_performance_report_from_row(self, row, report_date):
-        """yjbb_em 行 → StockPerformanceReport（按列名映射，位置构造例外）。
+        """deprecated（备用路径，主流程不调用）：yjbb_em 行 → StockPerformanceReport（按列名映射，位置构造例外）。
 
         列名存在性断言：任一必需列缺失 → logger.error + 返回 None（调用方
         acquire_performance_report 据此 return False，不静默写垃圾——位置
@@ -231,12 +251,13 @@ class DataAcquisition:
         )
 
     def acquire_performance_report(self, ticker='601988'):
-        """akshare 备用路径：拉取业绩报表（主流程用 acquire_performance_report_tdx）。
+        """deprecated（备用路径，主流程不调用）：akshare 拉取业绩报表。
 
-        :param ticker: 演示用股票代码。'601988' 为历史遗留演示默认值（硬编码
-            参数化：签名兼容，旧调用不传参仍可用）；每次调用 logger.warning
-            显式提示这是演示代码 + 备用路径。
+        主流程用 acquire_performance_report_tdx（TDX F10）。'601988' 为
+        历史遗留演示默认值（硬编码参数化：签名兼容，旧调用不传参仍可用）；
+        每次调用 logger.warning 显式提示这是演示代码 + 备用路径。
         """
+        from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
         logger.warning("acquire_performance_report: legacy akshare fallback (demo ticker {}); main flow uses acquire_performance_report_tdx.", ticker)
         stock = self.storage.get_stock(ticker)
         if stock is None:
@@ -275,6 +296,7 @@ class DataAcquisition:
 
 
     def add_performance_report_in_storage(self, stock_performance):
+        """deprecated（备用路径，主流程不调用）：业绩报告行 → storage。"""
         if self.storage.get_stock(stock_performance.ticker) is None:
             logger.error(f"Stock {stock_performance.ticker} not found in database.")
             return False

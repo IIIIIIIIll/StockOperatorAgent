@@ -37,6 +37,6 @@ class FundamentalAnalysisExpert:
             self.progress_updater.info("开始基本面分析报告生成。。。")
         response = self.llm.invoke({"query" : query}, config=self.config)
         if self.progress_updater is not None:
-            self.progress_updater.info("开始基本面分析报告生成。。。")
+            self.progress_updater.info("基本面分析报告生成完成。。。")
         logger.debug("Fundamental Analysis Expert Response: {}", response.content)
         return {"messages": [query[0], response], "fundamental_analysis": response.content}

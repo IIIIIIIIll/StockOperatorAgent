@@ -47,3 +47,13 @@ class TestDisplayKeyCheck():
                 os.environ.pop("DASHSCOPE_API_KEY", None)
             else:
                 os.environ["DASHSCOPE_API_KEY"] = saved_dashscope
+
+
+class TestDisplayEnrichmentWiring():
+
+    def test_display_uses_shared_build_stock_information(self):
+        """修复 1 验收：display 与 make_investment_decision 共用同一
+        enrichment 组装点（原 display 直接用 get_stock_info，技术指标与
+        实时情报段从未执行）。"""
+        from core.investment_committee import build_stock_information
+        assert display.build_stock_information is build_stock_information

@@ -82,12 +82,12 @@ Cross-layer rules of thumb:
   (typo "stcok"). Renaming breaks imports — keep the name.
 - `core/stock_output_formatter.py:1` imports `output` from `openpyxl.styles.builtins`
   and then shadows it with a local `output` variable. Dead import; leave it.
-- Some agent query templates contain a literal `${state[...]}` (e.g.
-  `agents/chinese_mainland/bullish_trader.py:32`) — a copy-paste artifact that
-  renders literally into the prompt. Harmless; do not spread it to new code.
+- `${state[...]}` 字面残留已清理（2026-08-02 fix-dead-code-cleanup：bullish/
+  bearish/investment_manager 删除 `$` 前缀；grep 无残留）——新代码保持无
+  `$` 前缀的正确插值。
 - `bullish_opinions` / `bearish_opinions` are typed `Annotated[list, add_messages]`
   in `State` but agents return plain strings; the reducer wraps them into message
-  lists, which is why `display.py` reads `[-1].content`.
+  lists, which is why `display.py` and `investment_manager` read `[-1].content`.
 - The LangGraph checkpointer is `InMemorySaver` with `thread_id "1"` — state does
   not survive process restarts.
 

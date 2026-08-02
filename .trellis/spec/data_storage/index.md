@@ -27,6 +27,14 @@ patterns:
   FileStorage 的 flock 锁不可重入，同进程第二个实例打开即 `zc.lockfile.LockError`。
   全量回归中 test/core 套件已创建单例并持有锁，`test_ZODBStorage.py` 因此也走
   `get_zodb_storage()` 而非另开实例（2026-08-02 修复）。
+- **线程安全（2026-08-02）**：惰性初始化用 `threading.Lock()` 双重检查保护
+  （`_instance_lock`）——Streamlit 多会话并发首调不双构造（test_singleton_
+  concurrent_first_call 钉死）。**连接本身非线程安全**——锁只防双构造，
+  读写仍应单会话使用（UI 层串行渲染即满足）。
+- **check/set overview 门标注 deprecated（2026-08-02）**：
+  `check_need_update_overview` / `set_overview_updated_now` docstring 标注
+  "仅备用路径使用"——主流程纯 TDX 按需构建（ensure_stock）不经过它们，
+  方法保留（akshare 备用路径 + 既有测试引用）。
 - **`__del__`** (2026-08-02 根治锁泄漏)：先 `transaction.abort()` 终止未提交事务
   （访问 root 即 join 事务，否则 `connection.close()` 抛
   `ConnectionStateError` → `db.close()` 不执行 → flock 泄漏 → 同进程下一实例

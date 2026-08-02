@@ -21,16 +21,13 @@ class ChinaStock(persistent.Persistent):
             self.last_data_update = default_start.date()
 
         def update_overview(self, new_overview):
-            self.info = new_overview
+            # 修复（08-02-fix-dead-code-cleanup）：原写 self.info 不写
+            # self.overview → formatter 永远读构造时的陈旧概览。现写
+            # self.overview（formatter 读取槽位）；info 字段保留仅为
+            # 兼容既有序列化数据，不再写入。
+            self.overview = new_overview
             self.overview_last_update = datetime.datetime.now()
             transaction.commit()
-
-        def add_info(self, info):
-            self.info = info
-            transaction.commit()
-
-        def get_info(self):
-            return self.info
 
         def add_data(self, data: ChinaStockData):
             if not data.date > self.last_data_update:

@@ -28,12 +28,12 @@ class BearishTrader:
 
     def bearish_trader(self, state: State):
         bearish_trader_query = f"""
-        现在请基于以下信息，给出你对股票代码${state['target_stock_ticker']}的看法：
+        现在请基于以下信息，给出你对股票代码{state['target_stock_ticker']}的看法：
         基本面报告: \n
-        ${state['fundamental_analysis']}
+        {state['fundamental_analysis']}
         \n
         趋势报告: \n
-        ${state['trend_analysis']}
+        {state['trend_analysis']}
         \n
         """
         query = [("human", bearish_trader_query)]

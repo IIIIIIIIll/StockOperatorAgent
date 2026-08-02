@@ -48,3 +48,15 @@ class TestChinaStock():
         # 去重语义：date 不晚于 last_data_update 的 data 被拒绝
         stock.add_data(_make_data(datetime.date(2024, 1, 2), "000001"))
         assert len(stock.get_datas()) == 2
+
+    def test_update_overview(self):
+        """修复（08-02-fix-dead-code-cleanup）：update_overview 写 self.overview。
+
+        原实现写 self.info（formatter 读 self.overview）→ 概览永不刷新；
+        修复后 update_overview(new) → stock.overview == new，info 保持 None。
+        """
+        stock = ChinaStock("测试", "000001", _make_overview("000001"))
+        new_overview = _make_overview("000001")
+        stock.update_overview(new_overview)
+        assert stock.overview == new_overview
+        assert stock.info is None

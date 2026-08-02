@@ -47,8 +47,15 @@ Orchestrates data freshness and ingestion. Local patterns:
   去重）→ `put_stock` → `True`；`build_reports` None（无报告）→ `logger.warning`
   + `True`（无报告不是失败）。
 - akshare 方法（`acquire_daily_overview` / `acquire_performance_report` /
-  `update_*_overview` / `acquire_historical_data`）**保留不删**（备用 + 既有
-  测试引用），但主流程不再调用。
+  `update_*_overview` / `acquire_historical_data` / `get_next_report_date` /
+  `get_latest_possible_report_date` / `build_performance_report_from_row` /
+  `add_performance_report_in_storage` / `update_overview_in_storage`）**保留
+  不删**（备用 + 既有测试引用），但主流程不再调用——docstring 统一标注
+  `deprecated（备用路径，主流程不调用）`（2026-08-02）。
+- **AKShareSource 惰性导入**（2026-08-02）：`data_acquisition.py` 无模块级
+  akshare import——每个 deprecated 方法内部局部 import，纯 TDX 启动不付出
+  akshare 重依赖成本（`import core.data_acquisition` 不触发 akshare 加载，
+  test_module_import_lazy_akshare 钉死）。
 - `acquire_historical_data_tdx(ticker)` — freshness-first + boolean 协议；
   chain: `TdxSource.fetch_finance_capital`（流通股本, 失败降级 → 换手率 NaN）
   → `fetch_daily` (失败 → `False`) → `fetch_xdxr` (失败降级 → 未复权) →
@@ -70,10 +77,13 @@ Keep it that way; do not add a second storage abstraction.
   `{"configurable": {"thread_id": "1"}}`.
 - `make_investment_decision(target_ticker)` streams the graph with the initial
   state `{"messages": [...], "target_stock_ticker": ..., "stock_information": ...}`.
-  `stock_information` is **图前 enrichment**：`get_stock_info` + 技术指标
-  (`get_trend_indicators`) + 实时情报 (`get_market_intel`，无 `TDX_API_KEY`
-  时降级文本) 拼接——不改 State/图/agent 模式。工具在函数内 import，
-  避免无 key 环境的模块级副作用。
+  `stock_information` 由模块函数 **`build_stock_information(ticker)`**（2026-08-02
+  抽出，display 与 make_investment_decision 共用同一组装点——原 enrichment
+  只存在于死方法里，display 流程从未执行）生成：`get_stock_info`（stock 缺失
+  raise，唯一 raise 点）+ 技术指标 (`get_trend_indicators`，无行情数据降级
+  占位) + 实时情报 (`get_market_intel`，无 `TDX_API_KEY` 时降级文本) 拼接
+  ——不改 State/图/agent 模式。工具在函数内 import，避免无 key 环境的
+  模块级副作用。
 - New agents mean: new node registration here, a new edge, a new `State` key,
   and a new prompt in `core/llms/prompt.py`.
 
@@ -99,6 +109,15 @@ Keep it that way; do not add a second storage abstraction.
   agents can stream progress into it.
   **2026-08-02**：BJ 代码（4/8 前缀，`tdx_source.is_bj_ticker`）提交时直接
   `st.error` 明确提示不支持（TDX 不覆盖 BJ 证券），不静默 NaN。
+- **2026-08-02（enrichment 真实接入）**：display 构造 `stock_information` 调用
+  `build_stock_information(ticker)`（与 `make_investment_decision` 共用组装
+  点）——技术指标与 TDX 实时情报段真实进入 agent 上下文；无 `TDX_API_KEY`
+  时情报段为降级占位文本。
+- **2026-08-02（UI 层错误守护）**：`build_stock_information` 与 `graph.stream`
+  包 try/except（error-handling spec 允许的 UI 守护边界）——失败
+  `st.error` 中文提示 + `logger.exception`，不裸 traceback 红屏、不吞错误。
+- **2026-08-02（日志修复）**：`logger.debug("Assistant: {}", ...)` 正确
+  占位符风格（原 `logger.debug("\nAssistant:", value)` 消息被 loguru 丢弃）。
 - After streaming, results are pulled from `graph.get_state_history(config)[0].values`
   — including `bullish_opinions[-1].content` (works because the `add_messages`
   reducer wraps agent strings into message lists — see `agents/index.md`).

@@ -11,8 +11,9 @@ paths:
 
 ## The Two Local Patterns
 
-The codebase has **no custom exception classes and no `try/except` in
-production code**. Failures follow one of two patterns depending on layer:
+The codebase has **no custom exception classes**; `try/except` exists only in
+two sanctioned places (data-layer 降级捕获点 + UI 层守护，见下)。Failures
+follow one of two patterns depending on layer:
 
 ### 1. Boolean result protocol (data layer)
 
@@ -66,8 +67,13 @@ problem becomes a user-facing failure.
 
 - Agent nodes do not catch LLM errors: `self.llm.invoke(...)` failures bubble to
   the graph stream and the caller (`display.py`, tests).
-- The only `try/except` in the repo is test-side, `test/core/llms/qwen/test_qwen_api.py`,
-  which catches API errors to print the DashScope error-code docs link.
+- **UI 层守护（2026-08-02 修复，合法例外）**：`core/ui/display.py` 对
+  `build_stock_information`（数据问题如股票缺失 → `get_stock_info` raise）与
+  `graph.stream`（LLM 失败）各包一层 `try/except`——`st.error` 中文提示 +
+  `logger.exception`，不裸 traceback 红屏、不吞错误（错误仍记录到日志）。
+  Agent 节点内部不 catch，失败照旧冒泡到这两个边界。
+- Test-side `try/except`：`test/core/llms/qwen/test_qwen_api.py` 捕获 API
+  错误打印 DashScope error-code 文档链接。
 
 ## Rules of Thumb
 
@@ -78,8 +84,9 @@ problem becomes a user-facing failure.
   there are callers that need to distinguish failure kinds.
 - Log first, return/raise second — the log line identifies the ticker/operation.
 - Guard the app against a missing API key at the UI layer
-  (`display.py` checks `DASHSCOPE_API_KEY` in `os.environ` and shows a Chinese
-  error banner) rather than in the data pipeline.
+  (`display.py` checks `DEEPSEEK_API_KEY` in `os.environ` and shows a Chinese
+  error banner) rather than in the data pipeline. UI 层同样守护运行期错误
+  （`build_stock_information` / `graph.stream` 的 try/except → `st.error`）。
 
 ## Anti-Patterns
 

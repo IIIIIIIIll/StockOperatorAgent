@@ -35,7 +35,10 @@ class StockOverview(persistent.Persistent):
   `'%Y%m%d'` **string**, and `DataAcquisition` compares them as strings
   (`get_next_report_date` cycle). Keep both formats as they are.
 - `StockInfo` exists but is only exercised in `test/data_source/test_akshare.py`;
-  `ChinaStock.update_overview` stores a new overview in `info`.
+  `ChinaStock.update_overview` **写 `self.overview`**（2026-08-02 修复：原写
+  `self.info` → formatter 永远读构造时的陈旧概览；现 overview 是唯一写入
+  槽位）；`info` 字段保留仅为兼容既有序列化数据，不再写入。`add_info` /
+  `get_info` 已删除（无引用）。
 
 ## ChinaStock (`ChinaStock.py`)
 
@@ -52,7 +55,8 @@ Behavior rules:
 - `add_performance_report(report)` — rejects reports whose `report_date`
   (`'%Y%m%d'` string compare) is not newer than the last one.
 - Every mutating method ends with `transaction.commit()` — the persistent-object
-  write pattern (see `data_storage/index.md`).
+  write pattern (see `data_storage/index.md`). (`update_overview` 同步
+  `overview_last_update` + commit；`add_info`/`get_info` 已删，勿再添加。)
 - Constructor signature is `(name, ticker, overview)` — the tests that call
   `ChinaStock('dummy')` (`test/data_structure/test_ChinaStock.py`,
   `test/data_storage/test_ZODBStorage.py`) are stale and broken; new tests must

@@ -31,11 +31,11 @@ class TrendAnalysisExpert:
         {state['stock_information']}
         """
         query = [("human", trend_analysis_expert_query)]
-        logger.debug("Fundamental Analysis Expert Query: {}", trend_analysis_expert_query)
+        logger.debug("Trend Analysis Expert Query: {}", trend_analysis_expert_query)
         if self.progress_updater is not None:
             self.progress_updater.info("开始趋势分析报告生成。。。")
         response = self.llm.invoke({"query" : query}, config=self.config)
         if self.progress_updater is not None:
-            self.progress_updater.info("开始趋势分析报告生成。。。")
-        logger.debug("Fundamental Analysis Expert Response: {}", response.content)
+            self.progress_updater.info("趋势分析报告生成完成。。。")
+        logger.debug("Trend Analysis Expert Response: {}", response.content)
         return {"messages": [query[0], response], "trend_analysis": response.content}

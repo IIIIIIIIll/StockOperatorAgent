@@ -14,6 +14,24 @@ from core.llms.tools.get_company_info import get_stock_info
 from langgraph.checkpoint.memory import InMemorySaver
 from loguru import logger
 
+
+def build_stock_information(target_ticker: str) -> str:
+    """图前 enrichment：个股信息 + 技术指标 + TDX 实时情报拼接成 stock_information。
+
+    唯一组装点（display 与 make_investment_decision 共用）：get_stock_info
+    （stock 缺失 raise，唯一 raise 点）→ get_trend_indicators（无行情数据
+    降级占位文本）→ get_market_intel（无 TDX_API_KEY / 查询失败降级占位
+    文本）。工具在函数内 import——避免无 key / 无行情数据环境的模块级副作用。
+    """
+    from core.llms.tools.get_market_intel import get_market_intel
+    from core.llms.tools.get_trend_indicators import get_trend_indicators
+
+    stock_information = get_stock_info(target_ticker)
+    stock_information += "\n" + get_trend_indicators(target_ticker)
+    stock_information += "\n" + get_market_intel(target_ticker)
+    return stock_information
+
+
 class InvestmentCommittee:
 
     def make_investment_committee(self, config: RunnableConfig, progress_updater = None):
@@ -55,14 +73,8 @@ class InvestmentCommittee:
         config: RunnableConfig = {"configurable": {"thread_id": "1"}}
         committee = self.make_investment_committee(config)
 
-        # 图前 enrichment：TDX MCP 实时情报 + 技术指标追加进 stock_information。
-        # 函数内 import——无 TDX_API_KEY / 无行情数据时降级为占位文本，不改图结构。
-        from core.llms.tools.get_market_intel import get_market_intel
-        from core.llms.tools.get_trend_indicators import get_trend_indicators
-
-        stock_information = get_stock_info(target_ticker)
-        stock_information += "\n" + get_trend_indicators(target_ticker)
-        stock_information += "\n" + get_market_intel(target_ticker)
+        # 与 display 共用 build_stock_information（图前 enrichment 唯一组装点）
+        stock_information = build_stock_information(target_ticker)
 
         responses = committee.stream({"messages": [{"role": "user", "content": f"请帮我分析一下 {target_ticker}"}],
                  "target_stock_ticker": target_ticker,
