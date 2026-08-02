@@ -252,6 +252,77 @@ class TestDataAcquisitionTdx:
         assert da.storage.get_stock("999998").overview.name == name_before
         assert da.storage.get_stock("999998").overview_last_update == stamp_before
 
+    # ---------- review #5：ZODB 读写锁（2026-08-02） ----------
+
+    def test_concurrent_access_safe(self):
+        """两线程并发 get/mutate/commit 同一 stock：无 POSKeyError/ConflictError。
+
+        单例 ZODB 连接非线程安全（review #5）——storage.lock 把并发访问
+        串行化。无锁时该测试有概率暴露异常（不保证必现）；锁的验证 =
+        测试恒绿 + test_concurrent_data_phase_serializes 的时序断言。
+        """
+        import threading
+        da = DataAcquisition()
+        _seed_stock(da, "999993")
+        errors = []
+        def worker():
+            try:
+                for _ in range(10):
+                    with da.storage.lock:
+                        s = da.storage.get_stock("999993")
+                        s.overview_last_update = datetime.datetime.now()
+                        transaction.commit()
+            except Exception as e:
+                errors.append(e)
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+
+    def test_concurrent_data_phase_serializes(self):
+        """两线程并发跑同一股票的数据阶段：锁串行化（时序 + 无异常）。
+
+        锁只保护 ZODB 访问段——预播种 daily（纯网络，无 ZODB）在锁外，
+        两线程的预播种可重叠。慢 fetcher 放在**锁内**的 F10（业绩门对两
+        线程都未命中：F10 合成数据只有 20260331，≠ 最近季度末 20260630，
+        先跑线程写入不会满足后跑线程的门）：
+        0.4s/次 × 2 线程 → 串行 ≥0.8s；无锁并行 ≈0.4s。断言墙钟 ≥ 0.6s
+        证明锁内段串行化。
+        """
+        import threading
+        import time
+        da = DataAcquisition()
+        ticker = "999993"
+        stock = _seed_stock(da, ticker)
+        stock.overview_last_update = datetime.datetime.combine(
+            asia_today() - datetime.timedelta(days=3), datetime.time(12, 0)
+        )
+        stock.last_data_update = asia_today() - datetime.timedelta(days=3)
+        transaction.commit()
+        errors = []
+        def worker():
+            try:
+                fake = _CountingSrc()
+                orig = fake.fetch_company_finance
+                def slow_f10(t):
+                    time.sleep(0.4)
+                    return orig(t)
+                fake.fetch_company_finance = slow_f10
+                da.get_stock_data(ticker, _scope=FetchScope(fake))
+            except Exception as e:
+                errors.append(e)
+        start = time.monotonic()
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        elapsed = time.monotonic() - start
+        assert errors == []
+        assert elapsed >= 0.6, f"expected serialized locked section (~0.8s), got {elapsed:.1f}s"
+
     # ---------- review #2+#3：单遍拉取（2026-08-02） ----------
 
     def test_acquire_performance_report_tdx_missing_stock_returns_false(self):

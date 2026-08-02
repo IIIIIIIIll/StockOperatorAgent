@@ -216,61 +216,67 @@ class DataAcquisition:
         复用（与概览/业绩共享同一 DataFrame）；None → 独立直拉（独立调用
         语义不变）。方法名与 TdxSource 同构，`_scope or TdxSource()` 直接
         作 fetcher。
+
+        读写锁（review #5）：数据阶段全程持 `storage.lock`（RLock，get →
+        mutate → commit 嵌套可重入）——单例连接非线程安全，Streamlit 多会话
+        并发读写同一连接会 POSKeyError/ConflictError。锁不跨 LLM 调用
+        （图阶段零 ZODB 访问）。
         """
-        stock = self.storage.get_stock(ticker)
-        if stock is None:
-            logger.error("Stock {} not found in database.", ticker)
-            return False
-        logger.debug("Stock {} found in database, last data date is {}.", ticker, stock.last_data_update)
-        # 修复：date==date 比较（原 == datetime.today() 恒假，新鲜度短路死代码）
-        if stock.last_data_update == asia_today():
-            logger.info("Stock {} historical data is already up to date.", ticker)
+        with self.storage.lock:
+            stock = self.storage.get_stock(ticker)
+            if stock is None:
+                logger.error("Stock {} not found in database.", ticker)
+                return False
+            logger.debug("Stock {} found in database, last data date is {}.", ticker, stock.last_data_update)
+            # 修复：date==date 比较（原 == datetime.today() 恒假，新鲜度短路死代码）
+            if stock.last_data_update == asia_today():
+                logger.info("Stock {} historical data is already up to date.", ticker)
+                return True
+
+            # 修复：缺口 > 120 自然日（含 1997-01-01 首次构建）→ max_bars=None
+            # 全量回填一次，消除"120 根永久空洞"（原 120 截断 → add_data 拒绝
+            # 补旧）。缺口 ≤ 120 → 增量拉 gap 根（自然日 ≥ 交易日，够覆盖）。
+            gap_days = self._history_gap(stock)
+            if not gap_days > 0:
+                logger.info("Stock {} historical data is already up to date.", ticker)
+                return True
+            max_bars = None if gap_days > 120 else gap_days
+
+            tdx_source = _scope or TdxSource()
+
+            float_shares = None
+            try:
+                capital = tdx_source.fetch_finance_capital(ticker)
+                if not capital.empty and "liutongguben" in capital.columns:
+                    float_shares = float(capital["liutongguben"].iloc[0])
+            except Exception:
+                logger.warning("Finance capital unavailable for {}; turnover_rate will be NaN.", ticker)
+
+            try:
+                daily = tdx_source.fetch_daily(ticker, max_bars=max_bars)
+            except Exception:
+                logger.error("TDX daily fetch failed for {}; historical data unavailable.", ticker)
+                return False
+
+            xdxr = pd.DataFrame()
+            try:
+                xdxr = tdx_source.fetch_xdxr(ticker)
+            except Exception:
+                logger.warning("TDX xdxr fetch failed for {}; using unadjusted prices.", ticker)
+
+            mapped = to_akshare_hist_schema(daily, ticker, float_shares=float_shares)
+            adjusted = qfq_adjust(mapped, xdxr)
+            # 批量追加（review #3）：先收集后一次 commit——首建全量回填数千行 = 1 个
+            # 事务（原逐行 add_data 数千次 FileStorage tpc）
+            rows = [
+                ChinaStockData.ChinaStockData(*list(row.values()))
+                for row in adjusted.to_dict(orient='records')
+            ]
+            stock.add_datas(rows)
+
+            self.storage.put_stock(ticker, stock)
+            logger.info("Historical data for stock {} updated until {}.", ticker, stock.last_data_update)
             return True
-
-        # 修复：缺口 > 120 自然日（含 1997-01-01 首次构建）→ max_bars=None
-        # 全量回填一次，消除"120 根永久空洞"（原 120 截断 → add_data 拒绝
-        # 补旧）。缺口 ≤ 120 → 增量拉 gap 根（自然日 ≥ 交易日，够覆盖）。
-        gap_days = self._history_gap(stock)
-        if not gap_days > 0:
-            logger.info("Stock {} historical data is already up to date.", ticker)
-            return True
-        max_bars = None if gap_days > 120 else gap_days
-
-        tdx_source = _scope or TdxSource()
-
-        float_shares = None
-        try:
-            capital = tdx_source.fetch_finance_capital(ticker)
-            if not capital.empty and "liutongguben" in capital.columns:
-                float_shares = float(capital["liutongguben"].iloc[0])
-        except Exception:
-            logger.warning("Finance capital unavailable for {}; turnover_rate will be NaN.", ticker)
-
-        try:
-            daily = tdx_source.fetch_daily(ticker, max_bars=max_bars)
-        except Exception:
-            logger.error("TDX daily fetch failed for {}; historical data unavailable.", ticker)
-            return False
-
-        xdxr = pd.DataFrame()
-        try:
-            xdxr = tdx_source.fetch_xdxr(ticker)
-        except Exception:
-            logger.warning("TDX xdxr fetch failed for {}; using unadjusted prices.", ticker)
-
-        mapped = to_akshare_hist_schema(daily, ticker, float_shares=float_shares)
-        adjusted = qfq_adjust(mapped, xdxr)
-        # 批量追加（review #3）：先收集后一次 commit——首建全量回填数千行 = 1 个
-        # 事务（原逐行 add_data 数千次 FileStorage tpc）
-        rows = [
-            ChinaStockData.ChinaStockData(*list(row.values()))
-            for row in adjusted.to_dict(orient='records')
-        ]
-        stock.add_datas(rows)
-
-        self.storage.put_stock(ticker, stock)
-        logger.info("Historical data for stock {} updated until {}.", ticker, stock.last_data_update)
-        return True
 
     def get_next_report_date(self, last_report_date):
         """deprecated（备用路径，主流程不调用）：业绩报表报告期步进。"""
@@ -412,43 +418,46 @@ class DataAcquisition:
         _scope（review #2+#3）：FetchScope 透传——给出时构建/刷新走
         overview.build_overview(_scope=...) 复用共享拉取；None → 独立直拉
         （独立调用语义不变）。_build_overview 注入点优先级最高（完整替换）。
+
+        读写锁（review #5）：数据阶段全程持 `storage.lock`（RLock 可重入）。
         """
-        if _build_overview is None:
-            if _scope is not None:
-                _build_overview = lambda t: _build_overview_module(t, _scope=_scope)
-            else:
-                _build_overview = TdxSource().build_overview
-        stock = self.storage.get_stock(ticker)
-        if stock is not None:
-            if self._overview_stale(stock):
-                overview_df = _build_overview(ticker)
-                if overview_df is None:
-                    logger.warning("Overview refresh failed for {}; keeping previous overview.", ticker)
+        with self.storage.lock:
+            if _build_overview is None:
+                if _scope is not None:
+                    _build_overview = lambda t: _build_overview_module(t, _scope=_scope)
                 else:
-                    # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）
-                    row = overview_df.to_dict(orient='records')[0]
-                    stock.update_overview(new_overview=StockOverview(*list(row.values())))
-                    logger.info("Overview refreshed for {}.", ticker)
+                    _build_overview = TdxSource().build_overview
+            stock = self.storage.get_stock(ticker)
+            if stock is not None:
+                if self._overview_stale(stock):
+                    overview_df = _build_overview(ticker)
+                    if overview_df is None:
+                        logger.warning("Overview refresh failed for {}; keeping previous overview.", ticker)
+                    else:
+                        # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）
+                        row = overview_df.to_dict(orient='records')[0]
+                        stock.update_overview(new_overview=StockOverview(*list(row.values())))
+                        logger.info("Overview refreshed for {}.", ticker)
+                return True
+            # 北交所（4/8 前缀）：TDX 全链路不可用（无名称/无行情）——显式提示 +
+            # 失败返回，不静默 NaN（BJ 走 akshare 备用路径，见 README）
+            if is_bj_ticker(ticker):
+                logger.warning(
+                    "Ticker {} is a Beijing Stock Exchange (BJ) code; TDX does not serve BJ securities (no name/quotes). Use the akshare fallback path instead.",
+                    ticker,
+                )
+                return False
+            overview_df = _build_overview(ticker)
+            if overview_df is None:
+                logger.error("TDX overview build failed for {}.", ticker)
+                return False
+            # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）：
+            # 全量 22 值位置构造，无 [1:] 切片（与 akshare 路径不同，见 data_source spec）
+            row = overview_df.to_dict(orient='records')[0]
+            stock_overview = StockOverview(*list(row.values()))
+            stock = ChinaStock.ChinaStock(stock_overview.name, stock_overview.ticker, stock_overview)
+            self.storage.put_stock(stock_overview.ticker, stock)
             return True
-        # 北交所（4/8 前缀）：TDX 全链路不可用（无名称/无行情）——显式提示 +
-        # 失败返回，不静默 NaN（BJ 走 akshare 备用路径，见 README）
-        if is_bj_ticker(ticker):
-            logger.warning(
-                "Ticker {} is a Beijing Stock Exchange (BJ) code; TDX does not serve BJ securities (no name/quotes). Use the akshare fallback path instead.",
-                ticker,
-            )
-            return False
-        overview_df = _build_overview(ticker)
-        if overview_df is None:
-            logger.error("TDX overview build failed for {}.", ticker)
-            return False
-        # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）：
-        # 全量 22 值位置构造，无 [1:] 切片（与 akshare 路径不同，见 data_source spec）
-        row = overview_df.to_dict(orient='records')[0]
-        stock_overview = StockOverview(*list(row.values()))
-        stock = ChinaStock.ChinaStock(stock_overview.name, stock_overview.ticker, stock_overview)
-        self.storage.put_stock(stock_overview.ticker, stock)
-        return True
 
     def _overview_stale(self, stock) -> bool:
         """概览 freshness（review #1 门基准）：overview_last_update 早于当前
@@ -510,33 +519,36 @@ class DataAcquisition:
 
         _scope（review #2+#3）：FetchScope 透传——给出时 F10 拉取走
         reports.build_reports(_scope=...) 复用共享拉取；None → 独立直拉。
+
+        读写锁（review #5）：数据阶段全程持 `storage.lock`（RLock 可重入）。
         """
-        stock = self.storage.get_stock(ticker)
-        if stock is None:
-            logger.error("Stock {} not found in database.", ticker)
-            return False
-        latest_quarter_end = self._latest_past_quarter_end(asia_today())
-        if not self._reports_stale(stock):
-            logger.debug("Performance reports for {} already include the latest quarter {}; skipping F10 fetch.", ticker, latest_quarter_end)
+        with self.storage.lock:
+            stock = self.storage.get_stock(ticker)
+            if stock is None:
+                logger.error("Stock {} not found in database.", ticker)
+                return False
+            latest_quarter_end = self._latest_past_quarter_end(asia_today())
+            if not self._reports_stale(stock):
+                logger.debug("Performance reports for {} already include the latest quarter {}; skipping F10 fetch.", ticker, latest_quarter_end)
+                return True
+            if _fetch_reports is None:
+                if _scope is not None:
+                    _fetch_reports = lambda t: _build_reports_module(t, _scope=_scope)
+                else:
+                    _fetch_reports = TdxSource().build_reports
+            reports = _fetch_reports(ticker)
+            if reports is None:
+                logger.warning("TDX performance reports unavailable for {}; skipped.", ticker)
+                return True
+            # 15 列序契约（reports.py REPORT_COLUMNS == StockPerformanceReport 字段序）；
+            # 批量追加（review #3）：先收集后一次 commit
+            rows = [
+                StockPerformanceReport(*list(row.values()))
+                for row in reports.to_dict(orient='records')
+            ]
+            stock.add_performance_reports(rows)
+            self.storage.put_stock(ticker, stock)
             return True
-        if _fetch_reports is None:
-            if _scope is not None:
-                _fetch_reports = lambda t: _build_reports_module(t, _scope=_scope)
-            else:
-                _fetch_reports = TdxSource().build_reports
-        reports = _fetch_reports(ticker)
-        if reports is None:
-            logger.warning("TDX performance reports unavailable for {}; skipped.", ticker)
-            return True
-        # 15 列序契约（reports.py REPORT_COLUMNS == StockPerformanceReport 字段序）；
-        # 批量追加（review #3）：先收集后一次 commit
-        rows = [
-            StockPerformanceReport(*list(row.values()))
-            for row in reports.to_dict(orient='records')
-        ]
-        stock.add_performance_reports(rows)
-        self.storage.put_stock(ticker, stock)
-        return True
 
     def get_stock_data(self, ticker, _scope=None):
         """纯 TDX 按需链路：ensure_stock → 历史(TDX) → 业绩(TDX)，无 akshare。

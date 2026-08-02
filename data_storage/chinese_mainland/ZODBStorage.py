@@ -22,6 +22,11 @@ class ZODBStorageInstance():
         self.root.overview_last_updated = getattr(self.root, 'overview_last_updated', default_start)
         if is_new_db:
             self.root.stocks = BTrees.OOBTree.BTree()
+        # 读写锁（review #5，2026-08-02）：连接本身非线程安全——Streamlit 多
+        # 会话并发读写同一连接会 POSKeyError/ConflictError。RLock 允许嵌套
+        # 持有（get → mutate → commit 链）；DataAcquisition 数据阶段持锁，
+        # 锁不跨 LLM 调用（图阶段零 ZODB 访问，不串行化分析）。
+        self.lock = threading.RLock()
         logger.info("ZODB connected, overview last updated at {}", self.root.overview_last_updated)
 
     def __del__(self):

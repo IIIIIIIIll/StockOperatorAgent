@@ -6,6 +6,7 @@ from utils.state import State
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, trend_analysis_expert_message
+from core.llms.retry import invoke_with_retry
 from utils.time_helper import get_last_business_day
 from loguru import logger
 
@@ -34,7 +35,7 @@ class TrendAnalysisExpert:
         logger.debug("Trend Analysis Expert Query: {}", trend_analysis_expert_query)
         if self.progress_updater is not None:
             self.progress_updater.info("开始趋势分析报告生成。。。")
-        response = self.llm.invoke({"query" : query}, config=self.config)
+        response = invoke_with_retry(self.llm, {"query": query}, config=self.config)
         if self.progress_updater is not None:
             self.progress_updater.info("趋势分析报告生成完成。。。")
         logger.debug("Trend Analysis Expert Response: {}", response.content)

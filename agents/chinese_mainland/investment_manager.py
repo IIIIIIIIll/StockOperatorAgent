@@ -6,6 +6,7 @@ from utils.state import State
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, investment_manager_message
+from core.llms.retry import invoke_with_retry
 from utils.time_helper import get_last_business_day
 from loguru import logger
 
@@ -52,7 +53,7 @@ class InvestmentManager:
         logger.debug("Investment Manager Query: {}", investment_manager_query)
         if self.progress_updater is not None:
             self.progress_updater.info("开始最终投资建议生成。。。")
-        response = self.llm.invoke({"query" : query}, config=self.config)
+        response = invoke_with_retry(self.llm, {"query": query}, config=self.config)
         if self.progress_updater is not None:
             self.progress_updater.info("最终投资建议生成完成。。。")
         logger.debug("Investment Manager Response: {}", response.content)

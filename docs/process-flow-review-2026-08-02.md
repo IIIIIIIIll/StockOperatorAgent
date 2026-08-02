@@ -128,7 +128,7 @@ two concurrent runs of the same graph.
 **Fix:** widen the existing construction lock (`ZODBStorage.py:75-99`) into a
 read/commit lock around ZODB access in `DataAcquisition` / `ZODBStorage`.
 
-**Status:** [ ] **Effort:** small — lock + concurrency test
+**Status:** [x] **Effort:** small — implemented 2026-08-02 in task `08-02-zodb-lock-llm-retry` (`RLock` on the singleton connection held around data-phase ops only, never across LLM calls; 2 concurrency tests incl. a serialization timing assertion)
 
 ## 6. No retry on LLM errors
 
@@ -138,7 +138,7 @@ entire run, and the user re-pays all 5 calls (plus data work) on re-submit.
 **Fix:** small retry-with-backoff wrapper (2-3 attempts on
 429/5xx/connection errors) around the invoke.
 
-**Status:** [ ] **Effort:** small
+**Status:** [x] **Effort:** small — implemented 2026-08-02 in task `08-02-zodb-lock-llm-retry` (`core/llms/retry.py`: tenacity backoff on 429/5xx/connection/timeout ×3, business errors pass through; one-line change per agent node, 6 injection tests)
 
 ## 7. No end-to-end result caching
 

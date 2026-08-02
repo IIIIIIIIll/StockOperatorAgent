@@ -6,6 +6,7 @@ from utils.state import State
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, bullish_trader_message
+from core.llms.retry import invoke_with_retry
 from utils.time_helper import get_last_business_day
 from loguru import logger
 
@@ -39,7 +40,7 @@ class BullishTrader:
         logger.debug("Bullish Trader Query: {}", bullish_trader_query)
         if self.progress_updater is not None:
             self.progress_updater.info("开始多方观点生成。。。")
-        response = self.llm.invoke({"query" : query}, config=self.config)
+        response = invoke_with_retry(self.llm, {"query": query}, config=self.config)
         if self.progress_updater is not None:
             self.progress_updater.info("多方观点生成完成。。。")
         logger.debug("Bullish trader Response: {}", response.content)

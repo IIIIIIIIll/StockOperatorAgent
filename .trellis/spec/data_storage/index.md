@@ -33,8 +33,18 @@ patterns:
   测试完成后再重启。
 - **线程安全（2026-08-02）**：惰性初始化用 `threading.Lock()` 双重检查保护
   （`_instance_lock`）——Streamlit 多会话并发首调不双构造（test_singleton_
-  concurrent_first_call 钉死）。**连接本身非线程安全**——锁只防双构造，
-  读写仍应单会话使用（UI 层串行渲染即满足）。
+  concurrent_first_call 钉死）。**连接本身非线程安全**——Streamlit 每会话
+  一线程，多会话并发读写同一连接会 POSKeyError/ConflictError（"UI 层串行
+  渲染即满足"的旧假设不成立）。
+  **读写锁（review #5，2026-08-02）**：`ZODBStorageInstance.lock =
+  threading.RLock()`——RLock 允许嵌套持有（get → mutate → commit 链）；
+  DataAcquisition 三个数据阶段方法（ensure_stock / acquire_historical_data_tdx
+  / acquire_performance_report_tdx）全程 `with self.storage.lock:`。**锁只
+  覆盖数据阶段，不跨 LLM 调用**（图阶段零 ZODB 访问；持锁跑图会把并发会话
+  全串行化——数据阶段秒级可接受，LLM 分钟级不可）。FetchScope 预播种
+  （纯网络，无 ZODB）在锁外，可并行。测试：
+  test_concurrent_access_safe（2 线程 ×10 次 get/mutate/commit 无异常）+
+  test_concurrent_data_phase_serializes（锁内慢 fetcher 时序断言串行化）。
 - **check/set overview 门标注 deprecated（2026-08-02）**：
   `check_need_update_overview` / `set_overview_updated_now` docstring 标注
   "仅备用路径使用"——主流程纯 TDX 按需构建（ensure_stock）不经过它们，

@@ -65,8 +65,9 @@ problem becomes a user-facing failure.
 
 ## LLM / API Errors
 
-- Agent nodes do not catch LLM errors: `self.llm.invoke(...)` failures bubble to
-  the graph stream and the caller (`display.py`, tests).
+- Agent nodes do not catch LLM errors: `invoke_with_retry(...)`（2026-08-02，
+  review #6——可恢复错误重试 3 次，见 agents spec）耗尽后的失败照旧 bubble
+  to the graph stream and the caller (`display.py`, tests)。
 - **UI 层守护（2026-08-02 修复，合法例外）**：`core/ui/display.py` 对
   `build_stock_information`（数据问题如股票缺失 → `get_stock_info` raise）与
   `graph.stream`（LLM 失败）各包一层 `try/except`——`st.error` 中文提示 +

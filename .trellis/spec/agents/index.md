@@ -23,8 +23,9 @@ when adding an agent — do not redesign it.** The pattern:
    - store `config` and `progress_updater`
 2. **Node method** — named after the role, takes `(self, state: State)`, builds a
    Chinese human query from `state` (see `core/llms/prompt.py` for the system
-   messages), invokes `self.llm.invoke({"query": query}, config=self.config)`,
-   reports progress via `progress_updater.info("...")`, and returns a state-update
+   messages), invokes **`invoke_with_retry(self.llm, {"query": query},
+   config=self.config)`**（2026-08-02，review #6——见下方重试约定），reports
+   progress via `progress_updater.info("...")`, and returns a state-update
    dict: `{"messages": [query[0], response], "<state_key>": response.content}`.
 
 Reference: any of the five agents, plus their wiring in
@@ -78,6 +79,14 @@ in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
 `api_key=os.getenv("DASHSCOPE_API_KEY")`；`extra_body` 传 `enable_search`。
 
 图装配（`core/investment_committee.py`）用 `DeepSeekApi()`；换回 Qwen 只需改这一行。
+
+**LLM 调用重试（2026-08-02，review #6）**：节点 invoke 统一走
+`core/llms/retry.py` 的 `invoke_with_retry(llm, payload, config)`——
+可恢复错误（429 限流 / 500/502/503/504 / APIConnectionError / 超时）
+指数退避重试 3 次（1s 起，上限 8s）；业务错误（400/认证）直抛零延迟；
+耗尽后 reraise 原异常（既有 UI 守护行为不变）。判定用
+`openai.APIStatusError.status_code` + 连接/超时类型（openai 2.x 构造
+测试异常需真实 httpx.Response）。新增 agent 节点沿用同一包装。
 
 **依赖版本（2026-08-02 升级 0.3/0.6 → 1.x）**：langchain 1.3.14 /
 langchain-core 1.5.3 / langchain-openai 1.4.1 / langgraph 1.2.10 /
