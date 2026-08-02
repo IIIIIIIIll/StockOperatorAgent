@@ -1,7 +1,8 @@
-import datetime
 from datetime import timedelta
 
 import akshare as ak
+
+from utils.time_helper import asia_today
 
 class AKShareSource():
     def __init__(self):
@@ -27,9 +28,19 @@ class AKShareSource():
         stock_info = ak.stock_individual_info_em(symbol=ticker)
         return stock_info
 
+    @staticmethod
+    def _natural_day_window(look_back_days):
+        """交易日数 → 自然日窗口（×7//5 周末余量：120 交易日 ≈ 24 周 = 168
+        自然日），多拉的旧 bar 由 ChinaStock.add_data 按日期去重。"""
+        return look_back_days * 7 // 5
+
     def fetch_stock_history(self, ticker, look_back_days=120):
-        stock_hist = ak.stock_zh_a_hist(symbol=ticker, period="daily", start_date=(datetime.date.today()-timedelta(days=look_back_days+1)).strftime('%Y%m%d'),
-                                                end_date=datetime.date.today().strftime('%Y%m%d'), adjust="qfq")
+        # look_back_days 是交易日数；akshare 窗口按自然日，直接传交易日会天然
+        # 少拉约 30%（周末缺口）。
+        natural_days = self._natural_day_window(look_back_days)
+        today = asia_today()  # 北京时间"今天"（时区统一）
+        stock_hist = ak.stock_zh_a_hist(symbol=ticker, period="daily", start_date=(today-timedelta(days=natural_days+1)).strftime('%Y%m%d'),
+                                                end_date=today.strftime('%Y%m%d'), adjust="qfq")
         return stock_hist
 
     def fetch_performance_report(self, date):

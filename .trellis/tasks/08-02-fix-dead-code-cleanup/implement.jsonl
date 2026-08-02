@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/core/index.md", "reason": "committee/display 模式：make_investment_committee 唯一装配点、display 唯一消费者、progress_updater 协议、UI 层 key 守护"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "ChinaStock 行为：update_overview 语义、info/overview 槽位、add_data 去重"}
+{"file": ".trellis/spec/agents/index.md", "reason": "agent 模板：构造函数签名、prompt 插值约定（state key 读取）、progress 文案模式"}
+{"file": ".trellis/spec/error-handling.md", "reason": "UI 层守护的合法边界（display 包错误提示不吞异常）、唯一 raise 点"}
+{"file": ".trellis/spec/logging.md", "reason": "loguru 占位符风格、文案修正、logger 命名"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "State key 契约（bullish_opinions 的 reducer 包装语义）、display 与 committee API 同步"}

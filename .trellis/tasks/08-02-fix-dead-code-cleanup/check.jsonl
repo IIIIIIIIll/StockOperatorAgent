@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/core/index.md", "reason": "验证 committee API 签名不变、display 唯一消费者同步、enrichment 真实接入"}
+{"file": ".trellis/spec/agents/index.md", "reason": "验证 prompt 插值正确（[-1].content）、模板残留清理"}
+{"file": ".trellis/spec/testing.md", "reason": "验证全量 0F 保持、无新增死代码"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "验证 State key 契约无漂移（agents↔committee↔display）"}

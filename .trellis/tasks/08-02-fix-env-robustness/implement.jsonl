@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/data_storage/index.md", "reason": "路径契约：china_db_path 唯一来源、ZODB 文件 gitignore、存储层路径解析"}
+{"file": ".trellis/spec/architecture.md", "reason": "constants 单源规则、日志路径（main.py handler）、配置说明"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "TDX 层契约：DEFAULT_PARQUET_ROOT 现状、vendor 缓存目录结构、fetch 返回 DataFrame 契约（缓存实现不得改变）"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "路径锚定的公共落位（utils/constants 单源、不重复定义）"}

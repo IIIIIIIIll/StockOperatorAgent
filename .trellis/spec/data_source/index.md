@@ -32,6 +32,17 @@ The only module that talks to akshare. Local patterns:
   无法实测实际输出；若实测确认错位，需按列名构造或调整映射（TDX 路径的
   `mapping.to_akshare_hist_schema` 输出 12 列序与 ChinaStockData 字段**对齐**，
   不受此影响）。
+- **`stock_yjbb_em` 列序实测（2026-08-02，源码级，1.18.81）**：最终输出恰
+  16 列（列名已过滤中间 `_` 占位）：序号/股票代码/股票简称/每股收益/营业总收入-
+  营业总收入/营业总收入-同比增长/营业总收入-季度环比增长/净利润-净利润/净利润-
+  同比增长/净利润-季度环比增长/每股净资产/净资产收益率/每股经营现金流量/销售
+  毛利率/所处行业/最新公告日期。**位置构造例外（prd 授权，2026-08-02）**：
+  `core/data_acquisition.py` 的 `acquire_performance_report`（akshare 备用路径）
+  已改按列名映射构造（`YJBB_COLUMN_MAP` 列名 → `StockPerformanceReport` 字段）+
+  列名存在性断言（缺失 → `logger.error` + 返回 False 不写库）——yjbb 列序曾在
+  版本间插入过 `_` 占位列，位置构造会静默错位写垃圾；列名映射对列序变化健壮。
+  此例外仅限 yjbb 备用路径，TDX 路径（`build_reports` 15 列序契约）与其余
+  akshare 端点保持位置构造。
 
 ## TdxSource (`data_source/chinese_mainland/tdx/`)
 
@@ -101,6 +112,8 @@ See `core/data_acquisition.py` and `test/data_source/test_akshare.py`.
   DataAcquisition tests.
 - Do not "fix" mappings by switching to keyword construction without checking
   every construction site (DataAcquisition + tests) — keep the pattern uniform.
+  **唯一例外**：`stock_yjbb_em` 业绩报表行（列名曾在版本间变化，见上"列序实测"
+  段）按列名映射构造，其余端点一律位置构造。
 
 ## Tests
 

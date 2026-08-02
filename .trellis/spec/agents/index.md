@@ -63,8 +63,9 @@ in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
 `DeepSeekApi(ChatOpenAI)` — `model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")`
 （可切 `deepseek-v4-pro`）、`api_key=os.getenv("DEEPSEEK_API_KEY")`、
 `base_url="https://api.deepseek.com"`、`seed=114514`；不传 `extra_body`。
-无 key 时构造即抛 OpenAIError（与 QwenApi 一致），UI 层 display.py 渲染前检查
-`DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY` 任一存在。
+无 key 时构造即抛 OpenAIError（与 QwenApi 一致），UI 层 display.py 渲染前
+**只检查 `DEEPSEEK_API_KEY`**（2026-08-02 修复：检查与实现对齐——图装配永远
+构造 DeepSeekApi，只配 DASHSCOPE 时放行即崩溃）。
 
 **可选 Qwen**（`core/llms/qwen/qwen_api.py`）：`QwenApi` 同上形状 —
 `model="qwen-plus-latest"`、`base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"`、

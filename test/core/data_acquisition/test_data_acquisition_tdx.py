@@ -7,7 +7,7 @@ M3：新增 ensure_stock / acquire_performance_report_tdx / get_stock_data
 纯 TDX 全链路用例（无 akshare；F10 不可达时业绩降级为 0 份不阻断）。
 """
 
-from datetime import datetime
+import datetime
 
 import BTrees
 import transaction
@@ -17,7 +17,7 @@ from core.data_acquisition import DataAcquisition
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 from data_structure.chinese_mainland import ChinaStock
 from data_structure.chinese_mainland.StockOverview import StockOverview
-from utils.time_helper import get_last_business_day
+from utils.time_helper import asia_today, get_last_business_day
 
 
 def _seed_stock(da, ticker, name="测试"):
@@ -55,6 +55,9 @@ class TestDataAcquisitionTdx:
         da = DataAcquisition()
         stock = _seed_stock(da, "000001", "平安银行")
         assert da.acquire_historical_data_tdx("000001") is True
+        # 行为断言：有数据且不依赖 DB 历史（旧代码留下的 120 根连续数据无
+        # 缺口时新代码合理跳过回填；"缺口大 → 全量回填"由
+        # test_full_backfill_when_gap_large 专项覆盖）
         assert len(stock.get_datas()) > 0
         # 12 列位置构造：date 到 turnover_rate 字段应被正确填充
         last = stock.get_datas()[-1]
@@ -64,10 +67,34 @@ class TestDataAcquisitionTdx:
     def test_freshness_skip_when_up_to_date(self):
         da = DataAcquisition()
         stock = _seed_stock(da, "000001", "平安银行")
-        # 首拉成功后当日再次调用应走新鲜度分支直接 True
+        # 首拉成功后当日再次调用应走新鲜度分支直接 True（修复：date==date
+        # 比较真实生效——原 == datetime.today() 恒假，每次无谓重拉）
         assert da.acquire_historical_data_tdx("000001") is True
+        len_before = len(stock.get_datas())
+        assert da.acquire_historical_data_tdx("000001") is True
+        # 跳过路径生效：不新增任何 bar
+        assert len(stock.get_datas()) == len_before
         # last_data_update = 数据最后一根 bar 的日期（= 最近交易日，周末时为周五）
-        assert stock.last_data_update == get_last_business_day(datetime.today().date())
+        assert stock.last_data_update == get_last_business_day(asia_today())
+
+    def test_full_backfill_when_gap_large(self):
+        """缺口 > 120 自然日 → max_bars=None 全量回填，无空洞（修复 2）。
+
+        模拟 200 交易日缺口：把 last_data_update 拨回 130 天前（> 120 自然
+        日阈值），触发全量路径；断言数据量覆盖缺口且日期连续无空洞。
+        """
+        da = DataAcquisition()
+        stock = _seed_stock(da, "000001", "平安银行")
+        stock.last_data_update = asia_today() - datetime.timedelta(days=130)
+        transaction.commit()
+        assert da.acquire_historical_data_tdx("000001") is True
+        datas = stock.get_datas()
+        # 全量回填覆盖缺口：数据最后日期 = 最近交易日
+        assert len(datas) > 130
+        assert stock.last_data_update == get_last_business_day(asia_today())
+        # 无空洞：相邻 bar 日期差不超过 15 自然日（周末 + 节假日余量）
+        dates = sorted(d.date for d in datas)
+        assert max((b - a).days for a, b in zip(dates, dates[1:])) <= 15
 
     # ---------- M3：ensure_stock / acquire_performance_report_tdx / 纯 TDX 链路 ----------
 

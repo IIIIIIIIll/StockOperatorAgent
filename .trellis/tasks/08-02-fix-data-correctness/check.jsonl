@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/testing.md", "reason": "验证：新增测试全绿、全量 0F 保持、无 mock 引入"}
+{"file": ".trellis/spec/core/index.md", "reason": "验证 key 检查与 LLM 构造一致、get_stock_data 入口行为无回退"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "验证 yjbb 按列名映射 + 断言落地、位置构造例外范围"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "验证 date/datetime 边界、时区工具单点落位（asia_today 供其他子任务复用）"}

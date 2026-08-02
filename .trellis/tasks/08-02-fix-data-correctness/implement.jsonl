@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/core/index.md", "reason": "DataAcquisition 模式：新鲜度优先、get_stock_data 入口、TDX-first 链路、display 的 key 检查现状（UI 与 LLM 构造的一致性契约）"}
+{"file": ".trellis/spec/data_storage/index.md", "reason": "Freshness Gate 定义（17:00 + get_last_business_day）、overview_last_updated 语义、check_need_update_overview 的时区基准"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "akshare 备用路径列序契约与疑点、位置构造约定、yjbb_em 列序错位的修复授权（按列名映射例外）"}
+{"file": ".trellis/spec/testing.md", "reason": "回归门槛 0F/67P/20S、测试风格（类式无 mock）、freshness 测试现状"}
+{"file": ".trellis/spec/architecture.md", "reason": "key 检查断言的修正目标（DEEPSEEK_API_KEY 唯一）、时区/配置说明"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "日期格式跨层一致性（date vs datetime 陷阱）、Freshness Gate 基准与测试一致性"}

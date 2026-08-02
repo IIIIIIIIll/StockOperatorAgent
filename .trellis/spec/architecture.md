@@ -44,9 +44,10 @@ Cross-layer rules of thumb:
 
 - Run with `streamlit run main.py` (README.md). `main.py` is minimal: it configures
   the loguru handler, calls `load_dotenv()`, then `write_ui()`.
-- `core/ui/display.py` checks `DEEPSEEK_API_KEY` or `DASHSCOPE_API_KEY` in
-  `os.environ` before rendering and validates the ticker input (6-digit numeric)
-  before analysis.
+- `core/ui/display.py` checks **only `DEEPSEEK_API_KEY`** in `os.environ` before
+  rendering（2026-08-02 修复：`investment_committee.py` 永远构造 `DeepSeekApi()`，
+  只配 DASHSCOPE 时旧检查放行但构造即抛 OpenAIError 崩溃）and validates the
+  ticker input (6-digit numeric) before analysis.
 
 ## Configuration
 

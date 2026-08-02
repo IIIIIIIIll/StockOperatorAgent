@@ -1,0 +1,31 @@
+{
+  "id": "fix-audit-findings",
+  "name": "fix-audit-findings",
+  "title": "修复代码库审计发现的问题（27 项）",
+  "description": "父任务：2026-08-02 双代理审计发现的 3 高危 + 10 中危 + 14 低危修复，按领域拆 4 个子任务（数据正确性 / TDX 派生 / 环境稳健 / 死代码清理），各自独立验收，父任务负责最终全量回归 0F 与集成审查",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "yh.t",
+  "assignee": "yh.t",
+  "createdAt": "2026-08-02",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-02-fix-data-correctness",
+    "08-02-fix-tdx-correctness",
+    "08-02-fix-env-robustness",
+    "08-02-fix-dead-code-cleanup"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/data_source/index.md", "reason": "验证 TDX 派生契约修正与 spec 同步（adjust/reports/mapping）、format 输出无 nan"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "验证 industry/volume 类型与生产端一致"}
+{"file": ".trellis/spec/testing.md", "reason": "验证新增测试全绿、全量 0F 保持"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "验证 formatter 与 dataclass 字段同步、时区工具复用（不重复实现）"}

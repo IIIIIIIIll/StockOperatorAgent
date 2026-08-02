@@ -7,13 +7,20 @@ from loguru import logger
 
 committee = InvestmentCommittee()
 
+def _has_deepseek_key():
+    """只认 DEEPSEEK_API_KEY——与 InvestmentCommittee 实现对齐。
+
+    make_investment_committee 永远构造 DeepSeekApi()（无 key 构造即抛
+    OpenAIError）；只配 DASHSCOPE_API_KEY 时旧检查放行但构造崩溃。Qwen
+    已降级为可选项（默认 LLM 是 DeepSeek），UI 不再为其放行。
+    """
+    return "DEEPSEEK_API_KEY" in os.environ
+
 def write_ui():
     st.title("超绝AI股票分析系统")
 
-    # 默认 DeepSeek（DEEPSEEK_API_KEY），Qwen 可选（DASHSCOPE_API_KEY）；
-    # 任一 key 存在即可运行
-    if "DEEPSEEK_API_KEY" not in os.environ and "DASHSCOPE_API_KEY" not in os.environ:
-        st.error("请在环境变量或.env中设置 DEEPSEEK_API_KEY（默认）或 DASHSCOPE_API_KEY（可选）后重启应用")
+    if not _has_deepseek_key():
+        st.error("请在环境变量或.env中设置 DEEPSEEK_API_KEY 后重启应用")
         return
 
     st.write("输入您想要分析的沪深京A股六位股票代码")

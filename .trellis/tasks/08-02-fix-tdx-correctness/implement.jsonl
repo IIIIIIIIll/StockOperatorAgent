@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/data_source/index.md", "reason": "TDX 层契约：overview.py/reports.py/mapping.py/adjust.py 的派生计算约定、逐源降级语义、F10 metric 名耦合脆弱点"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "StockPerformanceReport 字段类型契约（industry: str）、ChinaStockData.volume 类型、位置构造规则"}
+{"file": ".trellis/spec/testing.md", "reason": "回归门槛、TDX 测试风格（离线合成 + live 冒烟）"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "formatter NaN→N/A 复用 get_trend_indicators._fmt 思路、公共 helper 落位判断"}
+{"file": ".trellis/spec/error-handling.md", "reason": "降级语义：adjust 跳过 + warning、mapping 不抛错、_NAME_INDEX 重试"}
