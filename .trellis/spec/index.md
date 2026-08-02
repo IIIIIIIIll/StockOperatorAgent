@@ -36,6 +36,10 @@ injects the governing spec into the session — for example, editing
 Read this index first when starting any coding task, then the layer spec for the
 package you are about to touch.
 
+**Editing a spec file?** Read [spec-system.md](./spec-system.md) first — it
+documents the frontmatter routing contract, injection caps, and layer-discovery
+rules so spec edits never silently break injection.
+
 **Language note**: UI strings and LLM prompts are written in Chinese
 (`core/ui/display.py`, `core/llms/prompt.py`, agent query templates); code
 identifiers and comments are English. Specs are written in English.
