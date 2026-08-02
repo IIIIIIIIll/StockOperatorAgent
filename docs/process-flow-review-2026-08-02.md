@@ -114,7 +114,7 @@ START → fundamental ──┐      START → trend ──┐
 Cuts wall-clock from **5 serial calls to 3 stages** (each DeepSeek call is
 10-60s). Caveat: parallel calls hit rate limits sooner.
 
-**Status:** [ ] **Effort:** small — graph-wiring change + test update
+**Status:** [x] **Effort:** small — implemented 2026-08-02 in task `08-02-parallel-llm-pairs` (two parallel pairs + implicit join; wall-clock 5 serial → 3 stages, verified by a timing test: 6.8s vs ≥10s serial; `_llm` injection point for offline graph tests)
 
 ## 5. Thread-safety assumption is not guaranteed
 

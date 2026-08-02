@@ -34,12 +34,17 @@ def build_stock_information(target_ticker: str) -> str:
 
 class InvestmentCommittee:
 
-    def make_investment_committee(self, config: RunnableConfig, progress_updater = None):
+    def make_investment_committee(self, config: RunnableConfig, progress_updater = None, _llm = None):
+        """装配 5 节点图（review #4：两对并行 + 隐式 join，见 agents spec）。
+
+        _llm：测试注入点（house style 无 mock 框架）——默认 DeepSeekApi()；
+        离线图测试传 FakeListChatModel 等假 LLM 验证图形状/join 语义。
+        """
         load_dotenv()
 
         graph_builder = StateGraph(State)
 
-        llm = DeepSeekApi()
+        llm = _llm or DeepSeekApi()
 
         checkpointer = InMemorySaver()
 
@@ -58,10 +63,16 @@ class InvestmentCommittee:
         investment_manager = InvestmentManager(llm, config, progress_updater)
         graph_builder.add_node("investment_manager", investment_manager.investment_manager)
 
+        # 两对并行（review #4）：fundamental∥trend（只依赖 stock_information）、
+        # bullish∥bearish（只依赖两份报告）——LangGraph 多入边隐式 join：
+        # trader 等两上游都完成、manager 等两份观点都完成。墙钟 5 串行 → 3 阶段。
         graph_builder.add_edge(START, "fundamental_analysis_expert")
-        graph_builder.add_edge("fundamental_analysis_expert", "trend_analysis_expert")
+        graph_builder.add_edge(START, "trend_analysis_expert")
+        graph_builder.add_edge("fundamental_analysis_expert", "bullish_trader")
         graph_builder.add_edge("trend_analysis_expert", "bullish_trader")
-        graph_builder.add_edge("bullish_trader", "bearish_trader")
+        graph_builder.add_edge("fundamental_analysis_expert", "bearish_trader")
+        graph_builder.add_edge("trend_analysis_expert", "bearish_trader")
+        graph_builder.add_edge("bullish_trader", "investment_manager")
         graph_builder.add_edge("bearish_trader", "investment_manager")
         graph_builder.add_edge("investment_manager", END)
 

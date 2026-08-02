@@ -103,9 +103,20 @@ Keep it that way; do not add a second storage abstraction.
 
 ## InvestmentCommittee (`core/investment_committee.py`)
 
-- `make_investment_committee(config, progress_updater=None)` builds a
-  `StateGraph(State)`, adds the five agent nodes in fixed order, and wires the
-  linear chain `START → fundamental → trend → bullish → bearish → investment_manager → END`.
+- `make_investment_committee(config, progress_updater=None, _llm=None)` builds
+  a `StateGraph(State)` with the five agent nodes and **两对并行边**
+  （2026-08-02，review #4）：`START → fundamental` 与 `START → trend` 并行
+  （都只依赖 `stock_information`），`fundamental → bullish/bearish` 与
+  `trend → bullish/bearish` 并行（都只依赖两份报告），两份观点 →
+  `investment_manager → END`。LangGraph 多入边 = **隐式 join**：trader 等
+  两上游都完成、manager 等两份观点都完成——墙钟 5 串行 → 3 阶段。并行
+  分支写不同 State key（无写冲突），`messages` 由 add_messages reducer
+  合并（顺序不确定——display 只读最终 state，不依赖顺序）。
+- `_llm` 为测试注入点（house style 无 mock 框架）：默认 `DeepSeekApi()`；
+  离线图测试（test/integration/test_graph_parallel.py）传假 LLM 验证
+  join/并行语义。**假 LLM 路由注意**：FakeListChatModel 按共享调用计数器
+  循环响应——并行下节点调用顺序非确定，必须按 system 消息路由（角色文案
+  含"基本面分析师"字样，需用角色独有短语）。
 - Compiled with `InMemorySaver()` checkpointer; runtime `config` must carry
   `{"configurable": {"thread_id": "1"}}`.
 - `make_investment_decision(target_ticker)` streams the graph with the initial
