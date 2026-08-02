@@ -139,8 +139,6 @@ def write_ui():
                             with report_tabs[key]:
                                 st.header(title)
                                 st.write(content)
-                        if "messages" in value:
-                            logger.debug("Assistant: {}", value["messages"][-1].content)
             except Exception as e:
                 # LLM 调用失败（API key 失效/网络/限流）→ 中文提示，不裸 traceback
                 logger.exception("Agent graph streaming failed for {}", stock_ticker)
