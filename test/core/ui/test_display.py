@@ -57,3 +57,49 @@ class TestDisplayEnrichmentWiring():
         实时情报段从未执行）。"""
         from core.investment_committee import build_stock_information
         assert display.build_stock_information is build_stock_information
+
+
+class TestDisplayIncrementalRender():
+    """08-02-ui-incremental-report-render：边算边渲染的纯函数映射。
+
+    iter_report_items 是 dispatch 前的纯映射（节点 update → (key, title,
+    content) 渲染项），离线喂合成 update 验证：五 key 映射与标题、顺序
+    （= st.tabs 创建顺序）、bullish/bearish 的两种形态（stream 原始
+    字符串 / 最终 state 的 add_messages 消息列表）、无报告 key 的
+    update → 空。Streamlit 副作用不 mock（house style）。
+    """
+
+    def test_report_tabs_match_tab_creation_order(self):
+        """REPORT_TABS 顺序 = write_ui 里 st.tabs 创建顺序（渲染契约）。"""
+        assert [k for k, _ in display.REPORT_TABS] == [
+            "fundamental_analysis", "trend_analysis",
+            "bullish_opinions", "bearish_opinions", "final_decision",
+        ]
+
+    def test_fundamental_update_yields_item(self):
+        items = list(display.iter_report_items(
+            {"fundamental_analysis": "基本面结论：低估"}))
+        assert items == [("fundamental_analysis", "基本面分析", "基本面结论：低估")]
+
+    def test_opinions_plain_string_shape(self):
+        """stream update 形态：bullish/bearish 是原始字符串（reducer 未应用）。"""
+        items = list(display.iter_report_items({"bullish_opinions": "看多理由：共振"}))
+        assert items == [("bullish_opinions", "看涨观点", "看多理由：共振")]
+
+    def test_opinions_message_list_shape(self):
+        """最终 state 形态：消息列表 → [-1].content（旧 get_state_history 语义）。"""
+        from langchain_core.messages import AIMessage
+        items = list(display.iter_report_items(
+            {"bearish_opinions": [AIMessage(content="看空理由：高估")]}))
+        assert items == [("bearish_opinions", "看跌观点", "看空理由：高估")]
+
+    def test_messages_only_update_yields_nothing(self):
+        assert list(display.iter_report_items({"messages": ["q", "r"]})) == []
+
+    def test_full_update_yields_all_five_in_order(self):
+        items = list(display.iter_report_items({
+            "fundamental_analysis": "F", "trend_analysis": "T",
+            "bullish_opinions": "B", "bearish_opinions": "B",
+            "final_decision": "M",
+        }))
+        assert [k for k, _, _ in items] == [k for k, _ in display.REPORT_TABS]

@@ -16,6 +16,41 @@ def _has_deepseek_key():
     """
     return "DEEPSEEK_API_KEY" in os.environ
 
+# 报告 state key → Tab 标题。顺序即 write_ui 里 st.tabs 的创建顺序——
+# 渲染 dispatch 依赖该契约（08-02-ui-incremental-report-render）。
+REPORT_TABS = (
+    ("fundamental_analysis", "基本面分析"),
+    ("trend_analysis", "趋势分析"),
+    ("bullish_opinions", "看涨观点"),
+    ("bearish_opinions", "看跌观点"),
+    ("final_decision", "最终结论"),
+)
+
+
+def _report_content(value):
+    """State 报告值 → 展示文本（08-02-ui-incremental-report-render）。
+
+    stream update 中报告是节点返回的原始字符串（reducer 未应用）；最终
+    state 里 bullish/bearish 被 add_messages reducer 包装成消息列表
+    （旧 get_state_history 渲染取 [-1].content）——两种形态都消化，
+    展示语义与旧实现一致。
+    """
+    if isinstance(value, list) and value and hasattr(value[-1], "content"):
+        return value[-1].content
+    return value
+
+
+def iter_report_items(update):
+    """节点 update dict → (key, title, content) 渲染项；无报告 key → 空。
+
+    纯函数，与 Streamlit 解耦：UI 循环按 key 查 Tab 容器 dispatch，离线
+    测试喂合成 update 验证映射（house style，不 mock Streamlit）。
+    """
+    for key, title in REPORT_TABS:
+        if key in update:
+            yield key, title, _report_content(update[key])
+
+
 def write_ui():
     st.title("超绝AI股票分析系统")
 
@@ -64,35 +99,36 @@ def write_ui():
             config: RunnableConfig = {"configurable": {"thread_id": "1"}}
             graph = committee.make_investment_committee(config, progress_updater=updatable_container)
 
+            # 报告 key → Tab 容器（与 REPORT_TABS 顺序对应，见 iter_report_items）
+            report_tabs = {
+                "fundamental_analysis": fundamental_analysis_tab,
+                "trend_analysis": trend_analysis_tab,
+                "bullish_opinions": bullish_opinion,
+                "bearish_opinions": bearish_opinion,
+                "final_decision": final_decision,
+            }
+
             try:
+                # 边算边渲染（08-02-ui-incremental-report-render）：每个报告在
+                # 其节点完成、state key 出现在 stream update 时立即填充对应
+                # Tab，不等整次分析（最终结论）完成。循环体运行于脚本线程
+                # （LangGraph sync stream 在调用线程 yield）——st.write 安全；
+                # 并行节点工作线程的进度调用由 safe_progress 兜住，互不干扰。
                 for responses in graph.stream({"messages": [{"role": "user", "content": f"请帮我分析一下 {stock_ticker}"}],
                                            "target_stock_ticker": stock_ticker,
                                            "stock_information": stock_info
                                            }, config=config):
                     for value in responses.values():
-                        logger.debug("Assistant: {}", value["messages"][-1].content)
+                        for key, title, content in iter_report_items(value):
+                            with report_tabs[key]:
+                                st.header(title)
+                                st.write(content)
+                        if "messages" in value:
+                            logger.debug("Assistant: {}", value["messages"][-1].content)
             except Exception as e:
                 # LLM 调用失败（API key 失效/网络/限流）→ 中文提示，不裸 traceback
                 logger.exception("Agent graph streaming failed for {}", stock_ticker)
                 st.error(f"分析 {stock_ticker} 的过程中出错：{e}，请稍后重试或检查 LLM 配置")
                 return
-
-            states = list(graph.get_state_history(config))
-
-            with fundamental_analysis_tab:
-                st.header("基本面分析")
-                st.write(states[0].values["fundamental_analysis"])
-            with trend_analysis_tab:
-                st.header("趋势分析")
-                st.write(states[0].values["trend_analysis"])
-            with bullish_opinion:
-                st.header("看涨观点")
-                st.write(states[0].values["bullish_opinions"][-1].content)
-            with bearish_opinion:
-                st.header("看跌观点")
-                st.write(states[0].values["bearish_opinions"][-1].content)
-            with final_decision:
-                st.header("最终结论")
-                st.write(states[0].values["final_decision"])
 
 
