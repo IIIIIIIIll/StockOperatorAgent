@@ -39,8 +39,9 @@ downstream agents from live LLM calls).
 - `target_stock_ticker`, `stock_information` — seeded by the caller (committee/UI)
 - `fundamental_analysis`, `trend_analysis` — produced by the first two nodes
 - `bullish_opinions`, `bearish_opinions` — `Annotated[list, add_messages]`: agents
-  return strings, the reducer wraps them into message lists（LangGraph 0.6 对
-  初始输入同样应用 reducer，节点内读取恒为消息列表）
+  return strings, the reducer wraps them into message lists（2026-08-02 升级
+  langgraph 0.6.7 → 1.2.10 实测：reducer 对初始输入的应用行为在 1.x 不变，
+  节点内读取恒为消息列表——集成测试钉死）
 - `final_decision` — produced by `investment_manager`
 - `messages` — `Annotated[list, add_messages]` conversation channel
 
@@ -77,6 +78,17 @@ in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
 `api_key=os.getenv("DASHSCOPE_API_KEY")`；`extra_body` 传 `enable_search`。
 
 图装配（`core/investment_committee.py`）用 `DeepSeekApi()`；换回 Qwen 只需改这一行。
+
+**依赖版本（2026-08-02 升级 0.3/0.6 → 1.x）**：langchain 1.3.14 /
+langchain-core 1.5.3 / langchain-openai 1.4.1 / langgraph 1.2.10 /
+langgraph-checkpoint 4.1.1 / langgraph-prebuilt 1.1.0 / langgraph-sdk 0.4.2 /
+langsmith 0.10.15 / openai 2.52.0（传递）。代码零改动，全量回归 116 passed
+（含 graph streaming / reducer / get_state_history 集成测试）。**Gotcha**：
+requirements.txt 是全量 freeze，但曾漏 pin 直接导入的包（langchain /
+langchain-openai / openai 缺失——fresh `pip install -r requirements.txt` 会
+缺 `langchain_openai`）；更新依赖时确保**直接 import 的包**也在 freeze 中，
+不能只靠传递依赖。升级 langgraph 大版本后先跑 test/integration（reducer
+行为是 0.x → 1.x 最大风险面）。
 
 
 ## Tools (`core/llms/tools/`)

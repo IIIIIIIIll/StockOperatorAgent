@@ -27,6 +27,10 @@ patterns:
   FileStorage 的 flock 锁不可重入，同进程第二个实例打开即 `zc.lockfile.LockError`。
   全量回归中 test/core 套件已创建单例并持有锁，`test_ZODBStorage.py` 因此也走
   `get_zodb_storage()` 而非另开实例（2026-08-02 修复）。
+  **跨进程同样互斥（2026-08-02 实测）**：`streamlit run main.py` 运行中持有
+  flock，pytest 全量回归打开数据库即 LockError（"Couldn't lock
+  .../china_stock_data.fs.lock"）——**跑全量测试前必须先停掉运行中的应用**，
+  测试完成后再重启。
 - **线程安全（2026-08-02）**：惰性初始化用 `threading.Lock()` 双重检查保护
   （`_instance_lock`）——Streamlit 多会话并发首调不双构造（test_singleton_
   concurrent_first_call 钉死）。**连接本身非线程安全**——锁只防双构造，
