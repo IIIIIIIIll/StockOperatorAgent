@@ -44,11 +44,15 @@ review，逐项含 file:line、修复方案、工作量估计）。本 PRD 只�
 
 ## Cross-Child Acceptance Criteria
 
-- [ ] 每个子任务独立可验证（各自的验收标准 + 测试）
-- [ ] 全量回归 0 新增失败（基线 0F/116P/20S，2026-08-02 langchain 1.x 升级后）
-- [ ] docs/process-flow-review-2026-08-02.md 的对应 checkbox 随子任务完成勾选
-- [ ] 相关 .trellis/spec 同步修订（契约变化如 #3 的 mutator commit 规则）
-- [ ] 最终集成检查：UI → 数据 → 图 → 输出的全链路行为无回退
+- [x] 每个子任务独立可验证（各自的验收标准 + 测试）
+- [x] 全量回归 0 新增失败（基线 0F/116P/20S → 完成时 0F/149P/20S，
+      +33 新用例全绿；2026-08-02 langchain 1.x 升级后）
+- [x] docs/process-flow-review-2026-08-02.md 的对应 checkbox 随子任务完成
+      勾选（#1-#6、#8-#11 [x]；#7/#12 [~] 用户决定不实施）
+- [x] 相关 .trellis/spec 同步修订（#3 mutator 批量规则、#2+#3 单遍拉取、
+      #4 并行图、#5 读写锁、#6 重试约定、#8 措辞、#10 legacy 迁出）
+- [x] 最终集成检查：UI → 数据 → 图 → 输出的全链路行为无回退（全量回归
+      含 display / committee / data_acquisition 集成用例）
 
 ## Notes
 
