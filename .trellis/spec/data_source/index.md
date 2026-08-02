@@ -35,7 +35,8 @@ The only module that talks to akshare. Local patterns:
 
 ## TdxSource (`data_source/chinese_mainland/tdx/`)
 
-pytdx (通达信直连) 数据源，历史行情主路径；akshare 兜底。结构：
+pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + 个股概览 + 业绩
+报告）；akshare 为备用路径（主流程不调用，原方法保留）。结构：
 
 - `vendor/` — vendored [tdx_quant](https://github.com/henrylin99/tdx_quant)
   快照（55 文件，`VENDOR.md` 记录上游 commit）。`tdx_source.py` 模块级调用
@@ -44,6 +45,26 @@ pytdx (通达信直连) 数据源，历史行情主路径；akshare 兜底。结
 - `tdx_source.py` — `TdxSource` 薄包装，方法级对应 `TdxDownloader`：
   `fetch_daily/minute/xdxr/finance_capital/company_finance/security_list/
   snapshot/index`，返回原始 DataFrame，不吞异常（非法代码抛 `ValueError`）。
+  另有构建入口（委托 overview.py/reports.py）：`build_overview(ticker) ->
+  pd.DataFrame | None`、`build_reports(ticker) -> pd.DataFrame | None`、
+  `get_stock_name(ticker) -> str`。名称索引模块级缓存
+  `_NAME_INDEX: dict[tuple[int, str], str]`（**(market, code)** 键——SH 列表
+  含指数代码，纯 code 键会撞车；market 由 `infer_hq_market` 推断），失败回退
+  ticker 本身（name 永不 NaN）。
+- `overview.py` — `compose_overview(...)` 纯函数 + `build_overview`：输出**恰
+  22 列**（含代码列），与 `StockOverview` 22 字段序一致，消费者**全量位置构造
+  `StockOverview(*list(row.values()))`（无切片）**——与 akshare spot_em 路径
+  （23 列含序号需 `[1:]`）不同，勿混淆。PE/PB/市值/涨跌幅/60日/ytd 均由
+  snapshot/F10/股本/日K 派生；量比/5分钟/动量 = NaN（pytdx 无）。逐源降级：
+  单项失败 → 该源字段 NaN + `logger.warning`；snapshot 与日K 均无价格来源 →
+  None。日K 窗口 `max_bars=250`（覆盖 60 日前 + 年初窗口）。
+- `reports.py` — `compose_reports(...)` 纯函数 + `build_reports`：F10 tidy
+  long（metric/period/value_num）→ pivot 每期一行，输出**恰 15 列** =
+  `StockPerformanceReport` 15 字段序（含 ticker），全量位置构造。QoQ 环比
+  (本期-上期)/上期×100：period 升序（ISO 字符串序）后计算、首期 NaN、只防
+  除零（负分母合法——净利可为负，与 overview `_divide` 的"分母≤0→NaN"有意
+  区分）。`report_date` 输出 '%Y%m%d' 字符串。缺指标列用 `reindex` 补 NaN
+  （`wide[list(...)]` 会 KeyError）。F10 失败/空 → None + `logger.warning`。
 - `mapping.py` — `to_akshare_hist_schema(df, ticker, float_shares=None)`：
   pytdx bars → akshare `stock_zh_a_hist` 12 列序（日期/股票代码/开盘/收盘/
   最高/最低/成交量/成交额/振幅/涨跌幅/涨跌额/换手率），使既有

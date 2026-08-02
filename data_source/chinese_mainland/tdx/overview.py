@@ -1,0 +1,241 @@
+"""TDX 按需单股概览构建层：个股概览由 pytdx 原始数据 + 派生计算生成。
+
+akshare 的 overview 是全市场行情扫描，pytdx 无等效接口；本模块改为按需单股
+构建（分析哪只构建哪只）。数据流见 .trellis/tasks/08-02-tdx-overview-reports
+design.md §1/§2。
+
+**22 列序契约**：输出 DataFrame 的 22 列与 akshare ``stock_*_a_spot_em``
+去掉序号列后的 22 值列序一致（代码/名称/最新价/.../年初至今涨跌幅），也就是
+``StockOverview`` 的 22 个字段序（见 data_structure/chinese_mainland/
+StockOverview.py）。因此消费者用 ``StockOverview(*list(row.values()))``
+位置构造零改动复用——注意与 akshare 路径不同：akshare 行首有"序号"列需
+``[1:]`` 丢弃，本层输出的 22 列**不含序号列**，直接用全量 22 值构造。
+
+数据源与派生（逐源降级，单项失败 → 该源字段 NaN + logger.warning，不整块失败）：
+- snapshot：price/open/high/low（实时；失败 → latest_price 回退日K末根收盘）
+- finance_capital：zongguben/liutongguben（总/流通股本，市值与换手率派生）
+- company_finance（F10 tidy long）：最新报告期 eps/每股净资产 → PE/PB 派生
+- daily（最近 250 根，覆盖 60 交易日前 + 年初窗口）：prev_close、60日/ytd
+  涨跌幅基准、volume/成交额（仅当末根 bar 是当日时取值，盘中为 NaN）
+- security_list 名称索引（get_stock_name，模块级缓存；失败回退 ticker）
+
+整体无任何价格来源（snapshot 与 daily 都失败）→ 返回 None（调用方报错回
+False）；其余组合均可构建（缺源字段为 NaN）。
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+import pandas as pd
+from loguru import logger
+
+from data_source.chinese_mainland.tdx.mapping import LOT_SIZE
+from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+
+# akshare stock_*_a_spot_em 22 值列序（去掉序号列），与 StockOverview 字段序
+# 一一对应（ticker=代码, name=名称, latest_price=最新价, ...）。顺序勿改。
+OVERVIEW_COLUMNS = [
+    "代码", "名称", "最新价", "涨跌幅", "涨跌额",
+    "成交量", "成交额", "振幅", "最高", "最低",
+    "今开", "昨收", "量比", "换手率", "市盈率-动态",
+    "市净率", "总市值", "流通市值", "涨速", "5分钟涨跌",
+    "60日涨跌幅", "年初至今涨跌幅",
+]
+
+NAN = float("nan")
+
+# 60日涨跌幅的窗口参数：60 个交易日前（相对末根 bar）
+LOOKBACK_DAYS = 60
+# 日K 拉取上限：一年约 243 个交易日，250 根足以覆盖"60 交易日前"与"年初首个
+# 交易日"两个窗口（年初首根距今最多约 243 根）。
+OVERVIEW_DAILY_MAX_BARS = 250
+
+
+def _to_float(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return NAN
+
+
+def _cell(df: pd.DataFrame | None, col: str) -> float:
+    """单行 DataFrame 的单元格取值；空/缺列/NaN → NaN。"""
+    if df is None or df.empty or col not in df.columns:
+        return NAN
+    return _to_float(df.iloc[0][col])
+
+
+def _divide(numerator: float, denominator: float) -> float:
+    """a/b；b 缺失或 ≤0 → NaN（除零保护；PE/PB 分母 ≤0 时 NaN 的约定）。"""
+    if denominator is None or pd.isna(denominator) or denominator <= 0:
+        return NAN
+    if numerator is None or pd.isna(numerator):
+        return NAN
+    return numerator / denominator
+
+
+def _daily_last(daily_df: pd.DataFrame | None, col: str) -> float:
+    """日K 末根 bar 的列值；空/缺列 → NaN。"""
+    if daily_df is None or daily_df.empty or col not in daily_df.columns:
+        return NAN
+    return _to_float(daily_df[col].iloc[-1])
+
+
+def _daily_prev_close(daily_df: pd.DataFrame | None) -> float:
+    """昨收 = 日K 倒数第二根 bar 收盘；不足 2 根 → NaN。"""
+    if daily_df is None or len(daily_df) < 2 or "close" not in daily_df.columns:
+        return NAN
+    return _to_float(daily_df["close"].iloc[-2])
+
+
+def _close_n_bars_ago(daily_df: pd.DataFrame | None, n: int) -> float:
+    """末根 bar 前 n 个交易日的收盘价；bar 不足 n+1 根 → NaN。"""
+    if daily_df is None or "close" not in daily_df.columns or len(daily_df) <= n:
+        return NAN
+    return _to_float(daily_df["close"].iloc[len(daily_df) - 1 - n])
+
+
+def _ytd_base_close(daily_df: pd.DataFrame | None) -> float:
+    """年初首个交易日收盘 = 末根 bar 所在年份的第一根 bar 的收盘（跨年时为去年末
+    后的第一根）。"""
+    if daily_df is None or daily_df.empty or "datetime" not in daily_df.columns or "close" not in daily_df.columns:
+        return NAN
+    dt = pd.to_datetime(daily_df["datetime"])
+    last_year = dt.iloc[-1].year
+    mask = dt.dt.year == last_year
+    if not mask.any():
+        return NAN
+    return _to_float(daily_df.loc[mask, "close"].iloc[0])
+
+
+def _last_bar_is_today(daily_df: pd.DataFrame | None, today: date) -> bool:
+    """末根 bar 是否为"当日"（盘中/收盘后当日 bar 已存在）；周末/盘前 → False。"""
+    if daily_df is None or daily_df.empty or "datetime" not in daily_df.columns:
+        return False
+    last = pd.to_datetime(daily_df["datetime"]).iloc[-1]
+    return last.date() == today
+
+
+def latest_period_value(f10_df: pd.DataFrame | None, metric: str) -> float:
+    """F10 tidy long → 指定指标在**最新报告期**的 value_num。
+
+    period 为 'YYYY-MM-DD' 字符串，字典序即时间序（ISO 可排序），取最大者；
+    无该指标 → NaN。
+    """
+    if (
+        f10_df is None
+        or f10_df.empty
+        or "metric" not in f10_df.columns
+        or "period" not in f10_df.columns
+        or "value_num" not in f10_df.columns
+    ):
+        return NAN
+    sub = f10_df[f10_df["metric"] == metric]
+    if sub.empty:
+        return NAN
+    latest_idx = sub["period"].astype(str).idxmax()
+    return _to_float(sub.loc[latest_idx, "value_num"])
+
+
+def compose_overview(
+    ticker: str,
+    name: str,
+    snapshot_df: pd.DataFrame | None = None,
+    capital_df: pd.DataFrame | None = None,
+    f10_df: pd.DataFrame | None = None,
+    daily_df: pd.DataFrame | None = None,
+    today: date | None = None,
+) -> pd.Series:
+    """纯函数：由各源原始 DataFrame 合成单行 22 列概览 Series（不访问网络）。
+
+    各源 DataFrame 为 TdxSource.fetch_* 的原始输出（None = 该源失败/缺失）。
+    ``today`` 用于判定"当日"日K bar（volume/成交额/换手率的盘中语义），
+    离线测试可注入固定日期。
+    """
+    today = today or date.today()
+
+    price = _cell(snapshot_df, "price")
+    if pd.isna(price):
+        price = _daily_last(daily_df, "close")
+
+    prev_close = _daily_prev_close(daily_df)
+    high = _cell(snapshot_df, "high")
+    low = _cell(snapshot_df, "low")
+    open_ = _cell(snapshot_df, "open")
+
+    if _last_bar_is_today(daily_df, today):
+        volume = _daily_last(daily_df, "vol")
+        amount = _daily_last(daily_df, "amount")
+    else:
+        volume = NAN
+        amount = NAN
+
+    zongguben = _cell(capital_df, "zongguben")
+    liutongguben = _cell(capital_df, "liutongguben")
+    eps = latest_period_value(f10_df, "基本每股收益(元)")
+    net_worth_per_share = latest_period_value(f10_df, "每股净资产(元)")
+
+    change_percent = _divide(price - prev_close, prev_close) * 100
+    change_amount = price - prev_close
+    amplitude = _divide(high - low, prev_close) * 100
+    # 换手率(%) = 成交量(手) * 100(股/手) / 流通股本(股) * 100，与 mapping.py 口径一致
+    turnover_rate = _divide(volume * LOT_SIZE, liutongguben) * 100
+
+    close_60d = _close_n_bars_ago(daily_df, LOOKBACK_DAYS)
+    change_percent_60d = _divide(price - close_60d, close_60d) * 100
+    ytd_close = _ytd_base_close(daily_df)
+    change_percent_ytd = _divide(price - ytd_close, ytd_close) * 100
+
+    values = [
+        str(ticker), name, price, change_percent, change_amount,
+        volume, amount, amplitude, high, low, open_, prev_close,
+        NAN,  # 量比：pytdx 无
+        turnover_rate,
+        _divide(price, eps), _divide(price, net_worth_per_share),
+        price * zongguben, price * liutongguben,
+        NAN,  # 涨速/动量：pytdx 无
+        NAN,  # 5分钟涨跌：pytdx 无
+        change_percent_60d, change_percent_ytd,
+    ]
+    return pd.Series(values, index=OVERVIEW_COLUMNS)
+
+
+def _fetch_degraded(fetch, source_name: str, ticker: str) -> pd.DataFrame | None:
+    """拉取一个数据源；失败/空 → logger.warning + None（逐源降级）。"""
+    try:
+        df = fetch()
+    except Exception:
+        logger.warning("TDX {} fetch failed for {}; related overview fields will be NaN.", source_name, ticker)
+        return None
+    if df is None or df.empty:
+        logger.warning("TDX {} returned no rows for {}; related overview fields will be NaN.", source_name, ticker)
+        return None
+    return df
+
+
+def build_overview(ticker: str) -> pd.DataFrame | None:
+    """按需单股构建 22 列概览 DataFrame（单行；列序 = OVERVIEW_COLUMNS）。
+
+    逐源降级：snapshot/F10/股本/日K 单项失败 → 该源字段 NaN + warning；
+    name 失败回退 ticker（永不 NaN）。snapshot 与日K 都失败（无任何价格来源）
+    → 返回 None（调用方按失败处理）。
+    """
+    src = TdxSource()
+    name = src.get_stock_name(ticker)
+
+    snapshot_df = _fetch_degraded(lambda: src.fetch_snapshot(ticker), "snapshot", ticker)
+    daily_df = _fetch_degraded(
+        lambda: src.fetch_daily(ticker, max_bars=OVERVIEW_DAILY_MAX_BARS), "daily", ticker
+    )
+    capital_df = _fetch_degraded(lambda: src.fetch_finance_capital(ticker), "finance_capital", ticker)
+    f10_df = _fetch_degraded(lambda: src.fetch_company_finance(ticker), "company_finance", ticker)
+
+    if snapshot_df is None and daily_df is None:
+        logger.error(
+            "TDX overview build failed for {}: no price source (snapshot and daily both unavailable).", ticker
+        )
+        return None
+
+    row = compose_overview(ticker, name, snapshot_df, capital_df, f10_df, daily_df)
+    return pd.DataFrame([row])

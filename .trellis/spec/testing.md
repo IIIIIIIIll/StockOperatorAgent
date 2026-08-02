@@ -53,9 +53,38 @@ when a change touches only one agent.
 - `test/core/llms/deepseek/test_deepseek_api.py` — 离线：默认模型
   `deepseek-v4-flash` / `DEEPSEEK_MODEL` 覆盖 / 无 key 构造抛错（与 QwenApi
   同构，UI 层负责提示）/ 不传 DashScope 私有参数。
-- 基线（本环境无 .env/网络受限）：既有套件 29F/3P，失败均为环境性（缺
-  `DASHSCOPE_API_KEY`/`DEEPSEEK_API_KEY`、akshare 网络、`ChinaStock('dummy')`
-  已知损坏）。回归门槛 = 不新增失败。
+- `test_tdx_overview.py` / `test_tdx_reports.py` — 离线合成数据（golden
+  values + 列序契约钉死）+ live 冒烟（TDX 可达执行，不可达跳过）。
+
+## Deprecated Tests（2026-08-02，akshare/qwen 相关全部常规不跑）
+
+主流程已纯 TDX（TDX 覆盖个股概览与业绩报告）+ DeepSeek 默认 LLM，akshare 与
+Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部端点挂超时（曾把全量
+回归拖到 20+ 分钟）。处理方式：**代码与方法全部保留**，测试加
+`pytest.mark.skip`（模块级 `pytestmark` 或方法装饰器，reason 注明 deprecated
++ 恢复方式=删行）。清单：
+
+- `test/data_source/test_akshare.py` — 整个文件（akshare live smoke）
+- `test/core/data_acquisition/test_data_acquisition.py` — 6 个 akshare 方法
+  （`update_*_overview` / `acquire_daily_overview` / `acquire_historical_data`
+  / `acquire_performance_report`）；**`test_acquire_stock_data` 保留**——
+  M3 后 `get_stock_data` 走纯 TDX 链路，需常态回归
+- `test/core/llms/qwen/test_qwen_api.py` — 整个文件（Qwen 可选 LLM）
+- `test/integration/test_basic_graph.py` — 整个文件（5 用例均实例化 QwenApi）
+- `test/integration/test_investment_committee.py` — 整个文件（DeepSeek live
+  E2E，本机 .env 有 key 但网络受限连 api.deepseek.com 挂起）
+
+## 基线（本环境，2026-08-02 deprecated 后实测）
+
+- **全量：8F/59P/20S，约 3.5 分钟**。回归门槛 = 不新增失败。
+- 8 个失败全为既有环境性失败：
+  - `ChinaStock('dummy')` 已知损坏（test_ChinaStock.py + test_ZODBStorage.py
+    的 test_storage，TypeError）→ 见 Known Broken Tests
+  - ZODB `test_exist_*` / `test_set_update_now` — 同进程前序 ZODB 实例
+    `__del__` 锁泄漏（BlockingIOError）传染，见 data_storage spec
+  - `test_need_update` — 周末日历边界：DB 里 `overview_last_updated` 若
+    晚于上工作日 17:00 则 check 返回 False 而测试期望 True
+- 新增 TDX 测试（overview/reports/data_acquisition_tdx）全绿。
 
 ## Known Broken Tests (do not copy)
 

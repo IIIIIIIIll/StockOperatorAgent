@@ -124,7 +124,7 @@ class DataAcquisition:
         try:
             daily = tdx_source.fetch_daily(ticker, max_bars=look_back_days)
         except Exception:
-            logger.error("TDX daily fetch failed for {}; falling back to akshare.", ticker)
+            logger.error("TDX daily fetch failed for {}; historical data unavailable.", ticker)
             return False
 
         xdxr = pd.DataFrame()
@@ -210,10 +210,62 @@ class DataAcquisition:
             self.storage.put_stock(stock.ticker, stock)
         return True
 
+    def ensure_stock(self, ticker):
+        """按需单股构建概览：storage 无该股票 → TDX build_overview → put_stock。
+
+        按需构建语义（不每日刷新，见 design.md §4）：storage 已有 → 直接 True。
+        构建失败（build_overview 返回 None，snapshot 与日K 均无价格来源）→
+        logger.error + False——与 acquire_performance_report_tdx 的"无报告不算
+        失败"语义区分（error-handling.md：expected absence 才回 False）。
+        """
+        if self.storage.get_stock(ticker) is not None:
+            return True
+        overview_df = TdxSource().build_overview(ticker)
+        if overview_df is None:
+            logger.error("TDX overview build failed for {}.", ticker)
+            return False
+        # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）：
+        # 全量 22 值位置构造，无 [1:] 切片（与 akshare 路径不同，见 data_source spec）
+        row = overview_df.to_dict(orient='records')[0]
+        stock_overview = StockOverview(*list(row.values()))
+        stock = ChinaStock.ChinaStock(stock_overview.name, stock_overview.ticker, stock_overview)
+        self.storage.put_stock(stock_overview.ticker, stock)
+        return True
+
+    def acquire_performance_report_tdx(self, ticker):
+        """TDX F10 业绩报告路径：build_reports 单表多行 → 逐行入仓。
+
+        布尔协议：storage 无该股票 → logger.error + False（expected absence）；
+        有 → 每份 add_performance_report（内部已 commit，report_date 字符串
+        比较去重）→ put_stock → True。build_reports 返回 None（F10 拉取失败/
+        无报告）→ logger.warning + True——无报告不是失败，与 ensure_stock 的
+        构建失败语义区分。
+        """
+        stock = self.storage.get_stock(ticker)
+        if stock is None:
+            logger.error("Stock {} not found in database.", ticker)
+            return False
+        reports = TdxSource().build_reports(ticker)
+        if reports is None:
+            logger.warning("TDX performance reports unavailable for {}; skipped.", ticker)
+            return True
+        # 15 列序契约（reports.py REPORT_COLUMNS == StockPerformanceReport 字段序）
+        for row in reports.to_dict(orient='records'):
+            report = StockPerformanceReport(*list(row.values()))
+            stock.add_performance_report(report)
+        self.storage.put_stock(ticker, stock)
+        return True
+
     def get_stock_data(self, ticker):
-        self.acquire_daily_overview()
-        self.acquire_performance_report()
-        if not self.acquire_historical_data_tdx(ticker):
-            logger.warning("TDX history failed for {}; falling back to akshare.", ticker)
-            self.acquire_historical_data(ticker)
+        """纯 TDX 按需链路：ensure_stock → 历史(TDX) → 业绩(TDX)，无 akshare。
+
+        ensure_stock 失败（无任何价格来源）→ None；历史/业绩失败各自记日志
+        不阻断，返回已构建的 stock。akshare 方法（acquire_daily_overview /
+        acquire_performance_report / acquire_historical_data）保留作备用，
+        主流程不再调用（PRD：纯 TDX 不兜底）。
+        """
+        if not self.ensure_stock(ticker):
+            return None
+        self.acquire_historical_data_tdx(ticker)
+        self.acquire_performance_report_tdx(ticker)
         return self.storage.get_stock(ticker)

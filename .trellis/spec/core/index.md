@@ -30,15 +30,30 @@ Orchestrates data freshness and ingestion. Local patterns:
 - **Report cycle**: `get_next_report_date` walks quarter-end dates
   (0331/0630/0930/1231) and `acquire_performance_report` fetches all reports
   between the last stored date and the latest possible date.
-- `get_stock_data(ticker)` is the single entry: overview → performance reports →
-  history → return `storage.get_stock(ticker)`. History is **TDX-first**:
-  `acquire_historical_data_tdx(ticker)` fails (`False` + `logger.error`) →
-  falls back to `acquire_historical_data` (akshare). akshare method untouched.
-- `acquire_historical_data_tdx(ticker)` — same freshness-first + boolean
-  protocol as the akshare version; chain: `TdxSource.fetch_finance_capital`
-  (流通股本, 失败降级 → 换手率 NaN) → `fetch_daily` (失败 → `False`) →
-  `fetch_xdxr` (失败降级 → 未复权) → `mapping.to_akshare_hist_schema` →
-  `adjust.qfq_adjust` → `ChinaStockData(*list(row.values()))` → `add_data`.
+- `get_stock_data(ticker)` is the single entry — **纯 TDX 按需链路，无 akshare
+  回退**：`ensure_stock(ticker)`（storage 无该股票 → `build_overview` →
+  `StockOverview` **全量 22 值位置构造，无 `[1:]` 切片**（TDX 概览恰 22 列含
+  代码列，与 akshare spot_em 23 列需 `[1:]` 不同）→ `ChinaStock(name, ticker,
+  overview)` → `put_stock`）→ `acquire_historical_data_tdx`（失败记日志不
+  阻断）→ `acquire_performance_report_tdx` → return `storage.get_stock(ticker)`。
+  `ensure_stock` 失败（overview None）→ `return None`（纯 TDX，无 akshare 兜底；
+  `core/llms/tools/get_company_info.py` 的 `raise Exception('Stock not found')`
+  由此触发）。
+- `ensure_stock(ticker) -> bool` — 按需构建语义：storage 已有 → `True`（不
+  每日刷新概览）；`build_overview` None → `logger.error` + `False`。
+- `acquire_performance_report_tdx(ticker) -> bool` — storage 无该股票 → `False`；
+  `build_reports` 返回单表多行，逐行 `StockPerformanceReport(*list(row.values()))`
+  （15 列无切片）→ `add_performance_report`（内部 commit，report_date 字符串
+  去重）→ `put_stock` → `True`；`build_reports` None（无报告）→ `logger.warning`
+  + `True`（无报告不是失败）。
+- akshare 方法（`acquire_daily_overview` / `acquire_performance_report` /
+  `update_*_overview` / `acquire_historical_data`）**保留不删**（备用 + 既有
+  测试引用），但主流程不再调用。
+- `acquire_historical_data_tdx(ticker)` — freshness-first + boolean 协议；
+  chain: `TdxSource.fetch_finance_capital`（流通股本, 失败降级 → 换手率 NaN）
+  → `fetch_daily` (失败 → `False`) → `fetch_xdxr` (失败降级 → 未复权) →
+  `mapping.to_akshare_hist_schema` → `adjust.qfq_adjust` →
+  `ChinaStockData(*list(row.values()))` → `add_data`.
   See `data_source/index.md` for the layer contracts.
 
 `self.storage = get_zodb_storage()` in the constructor — a lazy **process-wide

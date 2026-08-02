@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/data_source/index.md", "reason": "TDX 层契约：TdxSource 薄包装、方法级对应 TdxDownloader、raw DataFrame out 不吞异常；DataFrame→dataclass 位置构造与 [1:] 切片约定（build_overview/build_reports 的输出列序必须对齐）"}
+{"file": ".trellis/spec/core/index.md", "reason": "DataAcquisition 模式：布尔结果协议、get_stock_data 单一入口、TDX-first 链与 akshare 回退、get→mutate→put_stock 模式、storage 进程级单例"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "StockOverview/StockPerformanceReport 字段序契约（位置构造）、numpy 标量类型、report_date '%Y%m%d' 字符串比较协议、ChinaStock.add_performance_report 行为"}
+{"file": ".trellis/spec/data_storage/index.md", "reason": "put_stock/get_stock 键值语义、每次写后 transaction.commit()、读不 commit"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层契约检查清单：位置映射不打断、日期格式不漂移、写路径必 commit；本任务横跨 data_source→data_structure→data_storage→core"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复用模式：位置构造复用既有 dataclass、time_helper/constants 单源、新增字段时搜索既有实现"}

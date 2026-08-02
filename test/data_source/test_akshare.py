@@ -1,3 +1,5 @@
+import pytest
+
 from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
 from loguru import logger
 
@@ -5,6 +7,11 @@ from data_structure.chinese_mainland.ChinaStockData import ChinaStockData
 from data_structure.chinese_mainland.StockInfo import StockInfo
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
 from data_structure.chinese_mainland.StockOverview import StockOverview
+
+# deprecated（2026-08-02）：akshare 为备用路径（主流程已纯 TDX），live 测试依赖
+# 东方财富端点——本环境不可达，每个请求挂超时拖慢全量回归。代码与数据源保留，
+# 测试常规不跑。恢复方式：删掉本行，在可达东财的网络环境执行。
+pytestmark = pytest.mark.skip(reason="deprecated: akshare 备用路径 live 测试，常规不跑")
 
 
 class TestAKShare():

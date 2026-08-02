@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/testing.md", "reason": "测试规范：类式 smoke 无 mock、TDX 离线（合成数据）+live 模式、回归门槛=无新增失败（基线 29F 环境性）、已知损坏测试不复制"}
+{"file": ".trellis/spec/error-handling.md", "reason": "布尔协议合规检查：数据层返回 False+logger.error、不吞异常、不 invent 异常类；TDX 包装源异常在 acquisition 边界 catch"}
+{"file": ".trellis/spec/logging.md", "reason": "loguru 占位符风格（{}）、error 记录 ticker、逐源降级用 warning"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "验证清单：22 列序/14 列序与 dataclass 字段对齐、report_date 保持 '%Y%m%d'、put_stock 后 commit"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "层契约验证：build_overview/build_reports 输出 raw DataFrame、vendor 零改动（VENDOR.md 差异记录）、akshare 方法保留不动"}
+{"file": ".trellis/spec/architecture.md", "reason": "收尾 spec 更新目标：architecture.md 数据流图需反映 TDX 主路径（overview+业绩 TDX 化）"}

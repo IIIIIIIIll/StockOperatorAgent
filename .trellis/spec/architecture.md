@@ -17,7 +17,10 @@ Streamlit UI (core/ui/display.py)
             └─ DeepSeekApi (core/llms/deepseek/deepseek_api.py) — 默认；QwenApi 可选
                  └─ tool: get_stock_info (core/llms/tools/get_company_info.py)
                       └─ DataAcquisition (core/data_acquisition.py)
-                           ├─ AKShareSource (data_source/chinese_mainland/akshare/fetch_stcok_data.py)
+                           ├─ TdxSource (data_source/chinese_mainland/tdx/) — 主链路：
+                           │    历史行情 + 个股概览 (overview.py) + 业绩报告 (reports.py)
+                           ├─ AKShareSource (…/akshare/fetch_stcok_data.py) — 备用路径，
+                           │    主流程不再调用（原方法保留）
                            ├─ persistent dataclasses (data_structure/chinese_mainland/)
                            └─ ZODBStorageInstance (data_storage/chinese_mainland/ZODBStorage.py)
                                 └─ ZODB FileStorage file (database/china_stock_data.fs, gitignored)
@@ -26,9 +29,11 @@ Streamlit UI (core/ui/display.py)
 Each directory is one layer with its own guideline (see [index.md](./index.md)).
 Cross-layer rules of thumb:
 
-- Data flows as **pandas DataFrames** out of akshare, becomes **persistent dataclasses**
-  by positional construction, and reaches agents as a **formatted string**
-  (`StockOutputFormatter`). Never skip a layer's conversion.
+- Data flows as **pandas DataFrames** out of the data source (TDX 主链路 /
+  akshare 备用), becomes **persistent dataclasses** by positional construction,
+  and reaches agents as a **formatted string** (`StockOutputFormatter`). Never
+  skip a layer's conversion. 个股数据按需单股构建（TDX 无全市场行情扫描）；
+  pytdx 无数据的字段输出 NaN 而非报错。
 - LangGraph `State` keys (see `agents/index.md`) are the contract between agents;
   all five agents read `state['target_stock_ticker']` and `state['stock_information']`.
 - The Streamlit `progress_updater` (a `st.empty()` container) is passed into every

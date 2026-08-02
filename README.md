@@ -33,11 +33,16 @@ pip install -r requirements.txt
 
 ## 数据源
 
-- **历史行情主路径（TDX/pytdx）**：`data_source/chinese_mainland/tdx/` 薄包装
+- **主链路（纯 TDX/pytdx）**：`data_source/chinese_mainland/tdx/` 薄包装
   vendored [tdx_quant](https://github.com/henrylin99/tdx_quant)（pytdx 直连通达信
-  行情服务器，快且稳定）。数据经前复权（qfq）后写入 ZODB；失败自动回退 akshare。
-  更新 vendor 的方式见 `data_source/chinese_mainland/tdx/vendor/VENDOR.md`。
-- **akshare**：行情兜底 + 个股概览 + 业绩报告（原路径，未改动）。
+  行情服务器，快且稳定）。历史行情（前复权 qfq）、**个股概览**（行情/股本/行业/
+  估值与市值派生/涨跌幅）与**业绩报告**（F10 派生 + 环比自算）全部由 TDX 提供。
+  个股数据**按需单股构建**（分析哪只构建哪只，不做全市场行情扫描）。更新 vendor
+  的方式见 `data_source/chinese_mainland/tdx/vendor/VENDOR.md`。
+- **akshare**：备用路径，主流程不再调用（原方法保留）。北交所（BJ）行情与
+  akshare 特有字段等场景仍可走该路径。
+- **字段缺失语义**：pytdx 无数据的字段（量比/5分钟涨跌/动量/毛利率等）输出 NaN，
+  不报错；名称索引拉取失败时回退股票代码。
 
 ## 注意事项
 - 请确保你的API密钥安全，不要泄露给他人。

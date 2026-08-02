@@ -31,15 +31,22 @@ and `acquire_historical_data`. Callers branch on the boolean
 as fatal). `data_storage/.../ZODBStorage.py` follows the sibling convention:
 `get_stock` returns `None` for missing keys and never raises.
 
-**Wrapper-source exception (TDX path)**: `acquire_historical_data_tdx` is the
-data layer's only sanctioned catch site — vendored pytdx raises
+**Wrapper-source exception (TDX path)**: vendored pytdx raises
 `ValueError`/`ConnectionError` for invalid codes / server failures (not
-"expected absence"). It catches at the acquisition boundary and converts to the
-boolean protocol: daily fetch failure → `False` (caller falls back to akshare);
+"expected absence"). The sanctioned catch sites convert to the layer's
+protocol:
+- `acquire_historical_data_tdx` (acquisition boundary): daily fetch failure →
+  `False` (caller falls back to akshare);
 `fetch_finance_capital` / `fetch_xdxr` failure → `logger.warning` + degrade
-(换手率 NaN / 未复权) without blocking the main path. Same shape in
-`get_trend_indicators` / `get_market_intel` (LLM tools): failures return
-placeholder text, never raise.
+(换手率 NaN / 未复权) without blocking the main path.
+- `overview.py` / `reports.py` 构建层（data_source 内，2026-08-02 新增）：
+  **逐源 catch** 是逐源降级设计（PRD：缺字段留 NaN 不整块失败）——每个源
+  `_fetch_degraded` 单项失败 → `logger.warning` + 该源字段 NaN；snapshot 与
+  日K 均无价格来源（overview）或 F10 不可用（reports）→ 返回 `None` 由调用方
+  按失败处理（`ensure_stock` → `False`；`acquire_performance_report_tdx` →
+  无报告不算失败返回 `True`）。
+Same shape in `get_trend_indicators` / `get_market_intel` (LLM tools): failures
+return placeholder text, never raise.
 
 ### 2. Raise at the boundary (LLM tool)
 
