@@ -124,11 +124,13 @@ Keep it that way; do not add a second storage abstraction.
   `{"configurable": {"thread_id": "1"}}`.
 - `make_investment_decision(target_ticker)` streams the graph with the initial
   state `{"messages": [...], "target_stock_ticker": ..., "stock_information": ...}`.
-  `stock_information` 由模块函数 **`build_stock_information(ticker)`**（2026-08-02
-  抽出，display 与 make_investment_decision 共用同一组装点——原 enrichment
-  只存在于死方法里，display 流程从未执行）生成：`get_stock_info`（stock 缺失
-  raise，唯一 raise 点）+ 技术指标 (`get_trend_indicators`，无行情数据降级
-  占位) + 实时情报 (`get_market_intel`，无 `TDX_API_KEY` 时降级文本) 拼接
+  `stock_information` 由模块函数 **`build_stock_information(ticker, progress=None)`**
+  生成（display 与 make_investment_decision 共用同一组装点——2026-08-02 抽出；
+  `progress` 为可选回调，review #9——三工具调用之间输出分步进度，display
+  传 `updatable_container.info` 包装，无 UI 上下文路径缺省 None 不受影响）：
+  `get_stock_info`（stock 缺失 raise，唯一 raise 点）+ 技术指标
+  (`get_trend_indicators`，无行情数据降级占位) + 实时情报
+  (`get_market_intel`，无 `TDX_API_KEY` 时降级文本) 拼接
   ——不改 State/图/agent 模式。工具在函数内 import，避免无 key 环境的
   模块级副作用。
 - New agents mean: new node registration here, a new edge, a new `State` key,

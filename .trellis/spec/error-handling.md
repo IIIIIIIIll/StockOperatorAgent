@@ -56,10 +56,16 @@ return placeholder text, never raise.
 `core/llms/tools/get_company_info.py` is the **only raise site in the codebase**:
 
 ```python
+if is_bj_ticker(ticker):          # BJ 显式提示（review #11，2026-08-02）
+    raise Exception('北交所（BJ）股票暂不支持分析：...请使用沪深 A 股代码')
+data_acquisition = DataAcquisition()
 stock = data_acquisition.get_stock_data(ticker)
 if stock is None:
     raise Exception('Stock not found')
 ```
+
+BJ 检查在构造 `DataAcquisition`（打开 ZODB）之前——离线可直接断言异常；
+报错文案与 UI 层 BJ 提示一致（中文，用户可见）。
 
 The raised error propagates through the agent graph call and surfaces in the
 Streamlit UI / test output. Keep raising to this boundary — it is where a data

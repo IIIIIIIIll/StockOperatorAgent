@@ -106,4 +106,12 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
   `dummy_*`-seed pattern from `test_basic_graph.py`.
 - Writing tests that mutate `database/china_stock_data.fs` in ways that break
   other tests — storage tests share the file.
+- **共享 DB 跨 pytest 运行持久化（2026-08-02 两次踩坑）**：ZODB 文件在
+  测试运行之间保留——依赖 freshness 门/gate 状态的用例**必须显式设置前置
+  条件**（回拨 `overview_last_update` / `last_data_update`、删除 dummy
+  ticker、播种报告），不能假设"storage 无该股/状态新鲜"的初始状态（前次
+  运行的写入会让用例走到另一分支，如首建测试变成"已有股票"路径）。例：
+  `test_get_stock_data_first_build_fetches_each_source_once` 开头
+  `del da.storage.root.stocks[ticker]` + commit。跨运行确定性 = 每次运行
+  全绿（同文件连续跑两遍验证）。
 - New test files outside `test/` mirroring the package path.
