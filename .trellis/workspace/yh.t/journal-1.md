@@ -78,3 +78,24 @@ Captured how the spec system itself operates into `.trellis/spec/spec-system.md`
   （开发者配置 key 后测试曾误挂）。
 - 后续任务：数据获取流程梳理（实测 akshare 输出列序 → 修复位置映射 → TDX/akshare
   分工重构）。
+
+
+## Session 1: TDX 覆盖个股概览与业绩报告，主流程纯 TDX
+
+**Date**: 2026-08-02
+**Task**: TDX 覆盖个股概览与业绩报告，主流程纯 TDX
+**Branch**: `master`
+
+### Summary
+
+M1 概览层（overview.py 22 列序 + get_stock_name 名称索引，离线 golden + live 全绿）；M2 业绩层（reports.py F10 pivot 15 列序 + QoQ 自算）；M3 流程重构（ensure_stock / acquire_performance_report_tdx / get_stock_data 纯 TDX 无 akshare 回退）。实现中修正 design 三处契约：22 列无 [1:] 切片、_NAME_INDEX 用 (market,code) 键、15 列含 ticker。akshare/qwen 及 DeepSeek live 测试标记 deprecated（全量回归 20+ 分钟挂起 → 8F/59P/20S 3.5 分钟，8F 全为既有环境性失败）。README + 5 个 spec 更新。一并归档 akshare-upgrade / deepseek-llm / tdx-quant-integration 三个已完成任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `62cc2db` | (see git log) |
+
+### Status
+
+[OK] **Completed**
