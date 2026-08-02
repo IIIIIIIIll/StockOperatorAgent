@@ -32,8 +32,15 @@ class TestBuildStockInformation:
             assert "技术指标" in text
             # 无 key 降级：情报段为"未配置 TDX_API_KEY"占位，不 raise、不阻断
             assert "未配置 TDX_API_KEY" in text
-            # 拼接顺序：情报段在技术指标段之后（get_stock_info → 技术指标 → 实时情报）
+            # 拼接顺序：技术指标 → 财务指标 → 实时情报
+            # （get_stock_info → 技术指标 → 财务指标 → 实时情报，
+            # 08-02-f10-financial-indicator-sections 加第四段）
             assert text.find("未配置 TDX_API_KEY") > text.find("技术指标")
+            # 盈利能力指标段在技术指标之后、实时情报之前（002714 raw 缓存
+            # 缺失 → 占位文本，同样含"盈利能力指标"字样；不 raise 不阻断）
+            assert "盈利能力指标" in text
+            assert text.find("盈利能力指标") > text.find("技术指标")
+            assert text.find("未配置 TDX_API_KEY") > text.find("盈利能力指标")
         finally:
             if saved is not None:
                 os.environ["TDX_API_KEY"] = saved

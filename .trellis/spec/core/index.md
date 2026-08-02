@@ -129,10 +129,13 @@ Keep it that way; do not add a second storage abstraction.
   `progress` 为可选回调，review #9——三工具调用之间输出分步进度，display
   传 `updatable_container.info` 包装，无 UI 上下文路径缺省 None 不受影响）：
   `get_stock_info`（stock 缺失 raise，唯一 raise 点）+ 技术指标
-  (`get_trend_indicators`，无行情数据降级占位) + 实时情报
-  (`get_market_intel`，无 `TDX_API_KEY` 时降级文本) 拼接
-  ——不改 State/图/agent 模式。工具在函数内 import，避免无 key 环境的
-  模块级副作用。
+  (`get_trend_indicators`，无行情数据降级占位) + **财务指标**
+  (`get_financial_indicators`，raw 缓存缺失降级占位，2026-08-02
+  08-02-f10-financial-indicator-sections——F10【盈利能力指标】节最新
+  期中文摘要) + 实时情报 (`get_market_intel`，无 `TDX_API_KEY` 时降级
+  文本) 拼接——顺序：个股信息 → 技术指标 → 财务指标 → 实时情报，
+  四段 display 与 make_investment_decision 共用。不改 State/图/agent
+  模式。工具在函数内 import，避免无 key 环境的模块级副作用。
 - New agents mean: new node registration here, a new edge, a new `State` key,
   and a new prompt in `core/llms/prompt.py`.
 

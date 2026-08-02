@@ -119,6 +119,23 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
   `scripts/backfill_f10_quarters.py`（有 raw 缓存的股票，零网络；**绕过
   freshness 门与 add_performance_reports 递增去重**——库中已有 20260331 会
   挡住季度期，脚本按 report_date 合并替换 PersistentList，幂等）。
+- **按分节名解析 + 盈利能力指标（2026-08-02，08-02-f10-financial-indicator-sections）**：
+  F10 财务分析页除【主要财务指标】外还有【盈利能力指标】【偿债能力指标】
+  【发展能力指标】等分节（银行股另有资本充足/贷款五级分类等），全部从未
+  解析。f10_parser 泛化：提取 `_parse_section_block(text, section_name)`
+  核心（分节定位全串匹配 → 块截断 `\n【` → 日期头子表并入 → (metric, period)
+  去重），`parse_finance_indicators_all_tables` 变薄包装（既有测试零改动），
+  新增 `parse_indicator_section(text, section_name)`——各分节与【主要财务
+  指标】同构（年报表+季度表、表头 `财务指标(%)`），复用逻辑零复制。
+  `core/llms/tools/get_financial_indicators.py`：`get_financial_indicators(ticker)`
+  → raw 缓存解析【盈利能力指标】节 → 最新报告期每指标一行
+  `营业毛利率: 89.76%`（**只输出 value_num notna 的行**——F10 长指标名
+  折行产生残缺名/无值行，N/A 行对 agent 是噪声）；raw 缺失/解析失败 →
+  占位文本不 raise（同 get_trend_indicators 约定）。`build_stock_information`
+  扩为四段：个股信息 → 技术指标 → **财务指标** → 实时情报（display 与
+  make_investment_decision 共用组装点，一处改动两端生效）。银行股特有项
+  （净息差/净利差/成本收入比）跟随解析不硬编码。UI 侧 data_markdown 加
+  `【盈利能力指标（` marker 独立成节渲染。
 - `mapping.py` — `to_akshare_hist_schema(df, ticker, float_shares=None)`：
   pytdx bars → akshare `stock_zh_a_hist` 12 列序（日期/股票代码/开盘/收盘/
   最高/最低/成交量/成交额/振幅/涨跌幅/涨跌额/换手率），使既有

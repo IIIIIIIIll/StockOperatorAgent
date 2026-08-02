@@ -70,6 +70,10 @@ _SECTION_TITLES = {
     "daily": "近 60 日行情",
     "financial": "近 20 期财务摘要",
     "intel": "实时市场情报",
+    # 08-02-f10-financial-indicator-sections：盈利能力指标段（get_financial_
+    # indicators 输出，与【技术指标（...）】同形态）——独立成节渲染，不混入
+    # 技术指标节。后续新增指标段（偿债/发展能力）各加一个 marker 即可。
+    "profitability": "盈利能力指标",
 }
 
 
@@ -168,6 +172,12 @@ def to_markdown_tables(stock_info: str) -> str:
             continue
         if line.startswith("【技术指标（"):
             current = "indicators"
+            sections.append((line[1:-1], [], []))
+            continue
+        if line.startswith("【盈利能力指标（"):
+            # 08-02-f10-financial-indicator-sections：标题去【】保留日期，
+            # 独立成节（否则该行落入当前节，指标行混进技术指标表）
+            current = "profitability"
             sections.append((line[1:-1], [], []))
             continue
         if line.startswith("【实时市场情报】"):

@@ -56,22 +56,23 @@ def _split_pipe_cells(line: str) -> list[str]:
     return parts
 
 
-def parse_finance_indicators_all_tables(text: str) -> pd.DataFrame:
-    """F10 财务分析 raw 文本 → 每 (metric, period) 一行，**全部日期头子表并入**。
+def _parse_section_block(text: str, section_name: str) -> pd.DataFrame:
+    """解析 F10 指定分节：每 (metric, period) 一行，**全部日期头子表并入**。
 
     与 vendor 解析器的差异（本模块存在的意义）：vendor 遇第二个日期头行
     break（丢弃含季度的表 2）；本函数**更新 periods 并继续**——表 1 + 表 2
     的 (metric, period, value) 三元组全部收集。同 (metric, period) 出现在
     多张表（两表同值）→ 后写覆盖去重。
 
-    无【主要财务指标】节 / 无可解析行 → 空 DataFrame（与 vendor 同约定）。
+    分节定位：`section_name`（如 '【主要财务指标】' / '【盈利能力指标】'）
+    全串匹配；块在下一个分节标记（'\n【'）截断（后续分节天然排除）。
+    无该分节 / 无可解析行 → 空 DataFrame（与 vendor 同约定）。
     """
     records: list[dict] = []
-    start = (text or '').find('【主要财务指标】')
+    start = (text or '').find(section_name)
     if start < 0:
         return pd.DataFrame(columns=F10_COLUMNS)
     rest = text[start:]
-    # 块在下一个分节标记（'\n【'）截断——表 3/4（【盈利能力指标】等）排除
     nxt = rest.find('\n【', 1)
     block = rest if nxt < 0 else rest[:nxt]
 
@@ -104,3 +105,23 @@ def parse_finance_indicators_all_tables(text: str) -> pd.DataFrame:
     df = pd.DataFrame(records, columns=F10_COLUMNS)
     # 同 (metric, period) 跨表去重：保留最后出现（表 2 后写；两表同值）
     return df.drop_duplicates(subset=["metric", "period"], keep="last")
+
+
+def parse_finance_indicators_all_tables(text: str) -> pd.DataFrame:
+    """F10【主要财务指标】raw 文本 → 每 (metric, period) 一行（全部子表并入）。
+
+    ``_parse_section_block`` 的薄包装（08-02-f10-financial-indicator-sections
+    泛化重构）——行为与重构前完全一致，既有测试零改动。
+    """
+    return _parse_section_block(text, '【主要财务指标】')
+
+
+def parse_indicator_section(text: str, section_name: str) -> pd.DataFrame:
+    """F10 指定指标分节（如【盈利能力指标】）→ 每 (metric, period) 一行。
+
+    （08-02-f10-financial-indicator-sections）与【主要财务指标】同构——
+    年报表 + 季度表两张子表、表头 '财务指标(%)'，复用 _parse_section_block
+    的日期头子表并入逻辑。输出 schema 与 parse_finance_indicators_all_tables
+    一致（metric/period/value_raw/value_num）。
+    """
+    return _parse_section_block(text, section_name)

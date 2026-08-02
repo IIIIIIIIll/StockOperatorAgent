@@ -250,3 +250,23 @@ display.py 新增「采集数据」Tab（DATA_TAB_TITLE 常量，st.tabs 六元�
 ### Status
 
 [OK] **Completed**
+
+## Session 9: 解析 F10 盈利能力指标分节并入 stock_information
+
+**Date**: 2026-08-02
+**Task**: 解析 F10 盈利能力等指标分节——并入 stock_information 供 LLM 使用
+**Branch**: `master`
+
+### Summary
+
+F10 财务分析页除【主要财务指标】外还有【盈利能力指标】等分节（从未解析）。f10_parser 泛化出 _parse_section_block(text, section_name)（薄包装保持既有测试零改动），新增 parse_indicator_section；新工具 get_financial_indicators 从 raw 缓存（零网络）解析盈利能力节 → 最新期中文摘要（只输出有值行——F10 长指标名折行产生残缺名/N/A 噪声）；build_stock_information 扩为四段（个股信息→技术指标→财务指标→实时情报）；data_markdown 加【盈利能力指标（marker 独立成节）。600519 → 6 项通用指标、000001 → 银行特有项（净息差等）+ 通用项。全量回归 0F/196P/20S。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (see git log for this session) |
+
+### Status
+
+[OK] **Completed**

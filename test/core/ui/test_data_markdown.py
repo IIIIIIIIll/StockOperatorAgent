@@ -113,6 +113,28 @@ class TestToMarkdownTables:
         assert "| 名称 | 平安银行 |" in out
         assert "| 最新价 | 11.11 |" in out
 
+    def test_profitability_section_own_table(self):
+        """盈利能力指标段（08-02-f10-financial-indicator-sections）：独立成节
+        （`【盈利能力指标（日期）】` marker），不混入技术指标节。"""
+        text = (
+            "【技术指标（2026-07-31 收盘）】\n"
+            "MA5/10/20/60: MA5=1.00, MA10=2.00, MA20=3.00, MA60=4.00\n"
+            "【盈利能力指标（2026-03-31）】\n"
+            "营业毛利率: 89.76%\n"
+            "营业净利率: 52.22%\n"
+            "营业利润率: 69.63%"
+        )
+        out = dm.to_markdown_tables(text)
+        # 独立节标题（去【】保留日期），且出现在技术指标节表格之后
+        assert "**盈利能力指标（2026-03-31）**" in out
+        assert out.find("**盈利能力指标（2026-03-31）**") > out.find("**技术指标")
+        # 指标行渲染进盈利能力节自己的表格
+        profit_block = out.split("**盈利能力指标（2026-03-31）**")[1]
+        assert "| 营业毛利率 | 89.76% |" in profit_block
+        # 技术指标节表格不含盈利能力行
+        tech_block = out.split("**盈利能力指标（2026-03-31）**")[0]
+        assert "营业毛利率" not in tech_block
+
     def test_placeholder_lines_passthrough(self):
         """降级占位文本（无键值形态）原样透传——不吞降级信息。"""
         text = ("（无 000001 的行情数据，跳过技术指标）\n"

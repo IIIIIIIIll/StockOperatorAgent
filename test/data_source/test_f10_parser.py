@@ -13,6 +13,7 @@ import pytest
 from data_source.chinese_mainland.tdx.f10_parser import (
     F10_COLUMNS,
     parse_finance_indicators_all_tables,
+    parse_indicator_section,
 )
 
 PIPE = '｜'
@@ -134,3 +135,56 @@ class TestParseAllTables:
         df = parse_finance_indicators_all_tables(text)
         periods = sorted(df["period"].unique())
         assert "2025-03-31" in periods and "2025-06-30" in periods and "2025-09-30" in periods
+
+
+# 盈利能力指标分节名（08-02-f10-financial-indicator-sections）
+_PROFIT_SECTION = "【盈利能力指标】"
+
+
+class TestParseIndicatorSection:
+    """08-02-f10-financial-indicator-sections：按分节名解析（盈利能力等）。
+
+    与【主要财务指标】同构（年报表 + 季度表、表头 '财务指标(%)'）——复用
+    _parse_section_block 的日期头子表并入逻辑；分节定位全串匹配 + 块截断。
+    """
+
+    def test_synthetic_section_parsed(self):
+        """合成盈利能力节（表头财务指标(%) + 两张子表）→ 指标 × 9 期。"""
+        text = "【主要财务指标】\n" + _TABLE1 + "\n" + _PROFIT_SECTION + "\n" + _table(
+            ["2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30", "2025-03-31", "2024-12-31"],
+            [("营业毛利率", ["89.76", "91.18", "91.29", "91.30", "91.97", "91.93"])],
+        )
+        df = parse_indicator_section(text, "【盈利能力指标】")
+        assert set(df["metric"]) == {"营业毛利率"}
+        assert len(df) == 6  # 6 期（单表）
+        assert df[df["period"] == "2025-09-30"]["value_num"].iloc[0] == pytest.approx(91.29)
+
+    def test_section_not_found_returns_empty(self):
+        assert parse_indicator_section(_TWO_TABLES, "【偿债能力指标】").empty
+
+    def test_next_section_excluded(self):
+        """块截断：盈利能力节后的【发展能力指标】不入。"""
+        text = (_PROFIT_SECTION + "\n" + _table(
+            ["2026-03-31", "2025-12-31"],
+            [("营业毛利率", ["89.76", "91.18"])],
+        ) + "\n【发展能力指标】\n" + _table(
+            ["2026-03-31", "2025-12-31"],
+            [("营业收入增长率", ["10.0", "9.0"])],
+        ))
+        df = parse_indicator_section(text, _PROFIT_SECTION)
+        assert set(df["metric"]) == {"营业毛利率"}
+
+    def test_real_cached_text_600519_six_indicators(self):
+        """真实文本（600519）→ 6 项通用指标（缓存缺失时跳过）。"""
+        import os
+        path = "/home/tan/StockOperatorAgent/data/tdx_cache/company_info_raw/ts_code=600519.SH/data.parquet"
+        if not os.path.exists(path):
+            pytest.skip("no cached raw text for 600519")
+        text = pd.read_parquet(path).iloc[0]["text"]
+        df = parse_indicator_section(text, _PROFIT_SECTION)
+        metrics = set(df["metric"])
+        assert {"营业毛利率", "营业净利率", "营业利润率", "成本费用利润率",
+                "总资产报酬率", "加权净资产收益率"} <= metrics
+        # 季度期并入（年报表 + 季度表两张子表）
+        periods = sorted(df["period"].unique())
+        assert "2025-06-30" in periods and "2025-09-30" in periods
