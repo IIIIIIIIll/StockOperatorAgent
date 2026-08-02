@@ -99,3 +99,24 @@ M1 概览层（overview.py 22 列序 + get_stock_name 名称索引，离线 gold
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 根治 ZODB 锁泄漏与已知测试失败（全量 8F → 0F）
+
+**Date**: 2026-08-02
+**Task**: 根治 ZODB 锁泄漏与已知测试失败（全量 8F → 0F）
+**Branch**: `master`
+
+### Summary
+
+根治性修复：ZODBStorage.__del__ 锁泄漏（transaction.abort() + try/except，实测 ZODB 6.0.1）；test_ZODBStorage 改用进程级单例（同进程单连接契约）；ChinaStock 三参数构造 + 完整 ChinaStockData 字段 + 递增 date（datetime vs date 不可比隐藏坑）；test_exist_* 断言语义契约化（未构建→None + _seed_stock 自包含）；test_need_update 基准与实现一致；test_storage 改专用 ticker；杂项（类名/重复定义/time_helper 断言）。全量 8F/59P/20S → 0F/67P/20S，2.6 分钟，无 traceback 噪音。另完成 gm（MyQuant）数据源调研：3.0.177 为完整 cp313 包，set_token 通过，缺掘金终端 live 待 Windows 侧确认。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `295ef48` | (see git log) |
+
+### Status
+
+[OK] **Completed**
