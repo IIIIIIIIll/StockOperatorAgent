@@ -76,10 +76,12 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 
 ## 基线（本环境，2026-08-02 实测）
 
-- **全量：0F/169P/20S，约 3-4 分钟**（2026-08-02 ui-data-markdown-tables
-  后实测，+10 用例；159P 基线见下）。历史基线 0F/159P/20S
-  （ui-collected-data-display 后）、0F/112P/20S（fix-dead-code-cleanup
-  后）、0F/100P/20S、0F/83P/20S、0F/67P/20S。回归门槛 = 不新增失败。
+- **全量：0F/188P/20S，约 2-4 分钟**（2026-08-02 fix-f10-quarterly-data
+  后实测，+12 用例：f10_parser 10 + reports 季度 QoQ/live 季度 2；169P
+  基线后另有 queue-bridge 任务 +7 用例未计入）。历史基线 0F/169P/20S
+  （ui-data-markdown-tables 后）、0F/159P/20S（ui-collected-data-display
+  后）、0F/112P/20S（fix-dead-code-cleanup 后）、0F/100P/20S、
+  0F/83P/20S、0F/67P/20S。回归门槛 = 不新增失败。
 - **环境互斥（2026-08-02 实测踩坑）**：**Streamlit 程序运行中跑全量
   回归必然大面积 BlockingIOError**（flock 不可重入）——app 进程持有
   `china_stock_data.fs.lock`，任何构造 `DataAcquisition()` 的测试

@@ -153,15 +153,34 @@ def compose_reports(
 def build_reports(ticker: str, _scope=None) -> pd.DataFrame | None:
     """按需单股构建业绩报告 DataFrame（每报告期一行；列序契约见模块 docstring）。
 
+    **首选 raw 文本路径（08-02-fix-f10-quarterly-data）**：vendor 解析器把
+    F10 含季度的第二张子表 break 丢弃（tdx_company_info.py），本层改为优先
+    读 company_info_raw 缓存文本 → 非 vendor 解析器（f10_parser，
+    表 1+表 2 全部并入，季度齐全）；raw 缺失/解析失败 → 回退 vendor 解析
+    df（现状 6 期，可用不阻断）。
+
     逐源降级：F10 拉取失败 / 无数据 → logger.warning + None（不 raise，调用方
     按失败处理，见 error-handling.md）；name 失败回退 ticker（永不 NaN）。
 
     _scope（review #2+#3）：FetchScope（core.data_acquisition）透传——给出时
     F10 拉取走 scope 复用（与概览共享同一 DataFrame）；None → 独立直拉。
+    raw 文本读取绕过 scope 直读本地 parquet（无网络、无去重需求）。
     """
+    from data_source.chinese_mainland.tdx.f10_parser import parse_finance_indicators_all_tables
     src = TdxSource()
     name = src.get_stock_name(ticker)
     fetcher = _scope or src
+
+    # 首选：raw 缓存文本 → 非 vendor 解析器（含季度）
+    raw = src.fetch_company_finance_raw(ticker)
+    if raw:
+        f10_df = parse_finance_indicators_all_tables(raw)
+        if not f10_df.empty:
+            reports = compose_reports(ticker, name, f10_df)
+            if reports is not None:
+                return reports
+
+    # 回退：vendor 解析 df（无季度，可用不阻断）
     try:
         f10_df = fetcher.fetch_company_finance(ticker)
     except Exception:

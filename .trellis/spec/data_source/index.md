@@ -101,6 +101,24 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
   命中率 < 50% → `logger.warning`（vendor metric 改名检测）。
   `report_date` 输出 '%Y%m%d' 字符串。缺指标列用 `reindex` 补 NaN
   （`wide[list(...)]` 会 KeyError）。F10 失败/空 → None + `logger.warning`。
+- **F10 两张子表 + 非 vendor 解析器（2026-08-02，08-02-fix-f10-quarterly-data）**：
+  TDX F10「主要财务指标」页面有两张并列子表——表 1 只列"最新期 + 历年年报"
+  （6 期），表 2 含季度（9 期，数值同口径累计值，是表 1 超集）。vendor 解析器
+  （tdx_company_info.py）遇第二个日期头行 `break` 丢表 2——VENDOR.md 零改动
+  约束下，非 vendor 层 `data_source/chinese_mainland/tdx/f10_parser.py` 的
+  `parse_finance_indicators_all_tables(text)` 重实现：**全部日期头子表并入**
+  （日期头行 ≥2 个日期 cell → 切换 periods 继续而非 break），(metric, period)
+  去重（keep="last"），输出列 `metric/period/value_raw/value_num`（无 ts_code
+  ——compose_reports 只消费三列），自实现 cell 切分/亿万归一/NaN 映射（不
+  import vendor 内部函数）。`TdxSource.fetch_company_finance_raw(ticker)` 只读
+  `company_info_raw` 缓存 text 列（缺/坏 → None 不 raise，**零网络**）。
+  `build_reports` 双路径：首选 raw → f10_parser（含季度）→ compose_reports；
+  raw 缺失/解析失败 → 回退 vendor 解析 df（现状 6 期，不阻断）。QoQ 在季度
+  补齐后自然生效（相邻季 91 天 < 88-93 校验；跨年边界 12-31→03-31 同为相邻
+  季也计算——行为新增）。overview 仍走 vendor 路径（只需最新期）。存量重灌：
+  `scripts/backfill_f10_quarters.py`（有 raw 缓存的股票，零网络；**绕过
+  freshness 门与 add_performance_reports 递增去重**——库中已有 20260331 会
+  挡住季度期，脚本按 report_date 合并替换 PersistentList，幂等）。
 - `mapping.py` — `to_akshare_hist_schema(df, ticker, float_shares=None)`：
   pytdx bars → akshare `stock_zh_a_hist` 12 列序（日期/股票代码/开盘/收盘/
   最高/最低/成交量/成交额/振幅/涨跌幅/涨跌额/换手率），使既有

@@ -97,6 +97,38 @@ class TdxSource:
         """F10 财务分析指标（tidy long 格式），返回原始 DataFrame。"""
         return self.downloader.download_company_finance(ticker)
 
+    def fetch_company_finance_raw(self, ticker: str) -> str | None:
+        """F10 财务分析**原始文本**（company_info_raw 缓存，含完整四张子表）。
+
+        **只读缓存，不触发网络**（08-02-fix-f10-quarterly-data）：vendor
+        解析器把含季度的表 2 break 丢弃（tdx_company_info.py），非 vendor
+        解析器（data_source/.../tdx/f10_parser.py）从 raw 文本把全部子表
+        并入——本方法供 reports.build_reports 首选路径读取。
+
+        文件缺失/空/损坏/无 text 列 → None（不 raise，error-handling 约定，
+        调用方回退 vendor 解析 df）。路径与 vendor download_company_finance
+        写入的 company_info_raw 同一契约：``<parquet_root>/company_info_raw/
+        ts_code=<TS>/data.parquet`` 的 text 列。
+        """
+        from scripts.data_pipeline.code_mapping import market_code_to_ts_code  # noqa: E402
+        ts_code = market_code_to_ts_code(infer_hq_market(ticker), ticker)
+        cached = (
+            self.parquet_root
+            / "company_info_raw"
+            / f"ts_code={ts_code}"
+            / "data.parquet"
+        )
+        if not cached.exists():
+            return None
+        try:
+            df = pd.read_parquet(cached)
+            if df.empty or "text" not in df.columns:
+                return None
+            return df.iloc[0]["text"]
+        except Exception:
+            # 缓存损坏 → None（回退 vendor 解析 df，不阻断主流程）
+            return None
+
     def fetch_security_list(self, market: int) -> "pd.DataFrame":
         """全市场证券列表快照（market: 0=SZ, 1=SH），返回原始 DataFrame。
 

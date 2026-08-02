@@ -135,6 +135,30 @@ class TestComposeReports:
             (2.0e8 - (-3.0e8)) / (-3.0e8) * 100
         )
 
+    def test_qoq_with_quarterly_periods(self):
+        """季度补齐（08-02-fix-f10-quarterly-data）：相邻季间隔 91 天 → QoQ
+        正常计算；跨年边界（2024-12-31 → 2025-03-31）同为相邻季 → 也计算
+        （此前 6 期无此相邻对，行为新增——季度齐全后的正确扩展）。"""
+        periods = [
+            {"period": "2024-12-31", "eps": 0.5, "total_income": 1.2e12, "income_yoy": 7.0,
+             "net_profit": 3.5e11, "profit_yoy": 9.0, "nwps": 10.8, "roe": 11.5, "cps": 2.8},
+            {"period": "2025-03-31", "eps": 0.55, "total_income": 1.3e12, "income_yoy": 8.0,
+             "net_profit": 3.8e11, "profit_yoy": 9.5, "nwps": 10.9, "roe": 11.8, "cps": 2.9},
+            {"period": "2025-06-30", "eps": 0.6, "total_income": 1.4e12, "income_yoy": 8.5,
+             "net_profit": 4.0e11, "profit_yoy": 10.2, "nwps": 11.0, "roe": 12.3, "cps": 3.2},
+            {"period": "2025-09-30", "eps": 0.62, "total_income": 1.42e12, "income_yoy": 8.8,
+             "net_profit": 4.1e11, "profit_yoy": 10.5, "nwps": 11.1, "roe": 12.5, "cps": 3.3},
+        ]
+        df = compose_reports("000001", "平安银行", _make_f10(periods))
+        assert list(df["report_date"]) == ["20241231", "20250331", "20250630", "20250930"]
+        # 跨年边界：2024-12-31 → 2025-03-31 间隔 91 天 → QoQ 计算（新增行为）
+        assert df.iloc[1]["net_profit_QoQ_rate"] == pytest.approx((3.8e11 - 3.5e11) / 3.5e11 * 100)
+        # 季内相邻：Q1→Q2、Q2→Q3
+        assert df.iloc[2]["net_profit_QoQ_rate"] == pytest.approx((4.0e11 - 3.8e11) / 3.8e11 * 100)
+        assert df.iloc[3]["net_profit_QoQ_rate"] == pytest.approx((4.1e11 - 4.0e11) / 4.0e11 * 100)
+        # 首期（2024-12-31）无上期 → NaN
+        assert np.isnan(df.iloc[0]["net_profit_QoQ_rate"])
+
     def test_qoq_nan_when_period_missing(self):
         # 缺 2025-09-30 一期：2025-12-31 vs 2025-06-30 跨 2 季度（184 天）→
         # QoQ NaN（不静默按相邻期算环比）；2026-03-31 vs 2025-12-31 相邻
@@ -223,3 +247,18 @@ class TestLiveBuildReports:
         latest = df.iloc[-1]
         assert np.isnan(latest["eps"]) or latest["eps"] > 0
         assert np.isnan(latest["total_income"]) or latest["total_income"] > 0
+
+    def test_live_build_reports_includes_quarters(self):
+        """08-02-fix-f10-quarterly-data：raw 路径含季度（2025 Q1-Q3 在表 2，
+        vendor 解析器曾丢弃；本层非 vendor 解析器并入）。raw 缓存缺失 →
+        回退 vendor 路径（无季度，跳过本断言）。"""
+        df = TdxSource().build_reports("000001")
+        if df is None:
+            pytest.skip("TDX unreachable in this environment (company_finance unavailable)")
+        import os
+        raw_path = ("/home/tan/StockOperatorAgent/data/tdx_cache/company_info_raw/"
+                    "ts_code=000001.SZ/data.parquet")
+        if not os.path.exists(raw_path):
+            pytest.skip("no cached raw text for 000001 (fallback path, quarterly not guaranteed)")
+        dates = set(df["report_date"])
+        assert {"20250331", "20250630", "20250930"} <= dates

@@ -230,3 +230,23 @@ display.py 新增「采集数据」Tab（DATA_TAB_TITLE 常量，st.tabs 六元�
 ### Status
 
 [OK] **Completed**
+
+## Session 8: 修复 TDX F10 季度数据丢失
+
+**Date**: 2026-08-02
+**Task**: 修复 TDX F10 季度数据丢失——合并两张子表（vendor 零改动）
+**Branch**: `master`
+
+### Summary
+
+根因：TDX F10「主要财务指标」页面有两张并列子表（表 1 只列最新期+历年年报，表 2 含季度，同口径超集）；vendor 解析器遇第二个日期头行 break 丢表 2。VENDOR.md 零改动约束下：新增非 vendor 解析器 f10_parser.py（全部日期头子表并入 + (metric,period) 去重）、TdxSource.fetch_company_finance_raw（只读缓存零网络）、build_reports 双路径（raw 首选含季度 → 回退 vendor 6 期）、重灌脚本 scripts/backfill_f10_quarters.py（绕过 freshness 门与 add_performance_reports 递增去重——库中已有 20260331 会挡住季度期，按 report_date 合并替换 PersistentList，幂等）。000001 重灌后 ZODB 9 期（含 2025 Q1-Q3）。全量回归 0F/188P/20S。另注意：ZODB close 时 fsIndex NameError 为既有兼容问题（实测锁不泄漏）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (see git log for this session) |
+
+### Status
+
+[OK] **Completed**
