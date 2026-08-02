@@ -1,7 +1,11 @@
 import os
+import queue
+import threading
+
 import streamlit as st
 from langchain_core.runnables import RunnableConfig
 from core.investment_committee import InvestmentCommittee, build_stock_information
+from core.llms.progress import ProgressBridge
 from core.ui import data_markdown
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
@@ -56,6 +60,29 @@ def iter_report_items(update):
     for key, title in REPORT_TABS:
         if key in update:
             yield key, title, _report_content(update[key])
+
+
+# 报告 key → Tab 标题查询（事件循环渲染用；REPORT_TABS 仍是权威定义）
+REPORT_TITLES = dict(REPORT_TABS)
+
+
+def _stream_graph_events(graph, config, inputs, events):
+    """后台线程驱动 graph.stream：报告/异常/结束入队（脚本线程消费）。
+
+    agent 侧 ProgressBridge 已把进度与节点完成报告推入同一队列（更早
+    到达，节点级 1-1-1-1-1）；这里把 superstep update 的报告也入队作
+    兜底（同 key 由脚本线程去重），异常与 sentinel 收尾。daemon 线程，
+    会话结束随进程终止。
+    """
+    try:
+        for responses in graph.stream(inputs, config=config):
+            for value in responses.values():
+                for key, _title, content in iter_report_items(value):
+                    events.put(("report", key, content))
+    except Exception as e:
+        events.put(("error", e))
+    finally:
+        events.put(("done", None))
 
 
 def write_ui():
@@ -116,7 +143,12 @@ def write_ui():
             updatable_container.info(f"正在开始分析 {stock_ticker} 的股票信息... 可能会需要一些时间，请耐心等待...")
 
             config: RunnableConfig = {"configurable": {"thread_id": "1"}}
-            graph = committee.make_investment_committee(config, progress_updater=updatable_container)
+            # 事件队列桥（08-02-ui-live-progress-bridge）：并行节点在 LangGraph
+            # 工作线程，Streamlit DeltaGenerator 只能在脚本线程 enqueue——
+            # 进度/报告经 ProgressBridge 入队（线程安全），脚本线程消费后渲染。
+            events: queue.Queue = queue.Queue()
+            bridge = ProgressBridge(events)
+            graph = committee.make_investment_committee(config, progress_updater=bridge)
 
             # 报告 key → Tab 容器（与 REPORT_TABS 顺序对应，见 iter_report_items）
             report_tabs = {
@@ -128,20 +160,37 @@ def write_ui():
             }
 
             try:
-                # 边算边渲染（08-02-ui-incremental-report-render）：每个报告在
-                # 其节点完成、state key 出现在 stream update 时立即填充对应
-                # Tab，不等整次分析（最终结论）完成。循环体运行于脚本线程
-                # （LangGraph sync stream 在调用线程 yield）——st.write 安全；
-                # 并行节点工作线程的进度调用由 safe_progress 兜住，互不干扰。
-                for responses in graph.stream({"messages": [{"role": "user", "content": f"请帮我分析一下 {stock_ticker}"}],
-                                           "target_stock_ticker": stock_ticker,
-                                           "stock_information": stock_info
-                                           }, config=config):
-                    for value in responses.values():
-                        for key, title, content in iter_report_items(value):
-                            with report_tabs[key]:
-                                st.header(title)
-                                st.write(content)
+                # 图在后台线程驱动（sync stream 的 superstep 是屏障，脚本线程
+                # 直接迭代会被阻塞到整个阶段完成，队列无法实时消费）；脚本线程
+                # get 循环实时渲染：进度 → status 容器；报告 → 节点完成即填充
+                # 对应 Tab（agent push 先到即渲染，superstep update 兜底同 key
+                # 去重）——1-1-1-1-1 而非 2-2-1。
+                threading.Thread(
+                    target=_stream_graph_events,
+                    args=(graph, config, {
+                        "messages": [{"role": "user", "content": f"请帮我分析一下 {stock_ticker}"}],
+                        "target_stock_ticker": stock_ticker,
+                        "stock_information": stock_info,
+                    }, events),
+                    daemon=True,
+                ).start()
+                rendered = set()
+                while True:
+                    kind, *payload = events.get()
+                    if kind == "progress":
+                        updatable_container.info(payload[0])
+                    elif kind == "report":
+                        key, content = payload
+                        if key in rendered:
+                            continue
+                        rendered.add(key)
+                        with report_tabs[key]:
+                            st.header(REPORT_TITLES[key])
+                            st.write(content)
+                    elif kind == "error":
+                        raise payload[0]
+                    elif kind == "done":
+                        break
             except Exception as e:
                 # LLM 调用失败（API key 失效/网络/限流）→ 中文提示，不裸 traceback
                 logger.exception("Agent graph streaming failed for {}", stock_ticker)

@@ -7,7 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from core.llms.prompt import system_prompt, bearish_trader_message
 from core.llms.retry import invoke_with_retry
-from core.llms.progress import safe_progress
+from core.llms.progress import safe_progress, push_report
 from utils.time_helper import get_last_business_day
 from loguru import logger
 
@@ -43,5 +43,7 @@ class BearishTrader:
         safe_progress(self.progress_updater, "开始空方观点生成。。。")
         response = invoke_with_retry(self.llm, {"query": query}, config=self.config)
         safe_progress(self.progress_updater, "空方观点生成完成。。。")
+        # 节点级即时填充（08-02-ui-live-progress-bridge）：见 fundamental
+        push_report(self.progress_updater, "bearish_opinions", response.content)
         logger.debug("Bearish Trader Response: {}", response.content)
         return {"messages": [query[0], response], "bearish_opinions": response.content}

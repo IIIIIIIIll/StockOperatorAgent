@@ -130,3 +130,30 @@ class TestGraphParallel:
         final = _run_graph(_RoutedLlm(responses=[]), progress_updater=_ThrowingUpdater())
         assert final["final_decision"] == MANAGER
         assert len(final["messages"]) == 11
+
+    def test_bridge_collects_progress_and_all_five_reports(self):
+        """queue bridge（08-02-ui-live-progress-bridge）：真实图 + 假 LLM，
+        五节点经 ProgressBridge 推送进度与报告——数据面验证节点级即时
+        填充的输入完整（display 事件循环消费即可渲染）。
+
+        agent 的 push_report 对非 bridge updater（_ThrowingUpdater）是
+        no-op，此用例必须用真 bridge 才收集得到五份报告。
+        """
+        import queue as queue_mod
+
+        from core.llms.progress import ProgressBridge
+
+        events = queue_mod.Queue()
+        _run_graph(_RoutedLlm(responses=[]), progress_updater=ProgressBridge(events))
+        events_list = list(events.queue)
+        reports = {ev[1]: ev[2] for ev in events_list if ev[0] == "report"}
+        assert reports == {
+            "fundamental_analysis": FUNDAMENTAL,
+            "trend_analysis": TREND,
+            "bullish_opinions": BULL,
+            "bearish_opinions": BEAR,
+            "final_decision": MANAGER,
+        }
+        progress = [ev[1] for ev in events_list if ev[0] == "progress"]
+        assert len(progress) >= 10  # 5 节点 × 开始 + 完成
+        assert any("开始" in m for m in progress) and any("完成" in m for m in progress)
