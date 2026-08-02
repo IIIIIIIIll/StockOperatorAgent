@@ -103,3 +103,44 @@ class TestDisplayIncrementalRender():
             "final_decision": "M",
         }))
         assert [k for k, _, _ in items] == [k for k, _ in display.REPORT_TABS]
+
+
+class TestDisplayDataTab():
+    """08-02-ui-collected-data-display：采集数据 Tab 的展示契约。
+
+    数据 Tab 是 enrichment 后、stream 前的独立填充点（st.header +
+    st.text 原文），不参与报告 dispatch——测试守住常量与"数据 Tab
+    插入不破坏五报告相对顺序"契约（Streamlit 副作用不 mock，
+    house style）。
+    """
+
+    def test_data_tab_title_constant(self):
+        assert display.DATA_TAB_TITLE == "采集数据"
+
+    def test_report_tabs_relative_order_unchanged(self):
+        """数据 Tab 插入 st.tabs 最前，五报告相对顺序不变（渲染契约）。"""
+        assert [k for k, _ in display.REPORT_TABS] == [
+            "fundamental_analysis", "trend_analysis",
+            "bullish_opinions", "bearish_opinions", "final_decision",
+        ]
+
+    def test_data_tab_is_first_in_tabs_list(self):
+        """write_ui 的 st.tabs 六元组首项 = DATA_TAB_TITLE（数据在最前）。
+
+        列表首元素在源码里是 DATA_TAB_TITLE 名称引用（非字面量），逐节点
+        检查：首项 Name id == 常量名，其余字面量求值后 = REPORT_TABS 标题。
+        """
+        import ast
+        import inspect
+        source = inspect.getsource(display.write_ui)
+        tree = ast.parse(source)
+        tabs_calls = [node for node in ast.walk(tree)
+                      if isinstance(node, ast.Call)
+                      and isinstance(node.func, ast.Attribute)
+                      and node.func.attr == "tabs"]
+        assert len(tabs_calls) == 1
+        labels = tabs_calls[0].args[0].elts
+        assert isinstance(labels[0], ast.Name)
+        assert labels[0].id == "DATA_TAB_TITLE"
+        assert [ast.literal_eval(label) for label in labels[1:]] == [
+            title for _, title in display.REPORT_TABS]

@@ -16,8 +16,13 @@ def _has_deepseek_key():
     """
     return "DEEPSEEK_API_KEY" in os.environ
 
-# 报告 state key → Tab 标题。顺序即 write_ui 里 st.tabs 的创建顺序——
-# 渲染 dispatch 依赖该契约（08-02-ui-incremental-report-render）。
+# 采集数据 Tab 标题（08-02-ui-collected-data-display）：放 st.tabs 最前，
+# 在 build_stock_information 成功后、stream 前填充原文（st.text 保换行）。
+DATA_TAB_TITLE = "采集数据"
+
+# 报告 state key → Tab 标题。顺序即 write_ui 里 st.tabs 中报告 Tab 的
+# 创建顺序（数据 Tab 插入不影响相对顺序）——渲染 dispatch 依赖该契约
+# （08-02-ui-incremental-report-render）。
 REPORT_TABS = (
     ("fundamental_analysis", "基本面分析"),
     ("trend_analysis", "趋势分析"),
@@ -74,11 +79,12 @@ def write_ui():
             updatable_container.info("正在初始化环境，请稍候...")
 
 
-            (fundamental_analysis_tab,
+            (data_tab,
+             fundamental_analysis_tab,
              trend_analysis_tab,
              bullish_opinion,
              bearish_opinion,
-             final_decision) = st.tabs(["基本面分析", "趋势分析", "看涨观点", "看跌观点", "最终结论"])
+             final_decision) = st.tabs([DATA_TAB_TITLE, "基本面分析", "趋势分析", "看涨观点", "看跌观点", "最终结论"])
 
             updatable_container.info(f"正在获取 {stock_ticker} 的股票信息（含技术指标与实时情报）... 可能会需要一些时间，请耐心等待...")
             try:
@@ -94,6 +100,16 @@ def write_ui():
                 logger.exception("Failed to build stock information for {}", stock_ticker)
                 st.error(f"获取 {stock_ticker} 的股票信息失败：{e}，请检查股票代码后重试")
                 return
+            # 采集数据 Tab（08-02-ui-collected-data-display）：enrichment
+            # 成功后、stream 前填充原文。stock_information 是定宽文本
+            # （overview 单行 + 60 根日K + 业绩报告，行间 \n），st.write
+            # 走 markdown 渲染会合并单换行——st.text 等宽保换行才是原文；
+            # 报告 Tab（LLM markdown）仍走 st.write。异常路径上面已 return，
+            # 此处数据必可用（降级占位文本是原文一部分，照常展示）。
+            with data_tab:
+                st.header(DATA_TAB_TITLE)
+                st.text(stock_info)
+
             updatable_container.info(f"正在开始分析 {stock_ticker} 的股票信息... 可能会需要一些时间，请耐心等待...")
 
             config: RunnableConfig = {"configurable": {"thread_id": "1"}}

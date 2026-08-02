@@ -188,3 +188,23 @@ display.py 改流式渲染：stream 循环内按节点 update 即时填充五个
 ### Status
 
 [OK] **Completed**
+
+## Session 6: UI 展示采集数据：新增「采集数据」Tab 原文渲染
+
+**Date**: 2026-08-02
+**Task**: UI 展示采集数据：新增「采集数据」Tab 原文渲染 stock_information
+**Branch**: `master`
+
+### Summary
+
+display.py 新增「采集数据」Tab（DATA_TAB_TITLE 常量，st.tabs 六元组放最前）：build_stock_information 成功后、stream 前 st.header + st.text 原文渲染。关键认知：stock_information 是定宽文本（overview 单行 + 60 根日K + 业绩报告，行间 \n）不是 markdown，st.write 走 markdown 渲染会合并单换行 → 必须 st.text 保换行。报告契约（REPORT_TABS/report_tabs dict/iter_report_items）零改动；新增离线测试 3 用例（常量、五报告相对顺序不变、AST 校验 st.tabs 六元组首项 = DATA_TAB_TITLE）。全量回归 159P/20S 零失败（首跑 35F 为共享 ZODB 跨运行脏状态，二跑全绿——testing spec 已记录该验收方式）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (see git log for this session) |
+
+### Status
+
+[OK] **Completed**

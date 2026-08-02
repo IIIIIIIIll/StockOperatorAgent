@@ -175,13 +175,24 @@ Keep it that way; do not add a second storage abstraction.
   运行于脚本线程（LangGraph sync stream 在调用线程 yield；仅并行节点内部
   的进度调用在工作线程，需 `safe_progress`）——`st.write` 安全。
 - **流式渲染契约（2026-08-02）**：`REPORT_TABS` 五元组（state key → Tab
-  标题）顺序 = `st.tabs` 创建顺序，渲染 dispatch 依赖该契约；`_report_content`
+  标题）顺序 = `st.tabs` 中报告 Tab 的创建顺序（数据 Tab 插入不影响相对
+  顺序），渲染 dispatch 依赖该契约；`_report_content`
   消化两种值形态——stream update 中报告为**原始字符串**（节点返回即写，
   reducer 未应用；实测 2026-08-02），最终 state 里 bullish/bearish 为
   add_messages 消息列表（`[-1].content`，见 `agents/index.md`）——展示
   语义与旧实现一致。`iter_report_items` / `_report_content` 为纯函数
   （与 Streamlit 解耦，display.py 仍是薄渲染层），离线测试喂合成 update
   验证映射（`test/core/ui/test_display.py::TestDisplayIncrementalRender`）。
+- **2026-08-02（采集数据 Tab）**：`st.tabs` 六元组——「采集数据」
+  （`DATA_TAB_TITLE` 常量）放**最前**，后接五报告 Tab（顺序不变）。
+  `build_stock_information` 成功返回后、`graph.stream` 前填充：
+  `st.header(DATA_TAB_TITLE)` + **`st.text(stock_info)`**——`stock_information`
+  是定宽文本布局（overview 单行 + 60 根日K + 业绩报告，行间 `\n`）不是
+  markdown，`st.write` 走 markdown 渲染会合并单换行（60 行日K 粘连成
+  一段），`st.text` 等宽保换行才是原文。报告 Tab（LLM markdown）仍走
+  `st.write`。异常路径（`st.error` + return）不填充不占位；技术指标/
+  实时情报的降级占位文本是原文一部分照常展示。display 保持薄渲染层：
+  不新增数据解析/格式化逻辑。
 - `get_state_history` 现仅测试消费（如 `test_graph_parallel._run_graph`
   取最终 state 断言）；UI 不再调用。保留 committee API
   （`make_investment_committee` / `make_investment_decision`）不变。
