@@ -28,9 +28,16 @@ when adding an agent — do not redesign it.** The pattern:
    progress via **`safe_progress(self.progress_updater, "...")`**
    （2026-08-02，`core/llms/progress.py`——并行节点运行在 LangGraph 工作
    线程，Streamlit DeltaGenerator 只能在脚本线程 enqueue，工作线程 info()
-   抛 NoSessionContext 会把分析打崩；safe_progress 降级为 debug 日志，
-   manager 等 join 后脚本线程节点照常显示），and returns a state-update
+   抛 NoSessionContext 会把分析打崩；safe_progress 降级为 debug 日志），
+   **`push_report(self.progress_updater, "<state_key>", response.content)`**
+   （2026-08-02，queue bridge——LLM 返回后即推送报告，display 节点级
+   即时填充；None/非 bridge updater 为 no-op，superstep update 兜底
+   渲染），and returns a state-update
    dict: `{"messages": [query[0], response], "<state_key>": response.content}`.
+   UI 路径的 `progress_updater` 是 **`ProgressBridge`**（core/llms/progress.py，
+   `info`/`push_report` 线程安全入队，脚本线程消费后渲染；离线图测试可传
+   `_ThrowingUpdater` 验证 safe_progress 降级——详见 core spec Streamlit
+   UI 段）。
 
 Reference: any of the five agents, plus their wiring in
 `core/investment_committee.py` and single-agent test graphs in

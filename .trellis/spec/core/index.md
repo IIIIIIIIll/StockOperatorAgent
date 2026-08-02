@@ -162,18 +162,31 @@ Keep it that way; do not add a second storage abstraction.
   `build_stock_information(ticker)`（与 `make_investment_decision` 共用组装
   点）——技术指标与 TDX 实时情报段真实进入 agent 上下文；无 `TDX_API_KEY`
   时情报段为降级占位文本。
-- **2026-08-02（UI 层错误守护）**：`build_stock_information` 与 `graph.stream`
-  包 try/except（error-handling spec 允许的 UI 守护边界）——失败
-  `st.error` 中文提示 + `logger.exception`，不裸 traceback 红屏、不吞错误。
-- **2026-08-02（日志修复）**：`logger.debug("Assistant: {}", ...)` 正确
-  占位符风格（原 `logger.debug("\nAssistant:", value)` 消息被 loguru 丢弃）。
-- **2026-08-02（边算边渲染）**：报告在**其节点完成即填充**对应 Tab——`graph.stream`
-  循环内对每个节点 update 调 `iter_report_items(value)` 得 `(key, title,
-  content)` 渲染项，按 `report_tabs` 查表 dispatch 到 Tab（`st.header` +
-  `st.write`）；**不再**等 stream 结束用 `get_state_history` 一次性填充
-  （五 key 各自只写一次、stream update 全覆盖 → 无遗漏无重复）。循环体
-  运行于脚本线程（LangGraph sync stream 在调用线程 yield；仅并行节点内部
-  的进度调用在工作线程，需 `safe_progress`）——`st.write` 安全。
+- **2026-08-02（UI 层错误守护）**：`build_stock_information` 与事件循环
+  包 try/except（error-handling spec 允许的 UI 守护边界）——图后台线程的
+  异常经队列回抛（error 事件 → raise），失败 `st.error` 中文提示 +
+  `logger.exception`，不裸 traceback 红屏、不吞错误。
+- **2026-08-02（日志）**：各 agent 的 Query/Response debug 日志是结果
+  唯一打印点（display 不再重复打 Assistant 行）；`main.py` 的
+  `_ensure_file_handler()` 幂等注册文件 handler——Streamlit 每次 rerun
+  重执行 main.py 顶层代码，裸 `logger.add` 会叠加同文件 handler（实测
+  同毫秒时间戳 2-14 份重复；用私有 `handler._sink._file_path` 判定已存在
+  路径后跳过）。
+- **2026-08-02（queue bridge：进度实时上屏 + 报告节点级填充）**：并行
+  节点在 LangGraph 工作线程，Streamlit DeltaGenerator 只能在脚本线程
+  enqueue——旧方案（sync stream 循环内渲染）只能按 superstep 填充
+  （2-2-1：同一 superstep 的并行节点更新一起到达），且并行节点进度被
+  safe_progress 降级丢弃。现架构：`ProgressBridge`（core/llms/progress.py，
+  `info`/`push_report` 都是线程安全 `queue.put`，永不抛）作为
+  progress_updater 传给图；`graph.stream` 在**后台线程**驱动
+  （`_stream_graph_events`：superstep update 的报告入队作兜底、异常与
+  sentinel 入队）；脚本线程 `events.get()` 循环实时渲染——进度 →
+  status 容器，报告 → 对应 Tab。每个 agent 在 LLM 返回后调 `push_report`
+  （core/llms/progress.py helper，None/非 bridge no-op）——报告**节点级
+  即时到达**（1-1-1-1-1，实测 asymmetric 延迟：fast 节点 0.5s 即到，
+  不等同 superstep 的慢节点 3s）；同 key 由 `rendered` 集合去重
+  （agent push 先到渲染，superstep update 后到跳过）。图失败 → error
+  事件回抛 → 既有 st.error 守护。
 - **流式渲染契约（2026-08-02）**：`REPORT_TABS` 五元组（state key → Tab
   标题）顺序 = `st.tabs` 中报告 Tab 的创建顺序（数据 Tab 插入不影响相对
   顺序），渲染 dispatch 依赖该契约；`_report_content`
