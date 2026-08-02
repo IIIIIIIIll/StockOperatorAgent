@@ -1,0 +1,83 @@
+---
+description: Architecture overview — runtime layers, data flow, config, shared utils, known quirks
+paths:
+  - main.py
+  - .env.example
+  - utils/**
+---
+
+# Architecture
+
+## Runtime Layers
+
+```
+Streamlit UI (core/ui/display.py)
+  └─ InvestmentCommittee (core/investment_committee.py)  — LangGraph StateGraph
+       └─ 5 agents (agents/chinese_mainland/)  — one node each, linear chain
+            └─ QwenApi (core/llms/qwen/qwen_api.py) — DashScope ChatOpenAI
+                 └─ tool: get_stock_info (core/llms/tools/get_company_info.py)
+                      └─ DataAcquisition (core/data_acquisition.py)
+                           ├─ AKShareSource (data_source/chinese_mainland/akshare/fetch_stcok_data.py)
+                           ├─ persistent dataclasses (data_structure/chinese_mainland/)
+                           └─ ZODBStorageInstance (data_storage/chinese_mainland/ZODBStorage.py)
+                                └─ ZODB FileStorage file (database/china_stock_data.fs, gitignored)
+```
+
+Each directory is one layer with its own guideline (see [index.md](./index.md)).
+Cross-layer rules of thumb:
+
+- Data flows as **pandas DataFrames** out of akshare, becomes **persistent dataclasses**
+  by positional construction, and reaches agents as a **formatted string**
+  (`StockOutputFormatter`). Never skip a layer's conversion.
+- LangGraph `State` keys (see `agents/index.md`) are the contract between agents;
+  all five agents read `state['target_stock_ticker']` and `state['stock_information']`.
+- The Streamlit `progress_updater` (a `st.empty()` container) is passed into every
+  agent constructor; agents report progress via `progress_updater.info("...")`.
+  UI progress text is Chinese.
+
+## Entry Point
+
+- Run with `streamlit run main.py` (README.md). `main.py` is minimal: it configures
+  the loguru handler, calls `load_dotenv()`, then `write_ui()`.
+- `core/ui/display.py` checks `DASHSCOPE_API_KEY` in `os.environ` before rendering
+  and validates the ticker input (6-digit numeric) before analysis.
+
+## Configuration
+
+- API key: `DASHSCOPE_API_KEY` in `.env` (see `.env.example`), loaded with
+  `load_dotenv()` in `main.py`, `investment_committee.py`, and LLM tests.
+- `utils/constants.py` holds the only module-level constants:
+  - `default_start = 1997-01-01` — baseline for "no data yet" timestamps
+    (`ChinaStock.last_data_update`, `ZODBStorageInstance.root.overview_last_updated`)
+  - `china_db_path = 'database/china_stock_data.fs'` — the ZODB file (gitignored via `*.fs`)
+
+## Shared Utils (`utils/`)
+
+- `utils/time_helper.get_last_business_day(date)` — the only trading-calendar helper.
+  Handles **weekends only**; public holidays are not modeled. Used by agents
+  (`current_date` prompt partial), `DataAcquisition`, and `ZODBStorage` (17:00 gate).
+- `utils/state.py` — the LangGraph `State` TypedDict (documented in `agents/index.md`).
+- `utils/constants.py` — see above.
+
+## Known Quirks (do not "fix" without a task)
+
+- Data-source module is `data_source/chinese_mainland/akshare/fetch_stcok_data.py`
+  (typo "stcok"). Renaming breaks imports — keep the name.
+- `core/stock_output_formatter.py:1` imports `output` from `openpyxl.styles.builtins`
+  and then shadows it with a local `output` variable. Dead import; leave it.
+- Some agent query templates contain a literal `${state[...]}` (e.g.
+  `agents/chinese_mainland/bullish_trader.py:32`) — a copy-paste artifact that
+  renders literally into the prompt. Harmless; do not spread it to new code.
+- `bullish_opinions` / `bearish_opinions` are typed `Annotated[list, add_messages]`
+  in `State` but agents return plain strings; the reducer wraps them into message
+  lists, which is why `display.py` reads `[-1].content`.
+- The LangGraph checkpointer is `InMemorySaver` with `thread_id "1"` — state does
+  not survive process restarts.
+
+## Anti-Patterns
+
+- Adding a second business-day implementation in another module — use
+  `get_last_business_day`.
+- Hardcoding `database/china_stock_data.fs` paths elsewhere — use
+  `utils.constants.china_db_path`.
+- Replacing loguru with stdlib `logging` in new modules — see [logging.md](./logging.md).
