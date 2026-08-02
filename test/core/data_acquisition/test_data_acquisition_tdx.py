@@ -10,10 +10,12 @@ M3：新增 ensure_stock / acquire_performance_report_tdx / get_stock_data
 import datetime
 
 import BTrees
+import pandas as pd
 import transaction
 from numpy import float64
 
 from core.data_acquisition import DataAcquisition
+from data_source.chinese_mainland.tdx.overview import OVERVIEW_COLUMNS
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 from data_structure.chinese_mainland import ChinaStock
 from data_structure.chinese_mainland.StockOverview import StockOverview
@@ -146,6 +148,66 @@ class TestDataAcquisitionTdx:
         for ticker in ["430047", "830799"]:
             assert da.ensure_stock(ticker) is False
             assert da.storage.get_stock(ticker) is None
+
+    # ---------- review #1：概览 freshness 门（2026-08-02） ----------
+    # 专用 dummy ticker 999998（与 test_ZODBStorage 的往返用例同款约定），
+    # 不触碰真实股票数据；每个用例显式设置 overview_last_update 前置条件，
+    # 与共享 DB 的历史状态解耦（freshness 门的行为只取决于该字段）。
+
+    def test_ensure_stock_skips_fresh_overview(self):
+        """当日已更新 → 门未命中，零构建调用，返回同一 stock 对象（幂等）。"""
+        da = DataAcquisition()
+        stock = _seed_stock(da, "999998")
+        stock.overview_last_update = datetime.datetime.now()
+        transaction.commit()
+        calls = []
+        def fake_build(ticker):
+            calls.append(ticker)
+            return None
+        assert da.ensure_stock("999998", _build_overview=fake_build) is True
+        assert calls == []
+        assert da.storage.get_stock("999998") is stock
+
+    def test_ensure_stock_refreshes_stale_overview(self):
+        """概览过期（overview_last_update 回拨 3 天）→ 门命中，构建恰一次。
+
+        注入 fake builder 返回 22 列 DataFrame（OVERVIEW_COLUMNS 列序契约）→
+        overview 被替换、overview_last_update 前进到当天，返回 True。
+        """
+        da = DataAcquisition()
+        stock = _seed_stock(da, "999998", "旧名称")
+        stock.overview_last_update = datetime.datetime.combine(
+            asia_today() - datetime.timedelta(days=3), datetime.time(12, 0)
+        )
+        transaction.commit()
+        calls = []
+        def fake_build(ticker):
+            calls.append(ticker)
+            row = {col: ("999998" if col == "代码" else ("新名称" if col == "名称" else 1.0)) for col in OVERVIEW_COLUMNS}
+            return pd.DataFrame([row])
+        assert da.ensure_stock("999998", _build_overview=fake_build) is True
+        assert calls == ["999998"]
+        refreshed = da.storage.get_stock("999998")
+        assert refreshed.overview.name == "新名称"
+        assert refreshed.overview_last_update.date() == asia_today()
+
+    def test_ensure_stock_keeps_old_overview_on_refresh_failure(self):
+        """过期 + 构建失败（None）→ 保留旧概览，仍 True（刷新失败不阻断分析）。
+
+        断言"概览不变"用调用前后快照比较——共享 DB 中该 ticker 的 overview
+        可能被前序用例改写，不假设具体名称。
+        """
+        da = DataAcquisition()
+        stock = _seed_stock(da, "999998", "旧名称")
+        stock.overview_last_update = datetime.datetime.combine(
+            asia_today() - datetime.timedelta(days=3), datetime.time(12, 0)
+        )
+        transaction.commit()
+        name_before = stock.overview.name
+        stamp_before = stock.overview_last_update
+        assert da.ensure_stock("999998", _build_overview=lambda t: None) is True
+        assert da.storage.get_stock("999998").overview.name == name_before
+        assert da.storage.get_stock("999998").overview_last_update == stamp_before
 
     def test_acquire_performance_report_tdx_missing_stock_returns_false(self):
         da = DataAcquisition()

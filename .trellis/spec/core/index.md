@@ -39,8 +39,14 @@ Orchestrates data freshness and ingestion. Local patterns:
   `ensure_stock` 失败（overview None）→ `return None`（纯 TDX，无 akshare 兜底；
   `core/llms/tools/get_company_info.py` 的 `raise Exception('Stock not found')`
   由此触发）。
-- `ensure_stock(ticker) -> bool` — 按需构建语义：storage 已有 → `True`（不
-  每日刷新概览）；`build_overview` None → `logger.error` + `False`。
+- `ensure_stock(ticker, _build_overview=None) -> bool` — 按需构建语义 + 概览
+  freshness 门（review #1，2026-08-02）：storage 已有 → `overview_last_update`
+  （真实 freshness 标记，`update_overview` 同步 + commit）**早于当前交易日**
+  （date 比较：同日多次分析稳定，跨交易日必刷新）→ 重建概览（best-effort：
+  `build_overview` None → `logger.warning` + 保留旧概览，仍 `True`）；当日已
+  更新 → `True`（幂等）。`_build_overview` 为测试注入点（house style，同
+  `acquire_performance_report_tdx` 的 `_fetch_reports`）。首建 `build_overview`
+  None（无价格来源）→ `logger.error` + `False`。
 - `acquire_performance_report_tdx(ticker, _fetch_reports=None) -> bool` — storage
   无该股票 → `False`；`build_reports` 返回单表多行，逐行
   `StockPerformanceReport(*list(row.values()))`（15 列无切片）→

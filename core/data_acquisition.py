@@ -307,15 +307,39 @@ class DataAcquisition:
             self.storage.put_stock(stock.ticker, stock)
         return True
 
-    def ensure_stock(self, ticker):
+    def ensure_stock(self, ticker, _build_overview=None):
         """按需单股构建概览：storage 无该股票 → TDX build_overview → put_stock。
 
-        按需构建语义（不每日刷新，见 design.md §4）：storage 已有 → 直接 True。
+        已有股票分支的概览 freshness 门（review #1，2026-08-02）：storage
+        已有 → 检查 `overview_last_update`，**早于当前交易日**（date 比较，
+        与 storage 层 17:00 门精神一致但更简单：同日多次分析结果稳定，跨
+        交易日必刷新）→ 重建概览；未命中 → 直接 True（幂等）。重建 best-
+        effort：build_overview None（无价格来源）→ logger.warning + 保留旧
+        概览，仍返回 True（刷新失败不阻断分析，与业绩 freshness 门的"跳过
+        不失败"语义一致）。`overview_last_update` 由此从只写死字段变为真实
+        freshness 标记（update_overview 同步 + commit）。
+
         构建失败（build_overview 返回 None，snapshot 与日K 均无价格来源）→
         logger.error + False——与 acquire_performance_report_tdx 的"无报告不算
         失败"语义区分（error-handling.md：expected absence 才回 False）。
+
+        _build_overview：测试注入点（house style 无 mock 框架）——默认
+        TdxSource().build_overview（远端 TDX），测试传计数包装验证门跳过/
+        命中时不触发网络。
         """
-        if self.storage.get_stock(ticker) is not None:
+        stock = self.storage.get_stock(ticker)
+        if stock is not None:
+            if stock.overview_last_update.date() < get_last_business_day(asia_today()):
+                if _build_overview is None:
+                    _build_overview = TdxSource().build_overview
+                overview_df = _build_overview(ticker)
+                if overview_df is None:
+                    logger.warning("Overview refresh failed for {}; keeping previous overview.", ticker)
+                else:
+                    # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）
+                    row = overview_df.to_dict(orient='records')[0]
+                    stock.update_overview(new_overview=StockOverview(*list(row.values())))
+                    logger.info("Overview refreshed for {}.", ticker)
             return True
         # 北交所（4/8 前缀）：TDX 全链路不可用（无名称/无行情）——显式提示 +
         # 失败返回，不静默 NaN（BJ 走 akshare 备用路径，见 README）

@@ -5,7 +5,7 @@ End-to-end review of the StockOperatorAgent runtime pipeline: UI → data acquis
 opportunities found by reading the full flow, so each can be picked up as its own
 task. No code was changed.
 
-Status legend: `[ ]` open, `[x]` done.
+Status legend: `[ ]` open, `[x]` done, `[~]` intentional (user decision — will not implement).
 
 ---
 
@@ -62,7 +62,7 @@ refresh when `overview_last_update` is older than the last business day (17:00-g
 style, like `check_need_update_overview`), or at minimum rebase price-derived
 fields from the freshly fetched daily bar. One conditional fetch per stock per day.
 
-**Status:** [ ] **Effort:** small — conditional gate + read of `overview_last_update` + test
+**Status:** [x] **Effort:** small — implemented 2026-08-02 in task `08-02-stale-overview-gate` (date-based gate: refresh when `overview_last_update.date() < get_last_business_day(asia_today())`, best-effort rebuild via `update_overview`, test injection point `_build_overview`)
 
 ## 2. Duplicate network fetches per analysis
 
@@ -149,7 +149,7 @@ Same ticker, same day → full 5-call re-analysis.
 the data caches). Note: analysis output should be day-stamped anyway given
 finding #1.
 
-**Status:** [ ] **Effort:** medium
+**Status:** [~] **Effort:** medium — **intentional, not implementing** (user decision 2026-08-02: the LLM re-run per submission is the intended product behavior; no per-day result cache)
 
 ## 8. Doc/spec drift — akshare fallback no longer exists
 
@@ -199,7 +199,7 @@ All 5 agents `logger.debug` the full query+response, including the whole
 
 **Fix:** truncate to a few hundred chars, or log only the first/last lines.
 
-**Status:** [ ] **Effort:** trivial
+**Status:** [~] **Effort:** trivial — **intentional, not implementing** (user decision 2026-08-02: full prompt/response logging is desired for LangSmith debugging parity)
 
 ---
 
@@ -210,7 +210,7 @@ All 5 agents `logger.debug` the full query+response, including the whole
    latency win, medium diff, spec amendment for the commit rule)
 3. **#4 parallel LLM pairs** — pure graph-wiring change + test update
 4. **#5 lock + #6 retry** — robustness
-5. **#7 caching, #8–12** — polish
+5. **#8–11** — polish (#7 result caching and #12 log truncation are intentional — see their status lines)
 
 ## Reference files
 
