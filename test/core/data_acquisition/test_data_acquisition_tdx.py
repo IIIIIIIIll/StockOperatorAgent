@@ -123,6 +123,16 @@ class TestDataAcquisitionTdx:
         assert da.ensure_stock("699999") is False
         assert da.storage.get_stock("699999") is None
 
+    def test_ensure_stock_bj_code_returns_false(self):
+        """北交所（4/8 前缀）→ 显式失败提示（TDX 不覆盖 BJ，静默 NaN 禁止），不入仓。
+
+        离线：ensure_stock 在 BJ 检查处短路返回，不触发任何 TDX 拉取。
+        """
+        da = DataAcquisition()
+        for ticker in ["430047", "830799"]:
+            assert da.ensure_stock(ticker) is False
+            assert da.storage.get_stock(ticker) is None
+
     def test_acquire_performance_report_tdx_missing_stock_returns_false(self):
         da = DataAcquisition()
         _seed_stock(da, "000001")

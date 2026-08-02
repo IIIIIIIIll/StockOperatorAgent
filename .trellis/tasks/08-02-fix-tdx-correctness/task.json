@@ -3,7 +3,7 @@
   "name": "fix-tdx-correctness",
   "title": "修复 TDX 派生正确性",
   "description": "formatter NaN 渲染、industry float NaN 进 str、adjust 成交量因子 NaN 污染与 ratio_vol<=0、QoQ 相邻性校验、ytd 首日口径、latest_period_value NaN period、mapping vol astype/float_shares falsy、_NAME_INDEX 部分失败固化、BJ 范围声明",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

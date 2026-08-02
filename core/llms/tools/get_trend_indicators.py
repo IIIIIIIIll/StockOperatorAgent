@@ -15,6 +15,7 @@ import pandas as pd
 
 from core.data_acquisition import DataAcquisition
 from data_source.chinese_mainland.tdx.tdx_source import ensure_vendor_on_path
+from utils.formatting import fmt_number
 
 ensure_vendor_on_path()
 from scripts.data_pipeline.indicators import compute_all  # noqa: E402
@@ -53,9 +54,9 @@ def _to_indicator_frame(stock) -> pd.DataFrame:
 
 
 def _fmt(value, digits):
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return "N/A"
-    return f"{value:.{digits}f}"
+    # 单点实现：utils.formatting.fmt_number（与 StockOutputFormatter 共用，
+    # NaN/None → "N/A"，数值保留指定小数位——见 code-reuse-thinking-guide）
+    return fmt_number(value, digits)
 
 
 def get_trend_indicators(ticker: str) -> str:

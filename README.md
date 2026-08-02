@@ -40,7 +40,8 @@ pip install -r requirements.txt
   个股数据**按需单股构建**（分析哪只构建哪只，不做全市场行情扫描）。更新 vendor
   的方式见 `data_source/chinese_mainland/tdx/vendor/VENDOR.md`。
 - **akshare**：备用路径，主流程不再调用（原方法保留）。北交所（BJ）行情与
-  akshare 特有字段等场景仍可走该路径。
+  akshare 特有字段等场景仍可走该路径。BJ 代码（4/8 前缀）TDX 全链路不可用
+  （无名称/无行情），UI 输入 BJ 代码会明确提示不支持而非静默 NaN。
 - **字段缺失语义**：pytdx 无数据的字段（量比/5分钟涨跌/动量/毛利率等）输出 NaN，
   不报错；名称索引拉取失败时回退股票代码。
 

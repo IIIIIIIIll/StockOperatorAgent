@@ -3,7 +3,7 @@ import pandas as pd
 from data_source.chinese_mainland.akshare.fetch_stcok_data import AKShareSource
 from data_source.chinese_mainland.tdx.adjust import qfq_adjust
 from data_source.chinese_mainland.tdx.mapping import to_akshare_hist_schema
-from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+from data_source.chinese_mainland.tdx.tdx_source import TdxSource, is_bj_ticker
 from data_structure.chinese_mainland import ChinaStock, ChinaStockData
 from data_structure.chinese_mainland.StockOverview import StockOverview
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
@@ -295,6 +295,14 @@ class DataAcquisition:
         """
         if self.storage.get_stock(ticker) is not None:
             return True
+        # 北交所（4/8 前缀）：TDX 全链路不可用（无名称/无行情）——显式提示 +
+        # 失败返回，不静默 NaN（BJ 走 akshare 备用路径，见 README）
+        if is_bj_ticker(ticker):
+            logger.warning(
+                "Ticker {} is a Beijing Stock Exchange (BJ) code; TDX does not serve BJ securities (no name/quotes). Use the akshare fallback path instead.",
+                ticker,
+            )
+            return False
         overview_df = TdxSource().build_overview(ticker)
         if overview_df is None:
             logger.error("TDX overview build failed for {}.", ticker)

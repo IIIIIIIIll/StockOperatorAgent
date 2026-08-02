@@ -83,6 +83,11 @@ Keep it that way; do not add a second storage abstraction.
   overview line, last 60 daily bars, last 20 performance reports.
 - It is a **pure string builder** — no I/O, no data acquisition. Never let it
   fetch or write data.
+- **2026-08-02 修复（NaN 渲染）**：所有数值经 `utils.formatting.fmt_number`
+  （与 `get_trend_indicators._fmt` 共用单点实现）渲染——NaN/None → "N/A"、
+  数值保留两位小数。TDX 路径恒有 NaN 字段（量比/涨速/5分钟、盘中换手率与
+  成交量、历史首行振幅/涨跌幅、F10 缺失指标），旧实现直接把 str(float) 拼进
+  prompt（nan%/nanlots 字面）；golden 断言无字面 'nan'。
 - Known quirk: line 1 imports `output` from `openpyxl.styles.builtins` and then
   shadows it with a local `output` variable — a dead import, leave it (see
   `architecture.md`).
@@ -92,6 +97,8 @@ Keep it that way; do not add a second storage abstraction.
 - `write_ui()` renders the Chinese UI: ticker form with 6-digit validation, five
   report tabs, and a `status.empty()` container passed as `progress_updater` so
   agents can stream progress into it.
+  **2026-08-02**：BJ 代码（4/8 前缀，`tdx_source.is_bj_ticker`）提交时直接
+  `st.error` 明确提示不支持（TDX 不覆盖 BJ 证券），不静默 NaN。
 - After streaming, results are pulled from `graph.get_state_history(config)[0].values`
   — including `bullish_opinions[-1].content` (works because the `add_messages`
   reducer wraps agent strings into message lists — see `agents/index.md`).

@@ -32,6 +32,7 @@ from loguru import logger
 
 from data_source.chinese_mainland.tdx.mapping import LOT_SIZE
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+from utils.time_helper import asia_today
 
 # akshare stock_*_a_spot_em 22 值列序（去掉序号列），与 StockOverview 字段序
 # 一一对应（ticker=代码, name=名称, latest_price=最新价, ...）。顺序勿改。
@@ -96,17 +97,28 @@ def _close_n_bars_ago(daily_df: pd.DataFrame | None, n: int) -> float:
     return _to_float(daily_df["close"].iloc[len(daily_df) - 1 - n])
 
 
-def _ytd_base_close(daily_df: pd.DataFrame | None) -> float:
-    """年初首个交易日收盘 = 末根 bar 所在年份的第一根 bar 的收盘（跨年时为去年末
-    后的第一根）。"""
+def _ytd_base_close(daily_df: pd.DataFrame | None, today: date) -> float:
+    """年初 YTD 基准收盘（未复权窗口内）：
+
+    - 窗口内含上年末 bar → 用上年最后一根收盘（年初首个交易日不把当日自身
+      当基准，否则 YTD 恒 0 漏首日；标准 YTD 口径 = 相对上年末收盘）；
+    - 末根 bar 年份 ≠ 当年（长期停牌停留在去年）→ NaN（跨年比较无意义）；
+    - 窗口内无上年 bar（如当年新上市）→ 退而求其次用当年首根收盘（首日
+      YTD 仍为 0；OVERVIEW_DAILY_MAX_BARS=250 通常覆盖上年末）。
+    """
     if daily_df is None or daily_df.empty or "datetime" not in daily_df.columns or "close" not in daily_df.columns:
         return NAN
     dt = pd.to_datetime(daily_df["datetime"])
     last_year = dt.iloc[-1].year
-    mask = dt.dt.year == last_year
-    if not mask.any():
+    if last_year != today.year:
+        return NAN  # 跨年停牌：末根 bar 停在去年，与今年价格比较无意义
+    prev_year_mask = dt.dt.year == last_year - 1
+    if prev_year_mask.any():
+        return _to_float(daily_df.loc[prev_year_mask, "close"].iloc[-1])
+    this_year_mask = dt.dt.year == last_year
+    if not this_year_mask.any():
         return NAN
-    return _to_float(daily_df.loc[mask, "close"].iloc[0])
+    return _to_float(daily_df.loc[this_year_mask, "close"].iloc[0])
 
 
 def _last_bar_is_today(daily_df: pd.DataFrame | None, today: date) -> bool:
@@ -121,7 +133,8 @@ def latest_period_value(f10_df: pd.DataFrame | None, metric: str) -> float:
     """F10 tidy long → 指定指标在**最新报告期**的 value_num。
 
     period 为 'YYYY-MM-DD' 字符串，字典序即时间序（ISO 可排序），取最大者；
-    无该指标 → NaN。
+    无该指标 / 无有效 period → NaN。period 为 NaN 的行先剔除——否则
+    astype(str) 得 'nan' 字典序最大，掩盖真实最新报告期。
     """
     if (
         f10_df is None
@@ -131,7 +144,7 @@ def latest_period_value(f10_df: pd.DataFrame | None, metric: str) -> float:
         or "value_num" not in f10_df.columns
     ):
         return NAN
-    sub = f10_df[f10_df["metric"] == metric]
+    sub = f10_df[f10_df["metric"] == metric].dropna(subset=["period"])
     if sub.empty:
         return NAN
     latest_idx = sub["period"].astype(str).idxmax()
@@ -153,7 +166,7 @@ def compose_overview(
     ``today`` 用于判定"当日"日K bar（volume/成交额/换手率的盘中语义），
     离线测试可注入固定日期。
     """
-    today = today or date.today()
+    today = today or asia_today()  # 北京时间"今天"（时区统一，见 utils/time_helper）
 
     price = _cell(snapshot_df, "price")
     if pd.isna(price):
@@ -184,7 +197,7 @@ def compose_overview(
 
     close_60d = _close_n_bars_ago(daily_df, LOOKBACK_DAYS)
     change_percent_60d = _divide(price - close_60d, close_60d) * 100
-    ytd_close = _ytd_base_close(daily_df)
+    ytd_close = _ytd_base_close(daily_df, today)
     change_percent_ytd = _divide(price - ytd_close, ytd_close) * 100
 
     values = [

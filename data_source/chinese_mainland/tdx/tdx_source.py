@@ -36,8 +36,19 @@ DEFAULT_PARQUET_ROOT = Path("data/tdx_cache")
 # 全市场证券名称索引（code → name），模块级缓存，进程内只拉一次。
 # 键为 (market, code) 而非纯 code：SH 证券列表含指数，与 SZ 股票同码冲突
 # （如 '000001'：SH=上证指数，SZ=平安银行），market 前缀区分。
+# _NAME_INDEX_LOADED 仅在两市场都成功时才置 True——任一市场失败保持未加载，
+# 下次 get_stock_name 重试（不固化部分索引）。
 _NAME_INDEX: dict[tuple[int, str], str] = {}
 _NAME_INDEX_LOADED = False
+
+
+def is_bj_ticker(ticker: str) -> bool:
+    """北交所（BJ）代码前缀判断（4/8 开头）——TDX 全链路不可用（无名称/无行情）。
+
+    入口处显式拦截：logger.warning + 返回失败提示，避免静默 NaN
+    （BJ 行情/概览/业绩走 akshare 备用路径，见 README）。
+    """
+    return ticker.startswith(("4", "8"))
 
 
 class TdxSource:
@@ -97,24 +108,34 @@ class TdxSource:
         global _NAME_INDEX_LOADED
         if not _NAME_INDEX_LOADED:
             self._load_name_index()
-            _NAME_INDEX_LOADED = True
         return _NAME_INDEX.get((infer_hq_market(ticker), ticker), ticker)
 
     def _load_name_index(self) -> None:
-        """拉取 SZ/SH 全市场证券列表，填充 ``_NAME_INDEX``（失败市场跳过）。"""
+        """拉取 SZ/SH 全市场证券列表，填充 ``_NAME_INDEX``。
+
+        两市场都成功才置 ``_NAME_INDEX_LOADED=True``；任一市场失败 → 保持
+        未加载，下次 get_stock_name 重试（不固化部分索引——否则失败市场
+        的名称在进程内永久回退 ticker）。
+        """
+        global _NAME_INDEX_LOADED
+        ok = True
         for market in (0, 1):
             try:
                 df = self.fetch_security_list(market)
             except Exception:
                 logger.warning("Security list unavailable for market {}; names fall back to ticker.", market)
+                ok = False
                 continue
             if df is None or df.empty or "code" not in df.columns or "name" not in df.columns:
                 logger.warning("Security list for market {} lacks code/name columns; skipped.", market)
+                ok = False
                 continue
             for code, name in zip(df["code"], df["name"]):
                 _NAME_INDEX[(market, str(code))] = str(name)
         if not _NAME_INDEX:
             logger.error("TDX security list name index is empty; names fall back to ticker.")
+        if ok:
+            _NAME_INDEX_LOADED = True
 
     def build_overview(self, ticker: str) -> "pd.DataFrame | None":
         """按需单股构建 22 列概览 DataFrame（单行；列序契约见 overview.py）。"""

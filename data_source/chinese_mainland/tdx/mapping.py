@@ -65,14 +65,16 @@ def to_akshare_hist_schema(
     out["收盘"] = df["close"]
     out["最高"] = df["high"]
     out["最低"] = df["low"]
-    out["成交量"] = df["vol"].astype("int64")
+    out["成交量"] = df["vol"].fillna(0).astype("int64")  # NaN vol → 0（astype 遇 NaN 抛错）
     out["成交额"] = df["amount"]
 
     prev_close = df["close"].shift(1)
     out["振幅"] = (df["high"] - df["low"]) / prev_close * 100
     out["涨跌幅"] = (df["close"] - prev_close) / prev_close * 100
     out["涨跌额"] = df["close"] - prev_close
-    if float_shares:
+    # 0.0 是显式传入（数据说流通股本为 0），走计算路径而非静默 NaN——
+    # `if float_shares:` 在 0.0 时 falsy，与"未传"不可区分（修复边界）
+    if float_shares is not None:
         out["换手率"] = df["vol"] * LOT_SIZE / float_shares * 100
     else:
         out["换手率"] = float("nan")

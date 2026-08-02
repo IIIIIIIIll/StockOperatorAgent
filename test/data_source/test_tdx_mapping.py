@@ -78,6 +78,32 @@ class TestToAkshareHistSchema:
         out = to_akshare_hist_schema(bars, "000001")
         assert np.isnan(out.iloc[0]["换手率"])
 
+    def test_nan_volume_filled_zero_without_raise(self):
+        # vol 含 NaN：astype('int64') 直接抛 IntCastingNaNError（在
+        # acquire_historical_data_tdx 的 try 之外 → 炸整条链）；fillna(0) 先行
+        bars = _make_bars([
+            {"datetime": "2026-07-28", "open": 10.0, "high": 10.6, "low": 9.9,
+             "close": 10.3, "vol": float("nan"), "amount": 2.06e9},
+            {"datetime": "2026-07-29", "open": 10.4, "high": 10.8, "low": 10.2,
+             "close": 10.6, "vol": 1200000.0, "amount": 1.37e9},
+        ])
+        out = to_akshare_hist_schema(bars, "000001", float_shares=1e8)
+        assert out.iloc[0]["成交量"] == 0  # NaN vol → 0
+        assert out.iloc[1]["成交量"] == 1200000
+        # 换手率按原始 vol 计算：NaN vol bar → NaN（成交量缺失），正常 bar 照常
+        assert np.isnan(out.iloc[0]["换手率"])
+        assert out.iloc[1]["换手率"] == pytest.approx(1200000 * 100 / 1e8 * 100)
+
+    def test_zero_float_shares_goes_through_compute_path(self):
+        # 0.0 是显式传入（数据说流通股本为 0）≠ None：走计算路径（公式除零
+        # → inf），而非 `if float_shares:` 的静默 NaN（旧代码 0.0 falsy）
+        bars = _make_bars([
+            {"datetime": "2026-07-28", "open": 10.0, "high": 10.6, "low": 9.9,
+             "close": 10.3, "vol": 2000000.0, "amount": 2.06e9},
+        ])
+        out = to_akshare_hist_schema(bars, "000001", float_shares=0.0)
+        assert np.isinf(out.iloc[0]["换手率"])
+
     def test_ticker_suffix_stripped(self):
         bars = _make_bars([
             {"datetime": "2026-07-28", "open": 10.0, "high": 10.6, "low": 9.9,
@@ -170,6 +196,67 @@ class TestQfqAdjust:
         out = to_akshare_hist_schema(bars, "000001")
         adjusted = qfq_adjust(out, xdxr)
         assert adjusted.iloc[0]["收盘"] == pytest.approx(10.3)
+
+    def test_nan_xdxr_fields_do_not_pollute_volume(self):
+        # 事件字段含 NaN（fenhong/peigu/peigujia/suogu 缺失）：旧代码
+        # float('nan') or 0 得 nan（nan 为 truthy）→ 因子污染 → 事件前 bar
+        # 价格/成交量变 NaN；修复后 NaN 字段取值 0.0
+        bars = _make_bars([
+            {"datetime": "2026-07-01", "open": 10.0, "high": 10.6, "low": 9.9,
+             "close": 10.3, "vol": 2000000.0, "amount": 2.06e9},
+            {"datetime": "2026-07-02", "open": 10.4, "high": 10.8, "low": 10.2,
+             "close": 10.6, "vol": 2200000.0, "amount": 2.33e9},
+        ])
+        # 每 10 股送 2 股（songzhuangu=2.0），其余字段全 NaN → 等价于纯送转
+        xdxr = pd.DataFrame([
+            {"trade_date": "20260702", "fenhong": float("nan"), "songzhuangu": 2.0,
+             "peigu": float("nan"), "peigujia": float("nan"), "suogu": float("nan")},
+        ])
+        out = to_akshare_hist_schema(bars, "000001")
+        adjusted = qfq_adjust(out, xdxr)
+        assert adjusted.iloc[0]["收盘"] == pytest.approx(10.3 / 1.2)
+        assert adjusted.iloc[0]["成交量"] == pytest.approx(2000000 * 1.2)  # 不被 NaN 污染
+        assert adjusted.iloc[1]["收盘"] == pytest.approx(10.6)
+
+    def test_share_consolidation_skips_volume_adjustment(self):
+        # 缩股使股本因子非正（suogu=15/10 → ratio_vol = 1-1.5 = -0.5 ≤ 0）：
+        # 跳过成交量调整（不除零/不污染成交量），价格因子照算（含现金分红）
+        bars = _make_bars([
+            {"datetime": "2026-07-01", "open": 10.0, "high": 10.6, "low": 9.9,
+             "close": 10.3, "vol": 2000000.0, "amount": 2.06e9},
+            {"datetime": "2026-07-02", "open": 10.4, "high": 10.8, "low": 10.2,
+             "close": 10.6, "vol": 2200000.0, "amount": 2.33e9},
+        ])
+        xdxr = pd.DataFrame([
+            {"trade_date": "20260702", "fenhong": 3.0, "songzhuangu": 0.0,
+             "peigu": 0.0, "peigujia": 0.0, "suogu": 15.0},
+        ])
+        out = to_akshare_hist_schema(bars, "000001")
+        adjusted = qfq_adjust(out, xdxr)
+        ratio_price = (10.3 - 0.3) / 10.3
+        assert adjusted.iloc[0]["收盘"] == pytest.approx(10.3 * ratio_price)
+        assert adjusted.iloc[0]["成交量"] == 2000000  # 未调整
+        assert adjusted.iloc[1]["收盘"] == pytest.approx(10.6)
+
+    def test_adjusted_volume_rounded_back_to_int64(self):
+        # 成交量单位 = 手（整数）：小数因子调整后舍入回 int64（小数手无意义；
+        # 且 int64 列原地乘小数因子会触发 pandas "incompatible dtype"
+        # FutureWarning——旧 NaN 污染把列静默变 float64 掩盖了该问题）
+        bars = _make_bars([
+            {"datetime": "2026-07-01", "open": 10.0, "high": 10.6, "low": 9.9,
+             "close": 10.3, "vol": 453806.0, "amount": 2.06e9},
+            {"datetime": "2026-07-02", "open": 10.4, "high": 10.8, "low": 10.2,
+             "close": 10.6, "vol": 2200000.0, "amount": 2.33e9},
+        ])
+        xdxr = pd.DataFrame([
+            {"trade_date": "20260702", "fenhong": 0.0, "songzhuangu": 2.0,
+             "peigu": 0.0, "peigujia": 0.0, "suogu": None},
+        ])
+        out = to_akshare_hist_schema(bars, "000001")
+        adjusted = qfq_adjust(out, xdxr)
+        assert adjusted["成交量"].dtype == "int64"
+        assert adjusted.iloc[0]["成交量"] == round(453806 * 1.2)  # 544567.2 → 544567
+        assert adjusted.iloc[1]["成交量"] == 2200000
 
     def test_songgu_legacy_field_name(self):
         # 兼容旧版字段名 songgu（每10股单位）

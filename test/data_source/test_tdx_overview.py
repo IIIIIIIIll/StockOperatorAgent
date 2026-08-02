@@ -50,8 +50,9 @@ def _make_daily(last_close=11.63, prev_close=11.61, c60_close=8.88, ytd_close=9.
     - 末根收盘 = last_close（昨日收盘 prev_close 固定为倒数第二根）
     - "60 交易日前"（倒数第 61 根）收盘 = c60_close（默认其他 bar 均为 10.0，
       用于锁定 off-by-one）
-    - 年初（末根年份 2026）首个交易日收盘 = ytd_close（其余 2025 年末 bar 为
-      10.0，用于锁定"年内首根"而非窗口首根）
+    - 上年末（2025 最后一根）收盘 = 10.0（默认）；2026 首个交易日收盘 =
+      ytd_close——用于锁定 YTD 基准是"上年末收盘"而非"年内首根"
+      （见 overview._ytd_base_close）
     """
     dates = pd.bdate_range(end="2026-07-31", periods=160)
     n = len(dates)
@@ -123,9 +124,10 @@ class TestComposeOverview:
         # 市值派生
         assert row["总市值"] == pytest.approx(11.63 * 1.940592e10)
         assert row["流通市值"] == pytest.approx(11.63 * 1.94056e10)
-        # 60 交易日前收盘（倒数第 61 根 = 8.88）/ 年初首个交易日收盘（= 9.50）
+        # 60 交易日前收盘（倒数第 61 根 = 8.88）/ YTD 基准 = 上年末（2025-12-31）
+        # 收盘 = 10.0（窗口含上年 bar → 优先上年末，非年内首根 9.50）
         assert row["60日涨跌幅"] == pytest.approx((11.63 - 8.88) / 8.88 * 100)
-        assert row["年初至今涨跌幅"] == pytest.approx((11.63 - 9.50) / 9.50 * 100)
+        assert row["年初至今涨跌幅"] == pytest.approx((11.63 - 10.0) / 10.0 * 100)
         assert np.isnan(row["量比"])
         assert np.isnan(row["涨速"])
         assert np.isnan(row["5分钟涨跌"])
@@ -185,6 +187,39 @@ class TestComposeOverview:
         assert np.isnan(row["60日涨跌幅"])  # 不足 61 根
         assert row["涨跌幅"] == pytest.approx((11.63 - 11.61) / 11.61 * 100)  # prev_close 仍在
 
+    def test_ytd_first_trading_day_uses_prev_year_end_close(self):
+        """年初首个交易日：YTD 基准 = 上年末收盘（非当日自身 → 不恒 0 漏首日）。"""
+        daily = pd.DataFrame({
+            "datetime": pd.to_datetime(["2025-12-30", "2025-12-31", "2026-01-05"]),
+            "open": [10.0, 10.0, 10.3], "close": [9.9, 10.0, 10.3],
+            "high": [10.1, 10.1, 10.4], "low": [9.8, 9.9, 10.2],
+            "vol": [100.0, 100.0, 120.0], "amount": [1e7, 1e7, 1.2e7],
+        })
+        inputs = _full_inputs()
+        inputs["snapshot_df"] = _make_snapshot(price=10.3)
+        inputs["daily_df"] = daily
+        inputs["today"] = date(2026, 1, 5)  # 年初首个交易日
+        row = compose_overview("000001", "平安银行", **inputs)
+        # 旧实现 base = 年内首根 = 当日自身收盘 → YTD 恒 0；修复后 base = 2025-12-31 收盘 10.0
+        assert row["年初至今涨跌幅"] == pytest.approx((10.3 - 10.0) / 10.0 * 100)
+        assert row["年初至今涨跌幅"] != pytest.approx(0.0)
+
+    def test_ytd_nan_when_last_bar_in_previous_year(self):
+        """跨年停牌：末根 bar 停在去年 → YTD NaN（与今年价格比较无意义）。"""
+        daily = pd.DataFrame({
+            "datetime": pd.to_datetime(["2025-11-28", "2025-12-01", "2025-12-31"]),
+            "open": [10.0, 10.0, 10.0], "close": [9.9, 10.0, 10.1],
+            "high": [10.1, 10.1, 10.2], "low": [9.8, 9.9, 10.0],
+            "vol": [100.0, 100.0, 100.0], "amount": [1e7, 1e7, 1e7],
+        })
+        inputs = _full_inputs()
+        inputs["daily_df"] = daily
+        inputs["today"] = date(2026, 3, 20)
+        row = compose_overview("000001", "平安银行", **inputs)
+        assert np.isnan(row["年初至今涨跌幅"])
+        # 其余派生不受影响
+        assert row["涨跌幅"] == pytest.approx((11.63 - 10.0) / 10.0 * 100)
+
 
 class TestLatestPeriodValue:
 
@@ -198,6 +233,17 @@ class TestLatestPeriodValue:
     def test_missing_metric_returns_nan(self):
         assert np.isnan(latest_period_value(_make_f10(), "不存在的指标"))
         assert np.isnan(latest_period_value(None, "基本每股收益(元)"))
+
+    def test_nan_period_rows_ignored_when_picking_latest(self):
+        # period 为 NaN 的行不参与 idxmax——astype(str) 得 'nan' 字典序最大，
+        # 会掩盖真实最新报告期（修复：dropna(subset=['period']) 先行）
+        f10 = pd.concat([
+            _make_f10(eps=0.6, period="2025-12-31"),
+            _make_f10(eps=0.72, period="2026-03-31"),
+            pd.DataFrame([{"metric": "基本每股收益(元)", "period": float("nan"),
+                           "value_raw": "99", "value_num": 99.0}]),
+        ], ignore_index=True)
+        assert latest_period_value(f10, "基本每股收益(元)") == pytest.approx(0.72)
 
 
 class TestLiveBuildOverview:

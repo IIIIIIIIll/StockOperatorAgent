@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from loguru import logger
+
 from data_source.chinese_mainland.tdx.reports import REPORT_COLUMNS, compose_reports
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
@@ -79,7 +81,8 @@ class TestComposeReports:
         assert report.cash_flow_per_share == pytest.approx(3.8)
         assert report.report_date == "20260331"
         assert np.isnan(report.sales_gross_margin)
-        assert np.isnan(report.industry)
+        assert report.industry == ""  # str 字段契约：F10 无行业 → 空串非 NaN
+        assert isinstance(report.industry, str)
 
     def test_golden_values(self):
         df = compose_reports("000001", "平安银行", _make_f10())
@@ -103,9 +106,9 @@ class TestComposeReports:
         assert third["total_income_QoQ_rate"] == pytest.approx((1.6e12 - 1.5e12) / 1.5e12 * 100)
         assert second["net_profit_QoQ_rate"] == pytest.approx((4.3e11 - 4.0e11) / 4.0e11 * 100)
         assert third["net_profit_QoQ_rate"] == pytest.approx((4.5e11 - 4.3e11) / 4.3e11 * 100)
-        # F10 无 → NaN；name/ticker 恒有值
+        # F10 无 → NaN（sales_gross_margin）/ 空串（industry: str 契约）；name/ticker 恒有值
         assert np.isnan(second["sales_gross_margin"])
-        assert np.isnan(second["industry"])
+        assert second["industry"] == ""
         assert second["name"] == "平安银行"
         assert second["ticker"] == "000001"
 
@@ -132,6 +135,26 @@ class TestComposeReports:
             (2.0e8 - (-3.0e8)) / (-3.0e8) * 100
         )
 
+    def test_qoq_nan_when_period_missing(self):
+        # 缺 2025-09-30 一期：2025-12-31 vs 2025-06-30 跨 2 季度（184 天）→
+        # QoQ NaN（不静默按相邻期算环比）；2026-03-31 vs 2025-12-31 相邻
+        # （91 天）→ 正常计算
+        periods = [
+            {"period": "2025-06-30", "eps": 0.5, "total_income": 1.2e12, "income_yoy": 7.0,
+             "net_profit": 3.5e11, "profit_yoy": 9.0, "nwps": 10.8, "roe": 11.5, "cps": 2.8},
+            {"period": "2025-12-31", "eps": 0.68, "total_income": 1.5e12, "income_yoy": 9.1,
+             "net_profit": 4.3e11, "profit_yoy": 11.0, "nwps": 11.2, "roe": 12.8, "cps": 3.5},
+            {"period": "2026-03-31", "eps": 0.72, "total_income": 1.6e12, "income_yoy": 9.8,
+             "net_profit": 4.5e11, "profit_yoy": 12.0, "nwps": 11.5, "roe": 13.1, "cps": 3.8},
+        ]
+        df = compose_reports("000001", "平安银行", _make_f10(periods))
+        # 2025-12-31 的 QoQ：上期 2025-06-30 跨期 → NaN（旧代码 shift(1) 会算出 25%）
+        assert np.isnan(df.iloc[1]["total_income_QoQ_rate"])
+        assert np.isnan(df.iloc[1]["net_profit_QoQ_rate"])
+        # 2026-03-31 的 QoQ：与 2025-12-31 相邻 → 正常
+        assert df.iloc[2]["total_income_QoQ_rate"] == pytest.approx((1.6e12 - 1.5e12) / 1.5e12 * 100)
+        assert df.iloc[2]["net_profit_QoQ_rate"] == pytest.approx((4.5e11 - 4.3e11) / 4.3e11 * 100)
+
     def test_report_date_is_ymd_string(self):
         df = compose_reports("000001", "平安银行", _make_f10())
         for value in df["report_date"]:
@@ -151,6 +174,38 @@ class TestComposeReports:
         junk = pd.DataFrame([{"metric": "审计意见", "period": "2026-03-31",
                               "value_raw": "x", "value_num": float("nan")}])
         assert compose_reports("000001", "000001", junk) is None
+
+
+class TestMetricHitRateWarning:
+    """F10 metric 命中率告警：已知 8 指标命中 < 50% → logger.warning。"""
+
+    def _capture_warnings(self, f10):
+        messages = []
+        sink_id = logger.add(messages.append, format="{level}: {message}", level="WARNING")
+        try:
+            compose_reports("000001", "平安银行", f10)
+        finally:
+            logger.remove(sink_id)
+        return messages
+
+    def test_low_hit_rate_logs_warning(self):
+        # 8 个已知指标只出现 2 个（其余被 vendor 改名/缺失）→ 命中率 25% < 50% → warning
+        f10 = _make_f10()
+        f10 = f10[f10["metric"].isin(["基本每股收益(元)", "净利润(元)"])]
+        messages = self._capture_warnings(f10)
+        assert any("hit rate" in m and "50%" in m for m in messages), messages
+
+    def test_full_hit_rate_no_warning(self):
+        # 8 个已知指标全部命中（含未知指标行也不影响）→ 无 warning
+        f10 = pd.concat([
+            _make_f10(),
+            pd.DataFrame([
+                {"metric": m, "period": "2026-03-31", "value_raw": "x", "value_num": float("nan")}
+                for m in ["审计意见", "董事会决议"]
+            ]),
+        ], ignore_index=True)
+        messages = self._capture_warnings(f10)
+        assert not any("hit rate" in m for m in messages), messages
 
 
 class TestLiveBuildReports:

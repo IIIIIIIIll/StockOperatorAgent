@@ -3,6 +3,7 @@ import streamlit as st
 from langchain_core.runnables import RunnableConfig
 from core.investment_committee import InvestmentCommittee
 from core.llms.tools.get_company_info import get_stock_info
+from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
 
 committee = InvestmentCommittee()
@@ -31,6 +32,8 @@ def write_ui():
     if submit_button:
         if not stock_ticker.isdigit() or len(stock_ticker) != 6:
             st.error("请输入有效的六位数字股票代码")
+        elif is_bj_ticker(stock_ticker):
+            st.error("北交所（BJ）股票暂不支持分析：TDX 数据源不覆盖 BJ 证券（无名称/无行情），请使用沪深 A 股代码")
         else:
             status = st.container()
             updatable_container = status.empty()

@@ -12,7 +12,9 @@
   股本因子 = 1 + 每股送转 + 每股配股 - 每股缩股
 - **先累乘因子、再应用**：最新事件之后的 bar 是基准（因子 1）；事件日之前的
   bar 乘"更新后"的累计因子（遍历序：新→旧，因子逐步累乘）
-- 成交量按股本因子调整（前复权以当前股本为基准），成交额不动（文档约定）
+- 成交量按股本因子调整（前复权以当前股本为基准），成交额不动（文档约定）；
+  调整后舍入回整手 int64（小数手无意义，且避免 int64 原地乘小数的
+  FutureWarning）
 - 复权后重算 振幅/涨跌幅/涨跌额（除权日跳空在 qfq 口径下会消除，原始值失真）
 - 换手率保持 mapping.py 计算值（原始成交量/当前流通股本）；送转事件之前的
   bar 该值仅为近似——如需精确需历史股本数据，超出本项目范围
@@ -25,8 +27,21 @@ peigu/peigujia/suogu）。xdxr 为空或事件全在窗口外时返回原样（�
 from __future__ import annotations
 
 import pandas as pd
+from loguru import logger
 
 PRICE_COLUMNS = ["开盘", "收盘", "最高", "最低"]
+
+
+def _num_or_zero(value) -> float:
+    """xdxr 事件字段取值：缺失/None/NaN → 0.0。
+
+    不能用 ``float(v) or 0``——``float('nan')`` 为 truthy，NaN 会原样穿透，
+    污染 factor（ratio_price/ratio_vol 变 NaN → 事件前所有 bar 价格/成交量
+    变 NaN）。
+    """
+    if value is None or pd.isna(value):
+        return 0.0
+    return float(value)
 
 
 def qfq_adjust(
@@ -38,6 +53,9 @@ def qfq_adjust(
         return bars.copy()
 
     raw = bars.copy()
+    # 成交量先转 float64：int64 列原地乘小数因子触发 pandas "incompatible dtype"
+    # FutureWarning（旧 NaN 污染把列静默变 float64 掩盖了该问题）
+    raw["成交量"] = raw["成交量"].astype(float)
     # 原始收盘价快照：事件 prev_close 必须用未复权价（.astype 产生副本，不受后续修改影响）
     close_series = raw["收盘"].astype(float)
     date_idx = pd.to_datetime(raw["日期"])
@@ -52,12 +70,13 @@ def qfq_adjust(
             continue
 
         prev_close = close_series[before].iloc[-1]
-        # pytdx xdxr 字段：songzhuangu（送转股，每10股），旧版命名 songgu（兼容读取）
-        songgu_ps = float(ev.get("songzhuangu", ev.get("songgu")) or 0) / 10
-        peigu_ps = float(ev.get("peigu") or 0) / 10
-        peigujia = float(ev.get("peigujia") or 0)
-        fenhong_ps = float(ev.get("fenhong") or 0) / 10
-        suogu_ps = float(ev.get("suogu") or 0) / 10
+        # pytdx xdxr 字段：songzhuangu（送转股，每10股），旧版命名 songgu（兼容读取）；
+        # 字段值 NaN/None/缺失 → 0.0（_num_or_zero，见该函数 docstring）
+        songgu_ps = _num_or_zero(ev.get("songzhuangu", ev.get("songgu"))) / 10
+        peigu_ps = _num_or_zero(ev.get("peigu")) / 10
+        peigujia = _num_or_zero(ev.get("peigujia"))
+        fenhong_ps = _num_or_zero(ev.get("fenhong")) / 10
+        suogu_ps = _num_or_zero(ev.get("suogu")) / 10
         denominator = prev_close * (1 + songgu_ps + peigu_ps)
         if denominator and denominator > 0:
             ratio_price = (prev_close - fenhong_ps + peigu_ps * peigujia) / denominator
@@ -67,9 +86,22 @@ def qfq_adjust(
 
         # 先累乘因子，再应用到事件日之前的 bar（处理下一个更旧的事件时因子已包含本次）
         factor_price *= ratio_price
-        factor_vol *= ratio_vol
+        if ratio_vol <= 0:
+            # 缩股等使股本因子非正（如 10:1 缩股）→ 成交量调整无意义/除零风险，
+            # 跳过成交量调整（价格因子照算）
+            logger.warning(
+                "TDX xdxr event {} has non-positive volume factor {:.4f}; skipping volume adjustment, price factors still applied.",
+                ev.get("trade_date"), ratio_vol,
+            )
+        else:
+            factor_vol *= ratio_vol
         raw.loc[before, PRICE_COLUMNS] *= factor_price
         raw.loc[before, "成交量"] *= factor_vol
+
+    # 成交量单位为手（整数）——股本因子常为小数（如送转 1.2），调整后舍入回
+    # int64：小数手无意义（列在循环前已转 float64，避免原地乘小数的
+    # FutureWarning）
+    raw["成交量"] = raw["成交量"].round().astype("int64")
 
     # 复权后重算指标列（除权跳空消除后，涨跌幅等应基于复权价）
     prev_close = raw["收盘"].shift(1)

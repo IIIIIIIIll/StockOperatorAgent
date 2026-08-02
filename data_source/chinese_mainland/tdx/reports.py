@@ -17,8 +17,11 @@ akshare 路径不同：akshare 行首多一列需 ``[1:]`` 丢弃，本层输出
   ``latest_period_value`` 同一读取口径：metric/period/value_num 三列）
 - total_income_QoQ_rate / net_profit_QoQ_rate：相邻报告期自算
   (本期-上期)/上期×100，首期 NaN，除零 → NaN（负分母合法——净利润可为负，
-  与 overview._divide 的"分母 ≤0 → NaN"约定不同，环比只防除零）
-- sales_gross_margin / industry：F10 无 → NaN
+  与 overview._divide 的"分母 ≤0 → NaN"约定不同，环比只防除零）；仅当相邻
+  period 间隔恰为一季度（3 个月 ± 容差）才计算，缺报告期 → NaN（见 _qoq_series）
+- sales_gross_margin：F10 无 → NaN（float64）；industry：F10 无 → 空串
+  ""（保持 str 字段契约——float NaN 写进 StockPerformanceReport.industry: str
+  会污染类型）
 - name：get_stock_name（失败回退 ticker，永不 NaN）
 - report_date：period 'YYYY-MM-DD' → '%Y%m%d' 字符串（与
   ``add_performance_report`` 的字符串比较协议兼容，不转 datetime——见
@@ -62,13 +65,19 @@ METRIC_COLUMNS = {
 
 
 def _qoq_series(s: pd.Series) -> pd.Series:
-    """环比序列：(本期-上期)/上期×100；首期（无上期）NaN，除零 → NaN。
+    """环比序列：(本期-上期)/上期×100；仅相邻报告期（间隔恰为一季度）计算。
 
-    负分母合法（净利润可为负）——与 overview._divide 的"分母 ≤0 → NaN"约定
-    不同，环比只防除零。
+    相邻性校验：period 索引（'YYYY-MM-DD' 字符串，ISO 升序）转日期后，
+    相邻期间隔 ∈ [88, 93] 天（季度末间隔 90/91/92 天 + 容差）才视为相邻——
+    缺报告期（跨 2+ 季度）位置 QoQ 置 NaN，不静默按"相邻期"算环比。
+    首期（无上期）NaN，除零 → NaN；负分母合法（净利润可为负——与
+    overview._divide 的"分母 ≤0 → NaN"约定不同，环比只防除零）。
     """
     prev = s.shift(1)
     ok = prev.notna() & (prev != 0) & s.notna()
+    # 保持 s 的索引构造 delta（默认 RangeIndex 与 s 的 period 索引对齐后全 False）
+    delta_days = pd.Series(pd.to_datetime(s.index), index=s.index).diff().dt.days
+    ok = ok & delta_days.between(88, 93)  # 首期 delta NaN → False
     out = pd.Series(NAN, index=s.index)
     out.loc[ok] = (s[ok] - prev[ok]) / prev[ok] * 100
     return out
@@ -95,6 +104,16 @@ def compose_reports(
         return None
 
     known = set(METRIC_COLUMNS.values())
+    # F10 metric 命中率告警：8 个指标名与 vendor 文本强耦合，vendor 改名即
+    # 全部 NaN 无告警——命中率（已找到的已知指标 / 8）< 50% → warning。
+    present_known = len(set(f10_df["metric"].dropna()) & known)
+    hit_rate = present_known / len(known)
+    if hit_rate < 0.5:
+        logger.warning(
+            "F10 metric hit rate for {} is {}/{} ({}%) — below 50%; vendor metric names may have changed, related fields will be NaN.",
+            ticker, present_known, len(known), int(hit_rate * 100),
+        )
+
     sub = f10_df[f10_df["metric"].isin(known)].dropna(subset=["period"])
     if sub.empty:
         return None
@@ -124,8 +143,8 @@ def compose_reports(
             "net_worth_per_share": row["net_worth_per_share"],
             "net_worth_return_rate": row["net_worth_return_rate"],
             "cash_flow_per_share": row["cash_flow_per_share"],
-            "sales_gross_margin": NAN,  # F10 无
-            "industry": NAN,  # overview 有 industry，此处保持 NaN 简化
+            "sales_gross_margin": NAN,  # F10 无（float64 NaN）
+            "industry": "",  # F10 无；空串保持 str 契约（float NaN 污染 industry: str）
             "report_date": str(period).replace("-", ""),  # 'YYYY-MM-DD' → '%Y%m%d'
         })
     return pd.DataFrame(rows, columns=REPORT_COLUMNS)
