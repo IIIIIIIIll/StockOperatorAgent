@@ -17,6 +17,10 @@ patterns:
   `utils.constants.china_db_path`, opens the DB + connection, and seeds
   `root.overview_last_updated` (defaults to `constants.default_start`). On a
   fresh file it creates `root.stocks = BTrees.OOBTree.BTree()`.
+  `china_db_path` **锚定仓库根**（2026-08-02 修复：原相对路径
+  `'database/china_stock_data.fs'` 在非仓库根 CWD 下静默创建第二个空库，新旧
+  数据分家；现解析为 `REPO_ROOT / 'database' / 'china_stock_data.fs'`，字符串
+  值语义不变、任意 CWD 都打开同一文件）。
 - **Process-wide singleton**: `get_zodb_storage()` in `ZODBStorage.py` lazily
   creates one shared instance; `DataAcquisition.__init__` grabs it via
   `get_zodb_storage()`. **Do not open a second connection in one process** —

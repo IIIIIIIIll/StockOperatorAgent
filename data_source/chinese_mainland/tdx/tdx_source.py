@@ -12,6 +12,7 @@ those imports resolve without touching the upstream code.
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -31,7 +32,11 @@ ensure_vendor_on_path()
 from scripts.data_pipeline.tdx_client import TdxDownloader  # noqa: E402
 from scripts.data_pipeline.fetch_realtime_watchlist import infer_hq_market  # noqa: E402
 
-DEFAULT_PARQUET_ROOT = Path("data/tdx_cache")
+# 缓存根：锚定仓库根（原 `Path("data/tdx_cache")` 随 CWD 漂移——换目录即整棵
+# 缓存树失效；且 vendor 默认根 `DEFAULT_DATA_ROOT = Path('data')` 同样相对 CWD，
+# 两者不一致会在现场并存两棵缓存树，2026-08-02 统一锚定）。本仓库所有
+# TdxDownloader 构造都显式传入本常量；vendor 自身默认根不再被本仓库代码使用。
+DEFAULT_PARQUET_ROOT = Path(__file__).resolve().parents[3] / "data" / "tdx_cache"
 
 # 全市场证券名称索引（code → name），模块级缓存，进程内只拉一次。
 # 键为 (market, code) 而非纯 code：SH 证券列表含指数，与 SZ 股票同码冲突
@@ -54,12 +59,23 @@ def is_bj_ticker(ticker: str) -> bool:
 class TdxSource:
     """pytdx 历史行情 / 快照的薄包装，方法级对应 tdx_quant TdxDownloader。
 
-    ``parquet_root`` 是 TdxDownloader 的磁盘缓存目录（gitignored）；历史数据
-    以 parquet 分片落盘，重复拉取直接读缓存。
+    ``parquet_root`` 是 TdxDownloader 的磁盘缓存目录（gitignored）；数据以
+    parquet 分片落盘（``<root>/<domain>/ts_code=<...>/data.parquet``，写覆盖）。
+
+    **缓存真相（2026-08-02 实测并声明，与 vendor 行为一致）**：parquet 缓存
+    **只写不读**——daily/xdxr 等历史数据每次 fetch 都走网络（拉取后写回覆盖，
+    从不读回）；fetch 返回的 DataFrame 契约（列序/类型）不受缓存影响。
+    唯一例外：``fetch_security_list`` 当日快照（``security_list/market=<SZ|SH>/
+    date=<YYYYMMDD>/data.parquet``，date 分区天然精确、无 max_bars 歧义）——
+    当日分区已存在则直接读回，不重拉全市场证券列表。日K 读缓存优化（按
+    symbol+max_bars+新鲜度）的可行性评估见 .trellis/spec/data_source/index.md
+    待办段：vendor 落盘文件不记录 max_bars（且写覆盖），"当日新鲜"对盘中日K
+    语义错误（早间写入的部分 bar 会被当新鲜数据读回），故未实现。
     """
 
     def __init__(self, parquet_root: Path = DEFAULT_PARQUET_ROOT):
-        self.downloader = TdxDownloader(parquet_root)
+        self.parquet_root = Path(parquet_root)
+        self.downloader = TdxDownloader(self.parquet_root)
 
     def fetch_daily(self, ticker: str, max_bars: int | None = None) -> "pd.DataFrame":
         """日 K 全历史（自动翻页），返回原始 DataFrame。"""
@@ -82,7 +98,34 @@ class TdxSource:
         return self.downloader.download_company_finance(ticker)
 
     def fetch_security_list(self, market: int) -> "pd.DataFrame":
-        """全市场证券列表快照（market: 0=SZ, 1=SH），返回原始 DataFrame。"""
+        """全市场证券列表快照（market: 0=SZ, 1=SH），返回原始 DataFrame。
+
+        当日快照读缓存（vendored date 分区）：``<parquet_root>/security_list/
+        market=<SZ|SH>/date=<YYYYMMDD>/data.parquet`` 存在 → 直接读回并补
+        market 标签列（与 vendor ``download_security_list`` 写后读回完全同一
+        契约），不重拉网络——全市场枚举 ~2.1 万行/市场是多页往返，当日重复
+        构建（如 name 索引 + 多次分析）省掉大头。文件缺失/空/损坏 → 回退
+        网络拉取（vendor 路径写回）。返回 DataFrame 列序/类型与网络路径一致。
+        """
+        label = "SZ" if market == 0 else "SH"
+        today = date.today().strftime("%Y%m%d")
+        cached = (
+            self.parquet_root
+            / "security_list"
+            / f"market={label}"
+            / f"date={today}"
+            / "data.parquet"
+        )
+        if cached.exists():
+            try:
+                df = pd.read_parquet(cached)
+                if not df.empty:
+                    df["market"] = label
+                    logger.debug("Security list cache hit for market {} ({})", market, cached)
+                    return df
+            except Exception:
+                logger.warning("Security list cache unreadable at {}; falling back to network.", cached)
+        logger.debug("Security list cache miss for market {} ({}); fetching from network.", market, cached)
         return self.downloader.download_security_list(market)
 
     def fetch_snapshot(self, ticker: str) -> "pd.DataFrame":

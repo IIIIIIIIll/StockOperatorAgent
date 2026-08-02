@@ -56,6 +56,17 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
 - `tdx_source.py` — `TdxSource` 薄包装，方法级对应 `TdxDownloader`：
   `fetch_daily/minute/xdxr/finance_capital/company_finance/security_list/
   snapshot/index`，返回原始 DataFrame，不吞异常（非法代码抛 `ValueError`）。
+  **`DEFAULT_PARQUET_ROOT` 锚定仓库根**（2026-08-02 修复：原
+  `Path("data/tdx_cache")` 随 CWD 漂移——换目录缓存全失效，且 vendor 默认根
+  `DEFAULT_DATA_ROOT = Path('data')` 同样相对 CWD，两者不一致会产生第二棵
+  缓存树 `data/daily`；现为 `Path(__file__).resolve().parents[3] / "data/tdx_cache"`，
+  本仓库所有 `TdxDownloader` 构造都显式传此值，vendor 默认根不再被使用）。
+  **缓存真相（2026-08-02 实测声明）**：parquet 缓存**只写不读**——daily/xdxr
+  等历史数据每次 fetch 都走网络（`write_by_symbol` 写覆盖、从不读回）；
+  **唯一例外** `fetch_security_list` 当日快照：`security_list/market=<SZ|SH>/
+  date=<YYYYMMDD>/data.parquet` 当日分区已存在 → 直接读回补 market 标签列
+  （与 vendor 写后读回同一契约，列序/类型不变），不重拉全市场列表（~2.1 万
+  行/市场多页往返的大头）；文件缺失/空/损坏 → 回退网络。
   另有构建入口（委托 overview.py/reports.py）：`build_overview(ticker) ->
   pd.DataFrame | None`、`build_reports(ticker) -> pd.DataFrame | None`、
   `get_stock_name(ticker) -> str`。名称索引模块级缓存
@@ -143,6 +154,28 @@ See `core/data_acquisition.py` and `test/data_source/test_akshare.py`.
 `test/data_source/test_akshare.py` is a live smoke test: it calls the real APIs
 and constructs each dataclass from real rows. Needs network access; akshare
 endpoints can be slow or rate-limited (README notes first load can take 10+ min).
+
+## 待办：日K 读缓存优化（2026-08-02 评估后未实现，理由存档）
+
+prd 曾评估 `fetch_daily`/`fetch_xdxr` 按 symbol+max_bars+当日新鲜度读 parquet
+缓存，结论**未实现**，原因：
+
+1. **max_bars 无法从落盘文件复原**：vendor `write_by_symbol` 写
+   `<root>/daily/ts_code=<...>/data.parquet` 且每次覆盖；同一 symbol 文件可能
+   被 max_bars=None（全量回填）或 max_bars=1（增量）的调用轮流覆盖，文件内
+   无 max_bars 记录 → 读缓存无法验证是否满足本次请求（须侧车 meta 文件，
+   改动面大增且 vendor 写过的历史文件无 meta 一律 miss）。
+2. **"当日新鲜"对日K语义错误**：日K 分析要求最新 bar（含今日盘中）。文件
+   mtime 为当日 ≠ 数据新鲜——早间写入的部分 bar 在午后二次运行会被当新鲜
+   数据读回，静默返回陈旧收盘价（分析错判）。日内正确性需"文件含今日 bar +
+   非盘中"复合判断，超出 prd 简单门槛。
+3. **实际流程收益≈0**：日K 250 根 < PAGE_SIZE 单页往返，成本可忽略；
+   `acquire_historical_data_tdx` 的 max_bars=gap（增量 1 根）与 overview 的
+   250 永不共享缓存条目 → 当日二次调用同参的场景实际不存在。真正成本大头
+   （全市场证券列表）已通过 fetch_security_list 当日快照读缓存解决。
+
+若未来要实现：读 key = (ts_code, max_bars, 文件含今日 bar)；写入侧车 meta
+（max_bars + 末根 trade_date）；盘中新鲜度策略需另行定义。
 
 ## Anti-Patterns
 

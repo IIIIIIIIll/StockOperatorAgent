@@ -3,7 +3,7 @@
   "name": "fix-env-robustness",
   "title": "路径锚定与缓存真相",
   "description": "china_db_path/DEFAULT_PARQUET_ROOT/main.py 日志路径锚定仓库根（防 CWD 漂移双库双缓存）；parquet 缓存只写不读的 docstring 谎言——实现按 max_bars+新鲜度读缓存或改文档声明 always-network",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

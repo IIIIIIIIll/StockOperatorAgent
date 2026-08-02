@@ -1,11 +1,12 @@
 """选股器冒烟测试：vendor 的 screen() 作为离线能力可运行。
 
 跑 2 个代码 + 1 个条件（金叉），校验 RESULT_COLUMNS 输出结构。
-需要 TDX 服务器可达（下载日K）；数据缓存写 data/tdx_cache（gitignored）。
+需要 TDX 服务器可达（下载日K）；数据缓存写仓库 data/tdx_cache（gitignored，
+锚定 DEFAULT_PARQUET_ROOT，见 tdx_source.py）。
 不接入请求时链路——全市场扫描不适合运行时（见 design.md）。
 """
 
-from data_source.chinese_mainland.tdx.tdx_source import ensure_vendor_on_path
+from data_source.chinese_mainland.tdx.tdx_source import DEFAULT_PARQUET_ROOT, ensure_vendor_on_path
 
 ensure_vendor_on_path()
 from scripts.data_pipeline.screener.conditions import golden_cross  # noqa: E402
@@ -18,7 +19,7 @@ class TestTdxScreener:
         result = screen(
             ["000001", "600000"],
             [golden_cross],
-            data_root="data/tdx_cache",
+            data_root=str(DEFAULT_PARQUET_ROOT),
             max_bars=120,
         )
         assert not result.empty

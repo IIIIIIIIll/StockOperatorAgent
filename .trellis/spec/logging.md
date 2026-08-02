@@ -13,11 +13,14 @@ paths:
 `main.py` installs the app's file handler at startup:
 
 ```python
-logger.add("./logs/stock_operator_agent.log", enqueue=True, rotation="50 MB", retention=10)
+logger.add(str(LOG_DIR / "stock_operator_agent.log"), enqueue=True, rotation="50 MB", retention=10)
 ```
 
 - App logs go to `logs/` (gitignored). Keep the setup in `main.py` — do not add
   per-module handlers; modules just use the default logger.
+- `LOG_DIR`（`utils.constants`，锚定仓库 `logs/`）是日志路径唯一来源——不要在
+  main.py 或任何模块里写相对路径（2026-08-02 修复：原 `./logs/...` 随 CWD
+  漂移，日志落别处）。
 - Tests and `core/investment_committee.py` also call `load_dotenv()` before use;
   `main.py` loads the handler + dotenv before `write_ui()`.
 

@@ -44,6 +44,8 @@ Cross-layer rules of thumb:
 
 - Run with `streamlit run main.py` (README.md). `main.py` is minimal: it configures
   the loguru handler, calls `load_dotenv()`, then `write_ui()`.
+- `main.py` 日志 handler 落位 `LOG_DIR / "stock_operator_agent.log"`（2026-08-02
+  修复：原 `./logs/...` 相对路径随 CWD 漂移，日志落别处；现锚定仓库 `logs/`）。
 - `core/ui/display.py` checks **only `DEEPSEEK_API_KEY`** in `os.environ` before
   rendering（2026-08-02 修复：`investment_committee.py` 永远构造 `DeepSeekApi()`，
   只配 DASHSCOPE 时旧检查放行但构造即抛 OpenAIError 崩溃）and validates the
@@ -58,7 +60,13 @@ Cross-layer rules of thumb:
 - `utils/constants.py` holds the only module-level constants:
   - `default_start = 1997-01-01` — baseline for "no data yet" timestamps
     (`ChinaStock.last_data_update`, `ZODBStorageInstance.root.overview_last_updated`)
-  - `china_db_path = 'database/china_stock_data.fs'` — the ZODB file (gitignored via `*.fs`)
+  - `china_db_path` — the ZODB file (gitignored via `*.fs`)，**锚定仓库根**
+    （2026-08-02 修复：原相对路径 `'database/china_stock_data.fs'` 在非仓库根
+    CWD 下静默创建第二个空库；现为 `str(REPO_ROOT / 'database' / 'china_stock_data.fs')`，
+    值语义不变、解析不再依赖 CWD）
+  - `REPO_ROOT` — 仓库根 `Path`（`Path(__file__).resolve().parents[1]`），
+    所有曾依赖 CWD 的路径（ZODB 库 / parquet 缓存 / 日志）的统一锚点
+  - `LOG_DIR` — 仓库 `logs/`（gitignored），main.py 的 loguru handler 落位
 
 ## Shared Utils (`utils/`)
 
