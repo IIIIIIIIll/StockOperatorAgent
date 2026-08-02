@@ -291,3 +291,23 @@ F10 财务分析页除【主要财务指标】外还有【盈利能力指标】�
 ### Status
 
 [OK] **Completed**
+
+## Session 11: TDX MCP 暂时禁用——环境变量开关
+
+**Date**: 2026-08-02
+**Task**: TDX MCP 暂时禁用——环境变量开关
+**Branch**: `master`
+
+### Summary
+
+get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"false"/"no" 除外）：设置时直接返回占位文本「（TDX MCP 已禁用，跳过实时市场情报）」，不查 MCP、不读写缓存（分析流程不再等 MCP 网络/超时）；恢复 = 删环境变量不动代码。_mcp_disabled() 模块级判定 + 4 开关用例（真值/假值/未设置三态、有 key 零查询零缓存、无 key 一致）。全量回归 0F/220P/20S。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (see git log for this session) |
+
+### Status
+
+[OK] **Completed**

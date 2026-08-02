@@ -11,6 +11,9 @@
 判 False——收盘后到次日开盘前行情不变）优先读缓存（mcp_intel_cache，
 按 ticker JSON 落 data/tdx_cache/mcp_intel/）；交易时段实时查询并写
 缓存。无 key 不读写缓存。
+
+开关（08-02-disable-tdx-mcp）：`TDX_MCP_DISABLED` 环境变量设置时整个
+MCP 段停用（返回占位文本，不查询不缓存）——分析流程不再等 MCP。
 """
 
 from __future__ import annotations
@@ -23,6 +26,18 @@ ensure_vendor_on_path()
 from scripts.tdx_mcp.tdx_client import TdxMcpClient  # noqa: E402
 
 _FALLBACK_TEXT = "（未配置 TDX_API_KEY，跳过实时市场情报）"
+_DISABLED_TEXT = "（TDX MCP 已禁用，跳过实时市场情报）"
+
+
+def _mcp_disabled() -> bool:
+    """TDX_MCP_DISABLED 开关：存在且值非空/非 "0"/非 "false" → 禁用。
+
+    真值判定（与 _has_deepseek_key 的 os.environ 检查同风格）：
+    设置任意值（"1"/"true"/"yes"/随意）即视为禁用，除显式假值
+    "0"/"false"/"no"（留恢复路径）。
+    """
+    value = os.environ.get("TDX_MCP_DISABLED", "")
+    return value not in ("", "0", "false", "no")
 
 
 def _query_mcp(ticker: str, api_key: str) -> str:
@@ -53,9 +68,16 @@ def get_market_intel(ticker: str) -> str:
     前）优先读缓存——省网络往返；交易时段（或缓存缺失）实时查询，
     成功写缓存。查询失败 → 降级占位（不静默用旧缓存——盘中数据必须
     新鲜）。
+
+    开关（08-02-disable-tdx-mcp）：`TDX_MCP_DISABLED` 环境变量设置时
+    直接返回占位文本——不查 MCP、不读写缓存（分析流程不再等 MCP
+    网络/超时）；恢复 = 删环境变量，不动代码。
     """
     from core.llms.tools.mcp_intel_cache import DEFAULT_CACHE_ROOT, read_cache, write_cache
     from utils.market_time import is_trading_time
+
+    if _mcp_disabled():
+        return _DISABLED_TEXT
 
     api_key = os.getenv("TDX_API_KEY", "")
     if not api_key:

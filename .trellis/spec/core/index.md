@@ -145,6 +145,11 @@ Keep it that way; do not add a second storage abstraction.
   查询失败 → 降级占位（**不静默用旧缓存**——盘中必须新鲜）；无
   TDX_API_KEY 不读写缓存。查询+拼文本独立为 `_query_mcp`（模块级，
   测试计数注入）。缓存只省网络往返，展示/LLM 语义零变化。
+- **MCP 开关（2026-08-02，08-02-disable-tdx-mcp）**：`TDX_MCP_DISABLED`
+  环境变量设置时（除显式假值 "0"/"false"/"no"）`get_market_intel` 直接
+  返回 `（TDX MCP 已禁用，跳过实时市场情报）`——**不查 MCP、不读写
+  缓存**（分析流程不再等 MCP 网络/超时）；恢复 = 删环境变量，不动代码。
+  判定函数 `_mcp_disabled()`（模块级，测试钉死真值/假值/未设置三态）。
 - New agents mean: new node registration here, a new edge, a new `State` key,
   and a new prompt in `core/llms/prompt.py`.
 

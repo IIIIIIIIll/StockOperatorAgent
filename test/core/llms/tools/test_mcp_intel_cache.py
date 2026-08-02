@@ -50,6 +50,51 @@ class TestCacheReadWrite:
         assert not list(tmp_path.rglob("*.tmp"))
 
 
+class TestMCPDisabledSwitch:
+    """08-02-disable-tdx-mcp：TDX_MCP_DISABLED 开关——占位文本、零查询、
+    零缓存文件；恢复路径（显式假值）不误禁用。"""
+
+    def test_disabled_with_key_returns_placeholder_no_query(self, tmp_path, monkeypatch):
+        """设开关 + 有 key → 占位文本，_query_mcp 零调用、无缓存文件。"""
+        _reset_count()
+        _set_dummy_key()
+        monkeypatch.setattr(gmi, "_query_mcp", _counting_query)
+        monkeypatch.setattr("utils.market_time.is_trading_time", lambda now=None: False)
+        monkeypatch.setattr(mic, "DEFAULT_CACHE_ROOT", tmp_path)
+        monkeypatch.setenv("TDX_MCP_DISABLED", "1")
+
+        text = gmi.get_market_intel("000001")
+        assert text == gmi._DISABLED_TEXT
+        assert _counting_query.calls == 0
+        assert not (tmp_path / "mcp_intel").exists()
+
+    def test_disabled_truthy_forms(self, monkeypatch):
+        """常见真值形式都禁用（"true"/"yes"/随意非空值）。"""
+        for value in ("1", "true", "yes", "anything"):
+            monkeypatch.setenv("TDX_MCP_DISABLED", value)
+            assert gmi._mcp_disabled() is True
+
+    def test_falsey_forms_do_not_disable(self, monkeypatch):
+        """显式假值（"0"/"false"/"no"）与未设置 → 不禁用（恢复路径）。"""
+        for value in ("0", "false", "no"):
+            monkeypatch.setenv("TDX_MCP_DISABLED", value)
+            assert gmi._mcp_disabled() is False
+        monkeypatch.delenv("TDX_MCP_DISABLED", raising=False)
+        assert gmi._mcp_disabled() is False
+
+    def test_disabled_without_key_returns_placeholder(self, tmp_path, monkeypatch):
+        """设开关 + 无 key → 占位文本（开关优先，语义一致）。"""
+        monkeypatch.setattr(mic, "DEFAULT_CACHE_ROOT", tmp_path)
+        monkeypatch.setenv("TDX_MCP_DISABLED", "1")
+        saved = __import__("os").environ.pop("TDX_API_KEY", None)
+        try:
+            assert gmi.get_market_intel("000001") == gmi._DISABLED_TEXT
+        finally:
+            if saved is not None:
+                __import__("os").environ["TDX_API_KEY"] = saved
+        assert not (tmp_path / "mcp_intel").exists()
+
+
 class TestGetMarketIntelCaching:
 
     def test_after_hours_uses_cache_without_query(self, tmp_path, monkeypatch):
