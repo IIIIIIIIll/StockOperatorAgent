@@ -2,6 +2,7 @@ import os
 import streamlit as st
 from langchain_core.runnables import RunnableConfig
 from core.investment_committee import InvestmentCommittee, build_stock_information
+from core.ui import data_markdown
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
 
@@ -17,7 +18,8 @@ def _has_deepseek_key():
     return "DEEPSEEK_API_KEY" in os.environ
 
 # 采集数据 Tab 标题（08-02-ui-collected-data-display）：放 st.tabs 最前，
-# 在 build_stock_information 成功后、stream 前填充原文（st.text 保换行）。
+# 在 build_stock_information 成功后、stream 前填充 markdown 表格
+# （data_markdown.to_markdown_tables，08-02-ui-data-markdown-tables）。
 DATA_TAB_TITLE = "采集数据"
 
 # 报告 state key → Tab 标题。顺序即 write_ui 里 st.tabs 中报告 Tab 的
@@ -100,15 +102,16 @@ def write_ui():
                 logger.exception("Failed to build stock information for {}", stock_ticker)
                 st.error(f"获取 {stock_ticker} 的股票信息失败：{e}，请检查股票代码后重试")
                 return
-            # 采集数据 Tab（08-02-ui-collected-data-display）：enrichment
-            # 成功后、stream 前填充原文。stock_information 是定宽文本
-            # （overview 单行 + 60 根日K + 业绩报告，行间 \n），st.write
-            # 走 markdown 渲染会合并单换行——st.text 等宽保换行才是原文；
-            # 报告 Tab（LLM markdown）仍走 st.write。异常路径上面已 return，
-            # 此处数据必可用（降级占位文本是原文一部分，照常展示）。
+            # 采集数据 Tab（08-02-ui-collected-data-display + 08-02-ui-data-
+            # markdown-tables）：enrichment 成功后、stream 前填充。stock_information
+            # 是定宽文本（overview 单行 + 60 根日K + 业绩报告，行间 \n），
+            # 展示端用 data_markdown.to_markdown_tables 转成带表格的 markdown
+            # （纯函数；LLM 上下文零改动，源头文本不变）。报告 Tab（LLM
+            # markdown）仍走 st.write。异常路径上面已 return，此处数据必
+            # 可用（降级占位文本是原文一部分，照常透传展示）。
             with data_tab:
                 st.header(DATA_TAB_TITLE)
-                st.text(stock_info)
+                st.markdown(data_markdown.to_markdown_tables(stock_info))
 
             updatable_container.info(f"正在开始分析 {stock_ticker} 的股票信息... 可能会需要一些时间，请耐心等待...")
 

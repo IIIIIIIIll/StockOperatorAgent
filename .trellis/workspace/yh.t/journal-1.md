@@ -208,3 +208,25 @@ display.py 新增「采集数据」Tab（DATA_TAB_TITLE 常量，st.tabs 六元�
 ### Status
 
 [OK] **Completed**
+
+## Session 7: 采集数据 Tab markdown 表格化
+
+**Date**: 2026-08-02
+**Task**: 采集数据 Tab markdown 表格化：展示端纯函数转换
+**Branch**: `master`
+
+### Summary
+
+新增 core/ui/data_markdown.py 纯函数模块：to_markdown_tables 把定宽文本转成带表格的 markdown（概览/指标/情报 → 扁平两列表；日K 8 列 / 业绩 9 列 → 多行同键列向表；降级占位透传；KEY_LABELS 中文标签）。方案 B：stock_information 同时是 LLM 上下文，源头零改动只改展示端。display.py 改 st.markdown 一行。新增 10 个离线测试。全量回归 0F/169P/20S。
+
+**踩坑**：Streamlit 程序运行中跑全量回归必然大面积 BlockingIOError（flock 不可重入，app 持有 ZODB 锁 → 35-43F 连锁）——非测试缺陷，关掉 app 即绿。已记入 testing spec 环境互斥段。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| (see git log for this session) |
+
+### Status
+
+[OK] **Completed**

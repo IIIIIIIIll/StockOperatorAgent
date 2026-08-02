@@ -76,13 +76,18 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 
 ## 基线（本环境，2026-08-02 实测）
 
-- **全量：0F/159P/20S，约 2.5-4 分钟**（2026-08-02 ui-collected-data-display
-  后实测；112P 基线的后续任务新增了 TDX overview/reports、committee
-  enrichment、display 数据 Tab 等用例，未逐任务同步基线数）。历史基线
-  0F/112P/20S（fix-dead-code-cleanup 后）、0F/100P/20S、0F/83P/20S、
-  0F/67P/20S。回归门槛 = 不新增失败。**共享 DB 跨运行脏状态**：全量
-  首跑可能因前次运行残留的 ZODB 状态失败（如 freshness 门分支翻转），
-  按本段"连续两遍验证"重跑一遍即绿——验收以干净一遍为准。
+- **全量：0F/169P/20S，约 3-4 分钟**（2026-08-02 ui-data-markdown-tables
+  后实测，+10 用例；159P 基线见下）。历史基线 0F/159P/20S
+  （ui-collected-data-display 后）、0F/112P/20S（fix-dead-code-cleanup
+  后）、0F/100P/20S、0F/83P/20S、0F/67P/20S。回归门槛 = 不新增失败。
+- **环境互斥（2026-08-02 实测踩坑）**：**Streamlit 程序运行中跑全量
+  回归必然大面积 BlockingIOError**（flock 不可重入）——app 进程持有
+  `china_stock_data.fs.lock`，任何构造 `DataAcquisition()` 的测试
+  全炸（`test_acquire_stock_data` 起连锁 35-43F）。跑全量前确认
+  无 `streamlit run main.py` 在跑；全量回归时 UI 测试与 app 互斥。
+- **共享 DB 跨运行脏状态**：全量首跑可能因前次运行残留的 ZODB 状态
+  失败（如 freshness 门分支翻转），按本段"连续两遍验证"重跑一遍即绿
+  ——验收以干净一遍为准。
 - 2026-08-02 修复（8F → 0F，详情见对应 spec/PRD）：
   - `ZODBStorage.__del__` 锁泄漏根治：`transaction.abort()` + try/except
     （data_storage spec）——`test_exist_*` / `test_set_update_now` 的

@@ -186,13 +186,21 @@ Keep it that way; do not add a second storage abstraction.
 - **2026-08-02（采集数据 Tab）**：`st.tabs` 六元组——「采集数据」
   （`DATA_TAB_TITLE` 常量）放**最前**，后接五报告 Tab（顺序不变）。
   `build_stock_information` 成功返回后、`graph.stream` 前填充：
-  `st.header(DATA_TAB_TITLE)` + **`st.text(stock_info)`**——`stock_information`
-  是定宽文本布局（overview 单行 + 60 根日K + 业绩报告，行间 `\n`）不是
-  markdown，`st.write` 走 markdown 渲染会合并单换行（60 行日K 粘连成
-  一段），`st.text` 等宽保换行才是原文。报告 Tab（LLM markdown）仍走
-  `st.write`。异常路径（`st.error` + return）不填充不占位；技术指标/
-  实时情报的降级占位文本是原文一部分照常展示。display 保持薄渲染层：
-  不新增数据解析/格式化逻辑。
+  `st.header(DATA_TAB_TITLE)` + `st.markdown(...)`。异常路径
+  （`st.error` + return）不填充不占位；技术指标/实时情报的降级占位
+  文本原样透传。display 保持薄渲染层：不新增数据解析/格式化逻辑。
+- **2026-08-02（采集数据 markdown 表格化）**：`core/ui/data_markdown.py`
+  纯函数模块把定宽文本转成带表格的 markdown——`to_markdown_tables(str)`
+  分节（概览/日K/业绩/指标/情报）逐节转表：行内 token 按 `, ` 切分，
+  兼容 `Key: value` / `Key=value` / `label 数值` 三种形态（业绩段
+  YoY/QoQ 无冒号标签，rpartition 空格 + 数值判定）；指标行
+  `label: K=V` 融合 token 递归展开；**多行且键集合一致 → 列向表**
+  （日K 8 列 / 业绩 9 列），单行或键不一致 → 扁平两列表（指标|数值）；
+  `KEY_LABELS` 英文 key → 中文标签，未知 key 原样透传；降级占位文本
+  （无键值形态）原样透传不吞。**约束**：`stock_information` 同时是
+  LLM 上下文（build_stock_information 唯一组装点）——只改展示端，
+  源头文本零改动（方案 B，2026-08-02 确认）。测试
+  `test/core/ui/test_data_markdown.py`（离线合成输入，house style）。
 - `get_state_history` 现仅测试消费（如 `test_graph_parallel._run_graph`
   取最终 state 断言）；UI 不再调用。保留 committee API
   （`make_investment_committee` / `make_investment_decision`）不变。
