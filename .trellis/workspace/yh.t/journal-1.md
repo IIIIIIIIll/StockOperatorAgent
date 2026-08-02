@@ -120,3 +120,27 @@ M1 概览层（overview.py 22 列序 + get_stock_name 名称索引，离线 gold
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: 修复代码库审计发现的 27 项问题（4 子任务树，全量 112P/0F）
+
+**Date**: 2026-08-02
+**Task**: 修复代码库审计发现的 27 项问题（4 子任务树，全量 112P/0F）
+**Branch**: `master`
+
+### Summary
+
+双代理全库审计 27 项（3 高/10 中/14 低）按父任务+4 子任务树修复并全部归档：① 数据正确性（key 检查只认 DEEPSEEK、120 根永久缺口全量回填、yjbb 列名映射例外、asia_today 时区统一、拉未来报告期、date==datetime 恒假）；② TDX 派生（fmt_number 无 nan 渲染、industry 空串、adjust 因子污染+int64 舍入、QoQ 相邻、ytd 首日、名称索引重试、BJ 拒绝）；③ 环境稳健（REPO_ROOT 锚定三路径、security_list 读缓存实现、daily 文档真相）；④ 死代码清理（enrichment 接入真实流程 build_stock_information、update_overview 槽位、akshare 块标注+惰性 import、prompt 插值/残留、单例线程锁、UI 守护）。测试 67P→112P（+45 用例），全量 112P/20S/0F 2.5 分钟，8 个 spec 同步，deprecated 20 skip 零改动。另有 gm（MyQuant）SDK 3.0.177 装好待 Windows 终端连通后验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98cb3c6` | (see git log) |
+| `885e727` | (see git log) |
+| `963db53` | (see git log) |
+| `ce29d47` | (see git log) |
+
+### Status
+
+[OK] **Completed**
