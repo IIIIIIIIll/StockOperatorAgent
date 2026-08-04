@@ -166,8 +166,12 @@ def write_ui():
                 # 对应 Tab（agent push 先到即渲染，superstep update 兜底按
                 # (key, content) 去重）——1-1-1-1-1 而非 2-2-1。对抗修订轮
                 # （08-04-adversarial-verdict-loop）：同 key 内容不同（初稿 →
-                # 修订版）→ 追加渲染（`---` 分隔），去重集合存 (key, content)
-                # 对——防 superstep 兜底重复推送同内容。
+                # 修订版）→ 追加渲染。轮次标签（08-04-ui-opinion-round-labels）：
+                # counts 按 key 计数，第 1 次 header+内容，第 n（n≥2）次
+                # `---` + "第 n 次观点"标签 + 内容——通用轮次计数（非"初稿/
+                # 修订版"字样），未来多轮互驳每轮追加自然成为第 3、4 次观点。
+                # 去重集合存 (key, content) 对——防 superstep 兜底重复推送
+                # 同内容。
                 threading.Thread(
                     target=_stream_graph_events,
                     args=(graph, config, {
@@ -178,7 +182,7 @@ def write_ui():
                     daemon=True,
                 ).start()
                 rendered = set()
-                rendered_keys = set()
+                counts = {}
                 while True:
                     kind, *payload = events.get()
                     if kind == "progress":
@@ -189,11 +193,13 @@ def write_ui():
                             continue
                         rendered.add((key, content))
                         with report_tabs[key]:
-                            if key in rendered_keys:
-                                st.markdown("---")
-                            else:
-                                rendered_keys.add(key)
+                            n = counts.get(key, 0) + 1
+                            counts[key] = n
+                            if n == 1:
                                 st.header(REPORT_TITLES[key])
+                            else:
+                                st.markdown("---")
+                                st.markdown(f"**第 {n} 次观点**")
                             st.write(content)
                     elif kind == "error":
                         raise payload[0]
