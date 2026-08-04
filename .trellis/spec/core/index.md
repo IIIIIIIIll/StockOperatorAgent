@@ -217,11 +217,14 @@ Keep it that way; do not add a second storage abstraction.
   去重（agent push 先到渲染，superstep update 同内容后到跳过；
   08-04-adversarial-verdict-loop 起 opinions key 推送两次——初稿 + 修订版
   ——同 key 不同内容 → **追加渲染**，观点 tab 依次显示初稿 → 修订版；
-  08-04-ui-opinion-round-labels 起追加渲染带**轮次标签**：`counts` 按 key
-  计数（替代 `rendered_keys` 首次渲染标记，行为等价），第 1 次
-  `st.header(REPORT_TITLES[key])` + 内容，第 n（n≥2）次 `---` +
-  `**第 n 次观点**` 标签 + 内容——通用轮次计数（非"初稿/修订版"字样），
-  未来多轮互驳每轮追加自然成为第 3、4 次观点；非观点 key 单次渲染无标签）。
+  08-04-ui-opinion-round-labels 起追加渲染带**轮次计数**：`counts` 按 key
+  计数（替代 `rendered_keys` 首次渲染标记，行为等价），通用轮次计数（非
+  "初稿/修订版"字样），未来多轮互驳每轮追加自然成为第 3、4 次观点；
+  08-05-ui-opinion-expanders 起观点 key（`OPINION_REPORT_KEYS` =
+  bullish_opinions / bearish_opinions）渲染为**可折叠条目**：每份观点一个
+  `st.expander("第 {n} 次观点", expanded=(n == 1))`——第 1 次默认展开、
+  后续默认折叠（用户先见初稿，修订版点击展开，不占空间）；非观点 key
+  单次渲染保持平铺（header + 内容））。
   图失败 → error 事件回抛 → 既有 st.error 守护。
 - **流式渲染契约（2026-08-02）**：`REPORT_TABS` 五元组（state key → Tab
   标题）顺序 = `st.tabs` 中报告 Tab 的创建顺序（数据 Tab 插入不影响相对
