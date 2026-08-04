@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-08-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~380 | Active |
+| `journal-1.md` | ~403 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-08-04 | UI 观点轮次标签 + streamlit 恢复 | `7e6ecfb`, `dbdb276`, `1a2905f` | `master` |
 | 8 | 2026-08-04 | 实现多空交易员单轮对抗修订（verdict loop MVP） | `18fc620`, `d01ae31`, `65ba179` | `master` |
 | 7 | 2026-08-04 | 研究：多空交易员对抗性会话增强可行性（verdict loop 前置调研） | `10add8b` | `master` |
 | 6 | 2026-08-04 | 08-03 websearch tool-calling：DuckDuckGo 联网搜索（DeepSeek 路径可用） | `f403861`, `81fa5b6`, `e60c30f` | `master` |

@@ -378,3 +378,26 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: UI 观点轮次标签 + streamlit 恢复
+
+**Date**: 2026-08-04
+**Task**: UI 观点轮次标签 + streamlit 恢复
+**Branch**: `master`
+
+### Summary
+
+观点 tab 轮次标签（第 n 次观点）落地并提交归档；实现子代理按 spec 杀 streamlit 跑回归后已重启（localhost:8501）。待办：撤方案 4（初稿预想反驳增补）+ 决定是否加 strongest-rebuttal。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7e6ecfb` | (see git log) |
+| `dbdb276` | (see git log) |
+| `1a2905f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
