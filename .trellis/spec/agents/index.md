@@ -202,10 +202,14 @@ def bullish_revise(self, state: State):
 - **成本护栏**：revise 节点 `invoke_with_tools(..., max_tool_rounds=3)`
   ——初稿轮保持默认 10（`_MAX_TOOL_ROUNDS`）。公共签名零改动，只传参；
   评估跑批仍可用 `WEB_SEARCH_DISABLED` 整体停用搜索。
-- **修订约束（prompt 硬约束，R4）**：逐条回应对方论据（承认成立项 / 反驳
-  不成立项及原因）、保留自己 ≥80% 核心论据、可承认对方有效点但**不得反转
-  立场**、输出**完整修订版观点**（manager 把 [-1] 当完整观点消费，不能只
-  输出反驳）、可联网搜索验证、中文禁编造（house style）。
+- **修订约束（prompt 硬约束，R4）**：**先复述对方最强的一条论据，再逐条
+  回应**（strongest-rebuttal，08-04-draft-prompt-pure 用户拍板）、保留自己
+  ≥80% 核心论据、可承认对方有效点但**不得反转立场**、输出**完整修订版观点**
+  （manager 把 [-1] 当完整观点消费，不能只输出反驳）、可联网搜索验证、中文
+  禁编造（house style）。
+- **初稿纯观点（08-04-draft-prompt-pure）**：bullish/bearish **初稿** prompt
+  只要求完整多头/空头观点（不要求预想对方反驳——方案 4 增补已撤，2026-08-04
+  用户拍板）；**对抗只发生在修订轮**（看到对方真实观点后交锋）。
 - **UI 契约（core spec Streamlit UI 段）**：display 同 key **追加渲染**
   （观点 tab 初稿 → `---` 分隔 → 修订版），去重集合按 `(key, content)` 对
   （防 superstep 兜底重复推送同内容）。
