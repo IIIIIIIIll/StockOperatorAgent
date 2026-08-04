@@ -401,3 +401,26 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 初稿纯观点 + 修订轮 strongest-rebuttal 定稿
+
+**Date**: 2026-08-04
+**Task**: 初稿纯观点 + 修订轮 strongest-rebuttal 定稿
+**Branch**: `master`
+
+### Summary
+
+职责分离定稿（用户拍板）：撤方案4（初稿预想对方反驳增补，第一轮只呈现完整观点）；修订轮加 strongest-rebuttal（先复述对方最强论据再逐条回应）。prompt.py 3 处改动+agents spec 同步；定向测试 20 passed（streamlit 在跑未跑全量）。任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f31e26c` | (see git log) |
+| `bde002c` | (see git log) |
+| `c065398` | (see git log) |
+
+### Status
+
+[OK] **Completed**
