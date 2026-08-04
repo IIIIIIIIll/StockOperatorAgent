@@ -11,6 +11,7 @@ from agents.chinese_mainland.investment_manager import InvestmentManager
 from langgraph.graph import StateGraph, START, END
 from core.llms.deepseek.deepseek_api import DeepSeekApi
 from core.llms.tools.get_company_info import get_stock_info
+from core.llms.tools.web_search import make_web_search_tool, web_search_enabled
 from langgraph.checkpoint.memory import InMemorySaver
 from loguru import logger
 
@@ -64,19 +65,24 @@ class InvestmentCommittee:
 
         checkpointer = InMemorySaver()
 
+        # 联网搜索（08-03-websearch-tool-calling）：图装配时判定开关——
+        # WEB_SEARCH_DISABLED 设置时 tools=None（不绑定，行为与现状
+        # 逐字节一致，AC3 由构造保证）；开关语义见 web_search_enabled()
+        tools = [make_web_search_tool()] if web_search_enabled() else None
+
         fundamental_expert = FundamentalAnalysisExpert(llm, config, progress_updater)
         graph_builder.add_node("fundamental_analysis_expert", fundamental_expert.fundamental_analysis_expert)
 
         trend_expert = TrendAnalysisExpert(llm, config, progress_updater)
         graph_builder.add_node("trend_analysis_expert", trend_expert.trend_analysis_expert)
 
-        bullish_trader = BullishTrader(llm, config, progress_updater)
+        bullish_trader = BullishTrader(llm, config, progress_updater, tools)
         graph_builder.add_node("bullish_trader", bullish_trader.bullish_trader)
 
-        bearish_trader = BearishTrader(llm, config, progress_updater)
+        bearish_trader = BearishTrader(llm, config, progress_updater, tools)
         graph_builder.add_node("bearish_trader", bearish_trader.bearish_trader)
 
-        investment_manager = InvestmentManager(llm, config, progress_updater)
+        investment_manager = InvestmentManager(llm, config, progress_updater, tools)
         graph_builder.add_node("investment_manager", investment_manager.investment_manager)
 
         # 两对并行（review #4）：fundamental∥trend（只依赖 stock_information）、
