@@ -163,8 +163,11 @@ def write_ui():
                 # 图在后台线程驱动（sync stream 的 superstep 是屏障，脚本线程
                 # 直接迭代会被阻塞到整个阶段完成，队列无法实时消费）；脚本线程
                 # get 循环实时渲染：进度 → status 容器；报告 → 节点完成即填充
-                # 对应 Tab（agent push 先到即渲染，superstep update 兜底同 key
-                # 去重）——1-1-1-1-1 而非 2-2-1。
+                # 对应 Tab（agent push 先到即渲染，superstep update 兜底按
+                # (key, content) 去重）——1-1-1-1-1 而非 2-2-1。对抗修订轮
+                # （08-04-adversarial-verdict-loop）：同 key 内容不同（初稿 →
+                # 修订版）→ 追加渲染（`---` 分隔），去重集合存 (key, content)
+                # 对——防 superstep 兜底重复推送同内容。
                 threading.Thread(
                     target=_stream_graph_events,
                     args=(graph, config, {
@@ -175,17 +178,22 @@ def write_ui():
                     daemon=True,
                 ).start()
                 rendered = set()
+                rendered_keys = set()
                 while True:
                     kind, *payload = events.get()
                     if kind == "progress":
                         updatable_container.info(payload[0])
                     elif kind == "report":
                         key, content = payload
-                        if key in rendered:
+                        if (key, content) in rendered:
                             continue
-                        rendered.add(key)
+                        rendered.add((key, content))
                         with report_tabs[key]:
-                            st.header(REPORT_TITLES[key])
+                            if key in rendered_keys:
+                                st.markdown("---")
+                            else:
+                                rendered_keys.add(key)
+                                st.header(REPORT_TITLES[key])
                             st.write(content)
                     elif kind == "error":
                         raise payload[0]

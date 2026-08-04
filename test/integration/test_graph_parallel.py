@@ -1,9 +1,12 @@
-"""图并行化测试（review #4）：真实 wiring + 假 LLM，离线验证 join/并行语义。
+"""图并行化测试（review #4 + 08-04-adversarial-verdict-loop）：真实 wiring
++ 假 LLM，离线验证 join/并行语义。
 
 用 make_investment_committee(_llm=FakeListChatModel) 注入假 LLM 跑真实图
-装配（5 节点 8 边）——不复制 wiring，图结构变化即测试失效。结构断言钉
-join 输入完整性与 reducer 行为（order-agnostic，串行/并行均成立）；时序
-断言（慢 LLM 注入）证明两对并行：墙钟 3 阶段而非 5 串行。
+装配（7 节点 12 边：+bullish_revise/bearish_revise 对抗修订轮）——不复制
+wiring，图结构变化即测试失效。结构断言钉 join 输入完整性与 reducer 行为
+（order-agnostic，串行/并行均成立）；时序断言（慢 LLM 注入）证明三对并行：
+墙钟 4 阶段而非 7 串行。revise 路由短语与初稿短语互斥（见 prompt.py），
+按 system 消息路由不歧义。
 """
 
 import time
@@ -17,9 +20,9 @@ FUNDAMENTAL = "FUNDAMENTAL_MARKER 基本面结论：低估"
 TREND = "TREND_MARKER 趋势结论：上行"
 BULL = "BULL_MARKER 看多理由：共振"
 BEAR = "BEAR_MARKER 看空理由：高估"
+BULL_REV = "BULL_REV_MARKER 修订版多头：保留看多+回应空方"
+BEAR_REV = "BEAR_REV_MARKER 修订版空头：保留看空+回应多方"
 MANAGER = "MANAGER_MARKER 最终决策：持有"
-
-_RESPONSES = [FUNDAMENTAL, TREND, BULL, BEAR, MANAGER]
 
 
 def _run_graph(llm, progress_updater=None) -> dict:
@@ -68,6 +71,13 @@ class _RoutedLlm(FakeListChatModel):
             return self._response(BULL)
         if "坚定看空的股票交易员" in system:
             return self._response(BEAR)
+        # 对抗修订轮（08-04-adversarial-verdict-loop）：revise prompt 独有
+        # 角色短语（含"对抗修订轮"、不含初稿的"坚定看多/看空"）——路由互斥，
+        # 且排在初稿路由之后，歧义即 "UNROUTED" 暴露
+        if "对抗修订轮的多方交易员" in system:
+            return self._response(BULL_REV)
+        if "对抗修订轮的空方交易员" in system:
+            return self._response(BEAR_REV)
         if "精于价值与趋势结合的投资策略" in system:
             return self._response(MANAGER)
         return self._response("UNROUTED")
@@ -79,7 +89,7 @@ class _RoutedLlm(FakeListChatModel):
 
 
 class _SlowRoutedLlm(_RoutedLlm):
-    """每节点 invoke 注入 2s 延迟——串行 5 阶段 ≥10s，并行 3 阶段 ≈6s。"""
+    """每节点 invoke 注入 2s 延迟——串行 7 阶段 ≥14s，并行 4 阶段 ≈8s。"""
 
     def _generate(self, *args, **kwargs):
         time.sleep(2.0)
@@ -96,29 +106,46 @@ class TestGraphParallel:
             "trader 查询应插值两份报告（join 后输入完整）"
 
     def test_manager_receives_both_opinions(self):
-        """manager 查询含 bullish 与 bearish 观点正文（[-1].content 语义）。"""
+        """manager 查询含 bullish 与 bearish 修订版正文（[-1].content 语义）。"""
         final = _run_graph(_RoutedLlm(responses=[]))
         contents = [m.content for m in final["messages"]]
-        assert any(BULL in c and BEAR in c for c in contents), "manager 查询应含两份观点"
-        # reducer 包装行为（1.2.10 已验证）：agent 返回字符串 → 消息列表
-        assert final["bullish_opinions"][-1].content == BULL
-        assert final["bearish_opinions"][-1].content == BEAR
+        assert any(BULL_REV in c and BEAR_REV in c for c in contents), \
+            "manager 查询应含两份修订版观点"
+        # 修订版追加写原 opinions key（State 零新 key）：初稿保留在 [0]，
+        # manager 经 [-1].content 零改动读到修订版（reducer 包装 1.2.10 已验证）
+        assert final["bullish_opinions"][0].content == BULL
+        assert final["bullish_opinions"][-1].content == BULL_REV
+        assert final["bearish_opinions"][0].content == BEAR
+        assert final["bearish_opinions"][-1].content == BEAR_REV
+
+    def test_revise_receives_opponent_draft(self):
+        """join 语义（08-04-adversarial-verdict-loop）：revise 双入边——
+        各 revise 查询同时含对方初稿与自己初稿（[-1].content 取初稿）。
+
+        manager 查询只含修订版 marker（BULL_REV/BEAR_REV，不含初稿
+        BULL/BEAR），故含双初稿 marker 的查询必为 revise 轮——恰好两条。
+        """
+        final = _run_graph(_RoutedLlm(responses=[]))
+        contents = [m.content for m in final["messages"]]
+        both_drafts = [c for c in contents if BULL in c and BEAR in c]
+        assert len(both_drafts) == 2, \
+            "两条 revise 查询应各含对方初稿（bullish_revise 含空方初稿、bearish_revise 含多方初稿）"
 
     def test_messages_channel_complete(self):
-        """messages 通道完整：初始 user 消息 + 5 组 query + response = 11 条。"""
+        """messages 通道完整：初始 user 消息 + 7 组 query + response = 15 条。"""
         final = _run_graph(_RoutedLlm(responses=[]))
         assert final["messages"][0].content == "请帮我分析一下 000001"  # 初始消息保留
-        assert len(final["messages"]) == 11
+        assert len(final["messages"]) == 15
         assert final["fundamental_analysis"] == FUNDAMENTAL
         assert final["trend_analysis"] == TREND
         assert final["final_decision"] == MANAGER
 
     def test_independent_pairs_run_parallel(self):
-        """时序：两对并行 → 墙钟 ≈3 阶段（串行 5×2s≥10s，并行 3×2s≈6s）。"""
+        """时序：三对并行 → 墙钟 ≈4 阶段（串行 7×2s≥14s，并行 4×2s≈8s）。"""
         start = time.monotonic()
         _run_graph(_SlowRoutedLlm(responses=[]))
         elapsed = time.monotonic() - start
-        assert elapsed < 8.5, f"expected parallel 3-stage wall clock, got {elapsed:.1f}s"
+        assert elapsed < 9.5, f"expected parallel 4-stage wall clock, got {elapsed:.1f}s"
 
     def test_throwing_progress_updater_does_not_break_graph(self):
         """并行节点 + 抛错 updater（非脚本线程）：safe_progress 降级，分析完成。
@@ -129,15 +156,17 @@ class TestGraphParallel:
         """
         final = _run_graph(_RoutedLlm(responses=[]), progress_updater=_ThrowingUpdater())
         assert final["final_decision"] == MANAGER
-        assert len(final["messages"]) == 11
+        assert len(final["messages"]) == 15
 
-    def test_bridge_collects_progress_and_all_five_reports(self):
+    def test_bridge_collects_progress_and_all_seven_reports(self):
         """queue bridge（08-02-ui-live-progress-bridge）：真实图 + 假 LLM，
-        五节点经 ProgressBridge 推送进度与报告——数据面验证节点级即时
+        七节点经 ProgressBridge 推送进度与报告——数据面验证节点级即时
         填充的输入完整（display 事件循环消费即可渲染）。
 
         agent 的 push_report 对非 bridge updater（_ThrowingUpdater）是
-        no-op，此用例必须用真 bridge 才收集得到五份报告。
+        no-op，此用例必须用真 bridge 才收集得到报告。对抗修订轮
+        （08-04-adversarial-verdict-loop）：opinions key 推送两次（初稿 +
+        修订版）→ 共 7 份报告事件；dict 同 key 后推覆盖 → opinions 为修订版。
         """
         import queue as queue_mod
 
@@ -146,14 +175,16 @@ class TestGraphParallel:
         events = queue_mod.Queue()
         _run_graph(_RoutedLlm(responses=[]), progress_updater=ProgressBridge(events))
         events_list = list(events.queue)
-        reports = {ev[1]: ev[2] for ev in events_list if ev[0] == "report"}
+        report_events = [ev for ev in events_list if ev[0] == "report"]
+        assert len(report_events) == 7  # 7 节点 × 1 份（opinions 各推送初稿 + 修订版）
+        reports = {ev[1]: ev[2] for ev in report_events}
         assert reports == {
             "fundamental_analysis": FUNDAMENTAL,
             "trend_analysis": TREND,
-            "bullish_opinions": BULL,
-            "bearish_opinions": BEAR,
+            "bullish_opinions": BULL_REV,
+            "bearish_opinions": BEAR_REV,
             "final_decision": MANAGER,
         }
         progress = [ev[1] for ev in events_list if ev[0] == "progress"]
-        assert len(progress) >= 10  # 5 节点 × 开始 + 完成
+        assert len(progress) >= 14  # 7 节点 × 开始 + 完成
         assert any("开始" in m for m in progress) and any("完成" in m for m in progress)
