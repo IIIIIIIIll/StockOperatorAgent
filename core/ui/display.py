@@ -37,6 +37,11 @@ REPORT_TABS = (
     ("final_decision", "最终结论"),
 )
 
+# 观点 key（08-05-ui-opinion-expanders）：渲染为可折叠条目（每份观点一个
+# expander）——对抗修订轮后同 key 含初稿+修订版多份内容，平铺占空间；
+# 非观点 key 单份内容保持平铺。
+OPINION_REPORT_KEYS = {"bullish_opinions", "bearish_opinions"}
+
 
 def _report_content(value):
     """State 报告值 → 展示文本（08-02-ui-incremental-report-render）。
@@ -197,10 +202,14 @@ def write_ui():
                             counts[key] = n
                             if n == 1:
                                 st.header(REPORT_TITLES[key])
+                            if key in OPINION_REPORT_KEYS:
+                                # 观点 tab：每份观点一个可折叠条目——第 1 次
+                                # 默认展开（用户先见初稿），后续默认折叠
+                                # （修订版可点击展开，不占空间）
+                                with st.expander(f"第 {n} 次观点", expanded=(n == 1)):
+                                    st.write(content)
                             else:
-                                st.markdown("---")
-                                st.markdown(f"**第 {n} 次观点**")
-                            st.write(content)
+                                st.write(content)
                     elif kind == "error":
                         raise payload[0]
                     elif kind == "done":
