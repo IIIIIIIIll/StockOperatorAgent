@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/agents/index.md", "reason": "Agent 模板形状（构造器签名/节点方法/prompt 位置/invoke_with_retry/safe_progress/push_report）、requirements freeze gotcha、bind_tools 相关约定"}
+{"file": ".trellis/spec/core/index.md", "reason": "Committee 接线方式（make_investment_committee/_llm 注入点）、TDX_MCP_DISABLED 判定语义先例、get_market_intel 降级占位先例"}
+{"file": ".trellis/spec/error-handling.md", "reason": "工具失败返回占位文本不 raise 的降级约定（core/llms/tools/** 适用）"}
+{"file": ".trellis/spec/testing.md", "reason": "测试 house style：类式测试/无 mock 框架/注入点风格；全量回归基线 220P/20S 与 ZODB flock 互斥提醒"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "构造器签名与 committee 接线变更的边界检查（Mistake 5 progress 协议）"}
+{"file": ".trellis/tasks/08-03-websearch-tool-calling/research/search-provider-comparison.md", "reason": "供应商调研：仅 DDG 的决策依据、ddgs SDK 用法与网络实测结论"}

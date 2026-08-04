@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/agents/index.md", "reason": "校验 agent 模板形状未被破坏、prompt 位置、invoke 约定、State 契约零改动"}
+{"file": ".trellis/spec/core/index.md", "reason": "校验 committee 接线与 _llm 注入点、WEB_SEARCH_DISABLED 判定语义对齐 TDX_MCP_DISABLED"}
+{"file": ".trellis/spec/error-handling.md", "reason": "校验降级链：失败/空 → 占位文本不 raise，无吞异常反模式"}
+{"file": ".trellis/spec/testing.md", "reason": "校验新测试符合 house style（类式/注入点/无 mock 框架），全量回归不新增失败"}
+{"file": ".trellis/tasks/08-03-websearch-tool-calling/research/search-provider-comparison.md", "reason": "校验供应商实现与调研结论一致（DuckDuckGoSearchResults + ddgs，cn-zh）"}
