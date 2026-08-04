@@ -216,8 +216,13 @@ Keep it that way; do not add a second storage abstraction.
   不等同 superstep 的慢节点 3s）；`rendered` 集合按 **(key, content)** 对
   去重（agent push 先到渲染，superstep update 同内容后到跳过；
   08-04-adversarial-verdict-loop 起 opinions key 推送两次——初稿 + 修订版
-  ——同 key 不同内容 → `---` 分隔**追加渲染**，观点 tab 依次显示初稿 →
-  修订版）。图失败 → error 事件回抛 → 既有 st.error 守护。
+  ——同 key 不同内容 → **追加渲染**，观点 tab 依次显示初稿 → 修订版；
+  08-04-ui-opinion-round-labels 起追加渲染带**轮次标签**：`counts` 按 key
+  计数（替代 `rendered_keys` 首次渲染标记，行为等价），第 1 次
+  `st.header(REPORT_TITLES[key])` + 内容，第 n（n≥2）次 `---` +
+  `**第 n 次观点**` 标签 + 内容——通用轮次计数（非"初稿/修订版"字样），
+  未来多轮互驳每轮追加自然成为第 3、4 次观点；非观点 key 单次渲染无标签）。
+  图失败 → error 事件回抛 → 既有 st.error 守护。
 - **流式渲染契约（2026-08-02）**：`REPORT_TABS` 五元组（state key → Tab
   标题）顺序 = `st.tabs` 中报告 Tab 的创建顺序（数据 Tab 插入不影响相对
   顺序），渲染 dispatch 依赖该契约；`_report_content`
