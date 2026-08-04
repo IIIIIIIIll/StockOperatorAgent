@@ -334,3 +334,24 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 研究：多空交易员对抗性会话增强可行性（verdict loop 前置调研）
+
+**Date**: 2026-08-04
+**Task**: 研究：多空交易员对抗性会话增强可行性（verdict loop 前置调研）
+**Branch**: `master`
+
+### Summary
+
+文献综述（辩论支持/2025质疑/金融回测偏差/LLM-judge局限）+ 5种落地形态对比（推荐 MVP=提示词级对称对抗基线+单轮 critique-and-revise，+2调用无新State key）+ 配对A/B评估方案（judge信号立即可跑，方向命中中期）；发现000001日K数据污染与样本池偏小。任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `10add8b` | (see git log) |
+
+### Status
+
+[OK] **Completed**

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-08-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~336 | Active |
+| `journal-1.md` | ~357 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-08-04 | 研究：多空交易员对抗性会话增强可行性（verdict loop 前置调研） | `10add8b` | `master` |
 | 6 | 2026-08-04 | 08-03 websearch tool-calling：DuckDuckGo 联网搜索（DeepSeek 路径可用） | `f403861`, `81fa5b6`, `e60c30f` | `master` |
 | 5 | 2026-08-02 | UI 报告边算边渲染：节点完成即填充对应 Tab | `ea7c475`, `8a8e593`, `e3b6b4f` | `master` |
 | 4 | 2026-08-02 | 业绩报告 freshness 门（ZODB 优先免重复拉 F10） | `f26a85c` | `master` |
