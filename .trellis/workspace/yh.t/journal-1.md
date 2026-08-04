@@ -311,3 +311,26 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 08-03 websearch tool-calling：DuckDuckGo 联网搜索（DeepSeek 路径可用）
+
+**Date**: 2026-08-04
+**Task**: 08-03 websearch tool-calling：DuckDuckGo 联网搜索（DeepSeek 路径可用）
+**Branch**: `master`
+
+### Summary
+
+三个 agent（投资经理+多空交易员）获得 bind_tools 工具调用型联网搜索：web_search.py（DDG cn-zh、降级占位不 raise、_searcher 注入）、tool_loop.py（invoke_with_tools 复用 invoke_with_retry；上限 10 轮 + 收尾轮保底完整回答）、构造器可选 tools 参 + NotImplementedError 回退、committee 图装配时 WEB_SEARCH_DISABLED 判定。全量回归 235P/20S。真实 DeepSeek E2E 实测：2 轮不收敛（返回中间态）→ 用户拍板放宽 10 轮 + 收尾轮；4 轮 9 次搜索收敛到完整观点。spec 增补工具调用循环小节与开关语义。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f403861` | (see git log) |
+| `81fa5b6` | (see git log) |
+| `e60c30f` | (see git log) |
+
+### Status
+
+[OK] **Completed**
