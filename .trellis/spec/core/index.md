@@ -107,14 +107,18 @@ Keep it that way; do not add a second storage abstraction.
 ## InvestmentCommittee (`core/investment_committee.py`)
 
 - `make_investment_committee(config, progress_updater=None, _llm=None)` builds
-  a `StateGraph(State)` with the five agent nodes and **两对并行边**
-  （2026-08-02，review #4）：`START → fundamental` 与 `START → trend` 并行
-  （都只依赖 `stock_information`），`fundamental → bullish/bearish` 与
-  `trend → bullish/bearish` 并行（都只依赖两份报告），两份观点 →
+  a `StateGraph(State)` with the **seven agent nodes**（7 节点 12 边）and
+  **三对并行边**（2026-08-02，review #4；2026-08-04，08-04-adversarial-
+  verdict-loop +2 revise 节点）：`START → fundamental` 与 `START → trend`
+  并行（都只依赖 `stock_information`），`fundamental → bullish/bearish` 与
+  `trend → bullish/bearish` 并行（都只依赖两份报告），
+  `bullish/bearish → bullish_revise/bearish_revise`（对抗修订轮——各
+  revise 双入边 join 两份初稿，互相独立保持并行），两份修订版 →
   `investment_manager → END`。LangGraph 多入边 = **隐式 join**：trader 等
-  两上游都完成、manager 等两份观点都完成——墙钟 5 串行 → 3 阶段。并行
-  分支写不同 State key（无写冲突），`messages` 由 add_messages reducer
-  合并（顺序不确定——display 只读最终 state，不依赖顺序）。
+  两上游都完成、revise 等两份初稿都完成（否则对方初稿缺失）、manager 等
+  两份修订版都完成——墙钟 7 串行 → 4 阶段。并行分支写不同 State key
+  （无写冲突），`messages` 由 add_messages reducer 合并（顺序不确定——
+  display 只读最终 state，不依赖顺序）。
 - `_llm` 为测试注入点（house style 无 mock 框架）：默认 `DeepSeekApi()`；
   离线图测试（test/integration/test_graph_parallel.py）传假 LLM 验证
   join/并行语义。**假 LLM 路由注意**：FakeListChatModel 按共享调用计数器
@@ -209,9 +213,11 @@ Keep it that way; do not add a second storage abstraction.
   status 容器，报告 → 对应 Tab。每个 agent 在 LLM 返回后调 `push_report`
   （core/llms/progress.py helper，None/非 bridge no-op）——报告**节点级
   即时到达**（1-1-1-1-1，实测 asymmetric 延迟：fast 节点 0.5s 即到，
-  不等同 superstep 的慢节点 3s）；同 key 由 `rendered` 集合去重
-  （agent push 先到渲染，superstep update 后到跳过）。图失败 → error
-  事件回抛 → 既有 st.error 守护。
+  不等同 superstep 的慢节点 3s）；`rendered` 集合按 **(key, content)** 对
+  去重（agent push 先到渲染，superstep update 同内容后到跳过；
+  08-04-adversarial-verdict-loop 起 opinions key 推送两次——初稿 + 修订版
+  ——同 key 不同内容 → `---` 分隔**追加渲染**，观点 tab 依次显示初稿 →
+  修订版）。图失败 → error 事件回抛 → 既有 st.error 守护。
 - **流式渲染契约（2026-08-02）**：`REPORT_TABS` 五元组（state key → Tab
   标题）顺序 = `st.tabs` 中报告 Tab 的创建顺序（数据 Tab 插入不影响相对
   顺序），渲染 dispatch 依赖该契约；`_report_content`

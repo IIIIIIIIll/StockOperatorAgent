@@ -78,7 +78,9 @@ downstream agents from live LLM calls).
 
 `investment_manager` 读取观点时取 `state['bullish_opinions'][-1].content` /
 `bearish_opinions[-1].content`（2026-08-02 修复：原插值整个列表 repr，prompt
-里是 `[HumanMessage(...)]` 元数据而非观点正文）。
+里是 `[HumanMessage(...)]` 元数据而非观点正文）。08-04-adversarial-verdict-
+loop 起 opinions 列表含初稿 + 修订版（revise 追加写原 key）——`[-1]` 恒为
+最新一版（manager 零改动读修订版），初稿保留供 UI 展示对抗过程。
 
 Node names in the graph and the `State` keys must stay in sync — the graph wiring
 in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
@@ -166,6 +168,50 @@ invoke_with_tools(llm, query: str, config, *, tools,
 - 返回的 messages 由节点整体写入 `State.messages`——add_messages reducer
   天然处理 AIMessage.tool_calls / ToolMessage，**State 零改动**。
 - 空 `tools` → 单轮直调，行为与现状一致。
+
+## 对抗修订轮（08-04-adversarial-verdict-loop，critique-and-revise）
+
+bullish/bearish trader 各新增**第二个节点方法** `bullish_revise` /
+`bearish_revise`——单轮对抗修订（verdict MVP：固定轮数、无收敛检测、无
+多轮循环、无 conditional edge）：各读对方初稿与自己初稿
+（`state['<opp_key>'][-1].content` / `state['<own_key>'][-1].content`——
+双入边 join 保证两份初稿已就绪），修订一版**追加写原 opinions key**
+（State 零新 key，add_messages 累积；初稿保留在列表中供 UI 展示对抗过程
+与评估"修订保留率"），manager 经 `[-1].content` **零改动**读修订版。
+模板（bullish 侧，bearish 对称）：
+
+```python
+def bullish_revise(self, state: State):
+    own_draft = state['bullish_opinions'][-1].content
+    opponent_draft = state['bearish_opinions'][-1].content
+    query = f"…对方观点 {opponent_draft} …你的初稿 {own_draft} …"
+    response, messages = invoke_with_tools(
+        self.revise_llm, query, self.config,
+        tools=self.tools, max_tool_rounds=3, progress_updater=self.progress_updater,
+    )
+    push_report(self.progress_updater, "bullish_opinions", response.content)
+    return {"messages": messages, "bullish_opinions": response.content}
+```
+
+- **第二条链 `self.revise_llm`**：同一实例的第二条 `ChatPromptTemplate`，
+  system 消息为 `bullish_revise_message` / `bearish_revise_message`
+  （prompt.py）——角色独有短语"对抗修订轮的多方/空方交易员"，**与初稿
+  路由短语（"坚定看多/看空的股票交易员"）互斥**（离线测试按 system 消息
+  路由，歧义即 "UNROUTED" 暴露）；`llm` 复用同一 bind_tools 后实例
+  （初稿链 `self.llm` 不动）。
+- **成本护栏**：revise 节点 `invoke_with_tools(..., max_tool_rounds=3)`
+  ——初稿轮保持默认 10（`_MAX_TOOL_ROUNDS`）。公共签名零改动，只传参；
+  评估跑批仍可用 `WEB_SEARCH_DISABLED` 整体停用搜索。
+- **修订约束（prompt 硬约束，R4）**：逐条回应对方论据（承认成立项 / 反驳
+  不成立项及原因）、保留自己 ≥80% 核心论据、可承认对方有效点但**不得反转
+  立场**、输出**完整修订版观点**（manager 把 [-1] 当完整观点消费，不能只
+  输出反驳）、可联网搜索验证、中文禁编造（house style）。
+- **UI 契约（core spec Streamlit UI 段）**：display 同 key **追加渲染**
+  （观点 tab 初稿 → `---` 分隔 → 修订版），去重集合按 `(key, content)` 对
+  （防 superstep 兜底重复推送同内容）。
+- 图装配：7 节点 12 边（+2 节点 +6 边：各 revise 双入边 join 两份初稿、
+  各 revise → manager）；墙钟 3 → 4 阶段。manager / State / tool_loop
+  公共语义零改动。
 
 ## Tools (`core/llms/tools/`)
 
