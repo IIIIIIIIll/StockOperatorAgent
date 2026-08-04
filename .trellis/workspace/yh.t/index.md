@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-08-04
+- **Total Sessions**: 11
+- **Last Active**: 2026-08-05
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~426 | Active |
+| `journal-1.md` | ~449 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-08-05 | 观点 tab 可折叠条目（expander） | `6489282`, `99f28f3`, `108d6d3` | `master` |
 | 10 | 2026-08-04 | 初稿纯观点 + 修订轮 strongest-rebuttal 定稿 | `f31e26c`, `bde002c`, `c065398` | `master` |
 | 9 | 2026-08-04 | UI 观点轮次标签 + streamlit 恢复 | `7e6ecfb`, `dbdb276`, `1a2905f` | `master` |
 | 8 | 2026-08-04 | 实现多空交易员单轮对抗修订（verdict loop MVP） | `18fc620`, `d01ae31`, `65ba179` | `master` |

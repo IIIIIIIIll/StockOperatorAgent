@@ -424,3 +424,26 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: 观点 tab 可折叠条目（expander）
+
+**Date**: 2026-08-05
+**Task**: 观点 tab 可折叠条目（expander）
+**Branch**: `master`
+
+### Summary
+
+用户实测反馈后 UI 形态定稿：观点 tab 每份观点一个 st.expander 可折叠条目（第 1 次默认展开、后续折叠），非观点 key 平铺不变。20 passed，任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6489282` | (see git log) |
+| `99f28f3` | (see git log) |
+| `108d6d3` | (see git log) |
+
+### Status
+
+[OK] **Completed**
