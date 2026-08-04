@@ -150,6 +150,14 @@ Keep it that way; do not add a second storage abstraction.
   返回 `（TDX MCP 已禁用，跳过实时市场情报）`——**不查 MCP、不读写
   缓存**（分析流程不再等 MCP 网络/超时）；恢复 = 删环境变量，不动代码。
   判定函数 `_mcp_disabled()`（模块级，测试钉死真值/假值/未设置三态）。
+- **联网搜索开关（2026-08-03，08-03-websearch-tool-calling）**：
+  `make_investment_committee` 图装配时 `web_search_enabled()` 判定——
+  `WEB_SEARCH_DISABLED` 设置（存在且值非 ""/"0"/"false"/"no"）→
+  `tools=None` 不绑定，三个工具角色（bullish/bearish/investment_manager）
+  构造行为与现状逐字节一致；启用 → `tools = [make_web_search_tool()]`
+  传三个 agent（fundamental/trend 专家不传）。与 TDX MCP 不同：工具
+  绑定是构造期行为，开关在图装配时判定（TDX MCP 在调用时判定）；二者
+  都是图级可逆开关。语义与测试见 agents spec Tools 段。
 - New agents mean: new node registration here, a new edge, a new `State` key,
   and a new prompt in `core/llms/prompt.py`.
 

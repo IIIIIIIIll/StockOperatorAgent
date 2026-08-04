@@ -15,16 +15,32 @@ All five agents (`fundamental_analysis_expert.py`, `trend_analysis_expert.py`,
 `agents/chinese_mainland/`) are near-identical classes. **Copy the existing shape
 when adding an agent — do not redesign it.** The pattern:
 
-1. **Constructor** — `__init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater=None)`:
+1. **Constructor** — `__init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater=None, tools: list | None = None)`:
    - `ChatPromptTemplate.from_messages([("system", system_prompt), MessagesPlaceholder(variable_name="query")])`
    - `self.prompt = self.prompt.partial(system_message=<role_message>)`
    - `self.prompt = self.prompt.partial(current_date=get_last_business_day(datetime.date.today()))`
-   - `self.llm = self.prompt | llm`
-   - store `config` and `progress_updater`
+   - **可选工具绑定（08-03-websearch-tool-calling）**——三个工具角色
+     （bullish/bearish/investment_manager）由 committee 传 `tools`；构造时
+     `llm.bind_tools(tools)` 包 **NotImplementedError 回退**（硬约束：
+     langchain-core 1.5.3 `FakeListChatModel.bind_tools` 实测抛
+     NotImplementedError——离线图测试靠它保持全绿；生产 DeepSeek/Qwen
+     OpenAI 兼容路径正常绑定）。fundamental/trend 两专家不传，保持直调：
+     ```python
+     if tools:
+         try:
+             llm = llm.bind_tools(tools)
+         except NotImplementedError:
+             logger.warning("LLM {} 不支持 bind_tools，跳过工具绑定", type(llm).__name__)
+     self.llm = self.prompt | llm
+     ```
+   - store `config` and `progress_updater`（工具角色另存 `self.tools = tools or []`）
 2. **Node method** — named after the role, takes `(self, state: State)`, builds a
    Chinese human query from `state` (see `core/llms/prompt.py` for the system
    messages), invokes **`invoke_with_retry(self.llm, {"query": query},
-   config=self.config)`**（2026-08-02，review #6——见下方重试约定），reports
+   config=self.config)`**（2026-08-02，review #6——见下方重试约定；两个专家
+   fundamental/trend 保持此直调；三个工具角色 bullish/bearish/
+   investment_manager 改用 **`invoke_with_tools`**——08-03-websearch-tool-
+   calling，见下方"工具调用循环"段，返回 `(final, 全量 messages)`），reports
    progress via **`safe_progress(self.progress_updater, "...")`**
    （2026-08-02，`core/llms/progress.py`——并行节点运行在 LangGraph 工作
    线程，Streamlit DeltaGenerator 只能在脚本线程 enqueue，工作线程 info()
@@ -34,6 +50,9 @@ when adding an agent — do not redesign it.** The pattern:
    即时填充；None/非 bridge updater 为 no-op，superstep update 兜底
    渲染），and returns a state-update
    dict: `{"messages": [query[0], response], "<state_key>": response.content}`.
+   工具角色返回 `{"messages": <invoke_with_tools 全量 messages>,
+   "<state_key>": final.content}`——消息通道完整含工具交换（AIMessage
+   with tool_calls + ToolMessage）。
    UI 路径的 `progress_updater` 是 **`ProgressBridge`**（core/llms/progress.py，
    `info`/`push_report` 线程安全入队，脚本线程消费后渲染；离线图测试可传
    `_ThrowingUpdater` 验证 safe_progress 降级——详见 core spec Streamlit
@@ -71,9 +90,12 @@ in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
 - Prompts are Chinese. They hard-forbid fabrication ("不允许编造数据"),
   require real-data-backed numbers, and demand specific output structure
   (valuation methods, target prices, scenarios). Keep that style.
-- The investment-manager prompt references web search — matched by
-  `enable_search` in the QwenApi config only. **DeepSeek 不支持该参数**（DashScope
-  私有扩展），默认路径下该指示失效，agent 无法联网；如需联网分析可切回 QwenApi。
+- 联网指示（08-03-websearch-tool-calling）：investment_manager 的"善用联网
+  搜索"与 bullish/bearish 的"可使用联网搜索工具验证行业与市场论据"指示，
+  默认 DeepSeek 路径下经 **bind_tools 工具调用真实生效**（OpenAI 兼容
+  function calling）——不再是 QwenApi `enable_search`（DashScope 私有扩展）
+  专属；`WEB_SEARCH_DISABLED` 可整体停用（见 Tools 段）。历史：该指示曾仅
+  QwenApi enable_search 生效、DeepSeek 默认路径失效。
 
 ## LLM Configuration (`core/llms/`)
 
@@ -108,8 +130,42 @@ requirements.txt 是全量 freeze，但曾漏 pin 直接导入的包（langchain
 langchain-openai / openai 缺失——fresh `pip install -r requirements.txt` 会
 缺 `langchain_openai`）；更新依赖时确保**直接 import 的包**也在 freeze 中，
 不能只靠传递依赖。升级 langgraph 大版本后先跑 test/integration（reducer
-行为是 0.x → 1.x 最大风险面）。
+行为是 0.x → 1.x 最大风险面）。**Gotcha（08-03-websearch-tool-calling）**：
+`langchain-community==0.4.2`（已停更自担维护）的 `DuckDuckGoSearchResults`
+**只能从顶层 `langchain_community.tools` 导入**——子包
+`tools.ddg_search.__init__` 只 re-export 旧名 `DuckDuckGoSearchRun`（实测
+ImportError）；community 0.4.2 依赖声明不含 `ddgs`（惰性导入）——fresh
+环境必须显式 pin `ddgs==9.14.4`（旧包 duckduckgo-search 已死不可用）；
+`langchain-classic==1.0.8` 为传递依赖一并 freeze。
 
+## 工具调用循环（08-03-websearch-tool-calling）
+
+工具角色节点不再裸 invoke——经 `core/llms/tool_loop.py` 的 `invoke_with_tools`
+驱动至多 `_MAX_TOOL_ROUNDS = 10` 轮工具调用（2026-08-04 实测 DeepSeek 2 轮
+内不收敛——模型持续要搜索而非收尾——用户拍板放宽；最坏 3 agent × 10 轮 =
+30+ 次搜索/分析，每轮可并行多调用）：
+
+```python
+invoke_with_tools(llm, query: str, config, *, tools,
+                  max_tool_rounds=_MAX_TOOL_ROUNDS, progress_updater=None,
+                  ) -> tuple[AIMessage, list]
+```
+
+- 循环体复用 `invoke_with_retry`（重试语义与 payload 形状不变）：LLM 返回
+  带 `tool_calls` → `safe_progress("正在联网搜索…")`、逐条按 name 查工具
+  执行（未知工具名 → 占位 ToolMessage；工具异常 → try/except +
+  `logger.warning` + 占位文本，**不 raise** 打断图）、messages 追加该
+  AIMessage（含 tool_calls）+ `ToolMessage(content, tool_call_id)`，再交
+  给模型；无 `tool_calls` → 返回 `(response, messages + [response])`；
+  轮数耗尽且模型仍在要工具（2026-08-04 实测场景）→ **追加一轮"收尾"
+  调用**：附中文指令"工具调用轮数已用尽。请基于以上全部信息（包括联网
+  搜索结果）直接给出完整、明确的最终回答，不要再调用任何工具。"——模型
+  被强约束为最终轮（cost +1 次 LLM 调用/分析，有界），**保证即使轮数
+  用尽也基于已有信息给出完整回答**。**实测注意**：收尾轮仍带 tool_calls
+  属病态（指令未遵从），照旧返回该响应不阻断（消息已含全部搜索结果）。
+- 返回的 messages 由节点整体写入 `State.messages`——add_messages reducer
+  天然处理 AIMessage.tool_calls / ToolMessage，**State 零改动**。
+- 空 `tools` → 单轮直调，行为与现状一致。
 
 ## Tools (`core/llms/tools/`)
 
@@ -122,13 +178,27 @@ langchain-openai / openai 缺失——fresh `pip install -r requirements.txt` �
   `data_source...tdx_source.ensure_vendor_on_path()`（见 data_source spec）。
 - `get_market_intel.py` — `get_market_intel(ticker) -> str`：TDX MCP 实时情报
   （概念/资金流/大盘）。无 `TDX_API_KEY` 或查询失败返回占位文本，不 raise。
-- 三者均不直接传给 agent 作为 callable——在 `make_investment_decision` 图前
-  拼接进 `stock_information`（见 core spec）。
+- `web_search.py` — **唯一 bind_tools 工具**（08-03-websearch-tool-calling）：
+  `make_web_search_tool(_searcher=None) -> BaseTool` 构造名 "web_search" 的
+  StructuredTool——DuckDuckGo（`langchain_community.tools.DuckDuckGoSearchResults`，
+  region="cn-zh"、max_results=5、json 输出）→ 中文摘要文本（标题/链接/摘要，
+  news 源含日期）；查询失败/空结果 → 占位文本 `（联网搜索失败：{原因}）`
+  不 raise（error-handling spec 降级风格）；`_searcher` 为测试注入点
+  （house style 无 mock 框架）。`web_search_enabled()` 读 `WEB_SEARCH_DISABLED`
+  环境变量，判定语义逐字对齐 `get_market_intel._mcp_disabled()`（存在且值非
+  ""/"0"/"false"/"no" → 禁用）；committee **图装配时**判定——禁用 →
+  `tools=None` 不绑定，行为与现状逐字节一致（工具绑定是构造期行为，故与
+  TDX MCP 调用时判定不同）。
+- stock_information 拼接族（前三个 + get_financial_indicators）均不直接传给
+  agent 作为 callable——在 `make_investment_decision` 图前拼接进
+  `stock_information`（见 core spec）；web_search 相反：唯一经 bind_tools
+  进 agent 的工具。
 
 ## Anti-Patterns
 
 - Breaking the uniform constructor signature — committee wiring and the UI pass
-  `(llm, config, progress_updater)` positionally.
+  `(llm, config, progress_updater)` positionally（08-03 起工具角色可带可选
+  第 4 参 `tools=None`——默认 None 保持位置兼容，仅 committee 传，见模板段）。
 - Adding agent logic outside the node method or mutating `state` in place (return
   the update dict instead).
 - Writing new prompts into agent files — they belong in `core/llms/prompt.py`.
