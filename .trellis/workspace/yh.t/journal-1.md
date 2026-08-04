@@ -355,3 +355,26 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: 实现多空交易员单轮对抗修订（verdict loop MVP）
+
+**Date**: 2026-08-04
+**Task**: 实现多空交易员单轮对抗修订（verdict loop MVP）
+**Branch**: `master`
+
+### Summary
+
+实现研究 verdict MVP：方案4（bull/bear 初稿预想对方反驳）+方案3（bullish_revise/bearish_revise 单轮修订节点，manager [-1].content 零改动；max_tool_rounds=3 成本护栏）。图 5→7 节点 12 边、墙钟 3→4 阶段。UI 观点 tab 追加渲染+（key,content）去重。trellis-check 验证 AC1-7 全过，全量回归 236P/20S/0F（基线 235P，+1 测试 0 新增失败）。spec 已更新，任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `18fc620` | (see git log) |
+| `d01ae31` | (see git log) |
+| `65ba179` | (see git log) |
+
+### Status
+
+[OK] **Completed**
