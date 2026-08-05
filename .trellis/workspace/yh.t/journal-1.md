@@ -447,3 +447,40 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: UI 主题:dark mode 与整体打磨(streamlit 1.50→1.61.1)
+
+**Date**: 2026-08-06
+**Task**: UI 主题:dark mode 与整体打磨(streamlit 1.50→1.61.1)
+**Branch**: `master`
+
+### Summary
+
+用户诉求 dark mode + 整体打磨:streamlit 升级 1.61.1(1.51+ 分主题表 [theme.light]/[theme.dark],亮暗两套独立色板,初始跟随系统);.streamlit/config.toml 品牌红(亮 #D32F2F/暗 #EF5350)+ baseRadius 0.5rem;core/ui/theme.py 纯常量样式模块(PALETTE+CSS,string.Template 注入,prefers-color-scheme 媒体查询);display 接线 set_page_config(标题/📈/wide)+ st.html;全量回归 248P/0F,浏览器验收通过,任务已归档。
+
+### Main Changes
+
+- streamlit 1.50.0→1.61.1(requirements bump;依赖零冲突;主题持久化修复 #13306)
+- .streamlit/config.toml 亮暗双色板(baseRadius 替代已移除的 borderRadius)
+- core/ui/theme.py 纯常量模块 + test_theme.py 12 用例(PALETTE/config 一致性/接线 ast)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `537ce25` | (see git log) |
+| `5b05837` | (see git log) |
+| `61656db` | (see git log) |
+
+### Testing
+
+- [OK] 离线 test/core/ui 36P;全量回归 248P/0F/20S;浏览器亮暗切换+表格/expander 视觉验收
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 新任务 08-06-ui-data-charts:采集数据 Tab 图表可视化(用户已拍板 K线+更多图表)
