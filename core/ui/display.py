@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from core.investment_committee import InvestmentCommittee, build_stock_information
 from core.llms.progress import ProgressBridge
 from core.ui import data_markdown
+from core.ui import theme
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
 
@@ -91,6 +92,12 @@ def _stream_graph_events(graph, config, inputs, events):
 
 
 def write_ui():
+    # 主题打磨(08-05-ui-dark-mode-theme):set_page_config 必须是首个 st
+    # 调用(Streamlit 要求);主题样式注入用 st.html(纯样式字符串,无
+    # 用户输入,无 unsafe_allow_html)——色板在 .streamlit/config.toml
+    # 亮暗分表,渲染契约见 theme.py。
+    st.set_page_config(page_title="超绝AI股票分析系统", page_icon="📈", layout="wide")
+    st.html(f"<style>{theme.CSS}</style>")
     st.title("超绝AI股票分析系统")
 
     if not _has_deepseek_key():
