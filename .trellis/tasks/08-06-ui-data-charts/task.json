@@ -3,7 +3,7 @@
   "name": "ui-data-charts",
   "title": "数据采集 Tab 图表可视化(K线/成交量/财务指标)",
   "description": "采集数据 Tab 增加图表:解析 stock_information 文本 → 结构化数据 → altair 图表(K线红涨绿跌、成交量、收盘价趋势、财务指标),适配亮暗主题",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
