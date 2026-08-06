@@ -282,8 +282,30 @@ Keep it that way; do not add a second storage abstraction.
     斑马纹/圆角）、expander（悬停主色）、alert 圆角、紧凑页距、wide 布局。
   - **display.py 接线**：`st.set_page_config`（标题/📈/wide）必须是首个
     st 调用（Streamlit 要求，ast 测试钉死）；`st.html` 注入样式。渲染
-    流程/事件循环/tab 契约零改动。**涨跌幅红绿染色记为后续增强**（需
-    解析文本,违反薄渲染层约束,不在本次范围）。
+    流程/事件循环/tab 契约零改动。
+- **2026-08-06（采集数据图表,08-06-ui-data-charts）**：
+  - **`data_markdown.py` 分节/解析契约**：`iter_sections(stock_info)` 是
+    分节唯一实现（yield (section_id, title, lines)；marker 语义：
+    daily/financial 英文 marker、指标节中文【】去括号保留日期、
+    overview 隐式节）——`to_markdown_tables`（展示端，输出逐字节不变）
+    与 `parse_daily_rows` / `parse_financial_rows`（图表数据源）共用，
+    不双份分节逻辑。parse_* 行键序由 `_DAILY_KEYS` / `_FINANCIAL_KEYS`
+    钉死；数值经 `_to_number` 归一（去 %/lots 后缀、N/A→None，失败→None
+    不炸）；**日期升序**（源头顺序取决于 storage，图表统一旧→新）。
+  - **`core/ui/charts.py`** 纯函数模块（无 Streamlit import，离线断言
+    altair spec）：`candlestick_chart`（rule 影线+bar 实体）/ `volume_chart`
+    / `close_line_chart` / `change_percent_chart` / `financial_charts`
+    （净利润/销售毛利率/每股收益三折线，单位不同不混轴）+ `iter_data_charts`
+    （产出 [(标题, chart)]，空数据空迭代）。**涨跌语义色**（A 股约定红涨
+    绿跌）：`UP_COLOR #E03131` / `DOWN_COLOR #0B9464`，经 validate_palette
+    亮暗双模式 PASS（CVD ΔE 8.0）；财务线 #2563EB / #D97706。mark 色
+    spec 定死（跨主题不变），背景/轴/文字交给 st.altair_chart 默认
+    streamlit theme。日期轴用 **ordinal** 编码（交易日不等距，避免假空隙）。
+    图表不计算 MA（指标节只有最新单值，展示派生超薄层边界——后续增强）。
+  - **display.py 数据 Tab**：markdown 表格后
+    `for title, chart in charts.iter_data_charts(stock_info): st.subheader + st.altair_chart(use_container_width=True)`；
+    空数据不画空图。浏览器实测（Playwright 程序化验证）：两主题 6 图
+    均渲染（K线/成交量/涨跌幅红绿可见、单系列线可见），暗底 #0E1117。
 
 - Doing akshare calls directly outside `data_source/` — `DataAcquisition` is the
   only caller of `AKShareSource`.
