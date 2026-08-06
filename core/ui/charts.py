@@ -30,23 +30,31 @@ _FINANCIAL_LINES = (
     ("EPS", "每股收益", "#D97706"),
 )
 
-# 日K 图表高（px）；成交量降为 1/2 高（标准行情布局：K线+量柱上下分图）
+# 日K 图表高（px）；副图高（成交量/收盘价/涨跌幅/财务）。
+# **高度下限（2026-08-06 实测踩坑）**：顶部涨跌图例 + 旋转 45° 日期标签 +
+# 双轴标题的镀铬区约 170px——svg 高 <200px 时绘图区 ≤30px，140px 时直接
+# ≤0 → vega 渲染出 0 高 mark（柱子全塌成 2px、y 轴无刻度，浏览器实测
+# path d='...v0...'）。副图保持 260 以上；K线 320。
 _KLINE_HEIGHT = 320
-_VOLUME_HEIGHT = 140
+_VOLUME_HEIGHT = 260
 
 
 def _styled(chart, height):
-    """统一样式：透明背景（theme 管表面色）、发丝网格、自适应宽。
+    """统一样式：透明背景（theme 管表面色）、发丝网格、固定高。
 
     streamlit theme 提供轴/文字/表面色，这里只收网格为低透明度发丝线
     （dataviz marks-and-anatomy：网格 recessive）并去掉视图描边。
+    **不设 width**：宽度由 st.altair_chart(use_container_width=True)
+    注入（实测 `width="container"` 与 use_container_width 叠加无益）。
+    **height 有下限**（见 _VOLUME_HEIGHT 注释）：镀铬区 ~170px，过矮
+    视图塌缩成 0 高 mark——改高度前先浏览器实测。
     """
     return (chart
             .configure(background="transparent",
                        view=alt.ViewConfig(stroke=None),
                        axis=alt.AxisConfig(grid=True, gridOpacity=0.15,
                                            labelFontSize=11, titleFontSize=12))
-            .properties(width="container", height=height))
+            .properties(height=height))
 
 
 def _direction(rows, key="Close"):
