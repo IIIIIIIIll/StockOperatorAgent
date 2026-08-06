@@ -304,8 +304,14 @@ Keep it that way; do not add a second storage abstraction.
     图表不计算 MA（指标节只有最新单值，展示派生超薄层边界——后续增强）。
   - **display.py 数据 Tab**：markdown 表格后
     `for title, chart in charts.iter_data_charts(stock_info): st.subheader + st.altair_chart(use_container_width=True)`；
-    空数据不画空图。浏览器实测（Playwright 程序化验证）：两主题 6 图
-    均渲染（K线/成交量/涨跌幅红绿可见、单系列线可见），暗底 #0E1117。
+    空数据不画空图。
+  - **图表高度下限（2026-08-06 修复，浏览器实测踩坑）**：顶部涨跌图例 +
+    旋转 45° 日期标签 + 双轴标题的镀铬区约 170px——svg 高 <200px 时
+    绘图区 ≤30px，140px 时 ≤0 → vega 渲染 0 高 mark（柱子全塌、y 轴
+    无刻度，`path d='M2,0h14v0h-14Z'`；初判误诊为宽度问题，实际是
+    高度）。约束：副图 `_VOLUME_HEIGHT` ≥260、K线 320；改高度先
+    浏览器实测。浏览器验收（Playwright 程序化验证）：两主题 6 图均
+    渲染（K线/成交量/涨跌幅红绿可见、单系列线可见），暗底 #0E1117。
 
 - Doing akshare calls directly outside `data_source/` — `DataAcquisition` is the
   only caller of `AKShareSource`.
