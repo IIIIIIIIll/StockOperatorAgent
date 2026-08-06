@@ -484,3 +484,40 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Next Steps
 
 - 新任务 08-06-ui-data-charts:采集数据 Tab 图表可视化(用户已拍板 K线+更多图表)
+
+
+## Session 13: 采集数据 Tab 图表可视化(K线/成交量/财务折线,Playwright 程序化验收)
+
+**Date**: 2026-08-06
+**Task**: 采集数据 Tab 图表可视化(K线/成交量/财务折线,Playwright 程序化验收)
+**Branch**: `master`
+
+### Summary
+
+用户追加需求:采集数据 Tab 画图。data_markdown 抽出 iter_sections 分节唯一实现 + parse_daily_rows/parse_financial_rows(数值归一、N/A→None、日期升序);charts.py 纯函数 altair 图表(K线红涨绿跌、成交量、收盘价、涨跌幅、净利润/毛利率/每股收益三折线);display 数据 Tab 表格后渲染。色板经 dataviz skill 的 validate_palette 双模式 PASS(涨 #E03131/跌 #0B9464,ΔE 8.0)。浏览器验收改用 Playwright headless 自动化(Settings 主题切换在 1.61.1 已移出 ⋮ 菜单,改 colorScheme 仿真 + SVG 元素级色验证 + 元素截图像素采样):两主题 6 图全部验证。全量回归 269P/0F,任务已归档。
+
+### Main Changes
+
+- iter_sections 重构(to_markdown_tables 行为不变,11 用例兜底)+ parse_* 图表数据源
+- charts.py 五类图 + iter_data_charts;涨跌语义色双模式验证;ordinal 日期轴
+- Playwright 验收管线:colorScheme 仿真 + SVG 颜色断言 + 元素截图像素采样
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7dedeb5` | (see git log) |
+| `91dedc1` | (see git log) |
+| `fdf1149` | (see git log) |
+
+### Testing
+
+- [OK] 离线 test/core/ui 57P(parse 7 + charts 11 + 既有);全量 269P/0F/20S
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- MA 序列叠加(指标节单值,需展示派生计算)记为后续增强
