@@ -150,13 +150,15 @@ class TestDisplayChartWiring():
     """08-06-ui-data-charts:采集数据 Tab 图表接线(源码字符串断言,
     house style 同 test_theme 的 wiring 测试)。"""
 
-    def test_data_tab_renders_charts_after_tables(self):
-        """数据 Tab 在 markdown 表格之后经 iter_data_charts 渲染图表——
-        纯函数解析文本、空数据空迭代不画图,st.altair_chart 交给
-        streamlit theme 适配亮暗。"""
+    def test_data_tab_renders_charts_before_tables(self):
+        """数据 Tab 图表在 markdown 表格**之前**(2026-08-06 用户反馈
+        "把图往前提"——图表是视觉焦点)。纯函数解析文本、空数据空迭代
+        不画图,st.altair_chart 交给 streamlit theme 适配亮暗。"""
         import inspect
         source = inspect.getsource(display.write_ui)
         assert "charts.iter_data_charts(stock_info)" in source
         assert "st.altair_chart(chart, use_container_width=True)" in source
-        # 图表渲染在表格之后(源码顺序)
-        assert source.find("to_markdown_tables") < source.find("iter_data_charts")
+        # 图表渲染在表格之前(语句级顺序;旧 08-02 注释也含
+        # "to_markdown_tables" 字样,不能用 find 全文定位)
+        assert (source.find("for title, chart in charts.iter_data_charts")
+                < source.find("st.markdown(data_markdown.to_markdown_tables"))

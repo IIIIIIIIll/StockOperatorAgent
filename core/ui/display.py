@@ -151,14 +151,16 @@ def write_ui():
             # 可用（降级占位文本是原文一部分，照常透传展示）。
             with data_tab:
                 st.header(DATA_TAB_TITLE)
-                st.markdown(data_markdown.to_markdown_tables(stock_info))
-                # 图表(08-06-ui-data-charts):表格后追加 K线/成交量/收盘价/
-                # 涨跌幅/财务折线——charts.iter_data_charts 纯函数解析文本,
-                # 空数据 → 空迭代不画图;主题亮暗适配由 st.altair_chart
-                # 默认 streamlit theme 处理(mark 色板见 charts.py)。
+                # 图表(08-06-ui-data-charts):K线/成交量/收盘价/涨跌幅/
+                # 财务折线渲染在表格**之前**(2026-08-06 用户反馈"把图往前提"
+                # ——图表是视觉焦点,定宽表格数据在后供精确查阅)。
+                # charts.iter_data_charts 纯函数解析文本,空数据 → 空迭代
+                # 不画图;主题亮暗适配由 st.altair_chart 默认 streamlit
+                # theme 处理(mark 色板见 charts.py)。
                 for title, chart in charts.iter_data_charts(stock_info):
                     st.subheader(title)
                     st.altair_chart(chart, use_container_width=True)
+                st.markdown(data_markdown.to_markdown_tables(stock_info))
 
             updatable_container.info(f"正在开始分析 {stock_ticker} 的股票信息... 可能会需要一些时间，请耐心等待...")
 

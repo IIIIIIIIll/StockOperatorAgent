@@ -67,6 +67,9 @@ def candlestick_chart(rows) -> alt.Chart | None:
 
     涨跌两色为语义色（bar 实体 + 影线同色），带图例（≥2 系列必须，
     dataviz）；tooltip 悬浮带日期/开收高低/涨跌幅。
+    **y 轴 zero=False**（2026-08-06 用户反馈"留白太多"）：零基比例下
+    价格 10~11 画在 0~12.5 轴上,蜡烛只占底部 ~15%、上方 85% 空白;
+    zero=False + 共享 y 轴 → 域 [min Low, max High] 铺满绘图区。
     """
     if not rows:
         return None
@@ -83,16 +86,18 @@ def candlestick_chart(rows) -> alt.Chart | None:
                alt.Tooltip("High:Q", title="最高", format=".2f"),
                alt.Tooltip("Low:Q", title="最低", format=".2f"),
                alt.Tooltip("Change Percent:Q", title="涨跌幅", format=".2f")]
+    price_scale = alt.Scale(zero=False)
     base = alt.Chart(df).encode(x=alt.X("Date:N", title="日期", axis=alt.Axis(labelAngle=-45)))
     wick = base.mark_rule().encode(
-        y=alt.Y("Low:Q", title="价格"),
+        y=alt.Y("Low:Q", title="价格", scale=price_scale),
         y2=alt.Y2("High:Q"),
         color=color, tooltip=tooltip)
     body = base.mark_bar().encode(
-        y=alt.Y("Open:Q", title="价格"),
+        y=alt.Y("Open:Q", title="价格", scale=price_scale),
         y2=alt.Y2("Close:Q"),
         color=color, tooltip=tooltip)
-    return _styled(wick + body, _KLINE_HEIGHT)
+    # 两图层共享同一价格 y 轴(Low/High/Open/Close 合并域,影线与实体对齐)
+    return _styled((wick + body).resolve_scale(y="shared"), _KLINE_HEIGHT)
 
 
 def volume_chart(rows) -> alt.Chart | None:

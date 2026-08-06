@@ -87,6 +87,14 @@ class TestChartBuilders():
         assert layers["bar"]["y"]["field"] == "Open"
         assert layers["bar"]["y2"]["field"] == "Close"
 
+    def test_candlestick_price_axis_not_zero_based(self):
+        """2026-08-06 修复:y 轴 zero=False + 共享——价格域铺满绘图区,
+        消除零基比例的顶部大留白(10~11 的价格画在 0~12.5 轴上)。"""
+        spec = charts.candlestick_chart(_daily_rows()).to_dict()
+        assert spec["resolve"]["scale"]["y"] == "shared"
+        for layer in spec["layer"]:
+            assert layer["encoding"]["y"].get("scale", {}).get("zero") is False
+
     def test_volume_bar_chart(self):
         spec = charts.volume_chart(_daily_rows()).to_dict()
         assert spec["mark"]["type"] == "bar"
