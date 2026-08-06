@@ -144,3 +144,19 @@ class TestDisplayDataTab():
         assert labels[0].id == "DATA_TAB_TITLE"
         assert [ast.literal_eval(label) for label in labels[1:]] == [
             title for _, title in display.REPORT_TABS]
+
+
+class TestDisplayChartWiring():
+    """08-06-ui-data-charts:采集数据 Tab 图表接线(源码字符串断言,
+    house style 同 test_theme 的 wiring 测试)。"""
+
+    def test_data_tab_renders_charts_after_tables(self):
+        """数据 Tab 在 markdown 表格之后经 iter_data_charts 渲染图表——
+        纯函数解析文本、空数据空迭代不画图,st.altair_chart 交给
+        streamlit theme 适配亮暗。"""
+        import inspect
+        source = inspect.getsource(display.write_ui)
+        assert "charts.iter_data_charts(stock_info)" in source
+        assert "st.altair_chart(chart, use_container_width=True)" in source
+        # 图表渲染在表格之后(源码顺序)
+        assert source.find("to_markdown_tables") < source.find("iter_data_charts")

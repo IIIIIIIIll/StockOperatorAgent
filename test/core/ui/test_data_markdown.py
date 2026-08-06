@@ -162,3 +162,58 @@ class TestToMarkdownTables:
     def test_empty_input(self):
         assert dm.to_markdown_tables("") == ""
         assert dm.to_markdown_tables("\n-----------\n") == ""
+
+
+class TestParseDailyRows:
+    """08-06-ui-data-charts:日K 节 → 结构化行(图表数据源)。"""
+
+    def test_parses_numeric_rows(self):
+        rows = dm.parse_daily_rows(_daily_sample(60))
+        assert len(rows) == 60
+        assert set(rows[0]) == {"Date", "Open", "Close", "High", "Low",
+                                "Change Percent", "Volume", "Turnover Rate"}
+        assert rows[0]["Open"] == 11.00
+        assert rows[0]["Volume"] == 123456.00
+        assert rows[0]["Change Percent"] == 1.23
+        assert rows[0]["Date"].startswith("2026-07-")
+
+    def test_sorts_ascending_by_date(self):
+        """_daily_sample 日期递减(镜像 storage 顺序不定)→ 输出升序。"""
+        rows = dm.parse_daily_rows(_daily_sample(60))
+        dates = [r["Date"] for r in rows]
+        assert dates == sorted(dates)
+
+    def test_na_values_become_none(self):
+        text = "\n".join(_OVERVIEW_LINES + ["Last 60 days prices:",
+            "  Date: 2026-07-29, Open: N/A, Close: 11.00, High: 11.05, "
+            "Low: N/A, Change Percent: N/A, Volume: N/A, Turnover Rate: N/A"])
+        rows = dm.parse_daily_rows(text)
+        assert len(rows) == 1
+        assert rows[0]["Open"] is None
+        assert rows[0]["Volume"] is None
+
+    def test_no_daily_section_yields_empty(self):
+        assert dm.parse_daily_rows("\n".join(_OVERVIEW_LINES)) == []
+        assert dm.parse_daily_rows("") == []
+
+
+class TestParseFinancialRows:
+    """08-06-ui-data-charts:业绩节 → 结构化行(图表数据源)。"""
+
+    def test_parses_numeric_rows(self):
+        rows = dm.parse_financial_rows(_financial_sample(20))
+        assert len(rows) == 20
+        assert rows[0]["Report Date"].startswith("202603")
+        assert rows[0]["Net Profit"] == 1000.00
+        assert rows[0]["Net Profit YoY percent"] == 1.23
+        assert rows[0]["Net Profit QoQ percent"] == -0.50
+        assert rows[0]["EPS"] == 0.50
+
+    def test_sorts_ascending_by_report_date(self):
+        rows = dm.parse_financial_rows(_financial_sample(20))
+        dates = [r["Report Date"] for r in rows]
+        assert dates == sorted(dates)
+
+    def test_no_financial_section_yields_empty(self):
+        assert dm.parse_financial_rows(_daily_sample(3)) == []
+        assert dm.parse_financial_rows("") == []

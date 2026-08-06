@@ -6,6 +6,7 @@ import streamlit as st
 from langchain_core.runnables import RunnableConfig
 from core.investment_committee import InvestmentCommittee, build_stock_information
 from core.llms.progress import ProgressBridge
+from core.ui import charts
 from core.ui import data_markdown
 from core.ui import theme
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
@@ -151,6 +152,13 @@ def write_ui():
             with data_tab:
                 st.header(DATA_TAB_TITLE)
                 st.markdown(data_markdown.to_markdown_tables(stock_info))
+                # 图表(08-06-ui-data-charts):表格后追加 K线/成交量/收盘价/
+                # 涨跌幅/财务折线——charts.iter_data_charts 纯函数解析文本,
+                # 空数据 → 空迭代不画图;主题亮暗适配由 st.altair_chart
+                # 默认 streamlit theme 处理(mark 色板见 charts.py)。
+                for title, chart in charts.iter_data_charts(stock_info):
+                    st.subheader(title)
+                    st.altair_chart(chart, use_container_width=True)
 
             updatable_container.info(f"正在开始分析 {stock_ticker} 的股票信息... 可能会需要一些时间，请耐心等待...")
 

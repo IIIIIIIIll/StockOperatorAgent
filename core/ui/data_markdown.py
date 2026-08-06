@@ -1,13 +1,18 @@
-"""采集数据 → markdown 表格（08-02-ui-data-markdown-tables）。
+"""采集数据 → markdown 表格（08-02-ui-data-markdown-tables）与图表数据
+解析（08-06-ui-data-charts）。
 
 把 build_stock_information 拼好的定宽文本（overview 单行 + 60 根日K +
 20 条业绩 + 技术指标 + 实时情报）转换为带表格的 markdown，供「采集数据」
-Tab 渲染。纯函数、无 Streamlit/无 I/O——离线测试喂合成输入（house style，
-与 iter_report_items 同约定）。
+Tab 渲染；并导出结构化行（parse_daily_rows / parse_financial_rows）供
+charts.py 画图。纯函数、无 Streamlit/无 I/O——离线测试喂合成输入（house
+style，与 iter_report_items 同约定）。
 
 **约束**：stock_information 同时是 LLM 上下文（build_stock_information
 唯一组装点，display 与 make_investment_decision 共用）——本模块只改
 展示端，源头文本零改动。
+
+分节逻辑集中在 iter_sections（to_markdown_tables 与 parse_* 共用同一
+迭代器，marker 语义单一实现，不双份）。
 
 格式认知（2026-08-02 实测三个生产者的输出）：
 - 行内 token 由 ', ' 分隔，三种键值形态：'Key: value'（概览/日K/业绩/
@@ -152,51 +157,137 @@ def _render_table(rows) -> str:
     return "\n".join([header, sep, *body])
 
 
-def to_markdown_tables(stock_info: str) -> str:
-    """stock_information 文本 → markdown（加粗分节标题 + 表格 + 占位透传）。
+def iter_sections(stock_info: str):
+    """分节迭代器（08-06-ui-data-charts 抽出）：yield (section_id, title, lines)。
 
-    分节：----------- 与空行丢弃；'Last 60 days prices:' / 'Last 20
-    financial abstracts:' 起日K/业绩节；'【技术指标（...）】' 起指标节
-    （标题去【】保留日期）；'【实时市场情报】' 起情报节；其余行归属当前
-    节——键值行聚成表格，非键值行（降级占位）原样透传。
+    section_id: overview / daily / financial / indicators / profitability /
+    intel；title: 展示标题（指标类节去【】保留日期）；lines: 节内原始行
+    （strip 后，含降级占位文本）。marker 语义与 08-02 版本逐一等价——
+    to_markdown_tables 与 parse_daily_rows / parse_financial_rows 共用
+    同一实现，不双份分节逻辑。
+
+    marker：----------- 与空行丢弃；'Last 60 days prices:' / 'Last 20
+    financial abstracts:' 起日K/业绩节；'【技术指标（...）】' 与
+    '【盈利能力指标（...）】' 起指标节（08-02-f10-financial-indicator-
+    sections：独立成节，否则指标行混进技术指标表）；'【实时市场情报】'
+    起情报节；其余行归属当前节（首个非 marker 行隐式起 overview 节）。
     """
-    sections = []  # [(title, rows, passthrough)]
-    current = None
+    section = None  # (section_id, title, lines)
     for raw_line in stock_info.splitlines():
         line = raw_line.strip()
         if not line or line == "-----------":
             continue
         if line in ("Last 60 days prices:", "Last 20 financial abstracts:"):
-            current = "financial" if "financial" in line else "daily"
-            sections.append((_SECTION_TITLES[current], [], []))
+            if section:
+                yield section
+            sid = "financial" if "financial" in line else "daily"
+            section = (sid, _SECTION_TITLES[sid], [])
             continue
-        if line.startswith("【技术指标（"):
-            current = "indicators"
-            sections.append((line[1:-1], [], []))
-            continue
-        if line.startswith("【盈利能力指标（"):
-            # 08-02-f10-financial-indicator-sections：标题去【】保留日期，
-            # 独立成节（否则该行落入当前节，指标行混进技术指标表）
-            current = "profitability"
-            sections.append((line[1:-1], [], []))
+        if line.startswith("【技术指标（") or line.startswith("【盈利能力指标（"):
+            if section:
+                yield section
+            section = ("indicators" if "技术" in line else "profitability",
+                       line[1:-1], [])
             continue
         if line.startswith("【实时市场情报】"):
-            current = "intel"
-            sections.append((_SECTION_TITLES[current], [], []))
+            if section:
+                yield section
+            section = ("intel", _SECTION_TITLES["intel"], [])
             continue
-        if current is None:
-            current = "overview"
-            sections.append((_SECTION_TITLES[current], [], []))
-        pairs = _pairs(line)
-        if pairs:
-            sections[-1][1].append(pairs)
-        else:
-            sections[-1][2].append(line)
+        if section is None:
+            section = ("overview", _SECTION_TITLES["overview"], [])
+        section[2].append(line)
+    if section:
+        yield section
 
+
+def to_markdown_tables(stock_info: str) -> str:
+    """stock_information 文本 → markdown（加粗分节标题 + 表格 + 占位透传）。
+
+    分节见 iter_sections；每节内键值行聚成表格（_pairs），非键值行
+    （降级占位）原样透传。
+    """
     blocks = []
-    for title, rows, passthrough in sections:
+    for _sid, title, lines in iter_sections(stock_info):
         blocks.append(f"**{title}**")
+        rows, passthrough = [], []
+        for line in lines:
+            pairs = _pairs(line)
+            if pairs:
+                rows.append(pairs)
+            else:
+                passthrough.append(line)
         if rows:
             blocks.append(_render_table(rows))
         blocks.extend(passthrough)
     return "\n\n".join(blocks)
+
+
+def _to_number(value: str):
+    """'1.23%' / '123456.00lots' / 'N/A' → float(1.23 / 123456.0 / None)。
+
+    复用 _is_numberish 的后缀剥离（% / lots / N/A），剥离后 float；
+    解析失败（异常形态）→ None（图表跳过该点，不炸）。
+    """
+    s = value.strip()
+    for suffix in ("%", "lots"):
+        if s.endswith(suffix):
+            s = s[:-len(suffix)]
+    if s.upper() == "N/A":
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+# 日K / 业绩节的行键序（图表解析契约；表格渲染 KEY_LABELS 独立演进）
+_DAILY_KEYS = ("Date", "Open", "Close", "High", "Low",
+               "Change Percent", "Volume", "Turnover Rate")
+_FINANCIAL_KEYS = ("Report Date", "EPS", "Net Profit",
+                   "Net Profit YoY percent", "Net Profit QoQ percent",
+                   "Net worth per share", "Return on Equity percent",
+                   "Cash flow per share", "Sales gross margin percent")
+
+
+def parse_daily_rows(stock_info: str) -> list:
+    """日K节 → 结构化行（08-06-ui-data-charts）。
+
+    每行复用 _pairs（兼容 'Open:' 无空格等真实格式）；Date 保留原始
+    字符串，其余 7 键数值归一（_to_number：去 %/lots 后缀、N/A→None）；
+    按 Date **升序**（源头顺序取决于 storage，图表统一旧→新）；无日K节
+    或行无 Date → []。
+    """
+    rows = []
+    for sid, _title, lines in iter_sections(stock_info):
+        if sid != "daily":
+            continue
+        for line in lines:
+            pairs = {k: v for k, v in (_pairs(line) or [])}
+            if not pairs.get("Date"):
+                continue
+            row = {"Date": pairs["Date"]}
+            for key in _DAILY_KEYS[1:]:
+                row[key] = _to_number(pairs.get(key, "N/A"))
+            rows.append(row)
+    rows.sort(key=lambda r: r["Date"])
+    return rows
+
+
+def parse_financial_rows(stock_info: str) -> list:
+    """业绩节 → 结构化行（08-06-ui-data-charts）；Report Date 升序；
+    数值归一同 parse_daily_rows；无业绩节 → []。"""
+    rows = []
+    for sid, _title, lines in iter_sections(stock_info):
+        if sid != "financial":
+            continue
+        for line in lines:
+            pairs = {k: v for k, v in (_pairs(line) or [])}
+            if not pairs.get("Report Date"):
+                continue
+            row = {"Report Date": pairs["Report Date"]}
+            for key in _FINANCIAL_KEYS[1:]:
+                row[key] = _to_number(pairs.get(key, "N/A"))
+            rows.append(row)
+    rows.sort(key=lambda r: r["Report Date"])
+    return rows
