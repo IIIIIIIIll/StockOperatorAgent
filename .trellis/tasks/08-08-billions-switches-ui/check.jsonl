@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/08-08-billions-switches-ui/prd.md", "reason": "AC1-AC6 逐条验收（覆盖层优先级/原子写/面板双态/持久化生效/会话开关/e2e）"}
+{"file": ".trellis/spec/testing.md", "reason": "回归基线 0F/426P/20S、e2e mock 模式秒级验收、零调用审计"}
+{"file": ".trellis/spec/error-handling.md", "reason": "校验：env 写失败降级提示、密钥不进日志、覆盖层默认空零行为变化"}
+{"file": ".trellis/spec/logging.md", "reason": "校验 env_file 与面板无密钥日志泄漏"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层检查：覆盖层被 web_search/get_market_intel/billions_config 三处消费的一致性、os.environ 同步对 UI 门控的影响面"}

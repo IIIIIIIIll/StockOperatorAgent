@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/08-08-billions-switches-ui/design.md", "reason": "覆盖层键表/优先级、env_file 原子写契约、面板布局——全任务实现依据"}
+{"file": ".trellis/spec/architecture.md", "reason": "配置节（env 键清单与读取点）、utils 层约定、_has_deepseek_key 门控位置"}
+{"file": ".trellis/spec/error-handling.md", "reason": "降级语义：env 写失败 → 提示不崩；密钥不写日志"}
+{"file": ".trellis/spec/logging.md", "reason": "日志占位符规范；env_file 不得 log 写入值"}
+{"file": ".trellis/spec/testing.md", "reason": "注入点风格、_with_env 全清模式（覆盖层测试沿用）、e2e 零调用审计规则"}
+{"file": ".trellis/spec/core/index.md", "reason": "InvestmentCommittee 装配时机（display.py:149/186 证据）、UI 节（display.py 契约）"}
