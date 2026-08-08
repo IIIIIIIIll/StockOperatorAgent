@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/08-08-billions-api-integration/research/billions-api.md", "reason": "验收时核对字段名/schema 契约（extra.institution、result[].status、错误码语义）"}
+{"file": ".trellis/spec/core/index.md", "reason": "校验 InvestmentCommittee 图结构与 tools 绑定未破坏既有 8 节点/15 边拓扑（含 ANALYST 关时同构断言）"}
+{"file": ".trellis/spec/testing.md", "reason": "全量回归基线 0F/308P/20S、e2e mock 模式秒级验收、注入点断言方式"}
+{"file": ".trellis/spec/error-handling.md", "reason": "校验降级路径：429/5xx/超时 → logger.warning + 占位，无异常上抛、无密钥泄漏"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层检查：开关/密钥跨 agents-core-UI 的一致门控、新 State key 的影响面"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "检查开关解析与降级占位是否有 3+ 处重复（应抽 billsions_config 帮助函数）、工具形状与 web_search 一致性"}

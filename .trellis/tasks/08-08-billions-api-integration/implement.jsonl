@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/08-08-billions-api-integration/research/billions-api.md", "reason": "亿信 4 端点完整请求/响应 schema 与超时配额约定，Step 1 client 层实现依据"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "薄包装客户端约定（class per source, method per endpoint）、注入点风格、降级语义——BillionsClient 形态来源"}
+{"file": ".trellis/spec/core/index.md", "reason": "InvestmentCommittee 构建（tools 绑定/图接线/前置段 build_stock_information）与 DataAcquisition 契约——Step 2-4 改动面"}
+{"file": ".trellis/spec/agents/index.md", "reason": "agent 模板约定（ChatPromptTemplate/partial/invoke_with_retry/safe_progress/push_report）——信息面分析师类复制模板来源"}
+{"file": ".trellis/spec/error-handling.md", "reason": "降级不抛异常、log + 占位文本、密钥不写日志——R4/R6 依据"}
+{"file": ".trellis/spec/testing.md", "reason": "注入点测试风格（_searcher/_llm/today）、无 mock 框架、e2e FakeGraph 镜像规则——Step 1-5 测试写法"}
