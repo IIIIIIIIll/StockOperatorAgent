@@ -9,9 +9,10 @@
   → 返回 FakeGraph（构造零 LLM）
 - `graph.stream(inputs, config)` 迭代 `{node: update}`；迭代结束自然停止
   （display 的 _stream_graph_events finally 推 done）
-- 6 个报告 key：fundamental_analysis / trend_analysis /
-  technical_indicator_analysis / bullish_opinions / bearish_opinions /
-  final_decision（REPORT_TABS）
+- 7 个报告 key：fundamental_analysis / trend_analysis /
+  technical_indicator_analysis / information_analysis / bullish_opinions /
+  bearish_opinions / final_decision（report_tabs()——ANALYST 开时；
+  08-08-billions-api-integration，Step 5 镜像）
 - 观点 key（bullish/bearish，OPINION_REPORT_KEYS）各吐两条不同内容 →
   display 按 (key, content) 去重后**追加渲染**「第 1 次观点」+「第 2 次
   观点」expander（对齐 08-04-adversarial-verdict-loop 初稿+修订版语义）
@@ -19,7 +20,7 @@
   可断言（结构断言为主，像素断言仅必要处）
 """
 
-# 6 个报告 key 的 mock 报告内容：固定 markdown 字符串（# 标题 + 列表 +
+# 7 个报告 key 的 mock 报告内容：固定 markdown 字符串（# 标题 + 列表 +
 # 关键词），断言其渲染后的 DOM 文本。内容与真实 LLM 输出无关——测试只
 # 关心「mock 内容原样渲染进对应 Tab」。
 MOCK_REPORTS = {
@@ -40,6 +41,15 @@ MOCK_REPORTS = {
         "- MACD 金叉\n"
         "- RSI 中性\n"
         "> mock 指标结论"
+    ),
+    # 信息面分析（08-08-billions-api-integration，Step 5）：带来源/日期的
+    # 固定 markdown（公告/研报/新闻条目，镜像真实 analyst 报告样式）
+    "information_analysis": (
+        "# 信息面分析（mock）\n\n"
+        "- 公告: 分红预案（2026-08-01）\n"
+        "- 研报（机构: 某券商）: 目标价上调（2026-07-20）\n"
+        "- 新闻: 行业政策落地（2026-07-15）\n"
+        "> mock 信息面结论"
     ),
     "bullish_opinions": [
         "# 看涨观点（mock 初稿）\n\n- 多头信号\n- 支撑位有效\n> mock 看涨初稿",
@@ -66,7 +76,8 @@ class FakeGraph:
     """假 LangGraph：stream() 迭代吐固定 State，结束自然停止。
 
     模拟真实图的两批 superstep（初稿 → 修订版）再收尾：
-    1. fundamental + trend + 两份观点初稿（并行阶段）
+    1. fundamental + trend + technical + information + 两份观点初稿
+       （并行阶段，08-08-billions-api-integration 镜像第 4 位专家）
     2. 两份观点修订版（对抗修订轮）
     3. final_decision（投资经理收尾）
     """
@@ -77,6 +88,7 @@ class FakeGraph:
                 "fundamental_analysis": MOCK_REPORTS["fundamental_analysis"],
                 "trend_analysis": MOCK_REPORTS["trend_analysis"],
                 "technical_indicator_analysis": MOCK_REPORTS["technical_indicator_analysis"],
+                "information_analysis": MOCK_REPORTS["information_analysis"],
                 "bullish_opinions": MOCK_REPORTS["bullish_opinions"][0],
                 "bearish_opinions": MOCK_REPORTS["bearish_opinions"][0],
             }

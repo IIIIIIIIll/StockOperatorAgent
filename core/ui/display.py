@@ -11,6 +11,7 @@ from core.ui import data_markdown
 from core.ui import theme
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
+from utils.billions_config import billions_enabled
 
 committee = InvestmentCommittee()
 
@@ -31,7 +32,11 @@ DATA_TAB_TITLE = "采集数据"
 # 报告 state key → Tab 标题。顺序即 write_ui 里 st.tabs 中报告 Tab 的
 # 创建顺序（数据 Tab 插入不影响相对顺序）——渲染 dispatch 依赖该契约
 # （08-02-ui-incremental-report-render）。
-REPORT_TABS = (
+# 08-08-billions-api-integration（Step 5）：REPORT_TABS 常量 → report_tabs()
+# 条件函数——ANALYST 开关开 → 追加「信息面分析」；关 → 与既有六 Tab 逐
+# 字节一致（AC1）。开关在**调用时**求值（对齐 web_search_enabled 图装配
+# 时判定），同一次 rerun 内 st.tabs 创建与渲染 dispatch 读到同一份列表。
+_BASE_REPORT_TABS = (
     ("fundamental_analysis", "基本面分析"),
     ("trend_analysis", "趋势分析"),
     ("technical_indicator_analysis", "技术指标分析"),
@@ -39,6 +44,15 @@ REPORT_TABS = (
     ("bearish_opinions", "看跌观点"),
     ("final_decision", "最终结论"),
 )
+
+
+def report_tabs():
+    """报告 Tab 契约：ANALYST 开 → 追加「信息面分析」（第 4 位专家报告，
+    与技术指标分析相邻）；关 → 与既有六 Tab 完全一致（AC1/AC3）。"""
+    tabs = list(_BASE_REPORT_TABS)
+    if billions_enabled("ANALYST"):
+        tabs.insert(3, ("information_analysis", "信息面分析"))
+    return tuple(tabs)
 
 # 观点 key（08-05-ui-opinion-expanders）：渲染为可折叠条目（每份观点一个
 # expander）——对抗修订轮后同 key 含初稿+修订版多份内容，平铺占空间；
@@ -65,13 +79,9 @@ def iter_report_items(update):
     纯函数，与 Streamlit 解耦：UI 循环按 key 查 Tab 容器 dispatch，离线
     测试喂合成 update 验证映射（house style，不 mock Streamlit）。
     """
-    for key, title in REPORT_TABS:
+    for key, title in report_tabs():
         if key in update:
             yield key, title, _report_content(update[key])
-
-
-# 报告 key → Tab 标题查询（事件循环渲染用；REPORT_TABS 仍是权威定义）
-REPORT_TITLES = dict(REPORT_TABS)
 
 
 def _stream_graph_events(graph, config, inputs, events):
@@ -122,13 +132,14 @@ def write_ui():
             updatable_container.info("正在初始化环境，请稍候...")
 
 
-            (data_tab,
-             fundamental_analysis_tab,
-             trend_analysis_tab,
-             technical_indicator_analysis_tab,
-             bullish_opinion,
-             bearish_opinion,
-             final_decision) = st.tabs([DATA_TAB_TITLE, "基本面分析", "趋势分析", "技术指标分析", "看涨观点", "看跌观点", "最终结论"])
+            # 报告 Tab 条件化（08-08-billions-api-integration，Step 5）：
+            # 标签列表 = [DATA_TAB_TITLE] + report_tabs() 标题——ANALYST 开关
+            # 开 → 8 个 tab（含「信息面分析」）；关 → 7 个与今日一致（AC1）。
+            # st.tabs 数量动态 → 解包 data_tab + 报告容器列表（顺序契约
+            # report_tabs()，渲染 dispatch 见 report_tabs_map）。
+            _report_tabs = report_tabs()
+            tabs = st.tabs([DATA_TAB_TITLE] + [title for _, title in _report_tabs])
+            data_tab, *report_containers = tabs
 
             updatable_container.info(f"正在获取 {stock_ticker} 的股票信息（含技术指标与实时情报）... 可能会需要一些时间，请耐心等待...")
             try:
@@ -174,15 +185,12 @@ def write_ui():
             bridge = ProgressBridge(events)
             graph = committee.make_investment_committee(config, progress_updater=bridge)
 
-            # 报告 key → Tab 容器（与 REPORT_TABS 顺序对应，见 iter_report_items）
-            report_tabs = {
-                "fundamental_analysis": fundamental_analysis_tab,
-                "trend_analysis": trend_analysis_tab,
-                "technical_indicator_analysis": technical_indicator_analysis_tab,
-                "bullish_opinions": bullish_opinion,
-                "bearish_opinions": bearish_opinion,
-                "final_decision": final_decision,
-            }
+            # 报告 key → Tab 容器（与 report_tabs() 顺序对应，见
+            # iter_report_items；08-08-billions-api-integration，Step 5：
+            # 从条件列表 zip 容器，ANALYST 开 → 含信息面分析容器）
+            report_tabs_map = dict(zip(
+                (key for key, _ in _report_tabs), report_containers))
+            report_titles = dict(_report_tabs)
 
             try:
                 # 图在后台线程驱动（sync stream 的 superstep 是屏障，脚本线程
@@ -214,14 +222,21 @@ def write_ui():
                         updatable_container.info(payload[0])
                     elif kind == "report":
                         key, content = payload
+                        if key not in report_tabs_map:
+                            # 守卫（08-08-billions-api-integration，Step 5，
+                            # check 硬性建议）：报告 key 无对应 Tab（开关竞态/
+                            # 未来新 key）→ 跳过不渲染，防 KeyError 中止整个
+                            # 分析。rendered 不记录——未知 key 不进入去重集。
+                            logger.warning("报告 key {} 无对应 Tab，跳过渲染", key)
+                            continue
                         if (key, content) in rendered:
                             continue
                         rendered.add((key, content))
-                        with report_tabs[key]:
+                        with report_tabs_map[key]:
                             n = counts.get(key, 0) + 1
                             counts[key] = n
                             if n == 1:
-                                st.header(REPORT_TITLES[key])
+                                st.header(report_titles[key])
                             if key in OPINION_REPORT_KEYS:
                                 # 观点 tab：每份观点一个可折叠条目——第 1 次
                                 # 默认展开（用户先见初稿），后续默认折叠

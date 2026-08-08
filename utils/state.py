@@ -9,6 +9,7 @@ class State(TypedDict):
     fundamental_analysis: Optional[str]
     trend_analysis: Optional[str]
     technical_indicator_analysis: Optional[str]
+    information_analysis: Optional[str]
     bullish_opinions: Annotated[list, add_messages]
     bearish_opinions: Annotated[list, add_messages]
     final_decision: Optional[str]

@@ -160,6 +160,35 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
 新数据源仍遵循同一形状：class per source、method per endpoint、raw DataFrame
 out；DataAcquisition 是唯一消费者。
 
+## BillionsClient (`data_source/chinese_mainland/billions/client.py`)
+
+亿信 Fin 开放平台薄包装（2026-08-08，08-08-billions-api-integration）。**与
+TDX/akshare 不同**：不产出 DataFrame——4 个 REST 端点（全 POST，网关
+`https://openapi.billionsintelligence.com/api`，鉴权 `X-API-KEY` 头），
+返回**原始响应 dict**，字段提取在消费方。形态仍是 class per source /
+method per endpoint：
+
+- `__init__(_http=None, _key=None)` — `_http` 注入 httpx 实例（测试 fake）、
+  `_key` 注入覆盖 env `BILLIONS_API_KEY`；httpx.Client 懒加载（函数内懒
+  import，无 key 环境零副作用）
+- 方法：`fin_db(query, data_sources=None)`（默认 auto 路由）/ `search(query,
+  source, search_mode, count, time_range)` / `twitter_search(query,
+  search_mode, count)` / `fetch(url=None, doc_id=None, page=None, max_chars=None)`
+- 超时参数化：fin_db 120s；search/twitter 按档位 fast 25 / advanced 70 /
+  expert 120（服务端等待 15/60/110 + 10s 余量）；fetch 90s
+- **错误归一化**：网络异常 / HTTP 非 2xx / 200 + `success:false`（上游超时
+  语义）→ 抛 `BillionsApiError(code, status_code, message)`（**唯一自定义
+  异常**，wrapper-source 例外，见 error-handling spec）；**不重试**（429 是
+  配额，重试无意义）。消费方（亿信工具/前置段/分析师）catch → 占位文本
+- 业务语义：HTTP 200 仅表示已处理，成败看 `success` + `result[].status`；
+  search 结果 `extra.institution` 为研报机构名（无作者字段）、`doc_id`
+  仅 announcement 开放全文；字段允许缺失，调用方容错
+
+开关门控见 `utils/billions_config.py`（`billions_enabled(cap)` /
+`billions_max_calls(cap, default)`，truthy 语义对齐 `WEB_SEARCH_DISABLED`：
+`("", "0", "false", "no")` 视为关）。API 完整 schema 存档：
+`.trellis/tasks/08-08-billions-api-integration/research/billions-api.md`。
+
 ## DataFrame → Dataclass Mapping
 
 The codebase constructs persistent dataclasses from akshare rows **positionally**,

@@ -20,12 +20,34 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from agents.chinese_mainland.investment_manager import InvestmentManager
 from core.investment_committee import build_stock_information
 
+# 亿信全部 env（08-08-billions-api-integration，Step 5，check 追加项）：
+# 本测试是离线测试，开发者配置 BILLIONS_API_KEY 后 build_stock_information
+# 会走 get_billions_financial_intel 真实亿信网络调用（fin_db 超时 120s）
+# ——每次运行前全部清除（对齐 test_billions_config._with_env 语义）
+_BILLIONS_ENV_KEYS = [
+    "BILLIONS_API_KEY",
+    "BILLIONS_DISABLED",
+    "BILLIONS_FINDB_DISABLED",
+    "BILLIONS_SEARCH_DISABLED",
+    "BILLIONS_TWITTER_DISABLED",
+    "BILLIONS_FETCH_DISABLED",
+    "BILLIONS_ANALYST_DISABLED",
+    "BILLIONS_FINDB_MAX_CALLS",
+    "BILLIONS_SEARCH_MAX_CALLS",
+    "BILLIONS_TWITTER_MAX_CALLS",
+    "BILLIONS_FETCH_MAX_CALLS",
+    "BILLIONS_ANALYST_MAX_CALLS",
+]
+
 
 class TestBuildStockInformation:
 
     def test_contains_technical_indicators_and_market_intel(self):
         # 无 TDX_API_KEY 降级路径（与开发者本机 key 解耦）：实时情报为占位文本
         saved = os.environ.pop("TDX_API_KEY", None)
+        # 亿信（Step 5）：清除全部 BILLIONS_* env——无 key → 第 5 段空串，
+        # 本"离线"测试不触发真实亿信网络调用（AC1 无 key 零行为变化）
+        saved_billions = {key: os.environ.pop(key, None) for key in _BILLIONS_ENV_KEYS}
         try:
             text = build_stock_information("002714")
             # 技术指标段（002714 有行情数据 → 指标摘要；无数据时占位文本同样含"技术指标"）
@@ -41,9 +63,17 @@ class TestBuildStockInformation:
             assert "盈利能力指标" in text
             assert text.find("盈利能力指标") > text.find("技术指标")
             assert text.find("未配置 TDX_API_KEY") > text.find("盈利能力指标")
+            # 亿信段（Step 5）：无 BILLIONS_API_KEY → 空串不出现（失败占位
+            # 文本也含"亿信"字样——任一出现都说明触发了真实调用）
+            assert "亿信" not in text
         finally:
             if saved is not None:
                 os.environ["TDX_API_KEY"] = saved
+            for key, value in saved_billions.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 class _FakeLLM(BaseChatModel):

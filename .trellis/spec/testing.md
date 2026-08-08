@@ -50,6 +50,29 @@ Playwright UI 测试框架（mock 模式），**零 LLM API 调用、零 TDX/aks
   原样固化；再导出必须 `env -u TDX_API_KEY`（否则情报段为实时文本，不可
   复现）。
 
+## 亿信（Billions）测试约定（2026-08-08，08-08-billions-api-integration）
+
+- **离线零网络是硬约束**：所有亿信测试注入 fake client（`_http`/`_client`/
+  `_fetcher` 注入点，house style 无 mock 框架）；真 `BillionsClient` 永不构造。
+- **env 隔离三件套**（跨运行/跨文件确定性）：① `_with_env` **先全量清空
+  `_ENV_KEYS`（显式置空串）再应用 pairs**——空串是显式假值且 `load_dotenv`
+  不覆盖已设键，防开发者 shell/.env 残留 BILLIONS_* 翻转开关矩阵（曾踩：
+  `.env` 残留 key 翻转"无 key"绑定断言）；② `_bound_tool_names` 强制
+  `BILLIONS_API_KEY` 永不为缺席态（置 ""），因 `make_investment_committee`
+  内部 `load_dotenv()` 会补入 `.env` 缺失键；③ 测试内断言前清除全部
+  `BILLIONS_*` 键。
+- **e2e 亿信标记**：`_REAL_FLOW_MARKERS` 含 `亿信`（真实调用失败行必带前缀，
+  如「亿信 fin-db 查询失败」；mock 内容刻意不含）——审计能真实抓到亿信调用
+  （曾实测 `openapi.billionsintelligence.com` / `BillionsApiError` 子串在
+  实际日志行不出现，已弃用）；主服务器注入 dummy `BILLIONS_API_KEY` 覆盖
+  ANALYST 开路径（8 Tab），另起 `server_no_billions`（端口 +1）验证无 key
+  → 7 Tab 无新 Tab。
+- **字节一致性断言**：`test/agents/test_query_baselines.py` 用记录型 LLM 抓
+  查询 repr 固化基线，`==` 全串比对——信息面报告插值缺失时 trader/manager
+  查询必须与改动前逐字节一致（AC1）。
+- **开关矩阵测试**：三态（未设置/假值/真值）全覆盖；`test_graph_parallel`
+  的 `_with_billions_env` 显式置空串防 `.env` 残留翻转图形状。
+
 ## Isolating Agents from the Live Stack
 
 `test/integration/test_basic_graph.py` is the reference for testing a single
@@ -96,8 +119,9 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 
 - **全量：0F/308P/20S，约 2-4 分钟**（2026-08-08 technical-indicator-analyst
   后实测，含 e2e 15 用例；另修复 test_theme.py 同名模块收集冲突——e2e 版
-  改名 test_theme_e2e.py，全量收集恢复）。历史基线 0F/220P/20S（2026-08-02
-  disable-tdx-mcp 后实测，+4 开关用例）、0F/216P/20S（mcp-intel-cache +
+  改名 test_theme_e2e.py，全量收集恢复）。**最新：0F/426P/20S**（2026-08-08
+  billions-api-integration 后实测，+118 亿信用例、e2e 15→17）。历史基线
+  0F/220P/20S（2026-08-02 disable-tdx-mcp 后实测，+4 开关用例）、0F/216P/20S（mcp-intel-cache +
   market-hours-util
   后）、0F/196P/20S（f10-financial-indicator-sections 后）、0F/188P/20S
   （fix-f10-quarterly-data 后）、0F/169P/20S（ui-data-markdown-tables

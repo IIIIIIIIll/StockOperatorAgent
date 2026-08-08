@@ -79,6 +79,11 @@ _SECTION_TITLES = {
     # indicators 输出，与【技术指标（...）】同形态）——独立成节渲染，不混入
     # 技术指标节。后续新增指标段（偿债/发展能力）各加一个 marker 即可。
     "profitability": "盈利能力指标",
+    # 08-08-billions-api-integration：亿信 fin-db 前置段（get_billions_
+    # financial_intel 输出，标题【亿信金融数据库】+ 上游 Markdown 表格）
+    # ——独立成节渲染，不并入情报节。content 是 Markdown 表格（'| 指标 |
+    # 数值 |' 形态，无 'Key: value' 对）→ 全部走 passthrough 原样透传。
+    "billions": "亿信金融数据库",
 }
 
 
@@ -161,16 +166,18 @@ def iter_sections(stock_info: str):
     """分节迭代器（08-06-ui-data-charts 抽出）：yield (section_id, title, lines)。
 
     section_id: overview / daily / financial / indicators / profitability /
-    intel；title: 展示标题（指标类节去【】保留日期）；lines: 节内原始行
-    （strip 后，含降级占位文本）。marker 语义与 08-02 版本逐一等价——
-    to_markdown_tables 与 parse_daily_rows / parse_financial_rows 共用
-    同一实现，不双份分节逻辑。
+    intel / billions；title: 展示标题（指标类节去【】保留日期）；lines:
+    节内原始行（strip 后，含降级占位文本）。marker 语义与 08-02 版本逐一
+    等价——to_markdown_tables 与 parse_daily_rows / parse_financial_rows
+    共用同一实现，不双份分节逻辑。
 
     marker：----------- 与空行丢弃；'Last 60 days prices:' / 'Last 20
     financial abstracts:' 起日K/业绩节；'【技术指标（...）】' 与
     '【盈利能力指标（...）】' 起指标节（08-02-f10-financial-indicator-
     sections：独立成节，否则指标行混进技术指标表）；'【实时市场情报】'
-    起情报节；其余行归属当前节（首个非 marker 行隐式起 overview 节）。
+    起情报节；'【亿信金融数据库】' 起亿信问数节（08-08-billions-api-
+    integration：fin-db 上游 Markdown 表格，独立成节不并入情报节）；
+    其余行归属当前节（首个非 marker 行隐式起 overview 节）。
     """
     section = None  # (section_id, title, lines)
     for raw_line in stock_info.splitlines():
@@ -193,6 +200,11 @@ def iter_sections(stock_info: str):
             if section:
                 yield section
             section = ("intel", _SECTION_TITLES["intel"], [])
+            continue
+        if line.startswith("【亿信金融数据库】"):
+            if section:
+                yield section
+            section = ("billions", _SECTION_TITLES["billions"], [])
             continue
         if section is None:
             section = ("overview", _SECTION_TITLES["overview"], [])

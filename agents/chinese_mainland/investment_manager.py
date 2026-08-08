@@ -43,6 +43,13 @@ class InvestmentManager:
         # 的是列表元数据而非观点内容）
         bullish_opinion = state['bullish_opinions'][-1].content
         bearish_opinion = state['bearish_opinions'][-1].content
+        # 信息面分析报告（08-08-billions-api-integration，Step 4 补接线）：
+        # 条件段——key 缺失（ANALYST 关）→ 空串，查询与改动前逐字节一致
+        # （AC1 零行为变化）；开 → 在技术指标报告与多头观点之间追加
+        # （对齐 4 入边顺序：基本面 → 趋势 → 技术指标 → 信息面 → 观点）
+        info_section = ""
+        if state.get("information_analysis"):
+            info_section = f"\n        信息面分析报告: \n        {state['information_analysis']}\n        "
         investment_manager_query = f"""
         现在请基于以下信息，给出你对股票代码{state['target_stock_ticker']}的最终投资建议：
         基本面报告: \n
@@ -53,7 +60,7 @@ class InvestmentManager:
         \n
         技术指标分析报告: \n
         {state['technical_indicator_analysis']}
-        \n
+        \n{info_section}
         多头观点: \n
         {bullish_opinion}
         \n

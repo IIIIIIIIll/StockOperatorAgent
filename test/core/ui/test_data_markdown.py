@@ -135,6 +135,35 @@ class TestToMarkdownTables:
         tech_block = out.split("**盈利能力指标（2026-03-31）**")[0]
         assert "营业毛利率" not in tech_block
 
+    def test_billions_section_own_section(self):
+        """亿信金融数据库段（08-08-billions-api-integration，Step 5）：
+        【亿信金融数据库】 marker 独立成节（不并入情报节）；fin-db 上游
+        Markdown 表格行（'| ... |' 形态，无 'Key: value' 对）原样透传——
+        st.markdown 渲染表格，不被 _pairs 误拆成伪表格。"""
+        text = (
+            "【实时市场情报】\n"
+            "名称: 平安银行, 最新价: 11.11\n"
+            "【亿信金融数据库】\n"
+            "| 指标 | 数值 |\n"
+            "|---|---|\n"
+            "| 最新价 | 11.11 |\n"
+            "| 净利润 | 100.00亿 |"
+        )
+        out = dm.to_markdown_tables(text)
+        # 独立节标题，且出现在情报节之后（build_stock_information 第 5 段）
+        assert "**亿信金融数据库**" in out
+        assert out.find("**亿信金融数据库**") > out.find("**实时市场情报**")
+        # 表格行原样透传（不混入情报节、不产生伪键值表）。注：情报节的
+        # 扁平表也渲染 '| 指标 | 数值 |'/'| 最新价 | 11.11 |'——用亿信
+        # 独有行（表格分隔线/净利润行）区分两节
+        billions_block = out.split("**亿信金融数据库**")[1]
+        assert "| 指标 | 数值 |" in billions_block
+        assert "|---|---|" in billions_block
+        assert "| 净利润 | 100.00亿 |" in billions_block
+        intel_block = out.split("**亿信金融数据库**")[0]
+        assert "| 净利润 | 100.00亿 |" not in intel_block
+        assert "|---|---|" not in intel_block
+
     def test_placeholder_lines_passthrough(self):
         """降级占位文本（无键值形态）原样透传——不吞降级信息。"""
         text = ("（无 000001 的行情数据，跳过技术指标）\n"

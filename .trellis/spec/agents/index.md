@@ -72,6 +72,9 @@ downstream agents from live LLM calls).
 - `target_stock_ticker`, `stock_information` — seeded by the caller (committee/UI)
 - `fundamental_analysis`, `trend_analysis`, `technical_indicator_analysis` —
   produced by the first three nodes（08-08-technical-indicator-analyst）
+- `information_analysis` — 信息面分析师产出（08-08-billions-api-integration，
+  条件节点：ANALYST 开关关时 key 不存在，读方必须 `state.get()` 容错——
+  trader/manager 查询插值用条件段，缺失时查询与改动前逐字节一致）
 - `bullish_opinions`, `bearish_opinions` — `Annotated[list, add_messages]`: agents
   return strings, the reducer wraps them into message lists（2026-08-02 升级
   langgraph 0.6.7 → 1.2.10 实测：reducer 对初始输入的应用行为在 1.x 不变，
@@ -252,10 +255,36 @@ def bullish_revise(self, state: State):
   ""/"0"/"false"/"no" → 禁用）；committee **图装配时**判定——禁用 →
   `tools=None` 不绑定，行为与现状逐字节一致（工具绑定是构造期行为，故与
   TDX MCP 调用时判定不同）。
-- stock_information 拼接族（前三个 + get_financial_indicators）均不直接传给
-  agent 作为 callable——在 `make_investment_decision` 图前拼接进
-  `stock_information`（见 core spec）；web_search 相反：唯一经 bind_tools
-  进 agent 的工具。
+- stock_information 拼接族（前三个 + get_financial_indicators +
+  get_billions_financial_intel）均不直接传给 agent 作为 callable——在
+  `make_investment_decision` 图前拼接进 `stock_information`（见 core spec）；
+  web_search 与亿信三工具相反：经 bind_tools 进 agent 的工具。
+- **亿信工具三件套（2026-08-08，08-08-billions-api-integration）**：
+  `make_billions_search_tool(_client=None, _max_calls=None) -> BaseTool | None`
+  / `make_billions_twitter_tool` / `make_billions_fetch_tool`——web_search
+  形状逐字对齐（`_client` 注入、函数内懒加载、失败 `logger.warning` +
+  占位文本不 raise）；**开关关 → 返回 None**（committee 不绑定）；
+  **闭包计数上限**（默认 3/2/3，env 覆盖；超限返回占位提示不再请求）。
+  search 的 `source`/`search_mode` 用 `typing.Literal`（schema 级枚举防
+  上游 422）；search 公告条目输出附 `doc_id`（供 fetch 精读，仅
+  announcement 开放全文）；fetch 支持 `url` 与 `doc_id` 互斥（互斥校验
+  留上游，薄包装不本地判）。`_format_item` 等输出格式化函数**单点实现**，
+  信息面分析师直接导入复用（防契约漂移）。
+- **信息面分析师（`agents/chinese_mainland/information_analyst.py`）**：
+  复制 expert 模板（ChatPromptTemplate + partial + invoke_with_retry +
+  safe_progress/push_report），但**不用工具循环**——node 内**确定性预抓**：
+  SEARCH 开 → announcement/report/web 各 1 次 `client.search`（fast、
+  count=5、time_range="past 3 months"）+ TWITTER 开 → 1 次
+  `client.twitter_search`；失败源 `logger.warning` + 报告注明跳过；全失败
+  仍产出报告（说明无可用信息）。`_client=None` 注入点（测试 fake）。
+  单次 LLM 总结写 `information_analysis`，prompt 唯一路由短语
+  "精于整合公告、研报、新闻与推特等多源信息"（与其余角色互斥）。
+- **info_section 条件插值模式（trader/manager 查询，AC1 硬约束）**：
+  `state.get("information_analysis")` 为空 → 插值变量为空串，f-string
+  其余逐字节不变（关闭态查询与改动前完全一致）；非空 → 追加
+  「信息面分析报告」段（trader 在查询尾、manager 在技术指标与多头观点
+  之间）。字节一致性由 test/agents/test_query_baselines.py 钉死（删除
+  插值立即 FAIL）。
 
 ## Anti-Patterns
 

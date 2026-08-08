@@ -13,7 +13,9 @@ paths:
 ```
 Streamlit UI (core/ui/display.py)
   └─ InvestmentCommittee (core/investment_committee.py)  — LangGraph StateGraph
-       └─ 5 agents (agents/chinese_mainland/)  — one node each, linear chain
+       └─ 6 agents (agents/chinese_mainland/)  — 8 图节点（信息面分析师条件启用，
+           对抗修订为双节点）；expert/trader 带 bind_tools 工具（web_search +
+           亿信三件套，开关门控）
             └─ DeepSeekApi (core/llms/deepseek/deepseek_api.py) — 默认；QwenApi 可选
                  └─ tool: get_stock_info (core/llms/tools/get_company_info.py)
                       └─ DataAcquisition (core/data_acquisition.py)
@@ -21,6 +23,9 @@ Streamlit UI (core/ui/display.py)
                            │    历史行情 + 个股概览 (overview.py) + 业绩报告 (reports.py)
                            ├─ AKShareSource (…/akshare/fetch_stcok_data.py) — 备用路径，
                            │    主流程不再调用（原方法保留）
+                           ├─ BillionsClient (data_source/chinese_mainland/billions/) —
+                           │    亿信 REST 薄包装（可选，BILLIONS_API_KEY 开关门控；
+                           │    供亿信工具/前置段/信息面分析师）
                            ├─ persistent dataclasses (data_structure/chinese_mainland/)
                            └─ ZODBStorageInstance (data_storage/chinese_mainland/ZODBStorage.py)
                                 └─ ZODB FileStorage file (database/china_stock_data.fs, gitignored)
@@ -35,7 +40,9 @@ Cross-layer rules of thumb:
   skip a layer's conversion. 个股数据按需单股构建（TDX 无全市场行情扫描）；
   pytdx 无数据的字段输出 NaN 而非报错。
 - LangGraph `State` keys (see `agents/index.md`) are the contract between agents;
-  all five agents read `state['target_stock_ticker']` and `state['stock_information']`.
+  all agents read `state['target_stock_ticker']` and `state['stock_information']`
+  （信息面分析师条件启用，`information_analysis` 缺失时读方必须 `state.get()`
+  容错——trader/manager 查询插值用条件段）。
 - The Streamlit `progress_updater` (a `st.empty()` container) is passed into every
   agent constructor; agents report progress via `progress_updater.info("...")`.
   UI progress text is Chinese.
@@ -55,8 +62,14 @@ Cross-layer rules of thumb:
 
 - API key: `DEEPSEEK_API_KEY`（默认 LLM）+ `DEEPSEEK_MODEL`（默认
   `deepseek-v4-flash`，可切 `deepseek-v4-pro`）在 `.env`；`DASHSCOPE_API_KEY`
-  保留为 Qwen 可选项。loaded with `load_dotenv()` in `main.py`,
-  `investment_committee.py`, and LLM tests.
+  保留为 Qwen 可选项；`BILLIONS_API_KEY`（亿信 Fin 开放平台，2026-08-08）为
+  可选信息面能力主闸——未配置时亿信全部能力关闭、现有流程零变化。loaded
+  with `load_dotenv()` in `main.py`, `investment_committee.py`, and LLM tests。
+  亿信开关族（truthy 语义对齐 `WEB_SEARCH_DISABLED`）：总闸
+  `BILLIONS_DISABLED` + 能力闸 `BILLIONS_{FINDB,SEARCH,TWITTER,FETCH,ANALYST}
+  _DISABLED` + 工具调用上限 `BILLIONS_{SEARCH,TWITTER,FETCH}_MAX_CALLS`
+  （默认 3/2/3）。开关解析集中 `utils/billions_config.py`（跨 core/agents/UI
+  共用），读取点 `os.getenv` 调用时判（图装配期判工具绑定与节点接线）。
 - `utils/constants.py` holds the only module-level constants:
   - `default_start = 1997-01-01` — baseline for "no data yet" timestamps
     (`ChinaStock.last_data_update`, `ZODBStorageInstance.root.overview_last_updated`)

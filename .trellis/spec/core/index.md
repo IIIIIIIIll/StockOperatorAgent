@@ -108,10 +108,10 @@ Keep it that way; do not add a second storage abstraction.
 ## InvestmentCommittee (`core/investment_committee.py`)
 
 - `make_investment_committee(config, progress_updater=None, _llm=None)` builds
-  a `StateGraph(State)` with the **eight agent nodes**（8 节点 15 边）and
-  **三专家并行 + 两对并行边**（2026-08-02，review #4；2026-08-04，
-  08-04-adversarial-verdict-loop +2 revise 节点；2026-08-08，
-  08-08-technical-indicator-analyst +1 技术指标分析师）：`START →
+  a `StateGraph(State)` with **8 节点（条件 9 节点）15 边**（2026-08-02，
+  review #4；2026-08-04，08-04-adversarial-verdict-loop +2 revise 节点；
+  2026-08-08，08-08-technical-indicator-analyst +1 技术指标分析师；
+  08-08-billions-api-integration +1 条件信息面分析师）：`START →
   fundamental`、`START → trend` 与 `START → technical_indicator_analyst`
   并行（都只依赖 `stock_information`），三专家 → `bullish/bearish` 并行
   （都只依赖三份报告，trader 变**三入边 join**），
@@ -140,9 +140,14 @@ Keep it that way; do not add a second storage abstraction.
   (`get_financial_indicators`，raw 缓存缺失降级占位，2026-08-02
   08-02-f10-financial-indicator-sections——F10【盈利能力指标】节最新
   期中文摘要) + 实时情报 (`get_market_intel`，无 `TDX_API_KEY` 时降级
-  文本) 拼接——顺序：个股信息 → 技术指标 → 财务指标 → 实时情报，
-  四段 display 与 make_investment_decision 共用。不改 State/图/agent
-  模式。工具在函数内 import，避免无 key 环境的模块级副作用。
+  文本) + **亿信金融问数** (`get_billions_financial_intel`，第 5 段，
+  08-08-billions-api-integration) 拼接——顺序：个股信息 → 技术指标 →
+  财务指标 → 实时情报 → 亿信，display 与 make_investment_decision 共用。
+  工具在函数内 import，避免无 key 环境的模块级副作用。亿信段条件拼接：
+  `billions_enabled("FINDB")` 关 → 空串（段不出现，与之前逐字节一致）；
+  `_billions_intel` 注入参数（None 时懒加载真实现）；失败 → 占位段，
+  不污染 stock_information；`data_markdown.iter_sections` 已注册
+  `【亿信金融数据库】` marker（采集 Tab 独立成节）。
 - **MCP 情报缓存（2026-08-02，08-02-mcp-intel-cache）**：`get_market_intel`
   非交易时段（`utils.market_time.is_trading_time`，收盘后到次日开盘前
   行情不变）优先读缓存——按 ticker JSON 落 `data/tdx_cache/mcp_intel/
@@ -165,6 +170,20 @@ Keep it that way; do not add a second storage abstraction.
   传三个 agent（fundamental/trend 专家不传）。与 TDX MCP 不同：工具
   绑定是构造期行为，开关在图装配时判定（TDX MCP 在调用时判定）；二者
   都是图级可逆开关。语义与测试见 agents spec Tools 段。
+- **亿信工具绑定（2026-08-08，08-08-billions-api-integration）**：
+  `tools` 列表在 web_search 旁按开关追加 `billions_search` /
+  `billions_twitter` / `billions_fetch`（各自 `billions_enabled(cap)`，
+  工厂关 → 返回 None 不绑定）。**每次 run 调用上限**（闭包计数器，
+  默认 3/2/3，env `BILLIONS_{SEARCH,TWITTER,FETCH}_MAX_CALLS` 覆盖）：
+  超限返回占位提示、不再发真实请求——防 15 轮工具循环烧配额。
+  未配置 `BILLIONS_API_KEY` 时 tools 与今日逐字节一致。
+- **信息面分析师条件接线（2026-08-08）**：有效条件 =
+  `billions_enabled("ANALYST")` 且（SEARCH 或 TWITTER 至少一者开）——开 →
+  注册 `information_analyst` 节点 + START 边 + trader 第 4 入边（4 专家
+  并行，墙钟 8 串行 → 4 阶段不变）；关 → 完全不注册（图与今日逐字节
+  一致，条件接线非占位节点）。信息面报告经 State key
+  `information_analysis` 插值进 trader/manager 查询（条件段，缺失时
+  查询字节级不变——AC1 硬约束，test_query_baselines 钉死）。
 - New agents mean: new node registration here, a new edge, a new `State` key,
   and a new prompt in `core/llms/prompt.py`.
 

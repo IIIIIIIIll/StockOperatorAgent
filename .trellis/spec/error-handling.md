@@ -11,9 +11,10 @@ paths:
 
 ## The Two Local Patterns
 
-The codebase has **no custom exception classes**; `try/except` exists only in
-two sanctioned places (data-layer 降级捕获点 + UI 层守护，见下)。Failures
-follow one of two patterns depending on layer:
+The codebase has **one custom exception class** (`BillionsApiError`,
+08-08-billions-api-integration — wrapper-source 边界，见下); `try/except`
+exists only in sanctioned places (data-layer 降级捕获点 + UI 层守护，见下)。
+Failures follow one of two patterns depending on layer:
 
 ### 1. Boolean result protocol (data layer)
 
@@ -50,6 +51,15 @@ protocol:
   无报告不算失败返回 `True`）。
 Same shape in `get_trend_indicators` / `get_market_intel` (LLM tools): failures
 return placeholder text, never raise.
+
+**Wrapper-source exception (BillionsClient, 08-08-billions-api-integration)**：
+`data_source/chinese_mainland/billions/client.py` 是**唯一自定义异常**
+`BillionsApiError(code, status_code, message)` 的 raise 点——与 pytdx
+ValueError 同构的 wrapper-source 例外（网络异常 / HTTP 非 2xx / 200 +
+`success:false` 归一化，client 内**不重试**）。捕获点全部在亿信消费方
+（billions_* 工具 / get_billions_financial_intel / 信息面分析师）：catch →
+`logger.warning` + 占位文本，绝不 raise 到 agent 主流程；密钥不写日志。
+429（配额）不重试直接降级——重试无意义且浪费配额。
 
 ### 2. Raise at the boundary (LLM tool)
 

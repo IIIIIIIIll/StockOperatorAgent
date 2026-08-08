@@ -48,6 +48,13 @@ class BearishTrader:
 
 
     def bearish_trader(self, state: State):
+        # 信息面分析报告（08-08-billions-api-integration，Step 4 补接线）：
+        # 条件段——key 缺失（ANALYST 关）→ 空串，查询与改动前逐字节一致
+        # （AC1 零行为变化）；开 → 在技术指标报告之后追加信息面段
+        # （4 入边 join 保证信息面报告已就绪）
+        info_section = ""
+        if state.get("information_analysis"):
+            info_section = f"\n        信息面分析报告: \n        {state['information_analysis']}\n        "
         bearish_trader_query = f"""
         现在请基于以下信息，给出你对股票代码{state['target_stock_ticker']}的看法：
         基本面报告: \n
@@ -59,7 +66,7 @@ class BearishTrader:
         技术指标分析报告: \n
         {state['technical_indicator_analysis']}
         \n
-        """
+        {info_section}"""
         logger.debug("Bearish Trader Query: {}", bearish_trader_query)
         safe_progress(self.progress_updater, "开始空方观点生成。。。")
         # 节点内工具循环（08-03-websearch-tool-calling）：LLM 决定是否

@@ -1,16 +1,22 @@
 """图并行化测试（review #4 + 08-04-adversarial-verdict-loop +
-08-08-technical-indicator-analyst）：真实 wiring + 假 LLM，离线验证
-join/并行语义。
+08-08-technical-indicator-analyst + 08-08-billions-api-integration）：
+真实 wiring + 假 LLM，离线验证 join/并行语义。
 
 用 make_investment_committee(_llm=FakeListChatModel) 注入假 LLM 跑真实图
 装配（8 节点 15 边：+bullish_revise/bearish_revise 对抗修订轮 +
-+technical_indicator_analyst 技术指标分析师）——不复制 wiring，图结构
-变化即测试失效。结构断言钉 join 输入完整性与 reducer 行为
-（order-agnostic，串行/并行均成立）；时序断言（慢 LLM 注入）证明三专家
-+两对并行：墙钟 4 阶段而非 8 串行。revise 路由短语与初稿短语互斥、分析师
-短语与其余角色互斥（见 prompt.py），按 system 消息路由不歧义。
++technical_indicator_analyst 技术指标分析师；ANALYST 开关开 → 条件 +1
+信息面分析师 = 9 节点）——不复制 wiring，图结构变化即测试失效。结构断言
+钉 join 输入完整性与 reducer 行为（order-agnostic，串行/并行均成立）；
+时序断言（慢 LLM 注入）证明专家 +两对并行：墙钟 4 阶段而非串行。revise
+路由短语与初稿短语互斥、分析师短语与其余角色互斥（见 prompt.py），按
+system 消息路由不歧义。
+
+BILLIONS_* 开关由 _run_graph/_graph_node_names 统一隔离（默认全关——
+键显式置空串防开发者 .env 残留翻转图形状，跨运行确定性）；信息面分析师
+启用形态下经 client 模块工厂替换注入 fake（零网络，house style）。
 """
 
+import os
 import time
 
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -21,24 +27,76 @@ from core.investment_committee import InvestmentCommittee
 FUNDAMENTAL = "FUNDAMENTAL_MARKER 基本面结论：低估"
 TREND = "TREND_MARKER 趋势结论：上行"
 INDICATOR = "INDICATOR_MARKER 指标信号：金叉"
+INFO_ANALYST = "INFO_ANALYST_MARKER 信息面报告：公告利好+推特热议"
 BULL = "BULL_MARKER 看多理由：共振"
 BEAR = "BEAR_MARKER 看空理由：高估"
 BULL_REV = "BULL_REV_MARKER 修订版多头：保留看多+回应空方"
 BEAR_REV = "BEAR_REV_MARKER 修订版空头：保留看空+回应多方"
 MANAGER = "MANAGER_MARKER 最终决策：持有"
 
+# 本文件涉及的 BILLIONS_* 开关键——统一隔离（含 ANALYST 与 FINDB 能力闸）
+_BILLIONS_ENV_KEYS = [
+    "BILLIONS_API_KEY",
+    "BILLIONS_DISABLED",
+    "BILLIONS_FINDB_DISABLED",
+    "BILLIONS_SEARCH_DISABLED",
+    "BILLIONS_TWITTER_DISABLED",
+    "BILLIONS_FETCH_DISABLED",
+    "BILLIONS_ANALYST_DISABLED",
+]
 
-def _run_graph(llm, progress_updater=None) -> dict:
+
+def _with_billions_env(env, fn):
+    """临时设置 BILLIONS_* 开关（None → 全关），fn 执行后恢复原状。
+
+    全关默认：键显式置空串（billions_enabled 判 falsy 即关；空串也是
+    显式假值，load_dotenv 不覆盖已设键——防 .env 残留 BILLIONS_API_KEY
+    翻转图形状）。env 中 None 值 = 清除（全关）、其他值 = 设置。
+    """
+    saved = {key: os.environ.get(key) for key in _BILLIONS_ENV_KEYS}
+    try:
+        for key in _BILLIONS_ENV_KEYS:
+            os.environ[key] = ""
+        if env:
+            for key, value in env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+        return fn()
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _run_graph(llm, progress_updater=None, env=None) -> dict:
     config: RunnableConfig = {"configurable": {"thread_id": "1"}}
     committee = InvestmentCommittee()
-    graph = committee.make_investment_committee(config, progress_updater=progress_updater, _llm=llm)
-    for _ in graph.stream({
-        "messages": [{"role": "user", "content": "请帮我分析一下 000001"}],
-        "target_stock_ticker": "000001",
-        "stock_information": "dummy stock info",
-    }, config=config):
-        pass
-    return list(graph.get_state_history(config))[0].values
+
+    def _run():
+        graph = committee.make_investment_committee(config, progress_updater=progress_updater, _llm=llm)
+        for _ in graph.stream({
+            "messages": [{"role": "user", "content": "请帮我分析一下 000001"}],
+            "target_stock_ticker": "000001",
+            "stock_information": "dummy stock info",
+        }, config=config):
+            pass
+        return list(graph.get_state_history(config))[0].values
+
+    return _with_billions_env(env, _run)
+
+
+def _graph_node_names(env=None) -> set:
+    """构造图（不运行，零 LLM 调用）并返回节点名集合——图形状断言。"""
+    config: RunnableConfig = {"configurable": {"thread_id": "1"}}
+    committee = InvestmentCommittee()
+    return _with_billions_env(
+        env,
+        lambda: set(committee.make_investment_committee(config, _llm=_RoutedLlm(responses=[])).get_graph().nodes),
+    )
 
 
 class _ThrowingUpdater:
@@ -75,6 +133,10 @@ class _RoutedLlm(FakeListChatModel):
         # 任务描述含"趋势分析师"字样，必须按此独有短语路由）
         if "精于技术指标信号解读与择时判断" in system:
             return self._response(INDICATOR)
+        # 信息面分析师（08-08-billions-api-integration，Step 4）：独有短语
+        # "精于整合公告、研报、新闻与推特等多源信息"——与其余角色子串互斥
+        if "精于整合公告、研报、新闻与推特等多源信息" in system:
+            return self._response(INFO_ANALYST)
         if "坚定看多的股票交易员" in system:
             return self._response(BULL)
         if "坚定看空的股票交易员" in system:
@@ -209,3 +271,180 @@ class TestGraphParallel:
         progress = [ev[1] for ev in events_list if ev[0] == "progress"]
         assert len(progress) >= 16  # 8 节点 × 开始 + 完成
         assert any("开始" in m for m in progress) and any("完成" in m for m in progress)
+
+
+# --- 信息面分析师图形状（08-08-billions-api-integration，Step 4） ------------
+
+_INFO_SEARCH_OK = {
+    "success": True,
+    "result": [{
+        "query": "q",
+        "content": [
+            {
+                "title": "紫金矿业发布2026年半年报",
+                "link": "https://example.com/zjky-h1",
+                "snippet": "上半年净利润同比增长 20%",
+                "date": "2026-07-31",
+            },
+            {
+                "title": "紫金矿业：关于收购的公告",
+                "link": "https://example.com/zjky-ann",
+                "snippet": "拟收购海外金矿",
+                "date": "2026-07-25",
+                "extra": {"doc_id": "ANN20260725001"},
+            },
+        ],
+        "status": "ok",
+        "source": "announcement",
+    }],
+}
+
+_INFO_TWITTER_OK = {
+    "success": True,
+    "result": [{
+        "query": "q",
+        "content": [
+            {
+                "title": "@stockwatcher: 紫金矿业涨停了",
+                "link": "https://x.com/stockwatcher/status/1",
+                "snippet": "紫金矿业今日大涨 5%，突破前高",
+                "date": "2026-08-08",
+                "extra": {"username": "stockwatcher", "view_count": 12345},
+            },
+        ],
+        "status": "ok",
+        "source": "twitter",
+    }],
+}
+
+
+class _InfoFakeClient:
+    """记录亿信检索调用；返回预置响应（house style 注入，断言在测试侧读 calls）。"""
+
+    def __init__(self, search_data=None, twitter_data=None, error=None):
+        self.search_data = search_data if search_data is not None else _INFO_SEARCH_OK
+        self.twitter_data = twitter_data if twitter_data is not None else _INFO_TWITTER_OK
+        self.error = error
+        self.search_calls = []
+        self.twitter_calls = []
+
+    def search(self, query, source="web", search_mode="fast", count=10, time_range=None, timeout=None):
+        self.search_calls.append({
+            "query": query, "source": source, "search_mode": search_mode,
+            "count": count, "time_range": time_range,
+        })
+        if self.error is not None:
+            raise self.error
+        return self.search_data
+
+    def twitter_search(self, query, search_mode="fast", count=10):
+        self.twitter_calls.append({"query": query, "search_mode": search_mode, "count": count})
+        if self.error is not None:
+            raise self.error
+        return self.twitter_data
+
+
+def _with_fake_client(fake, fn):
+    """把 client 模块的 BillionsClient 工厂替换为返回 fake 的工厂（零网络）。
+
+    信息面分析师的 _get_client 在调用时 `from ...client import
+    BillionsClient`——替换模块属性即让图内节点拿到 fake（house style
+    模块全局替换，同 e2e mock 入口模式）。
+    """
+    import data_source.chinese_mainland.billions.client as client_mod
+
+    saved = client_mod.BillionsClient
+    client_mod.BillionsClient = lambda: fake
+    try:
+        return fn()
+    finally:
+        client_mod.BillionsClient = saved
+
+
+class TestGraphAnalystShape:
+    """信息面分析师条件接线（R2/AC1/AC3）：两种图形态。
+
+    ANALYST 开 且（SEARCH 或 TWITTER 至少一者开）→ 9 节点 4 专家并行
+    （messages = 初始 1 + 9 组查询/响应 = 19）；关 → 8 节点（messages
+    17，与今日逐字节一致——既有用例已覆盖该形态）。
+    """
+
+    def test_graph_shapes(self):
+        # 图形状：ANALYST 关 → 无分析师节点；开 → +1 节点
+        # （get_graph().nodes 含 __start__/__end__，用相对计数断言）
+        base = _graph_node_names()
+        assert "information_analyst" not in base
+        enabled = _graph_node_names({"BILLIONS_API_KEY": "k"})
+        assert "information_analyst" in enabled
+        assert len(enabled) == len(base) + 1
+
+    def test_analyst_node_added_when_enabled(self):
+        fake = _InfoFakeClient()
+        final = _with_fake_client(
+            fake,
+            lambda: _run_graph(_RoutedLlm(responses=[]), env={"BILLIONS_API_KEY": "k"}),
+        )
+        # 9 节点形态：4 专家并行 → messages = 初始 1 条 + 9 组（查询 + 响应）
+        assert len(final["messages"]) == 19
+        assert final["information_analysis"] == INFO_ANALYST
+        # 确定性预抓参数：公告/研报/新闻各 1 次 search + 1 次 twitter
+        # （fast、count=5、time_range past 3 months——固定成本契约）
+        assert [c["source"] for c in fake.search_calls] == ["announcement", "report", "web"]
+        for call in fake.search_calls:
+            assert call["search_mode"] == "fast"
+            assert call["count"] == 5
+            assert call["time_range"] == "past 3 months"
+            assert "000001" in call["query"]
+        assert len(fake.twitter_calls) == 1
+        assert fake.twitter_calls[0]["search_mode"] == "fast"
+        assert fake.twitter_calls[0]["count"] == 5
+        # 预抓结果进入分析师 LLM 查询（检索到的标题出现在 messages 通道）
+        assert any("紫金矿业发布2026年半年报" in m.content for m in final["messages"])
+        # 补接线（Step 4）：信息面报告进入下游消费——多空交易员查询含
+        # 四份专家报告（4 入边 join 后输入完整），manager 查询含信息面段
+        contents = [m.content for m in final["messages"]]
+        trader_queries = [
+            c for c in contents
+            if FUNDAMENTAL in c and TREND in c and INDICATOR in c
+            and BULL_REV not in c and BEAR_REV not in c
+        ]
+        assert len(trader_queries) == 2
+        assert all(INFO_ANALYST in q for q in trader_queries)
+        assert any(INFO_ANALYST in c and BULL_REV in c and BEAR_REV in c for c in contents)
+
+    def test_analyst_absent_without_key(self):
+        # AC1：未配置 key → 分析师节点不入图（8 节点，与今日一致）
+        final = _run_graph(_RoutedLlm(responses=[]))
+        assert len(final["messages"]) == 17
+        assert final.get("information_analysis") is None
+
+    def test_analyst_unavailable_when_both_sources_off(self):
+        # Out of Scope 组合：ANALYST 开但 SEARCH/TWITTER 均关 → 视为分析师
+        # 不可用，节点不入图（8 节点）+ 零亿信调用
+        fake = _InfoFakeClient()
+        final = _with_fake_client(
+            fake,
+            lambda: _run_graph(_RoutedLlm(responses=[]), env={
+                "BILLIONS_API_KEY": "k",
+                "BILLIONS_SEARCH_DISABLED": "1",
+                "BILLIONS_TWITTER_DISABLED": "1",
+            }),
+        )
+        assert len(final["messages"]) == 17
+        assert final.get("information_analysis") is None
+        assert fake.search_calls == [] and fake.twitter_calls == []
+
+    def test_analyst_filters_sources_by_switch(self):
+        # AC3：SEARCH 单独关 → 仅 twitter 预抓（分析师仍在图：TWITTER 开）
+        fake = _InfoFakeClient()
+        final = _with_fake_client(
+            fake,
+            lambda: _run_graph(_RoutedLlm(responses=[]), env={
+                "BILLIONS_API_KEY": "k",
+                "BILLIONS_SEARCH_DISABLED": "1",
+            }),
+        )
+        assert len(final["messages"]) == 19
+        assert final["information_analysis"] == INFO_ANALYST
+        assert fake.search_calls == []  # SEARCH 关 → 零 search 调用
+        assert len(fake.twitter_calls) == 1
