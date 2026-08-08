@@ -52,6 +52,18 @@ These guides help you **ask the right questions before coding**.
 
 → Read [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md)
 
+### When Verifying UI Changes
+
+- [ ] UI 改动涉及渲染/交互（display.py、charts、data_markdown、主题）→
+      先跑 `pytest test/e2e/ -v`（mock 模式秒级、零 token 验收），
+      再决定是否走完整链路（TDX 抓取 + 5 代理 DeepSeek，分钟级烧 token）
+- [ ] 改动 display.py 的契约（`REPORT_TABS`、观点 expander、数据 Tab、
+      模块全局 committee/build_stock_information）→ 同步检查
+      `test/e2e/` 用例是否仍覆盖，mock 层是否需要跟着改
+- [ ] mock_app 模式下断言失败 ≠ 生产缺陷 → 先核对 mock 层（FakeGraph
+      内容、seed fixture）与浏览器 DOM 实测差异（1.61.1：svg 非 canvas、
+      `[role="tab"]` 选择器、tab 渐进渲染）
+
 ### When Verifying AI Cross-Review Results
 
 - [ ] Reviewer claims "user input can be malicious" → Check the actual data source (internal manifest? user config? external API?)

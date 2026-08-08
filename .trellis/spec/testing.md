@@ -32,6 +32,24 @@ paths:
 - Integration graphs use `stream()` + `get_state_history` and print state
   snapshots (`test/integration/test_investment_committee.py`).
 
+## UI E2E 套件（`test/e2e/`，2026-08-07）
+
+Playwright UI 测试框架（mock 模式），**零 LLM API 调用、零 TDX/akshare
+网络抓取**：`pytest test/e2e/ -v`（15 用例 ~19s）。mock 入口模式、零调用
+审计标记、1.61.1 DOM 实测差异（svg/tab 选择器/渐进渲染）见
+`core/index.md`「UI E2E 测试框架」小节。要点：
+
+- **风格例外**：本目录是有意不用 class-based 风格的例外（模块级测试函数 +
+  conftest fixtures）——pytest + playwright sync API 自建 fixtures，不装
+  pytest-playwright 插件（无新依赖）。新 e2e 用例沿用此风格，不要套用
+  其他目录的 `TestXxx` class 风格。
+- **生产零改动是硬约束**：`test/e2e/mock_app.py` 在 import 后替换 display
+  模块全局实现 mock，`git diff` 核实 core/、main.py、agents/、data_*/ 零
+  改动后再提交。
+- 种子 fixture `test/e2e/seed/fixture_002027.txt` 是 002027 真实快照的
+  原样固化；再导出必须 `env -u TDX_API_KEY`（否则情报段为实时文本，不可
+  复现）。
+
 ## Isolating Agents from the Live Stack
 
 `test/integration/test_basic_graph.py` is the reference for testing a single
