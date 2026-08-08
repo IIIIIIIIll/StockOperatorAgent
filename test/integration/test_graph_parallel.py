@@ -1,12 +1,14 @@
-"""图并行化测试（review #4 + 08-04-adversarial-verdict-loop）：真实 wiring
-+ 假 LLM，离线验证 join/并行语义。
+"""图并行化测试（review #4 + 08-04-adversarial-verdict-loop +
+08-08-technical-indicator-analyst）：真实 wiring + 假 LLM，离线验证
+join/并行语义。
 
 用 make_investment_committee(_llm=FakeListChatModel) 注入假 LLM 跑真实图
-装配（7 节点 12 边：+bullish_revise/bearish_revise 对抗修订轮）——不复制
-wiring，图结构变化即测试失效。结构断言钉 join 输入完整性与 reducer 行为
-（order-agnostic，串行/并行均成立）；时序断言（慢 LLM 注入）证明三对并行：
-墙钟 4 阶段而非 7 串行。revise 路由短语与初稿短语互斥（见 prompt.py），
-按 system 消息路由不歧义。
+装配（8 节点 15 边：+bullish_revise/bearish_revise 对抗修订轮 +
++technical_indicator_analyst 技术指标分析师）——不复制 wiring，图结构
+变化即测试失效。结构断言钉 join 输入完整性与 reducer 行为
+（order-agnostic，串行/并行均成立）；时序断言（慢 LLM 注入）证明三专家
++两对并行：墙钟 4 阶段而非 8 串行。revise 路由短语与初稿短语互斥、分析师
+短语与其余角色互斥（见 prompt.py），按 system 消息路由不歧义。
 """
 
 import time
@@ -18,6 +20,7 @@ from core.investment_committee import InvestmentCommittee
 
 FUNDAMENTAL = "FUNDAMENTAL_MARKER 基本面结论：低估"
 TREND = "TREND_MARKER 趋势结论：上行"
+INDICATOR = "INDICATOR_MARKER 指标信号：金叉"
 BULL = "BULL_MARKER 看多理由：共振"
 BEAR = "BEAR_MARKER 看空理由：高估"
 BULL_REV = "BULL_REV_MARKER 修订版多头：保留看多+回应空方"
@@ -67,6 +70,11 @@ class _RoutedLlm(FakeListChatModel):
             return self._response(FUNDAMENTAL)
         if "精于根据股票走势给出高准确度的客观趋势分析" in system:
             return self._response(TREND)
+        # 技术指标分析师（08-08-technical-indicator-analyst）：独有短语
+        # "精于技术指标信号解读与择时判断"——与其余角色子串互斥（分析师
+        # 任务描述含"趋势分析师"字样，必须按此独有短语路由）
+        if "精于技术指标信号解读与择时判断" in system:
+            return self._response(INDICATOR)
         if "坚定看多的股票交易员" in system:
             return self._response(BULL)
         if "坚定看空的股票交易员" in system:
@@ -89,7 +97,7 @@ class _RoutedLlm(FakeListChatModel):
 
 
 class _SlowRoutedLlm(_RoutedLlm):
-    """每节点 invoke 注入 2s 延迟——串行 7 阶段 ≥14s，并行 4 阶段 ≈8s。"""
+    """每节点 invoke 注入 2s 延迟——串行 8 阶段 ≥16s，并行 4 阶段 ≈8s。"""
 
     def _generate(self, *args, **kwargs):
         time.sleep(2.0)
@@ -98,12 +106,22 @@ class _SlowRoutedLlm(_RoutedLlm):
 
 class TestGraphParallel:
 
-    def test_join_supplies_both_reports_to_traders(self):
-        """join 语义：bullish/bearish 查询同时含 fundamental 与 trend 两份报告。"""
+    def test_join_supplies_all_reports_to_traders(self):
+        """join 语义：bullish/bearish 查询同时含三份专家报告（fundamental +
+        trend + technical_indicator）——三入边 join 后输入完整。
+
+        trader 查询不含观点 marker（revise/manager 才有），精确筛出恰好
+        两条 trader 查询。
+        """
         final = _run_graph(_RoutedLlm(responses=[]))
         contents = [m.content for m in final["messages"]]
-        assert any(FUNDAMENTAL in c and TREND in c for c in contents), \
-            "trader 查询应插值两份报告（join 后输入完整）"
+        trader_queries = [
+            c for c in contents
+            if FUNDAMENTAL in c and TREND in c and INDICATOR in c
+            and BULL_REV not in c and BEAR_REV not in c
+        ]
+        assert len(trader_queries) == 2, \
+            "两条 trader 查询应各含三份专家报告（join 后输入完整）"
 
     def test_manager_receives_both_opinions(self):
         """manager 查询含 bullish 与 bearish 修订版正文（[-1].content 语义）。"""
@@ -132,16 +150,18 @@ class TestGraphParallel:
             "两条 revise 查询应各含对方初稿（bullish_revise 含空方初稿、bearish_revise 含多方初稿）"
 
     def test_messages_channel_complete(self):
-        """messages 通道完整：初始 user 消息 + 7 组 query + response = 15 条。"""
+        """messages 通道完整：初始 user 消息 + 8 组 query + response = 17 条。"""
         final = _run_graph(_RoutedLlm(responses=[]))
         assert final["messages"][0].content == "请帮我分析一下 000001"  # 初始消息保留
-        assert len(final["messages"]) == 15
+        assert len(final["messages"]) == 17
         assert final["fundamental_analysis"] == FUNDAMENTAL
         assert final["trend_analysis"] == TREND
+        assert final["technical_indicator_analysis"] == INDICATOR
         assert final["final_decision"] == MANAGER
 
     def test_independent_pairs_run_parallel(self):
-        """时序：三对并行 → 墙钟 ≈4 阶段（串行 7×2s≥14s，并行 4×2s≈8s）。"""
+        """时序：三专家 + 两对并行 → 墙钟 ≈4 阶段（串行 8×2s≥16s，并行
+        4×2s≈8s）。"""
         start = time.monotonic()
         _run_graph(_SlowRoutedLlm(responses=[]))
         elapsed = time.monotonic() - start
@@ -156,17 +176,17 @@ class TestGraphParallel:
         """
         final = _run_graph(_RoutedLlm(responses=[]), progress_updater=_ThrowingUpdater())
         assert final["final_decision"] == MANAGER
-        assert len(final["messages"]) == 15
+        assert len(final["messages"]) == 17
 
-    def test_bridge_collects_progress_and_all_seven_reports(self):
+    def test_bridge_collects_progress_and_all_eight_reports(self):
         """queue bridge（08-02-ui-live-progress-bridge）：真实图 + 假 LLM，
-        七节点经 ProgressBridge 推送进度与报告——数据面验证节点级即时
+        八节点经 ProgressBridge 推送进度与报告——数据面验证节点级即时
         填充的输入完整（display 事件循环消费即可渲染）。
 
         agent 的 push_report 对非 bridge updater（_ThrowingUpdater）是
         no-op，此用例必须用真 bridge 才收集得到报告。对抗修订轮
         （08-04-adversarial-verdict-loop）：opinions key 推送两次（初稿 +
-        修订版）→ 共 7 份报告事件；dict 同 key 后推覆盖 → opinions 为修订版。
+        修订版）→ 共 8 份报告事件；dict 同 key 后推覆盖 → opinions 为修订版。
         """
         import queue as queue_mod
 
@@ -176,15 +196,16 @@ class TestGraphParallel:
         _run_graph(_RoutedLlm(responses=[]), progress_updater=ProgressBridge(events))
         events_list = list(events.queue)
         report_events = [ev for ev in events_list if ev[0] == "report"]
-        assert len(report_events) == 7  # 7 节点 × 1 份（opinions 各推送初稿 + 修订版）
+        assert len(report_events) == 8  # 8 节点 × 1 份（opinions 各推送初稿 + 修订版）
         reports = {ev[1]: ev[2] for ev in report_events}
         assert reports == {
             "fundamental_analysis": FUNDAMENTAL,
             "trend_analysis": TREND,
+            "technical_indicator_analysis": INDICATOR,
             "bullish_opinions": BULL_REV,
             "bearish_opinions": BEAR_REV,
             "final_decision": MANAGER,
         }
         progress = [ev[1] for ev in events_list if ev[0] == "progress"]
-        assert len(progress) >= 14  # 7 节点 × 开始 + 完成
+        assert len(progress) >= 16  # 8 节点 × 开始 + 完成
         assert any("开始" in m for m in progress) and any("完成" in m for m in progress)

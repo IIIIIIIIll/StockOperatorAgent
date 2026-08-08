@@ -56,6 +56,9 @@ class BearishTrader:
         趋势报告: \n
         {state['trend_analysis']}
         \n
+        技术指标分析报告: \n
+        {state['technical_indicator_analysis']}
+        \n
         """
         logger.debug("Bearish Trader Query: {}", bearish_trader_query)
         safe_progress(self.progress_updater, "开始空方观点生成。。。")

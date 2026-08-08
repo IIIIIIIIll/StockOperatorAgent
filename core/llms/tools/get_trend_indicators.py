@@ -14,6 +14,12 @@ from __future__ import annotations
 import pandas as pd
 
 from core.data_acquisition import DataAcquisition
+from core.llms.tools.extra_indicators import (
+    calc_liu_bias,
+    calc_macd_vh,
+    macd_vh_state,
+    momentum_zone,
+)
 from data_source.chinese_mainland.tdx.tdx_source import ensure_vendor_on_path
 from utils.formatting import fmt_number
 
@@ -60,13 +66,22 @@ def _fmt(value, digits):
 
 
 def get_trend_indicators(ticker: str) -> str:
-    """返回目标股票最近交易日的技术指标摘要文本（通达信口径）。"""
+    """返回目标股票最近交易日的技术指标摘要文本（通达信口径 + 新指标）。
+
+    新指标（08-08-technical-indicator-analyst）：MACD-VH（Spiroglou 波动率
+    归一化 MACD）与刘晨明乖离率——见 extra_indicators.py，vendor 零改动。
+    柱态四色需相邻 bar 比较（全序列算好取末两根）。
+    """
     stock = DataAcquisition().storage.get_stock(ticker)
     if stock is None or len(stock.get_datas()) == 0:
         return f"（无 {ticker} 的行情数据，跳过技术指标）"
 
-    indicators = compute_all(_to_indicator_frame(stock), timeframe="daily")
+    df = _to_indicator_frame(stock)
+    indicators = compute_all(df, timeframe="daily")
+    extra = pd.concat([calc_macd_vh(df), calc_liu_bias(df)], axis=1)
     last = indicators.iloc[-1]
+    last_extra = extra.iloc[-1]
+    prev_vh = extra.iloc[-2]["MACD_VH"] if len(extra) >= 2 else None
     lines = [f"【技术指标（{str(last['datetime'])[:10]} 收盘）】"]
     for label, columns, digits in _INDICATOR_ROWS:
         if len(columns) == 1:
@@ -74,4 +89,13 @@ def get_trend_indicators(ticker: str) -> str:
         else:
             values = ", ".join(f"{col}={_fmt(last.get(col), digits)}" for col in columns)
         lines.append(f"{label}: {values}")
+    lines.append(
+        "MACD-VH: "
+        f"MACD_V={_fmt(last_extra['MACD_V'], 2)}  "
+        f"Signal={_fmt(last_extra['SIGNAL'], 2)}  "
+        f"VH={_fmt(last_extra['MACD_VH'], 2)}  "
+        f"柱态={macd_vh_state(last_extra['MACD_VH'], prev_vh)}  "
+        f"动量区={momentum_zone(last_extra['MACD_V'])}"
+    )
+    lines.append(f"刘晨明乖离率(20日EMA): {_fmt(last_extra['LIU_BIAS'] * 100, 2)}%")
     return "\n".join(lines)

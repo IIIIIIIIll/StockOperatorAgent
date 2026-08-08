@@ -21,8 +21,10 @@ class TestGetTrendIndicators:
             # 种子数据缺失（如 TDX 不可达的干净环境）→ 尝试播种
             assert da.acquire_historical_data_tdx("000001") is True
         text = get_trend_indicators("000001")
-        for marker in ["MA5", "MACD", "RSI6", "KDJ", "BOLL", "ATR"]:
+        for marker in ["MA5", "MACD", "RSI6", "KDJ", "BOLL", "ATR",
+                       "MACD-VH", "刘晨明乖离率"]:
             assert marker in text
-        # 换手率无流通股本 → N/A；其余指标不应出现 N/A
+        # 换手率无流通股本 → N/A；其余指标（含新增 MACD-VH / 刘晨明乖离率
+        # 行——有行情数据时必为有限值）不应出现 N/A
         assert text.count("N/A") == 1
         assert "换手率: N/A" in text

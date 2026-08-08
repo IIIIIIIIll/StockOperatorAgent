@@ -80,12 +80,14 @@ class TestInvestmentManagerQuery:
             "target_stock_ticker": "000001",
             "fundamental_analysis": "基本面摘要",
             "trend_analysis": "趋势摘要",
+            "technical_indicator_analysis": "指标摘要",
             "bullish_opinions": [AIMessage(content="多头观点正文")],
             "bearish_opinions": [AIMessage(content="空头观点正文")],
         })
         query_text = fake.last_messages[-1].content
         assert "多头观点正文" in query_text
         assert "空头观点正文" in query_text
+        assert "指标摘要" in query_text  # 08-08-technical-indicator-analyst：第三份报告
         assert "HumanMessage" not in query_text  # 无列表 repr 元数据
         assert "$" not in query_text  # ${state[...]} 字面残留已清理
         assert result["final_decision"] == "最终投资建议：买入 000001"

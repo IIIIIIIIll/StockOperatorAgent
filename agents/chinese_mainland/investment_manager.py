@@ -51,6 +51,9 @@ class InvestmentManager:
         趋势报告: \n
         {state['trend_analysis']}
         \n
+        技术指标分析报告: \n
+        {state['technical_indicator_analysis']}
+        \n
         多头观点: \n
         {bullish_opinion}
         \n

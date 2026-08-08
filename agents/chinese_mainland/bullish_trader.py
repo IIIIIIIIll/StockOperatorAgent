@@ -55,6 +55,9 @@ class BullishTrader:
         趋势报告: \n
         {state['trend_analysis']}
         \n
+        技术指标分析报告: \n
+        {state['technical_indicator_analysis']}
+        \n
         """
         logger.debug("Bullish Trader Query: {}", bullish_trader_query)
         safe_progress(self.progress_updater, "开始多方观点生成。。。")

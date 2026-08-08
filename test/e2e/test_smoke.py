@@ -30,8 +30,8 @@ class TestSmoke:
         page.get_by_text("股票代码", exact=True).first.wait_for(timeout=10000)
         assert page.get_by_role("button", name="提交").count() == 1
 
-    def test_six_tabs_after_submit(self, page):
-        """提交有效代码 → 数据 Tab + 5 报告 Tab 共 6 个（顺序契约 REPORT_TABS）。
+    def test_seven_tabs_after_submit(self, page):
+        """提交有效代码 → 数据 Tab + 6 报告 Tab 共 7 个（顺序契约 REPORT_TABS）。
 
         1.61.1 结构注记（实测）：rerun 的 tab 条**渐进渲染**——等第一个
         tab 出现后 count 可能只有 2，须等最后一个 tab（最终结论）出现
@@ -42,5 +42,5 @@ class TestSmoke:
         tabs = page.locator('[role="tab"]')
         tabs.filter(has_text="最终结论").first.wait_for(timeout=30000)
         labels = [t.inner_text() for t in tabs.all()]
-        assert len(labels) == 6, f"expected 6 tabs, got {labels}"
-        assert labels == ["采集数据", "基本面分析", "趋势分析", "看涨观点", "看跌观点", "最终结论"]
+        assert len(labels) == 7, f"expected 7 tabs, got {labels}"
+        assert labels == ["采集数据", "基本面分析", "趋势分析", "技术指标分析", "看涨观点", "看跌观点", "最终结论"]

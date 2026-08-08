@@ -34,6 +34,7 @@ DATA_TAB_TITLE = "采集数据"
 REPORT_TABS = (
     ("fundamental_analysis", "基本面分析"),
     ("trend_analysis", "趋势分析"),
+    ("technical_indicator_analysis", "技术指标分析"),
     ("bullish_opinions", "看涨观点"),
     ("bearish_opinions", "看跌观点"),
     ("final_decision", "最终结论"),
@@ -124,9 +125,10 @@ def write_ui():
             (data_tab,
              fundamental_analysis_tab,
              trend_analysis_tab,
+             technical_indicator_analysis_tab,
              bullish_opinion,
              bearish_opinion,
-             final_decision) = st.tabs([DATA_TAB_TITLE, "基本面分析", "趋势分析", "看涨观点", "看跌观点", "最终结论"])
+             final_decision) = st.tabs([DATA_TAB_TITLE, "基本面分析", "趋势分析", "技术指标分析", "看涨观点", "看跌观点", "最终结论"])
 
             updatable_container.info(f"正在获取 {stock_ticker} 的股票信息（含技术指标与实时情报）... 可能会需要一些时间，请耐心等待...")
             try:
@@ -176,6 +178,7 @@ def write_ui():
             report_tabs = {
                 "fundamental_analysis": fundamental_analysis_tab,
                 "trend_analysis": trend_analysis_tab,
+                "technical_indicator_analysis": technical_indicator_analysis_tab,
                 "bullish_opinions": bullish_opinion,
                 "bearish_opinions": bearish_opinion,
                 "final_decision": final_decision,

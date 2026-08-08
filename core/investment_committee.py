@@ -4,6 +4,7 @@ from utils.state import State
 
 from agents.chinese_mainland.fundamental_analysis_expert import FundamentalAnalysisExpert
 from agents.chinese_mainland.trend_analysis_expert import TrendAnalysisExpert
+from agents.chinese_mainland.technical_indicator_analyst import TechnicalIndicatorAnalyst
 from agents.chinese_mainland.bullish_trader import BullishTrader
 from agents.chinese_mainland.bearish_trader import BearishTrader
 from agents.chinese_mainland.investment_manager import InvestmentManager
@@ -52,8 +53,9 @@ def build_stock_information(target_ticker: str, progress=None) -> str:
 class InvestmentCommittee:
 
     def make_investment_committee(self, config: RunnableConfig, progress_updater = None, _llm = None):
-        """装配 7 节点图（review #4：三对并行 + 隐式 join；08-04-adversarial-
-        verdict-loop：+2 revise 节点，见 agents spec）。
+        """装配 8 节点图（review #4：三对并行 + 隐式 join；08-04-adversarial-
+        verdict-loop：+2 revise 节点；08-08-technical-indicator-analyst：
+        +1 技术指标分析师，见 agents spec）。
 
         _llm：测试注入点（house style 无 mock 框架）——默认 DeepSeekApi()；
         离线图测试传 FakeListChatModel 等假 LLM 验证图形状/join 语义。
@@ -77,6 +79,11 @@ class InvestmentCommittee:
         trend_expert = TrendAnalysisExpert(llm, config, progress_updater)
         graph_builder.add_node("trend_analysis_expert", trend_expert.trend_analysis_expert)
 
+        # 技术指标分析师（08-08-technical-indicator-analyst）：第三位专家，
+        # 与 fundamental/trend 并行（同属第一梯队，只依赖 stock_information）
+        indicator_analyst = TechnicalIndicatorAnalyst(llm, config, progress_updater)
+        graph_builder.add_node("technical_indicator_analyst", indicator_analyst.technical_indicator_analyst)
+
         bullish_trader = BullishTrader(llm, config, progress_updater, tools)
         graph_builder.add_node("bullish_trader", bullish_trader.bullish_trader)
 
@@ -92,18 +99,21 @@ class InvestmentCommittee:
         graph_builder.add_node("bullish_revise", bullish_trader.bullish_revise)
         graph_builder.add_node("bearish_revise", bearish_trader.bearish_revise)
 
-        # 三对并行（review #4 + 08-04-adversarial-verdict-loop）：
-        # fundamental∥trend（只依赖 stock_information）、bullish∥bearish
-        # （只依赖两份报告）、bullish_revise∥bearish_revise——LangGraph
-        # 多入边隐式 join：trader 等两上游都完成、revise 双入边等两份初稿
-        # 都完成（否则对方初稿缺失）、manager 等两份修订版都完成。
-        # 墙钟 7 串行 → 4 阶段。
+        # 三专家并行 + 两对并行（review #4 + 08-04-adversarial-verdict-loop +
+        # 08-08-technical-indicator-analyst）：fundamental∥trend∥indicator
+        # （只依赖 stock_information）、bullish∥bearish（只依赖三份报告）、
+        # bullish_revise∥bearish_revise——LangGraph 多入边隐式 join：
+        # trader 等三上游都完成、revise 双入边等两份初稿都完成（否则对方
+        # 初稿缺失）、manager 等两份修订版都完成。墙钟 8 串行 → 4 阶段。
         graph_builder.add_edge(START, "fundamental_analysis_expert")
         graph_builder.add_edge(START, "trend_analysis_expert")
+        graph_builder.add_edge(START, "technical_indicator_analyst")
         graph_builder.add_edge("fundamental_analysis_expert", "bullish_trader")
         graph_builder.add_edge("trend_analysis_expert", "bullish_trader")
+        graph_builder.add_edge("technical_indicator_analyst", "bullish_trader")
         graph_builder.add_edge("fundamental_analysis_expert", "bearish_trader")
         graph_builder.add_edge("trend_analysis_expert", "bearish_trader")
+        graph_builder.add_edge("technical_indicator_analyst", "bearish_trader")
         graph_builder.add_edge("bullish_trader", "bullish_revise")
         graph_builder.add_edge("bearish_trader", "bullish_revise")
         graph_builder.add_edge("bullish_trader", "bearish_revise")

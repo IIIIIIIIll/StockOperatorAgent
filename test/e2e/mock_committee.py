@@ -1,7 +1,7 @@
 """Playwright UI 测试的假投资委员会（08-07-playwright-ui-test-framework）。
 
 `MockCommittee.make_investment_committee` 返回 `FakeGraph`——`stream()`
-迭代吐固定 State（5 个报告 key），零 LLM 构造、零网络。模块级
+迭代吐固定 State（6 个报告 key），零 LLM 构造、零网络。模块级
 `CALL_COUNT` 供测试断言「mock 路径被调用、零真实 LLM 调用」。
 
 契约（与 core/ui/display.py 对照，见 design.md 已验证契约表）：
@@ -9,8 +9,9 @@
   → 返回 FakeGraph（构造零 LLM）
 - `graph.stream(inputs, config)` 迭代 `{node: update}`；迭代结束自然停止
   （display 的 _stream_graph_events finally 推 done）
-- 5 个报告 key：fundamental_analysis / trend_analysis / bullish_opinions
-  / bearish_opinions / final_decision（REPORT_TABS）
+- 6 个报告 key：fundamental_analysis / trend_analysis /
+  technical_indicator_analysis / bullish_opinions / bearish_opinions /
+  final_decision（REPORT_TABS）
 - 观点 key（bullish/bearish，OPINION_REPORT_KEYS）各吐两条不同内容 →
   display 按 (key, content) 去重后**追加渲染**「第 1 次观点」+「第 2 次
   观点」expander（对齐 08-04-adversarial-verdict-loop 初稿+修订版语义）
@@ -18,7 +19,7 @@
   可断言（结构断言为主，像素断言仅必要处）
 """
 
-# 5 个报告 key 的 mock 报告内容：固定 markdown 字符串（# 标题 + 列表 +
+# 6 个报告 key 的 mock 报告内容：固定 markdown 字符串（# 标题 + 列表 +
 # 关键词），断言其渲染后的 DOM 文本。内容与真实 LLM 输出无关——测试只
 # 关心「mock 内容原样渲染进对应 Tab」。
 MOCK_REPORTS = {
@@ -33,6 +34,12 @@ MOCK_REPORTS = {
         "- MA5 上穿 MA10\n"
         "- 量能放大\n"
         "> mock 趋势结论"
+    ),
+    "technical_indicator_analysis": (
+        "# 技术指标分析（mock）\n\n"
+        "- MACD 金叉\n"
+        "- RSI 中性\n"
+        "> mock 指标结论"
     ),
     "bullish_opinions": [
         "# 看涨观点（mock 初稿）\n\n- 多头信号\n- 支撑位有效\n> mock 看涨初稿",
@@ -69,6 +76,7 @@ class FakeGraph:
             "mock_node": {
                 "fundamental_analysis": MOCK_REPORTS["fundamental_analysis"],
                 "trend_analysis": MOCK_REPORTS["trend_analysis"],
+                "technical_indicator_analysis": MOCK_REPORTS["technical_indicator_analysis"],
                 "bullish_opinions": MOCK_REPORTS["bullish_opinions"][0],
                 "bearish_opinions": MOCK_REPORTS["bearish_opinions"][0],
             }

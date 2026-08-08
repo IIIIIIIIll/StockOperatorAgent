@@ -73,8 +73,8 @@ class TestInteraction:
         page.locator("table").first.wait_for(timeout=15000)
         assert page.locator("table").count() == 5
 
-    def test_five_report_tabs_render_mock_content(self, page):
-        """5 个报告 tab：点击 → 对应 header 与 mock 报告内容可见。
+    def test_six_report_tabs_render_mock_content(self, page):
+        """6 个报告 tab：点击 → 对应 header 与 mock 报告内容可见。
 
         mock 内容（mock_committee.MOCK_REPORTS）与真实 LLM 输出无关——
         断言「mock 内容原样渲染进对应 Tab」。tab 面板默认隐藏，先点击
@@ -85,6 +85,7 @@ class TestInteraction:
         cases = {
             "基本面分析": ("基本面分析（mock）", "mock 基本面结论"),
             "趋势分析": ("趋势分析（mock）", "mock 趋势结论"),
+            "技术指标分析": ("技术指标分析（mock）", "mock 指标结论"),
             "最终结论": ("最终结论（mock）", "mock 最终结论"),
         }
         for tab_name, (header, content) in cases.items():
