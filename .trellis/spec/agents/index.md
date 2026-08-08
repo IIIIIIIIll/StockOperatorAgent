@@ -10,10 +10,11 @@ paths:
 
 ## The Agent Class Template
 
-All five agents (`fundamental_analysis_expert.py`, `trend_analysis_expert.py`,
-`bullish_trader.py`, `bearish_trader.py`, `investment_manager.py` in
-`agents/chinese_mainland/`) are near-identical classes. **Copy the existing shape
-when adding an agent — do not redesign it.** The pattern:
+All six agents (`fundamental_analysis_expert.py`, `trend_analysis_expert.py`,
+`technical_indicator_analyst.py`, `bullish_trader.py`, `bearish_trader.py`,
+`investment_manager.py` in `agents/chinese_mainland/`) are near-identical
+classes. **Copy the existing shape when adding an agent — do not redesign it.**
+The pattern:
 
 1. **Constructor** — `__init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater=None, tools: list | None = None)`:
    - `ChatPromptTemplate.from_messages([("system", system_prompt), MessagesPlaceholder(variable_name="query")])`
@@ -37,8 +38,9 @@ when adding an agent — do not redesign it.** The pattern:
 2. **Node method** — named after the role, takes `(self, state: State)`, builds a
    Chinese human query from `state` (see `core/llms/prompt.py` for the system
    messages), invokes **`invoke_with_retry(self.llm, {"query": query},
-   config=self.config)`**（2026-08-02，review #6——见下方重试约定；两个专家
-   fundamental/trend 保持此直调；三个工具角色 bullish/bearish/
+   config=self.config)`**（2026-08-02，review #6——见下方重试约定；三个专家
+   fundamental/trend/technical_indicator_analyst 保持此直调；三个工具角色
+   bullish/bearish/
    investment_manager 改用 **`invoke_with_tools`**——08-03-websearch-tool-
    calling，见下方"工具调用循环"段，返回 `(final, 全量 messages)`），reports
    progress via **`safe_progress(self.progress_updater, "...")`**
@@ -68,7 +70,8 @@ downstream agents from live LLM calls).
 `State` is a `TypedDict`; keys are read by every agent:
 
 - `target_stock_ticker`, `stock_information` — seeded by the caller (committee/UI)
-- `fundamental_analysis`, `trend_analysis` — produced by the first two nodes
+- `fundamental_analysis`, `trend_analysis`, `technical_indicator_analysis` —
+  produced by the first three nodes（08-08-technical-indicator-analyst）
 - `bullish_opinions`, `bearish_opinions` — `Annotated[list, add_messages]`: agents
   return strings, the reducer wraps them into message lists（2026-08-02 升级
   langgraph 0.6.7 → 1.2.10 实测：reducer 对初始输入的应用行为在 1.x 不变，
@@ -83,7 +86,8 @@ loop 起 opinions 列表含初稿 + 修订版（revise 追加写原 key）——
 最新一版（manager 零改动读修订版），初稿保留供 UI 展示对抗过程。
 
 Node names in the graph and the `State` keys must stay in sync — the graph wiring
-in `investment_committee.py:29-41` maps each node to `agent.<role>_method`.
+in `investment_committee.py` (`make_investment_committee`) maps each node to
+`agent.<role>_method`.
 
 ## Prompt Conventions (`core/llms/prompt.py`)
 
@@ -213,9 +217,11 @@ def bullish_revise(self, state: State):
 - **UI 契约（core spec Streamlit UI 段）**：display 同 key **追加渲染**
   （观点 tab 初稿 → `---` 分隔 → 修订版），去重集合按 `(key, content)` 对
   （防 superstep 兜底重复推送同内容）。
-- 图装配：7 节点 12 边（+2 节点 +6 边：各 revise 双入边 join 两份初稿、
-  各 revise → manager）；墙钟 3 → 4 阶段。manager / State / tool_loop
-  公共语义零改动。
+- 图装配：8 节点 15 边（+2 节点 +6 边：各 revise 双入边 join 两份初稿、
+  各 revise → manager；+1 节点 +3 边：08-08-technical-indicator-analyst
+  技术指标分析师——START → 分析师 与三专家并行、分析师 → 两个 trader，
+  bullish/bearish 变**三入边 join**）；墙钟 3 → 4 阶段。manager / State /
+  tool_loop 公共语义零改动。
 
 ## Tools (`core/llms/tools/`)
 
@@ -226,6 +232,12 @@ def bullish_revise(self, state: State):
   vendored `compute_all`（通达信口径 MA/EMA/MACD/RSI/KDJ/BOLL/ATR/量比）→ 最近
   一根 bar 中文摘要。无数据返回占位文本，不 raise。vendor 导入需先调用
   `data_source...tdx_source.ensure_vendor_on_path()`（见 data_source spec）。
+  **新指标行（08-08-technical-indicator-analyst）**：输出追加 MACD-VH 行
+  （MACD_V/Signal/VH + 柱态四色 + 动量区，需相邻 bar 比较）与刘晨明乖离率
+  行（ln(close)−ln(EMA20)）——计算在本仓库 `extra_indicators.py`（vendor
+  零改动，VENDOR.md 严禁分叉），复用 vendor 参数化 `calc_ema` / `calc_atr`；
+  柱态/动量区阈值解读在 prompt（工具只输出数据）。公式与研究来源见
+  `.trellis/tasks/08-08-technical-indicator-analyst/research/`。
 - `get_market_intel.py` — `get_market_intel(ticker) -> str`：TDX MCP 实时情报
   （概念/资金流/大盘）。无 `TDX_API_KEY` 或查询失败返回占位文本，不 raise。
 - `web_search.py` — **唯一 bind_tools 工具**（08-03-websearch-tool-calling）：

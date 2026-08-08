@@ -108,16 +108,18 @@ Keep it that way; do not add a second storage abstraction.
 ## InvestmentCommittee (`core/investment_committee.py`)
 
 - `make_investment_committee(config, progress_updater=None, _llm=None)` builds
-  a `StateGraph(State)` with the **seven agent nodes**（7 节点 12 边）and
-  **三对并行边**（2026-08-02，review #4；2026-08-04，08-04-adversarial-
-  verdict-loop +2 revise 节点）：`START → fundamental` 与 `START → trend`
-  并行（都只依赖 `stock_information`），`fundamental → bullish/bearish` 与
-  `trend → bullish/bearish` 并行（都只依赖两份报告），
+  a `StateGraph(State)` with the **eight agent nodes**（8 节点 15 边）and
+  **三专家并行 + 两对并行边**（2026-08-02，review #4；2026-08-04，
+  08-04-adversarial-verdict-loop +2 revise 节点；2026-08-08，
+  08-08-technical-indicator-analyst +1 技术指标分析师）：`START →
+  fundamental`、`START → trend` 与 `START → technical_indicator_analyst`
+  并行（都只依赖 `stock_information`），三专家 → `bullish/bearish` 并行
+  （都只依赖三份报告，trader 变**三入边 join**），
   `bullish/bearish → bullish_revise/bearish_revise`（对抗修订轮——各
   revise 双入边 join 两份初稿，互相独立保持并行），两份修订版 →
   `investment_manager → END`。LangGraph 多入边 = **隐式 join**：trader 等
-  两上游都完成、revise 等两份初稿都完成（否则对方初稿缺失）、manager 等
-  两份修订版都完成——墙钟 7 串行 → 4 阶段。并行分支写不同 State key
+  三上游都完成、revise 等两份初稿都完成（否则对方初稿缺失）、manager 等
+  两份修订版都完成——墙钟 8 串行 → 4 阶段。并行分支写不同 State key
   （无写冲突），`messages` 由 add_messages reducer 合并（顺序不确定——
   display 只读最终 state，不依赖顺序）。
 - `_llm` 为测试注入点（house style 无 mock 框架）：默认 `DeepSeekApi()`；
@@ -236,8 +238,9 @@ Keep it that way; do not add a second storage abstraction.
   语义与旧实现一致。`iter_report_items` / `_report_content` 为纯函数
   （与 Streamlit 解耦，display.py 仍是薄渲染层），离线测试喂合成 update
   验证映射（`test/core/ui/test_display.py::TestDisplayIncrementalRender`）。
-- **2026-08-02（采集数据 Tab）**：`st.tabs` 六元组——「采集数据」
-  （`DATA_TAB_TITLE` 常量）放**最前**，后接五报告 Tab（顺序不变）。
+- **2026-08-02（采集数据 Tab）**：`st.tabs` 七元组——「采集数据」
+  （`DATA_TAB_TITLE` 常量）放**最前**，后接六报告 Tab（顺序不变；
+  08-08-technical-indicator-analyst 增「技术指标分析」，趋势分析之后）。
   `build_stock_information` 成功返回后、`graph.stream` 前填充：
   `st.header(DATA_TAB_TITLE)` + `st.markdown(...)`。异常路径
   （`st.error` + return）不填充不占位；技术指标/实时情报的降级占位

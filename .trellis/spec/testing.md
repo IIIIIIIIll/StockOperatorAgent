@@ -94,8 +94,11 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 
 ## 基线（本环境，2026-08-02 实测）
 
-- **全量：0F/220P/20S，约 2-4 分钟**（2026-08-02 disable-tdx-mcp 后实测，
-  +4 开关用例）。历史基线 0F/216P/20S（mcp-intel-cache + market-hours-util
+- **全量：0F/308P/20S，约 2-4 分钟**（2026-08-08 technical-indicator-analyst
+  后实测，含 e2e 15 用例；另修复 test_theme.py 同名模块收集冲突——e2e 版
+  改名 test_theme_e2e.py，全量收集恢复）。历史基线 0F/220P/20S（2026-08-02
+  disable-tdx-mcp 后实测，+4 开关用例）、0F/216P/20S（mcp-intel-cache +
+  market-hours-util
   后）、0F/196P/20S（f10-financial-indicator-sections 后）、0F/188P/20S
   （fix-f10-quarterly-data 后）、0F/169P/20S（ui-data-markdown-tables
   后）、0F/159P/20S（ui-collected-data-display 后）、0F/112P/20S
