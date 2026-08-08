@@ -26,7 +26,7 @@ from loguru import logger
 from core.llms.progress import safe_progress
 from core.llms.retry import invoke_with_retry
 
-_MAX_TOOL_ROUNDS = 10
+_MAX_TOOL_ROUNDS = 15
 
 
 def invoke_with_tools(
@@ -40,11 +40,11 @@ def invoke_with_tools(
     :param config: RunnableConfig（透传 invoke_with_retry）
     :param tools: 工具列表（按 name 查找执行）；空列表 → 模型无法发起
         工具调用，单轮直调（与现状行为一致）
-    :param max_tool_rounds: 工具调用轮数上限（默认 10——2026-08-04 实测
-        DeepSeek 2 轮内会继续要搜索而不收敛，用户拍板放宽；模型自主决定
-        何时收尾。每轮可并行多个调用（实测 3 个/轮），最坏情况 3 agent ×
-        10 轮 × 每轮多调用 = 90 次搜索/分析；DDG 免费但注意 ddgs 反爬
-        频率约束）
+    :param max_tool_rounds: 工具调用轮数上限（默认 15——2026-08-04 实测
+        DeepSeek 2 轮内会继续要搜索而不收敛，用户拍板放宽；08-08 实测
+        10 轮仍常耗尽，再放宽至 15；模型自主决定何时收尾。每轮可并行
+        多个调用（实测 3 个/轮），最坏情况 3 agent × 15 轮 × 每轮多调用
+        = 135 次搜索/分析；DDG 免费但注意 ddgs 反爬频率约束）
     :param progress_updater: safe_progress 用（None 兼容，见
         core/llms/progress.py）
     :return: (final AIMessage, messages 列表——human → AIMessage(含

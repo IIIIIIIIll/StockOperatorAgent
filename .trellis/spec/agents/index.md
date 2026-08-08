@@ -147,9 +147,10 @@ ImportError）；community 0.4.2 依赖声明不含 `ddgs`（惰性导入）—�
 ## 工具调用循环（08-03-websearch-tool-calling）
 
 工具角色节点不再裸 invoke——经 `core/llms/tool_loop.py` 的 `invoke_with_tools`
-驱动至多 `_MAX_TOOL_ROUNDS = 10` 轮工具调用（2026-08-04 实测 DeepSeek 2 轮
-内不收敛——模型持续要搜索而非收尾——用户拍板放宽；最坏 3 agent × 10 轮 =
-30+ 次搜索/分析，每轮可并行多调用）：
+驱动至多 `_MAX_TOOL_ROUNDS = 15` 轮工具调用（2026-08-04 实测 DeepSeek 2 轮
+内不收敛——模型持续要搜索而非收尾——用户拍板放宽；08-08 实测 10 轮仍常
+耗尽，再放宽至 15；最坏 3 agent × 15 轮 = 45+ 次搜索/分析，每轮可并行
+多调用）：
 
 ```python
 invoke_with_tools(llm, query: str, config, *, tools,
@@ -204,7 +205,7 @@ def bullish_revise(self, state: State):
   路由，歧义即 "UNROUTED" 暴露）；`llm` 复用同一 bind_tools 后实例
   （初稿链 `self.llm` 不动）。
 - **成本护栏**：revise 节点 `invoke_with_tools(..., max_tool_rounds=3)`
-  ——初稿轮保持默认 10（`_MAX_TOOL_ROUNDS`）。公共签名零改动，只传参；
+  ——初稿轮保持默认 15（`_MAX_TOOL_ROUNDS`）。公共签名零改动，只传参；
   评估跑批仍可用 `WEB_SEARCH_DISABLED` 整体停用搜索。
 - **修订约束（prompt 硬约束，R4）**：**先复述对方最强的一条论据，再逐条
   回应**（strongest-rebuttal，08-04-draft-prompt-pure 用户拍板）、保留自己
