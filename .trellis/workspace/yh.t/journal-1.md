@@ -521,3 +521,26 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Next Steps
 
 - MA 序列叠加(指标节单值,需展示派生计算)记为后续增强
+
+
+## Session 14: Playwright UI 测试框架（mock 模式 e2e 套件）
+
+**Date**: 2026-08-08
+**Task**: Playwright UI 测试框架（mock 模式 e2e 套件）
+**Branch**: `master`
+
+### Summary
+
+独立 e2e 套件：mock 模式（FakeGraph + 002027 种子快照）启动 streamlit + Playwright 结构断言，15 用例 ~19s 全绿，零 LLM/零网络；生产代码零改动；spec 沉淀 1.61.1 DOM 实测差异与零调用审计标记
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8d2de28` | (see git log) |
+| `2b608c2` | (see git log) |
+| `5beda8a` | (see git log) |
+
+### Status
+
+[OK] **Completed**
