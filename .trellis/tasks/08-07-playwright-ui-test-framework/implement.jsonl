@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/core/index.md", "reason": "display.py/committee 契约与 UI 约定"}
+{"file": ".trellis/spec/guides/index.md", "reason": "跨层思考触发器与预修改规则"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "种子导出涉及的 DataFrame/dataclass 与抓取行为"}
