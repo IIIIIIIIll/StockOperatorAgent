@@ -544,3 +544,26 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: 技术指标分析师：第 6 个 agent + MACD-VH/刘晨明乖离率
+
+**Date**: 2026-08-08
+**Task**: 技术指标分析师：第 6 个 agent + MACD-VH/刘晨明乖离率
+**Branch**: `master`
+
+### Summary
+
+新增 TechnicalIndicatorAnalyst（信号+择时角色，与趋势专家互补），8 节点 15 边图装配；extra_indicators 模块实现 MACD-VH（Spiroglou 波动率归一化）与刘晨明乖离率（ln−ln EMA20），vendor 零改动；UI 新 tab；离线图/e2e/指标单测锁步，全量 308P/20S；修复 test_theme 同名收集冲突
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5906c47` | (see git log) |
+| `96542f8` | (see git log) |
+| `a38e087` | (see git log) |
+
+### Status
+
+[OK] **Completed**

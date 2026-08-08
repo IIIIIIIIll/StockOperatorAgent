@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 15
 - **Last Active**: 2026-08-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~546 | Active |
+| `journal-1.md` | ~569 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-08-08 | 技术指标分析师：第 6 个 agent + MACD-VH/刘晨明乖离率 | `5906c47`, `96542f8`, `a38e087` | `master` |
 | 14 | 2026-08-08 | Playwright UI 测试框架（mock 模式 e2e 套件） | `8d2de28`, `2b608c2`, `5beda8a` | `master` |
 | 13 | 2026-08-06 | 采集数据 Tab 图表可视化(K线/成交量/财务折线,Playwright 程序化验收) | `7dedeb5`, `91dedc1`, `fdf1149` | `master` |
 | 12 | 2026-08-06 | UI 主题:dark mode 与整体打磨(streamlit 1.50→1.61.1) | `537ce25`, `5b05837`, `61656db` | `master` |
