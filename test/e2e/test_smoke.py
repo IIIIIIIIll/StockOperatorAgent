@@ -26,7 +26,7 @@ class TestSmoke:
         1.61.1 结构注记（实测）：st.text_input 的「股票代码」渲染为
         label（非 placeholder 属性——placeholder 为空串）。
         """
-        inp = page.locator("input").first
+        inp = page.get_by_label("股票代码")  # 按 label 定位（面板先渲染，input.first 会命中折叠 expander 内的隐藏输入）
         assert inp.is_visible()
         page.get_by_text("股票代码", exact=True).first.wait_for(timeout=10000)
         assert page.get_by_role("button", name="提交").count() == 1
@@ -42,7 +42,7 @@ class TestSmoke:
         tab 出现后 count 可能只有 2，须等最后一个 tab（最终结论）出现
         再断言数量。
         """
-        page.locator("input").first.fill("002027")
+        page.get_by_label("股票代码").fill("002027")
         page.get_by_role("button", name="提交").click()
         tabs = page.locator('[role="tab"]')
         tabs.filter(has_text="最终结论").first.wait_for(timeout=30000)

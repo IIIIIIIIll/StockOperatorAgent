@@ -217,6 +217,23 @@ Keep it that way; do not add a second storage abstraction.
   包 try/except（error-handling spec 允许的 UI 守护边界）——图后台线程的
   异常经队列回抛（error 事件 → raise），失败 `st.error` 中文提示 +
   `logger.exception`，不裸 traceback 红屏、不吞错误。
+- **2026-08-08（设置面板，08-08-billions-switches-ui）**：侧边栏「设置」
+  expander 4 分区承载全部配置——①模型与密钥（DEEPSEEK_MODEL selectbox +
+  4 个 password 框，**空 = 不修改**、非空 = 更新）+ LangSmith（TRACING/
+  key/project）→「保存」按钮经 `utils/env_file.update_env_file` **原子写
+  .env + 同步 os.environ**（立即生效、重启保留；只动白名单 8 键，不 log
+  密钥值）；②能力开关（TDX MCP/联网搜索/亿信总闸+5 能力）与亿信调用上限
+  → **会话级**：表单提交前 `set_runtime_overrides`（在
+  `build_stock_information` 之前）写入 `utils/runtime_config` 覆盖层，三处
+  消费点（web_search/get_market_intel/billions_config）随即读到；重载恢复
+  env。**面板在 `_has_deepseek_key` 检查之前渲染**——无 key 用户可在面板
+  录入密钥，保存即通过门控无需重启。密码框每次渲染不留值（「未修改/清空」
+  可区分）；置灰逻辑：无 BILLIONS_API_KEY 或总闸关 → 能力 toggle disabled。
+  面板逻辑拆纯函数（`_collect_persisted_updates` / `_collect_session_overrides`
+  / `_save_settings` / `_panel_enablements`）离线可测；真实交互由 e2e
+  test_settings_panel.py 覆盖。**DOM 注意**：面板渲染使页面首个 input 变为
+  折叠 expander 内控件——e2e 一律用 `get_by_label("股票代码")` 等标签
+  选择器，勿用 `input.first`（2026-08-08 实测踩坑，6 处用例全中招）。
 - **2026-08-02（日志）**：各 agent 的 Query/Response debug 日志是结果
   唯一打印点（display 不再重复打 Assistant 行）；`main.py` 的
   `_ensure_file_handler()` 幂等注册文件 handler——Streamlit 每次 rerun

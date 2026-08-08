@@ -30,6 +30,8 @@ import os
 from langchain_core.tools import BaseTool, tool
 from loguru import logger
 
+from utils.runtime_config import runtime_bool
+
 
 def web_search_enabled() -> bool:
     """WEB_SEARCH_DISABLED 开关（图装配时判定）：未设置 → 启用。
@@ -37,9 +39,14 @@ def web_search_enabled() -> bool:
     判定语义逐字对齐 get_market_intel._mcp_disabled()——存在且值非
     ""/"0"/"false"/"no" → 禁用（"1"/"true"/"yes"/随意值均视为禁用，
     显式假值留恢复路径）。
+
+    覆盖层（08-08-billions-switches-ui）：`WEB_SEARCH_ENABLED` 覆盖
+    存在 → 覆盖值优先（True=开、False=关）；否则 env 判定（默认
+    行为与现状一致）。
     """
     value = os.environ.get("WEB_SEARCH_DISABLED", "")
-    return value in ("", "0", "false", "no")
+    env_enabled = value in ("", "0", "false", "no")
+    return runtime_bool("WEB_SEARCH_ENABLED", env_enabled)
 
 
 def _default_searcher():

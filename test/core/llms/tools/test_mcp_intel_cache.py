@@ -15,6 +15,7 @@ import pytest
 
 from core.llms.tools import get_market_intel as gmi
 from core.llms.tools import mcp_intel_cache as mic
+from utils import runtime_config
 
 
 class TestCacheReadWrite:
@@ -93,6 +94,42 @@ class TestMCPDisabledSwitch:
             if saved is not None:
                 __import__("os").environ["TDX_API_KEY"] = saved
         assert not (tmp_path / "mcp_intel").exists()
+
+    def test_override_true_enables_over_env_disabled(self, monkeypatch):
+        """env 反例：env 禁用 + 覆盖 TDX_MCP_ENABLED=True → 不禁用（覆盖优先）。"""
+        runtime_config.set_runtime_overrides({"TDX_MCP_ENABLED": True})
+        try:
+            monkeypatch.setenv("TDX_MCP_DISABLED", "1")
+            assert gmi._mcp_disabled() is False
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_override_false_disables_even_without_env(self, monkeypatch):
+        """覆盖 False → 禁用（env 未禁用也关）。"""
+        runtime_config.set_runtime_overrides({"TDX_MCP_ENABLED": False})
+        try:
+            monkeypatch.delenv("TDX_MCP_DISABLED", raising=False)
+            assert gmi._mcp_disabled() is True
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_override_true_queries_despite_env_disabled(self, tmp_path, monkeypatch):
+        """集成：env 禁用 + 覆盖开 → 走真实查询路径（开关消费点在
+        get_market_intel 入口生效）。"""
+        _reset_count()
+        _set_dummy_key()
+        runtime_config.set_runtime_overrides({"TDX_MCP_ENABLED": True})
+        try:
+            monkeypatch.setattr(gmi, "_query_mcp", _counting_query)
+            monkeypatch.setattr("utils.market_time.is_trading_time", lambda now=None: False)
+            monkeypatch.setattr(mic, "DEFAULT_CACHE_ROOT", tmp_path)
+            monkeypatch.setenv("TDX_MCP_DISABLED", "1")
+
+            text = gmi.get_market_intel("000001")
+            assert text == _counting_query.RESULT
+            assert _counting_query.calls == 1
+        finally:
+            runtime_config.clear_runtime_overrides()
 
 
 class TestGetMarketIntelCaching:

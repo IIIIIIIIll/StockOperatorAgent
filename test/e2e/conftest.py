@@ -63,6 +63,22 @@ _BILLIONS_ENV_KEYS = (
     "BILLIONS_ANALYST_MAX_CALLS",
 )
 
+# 设置面板渲染相关 env（08-08-billions-switches-ui，Step 4）：显式清除，
+# 防既有测试的 env 泄漏（实测：test_mcp_intel_cache 遗留
+# TDX_API_KEY=dummy、test_web_search 遗留 WEB_SEARCH_DISABLED 等）翻转
+# 面板 placeholder/初始值——与 _BILLIONS_ENV_KEYS 同哲学：e2e 子进程 env
+# 完全确定（面板状态只由注入的 dummy DEEPSEEK/BILLIONS key 决定）。
+_PANEL_ENV_KEYS = (
+    "DEEPSEEK_MODEL",
+    "DASHSCOPE_API_KEY",
+    "TDX_API_KEY",
+    "LANGSMITH_API_KEY",
+    "LANGSMITH_PROJECT",
+    "LANGSMITH_TRACING",
+    "TDX_MCP_DISABLED",
+    "WEB_SEARCH_DISABLED",
+)
+
 # 真实链路痕迹（审计用）：mock 路径绝不产生这些日志。
 # - "Expert Query"/"Trader Query"/"Manager Query"：真实 agent 每次 LLM
 #   调用前必打（agents/*.py debug，loguru 默认 stderr 级别 DEBUG 全捕获）
@@ -179,7 +195,21 @@ def _stop_streamlit(proc: subprocess.Popen, logf) -> None:
 
 
 @pytest.fixture(scope="session")
-def server(request):
+def e2e_env_file(tmp_path_factory):
+    """e2e 设置面板「保存」的目标 .env（08-08-billions-switches-ui，
+    Step 4 隔离点）。
+
+    服务器 env 注入 ENV_FILE_PATH=<本路径> → display 保存经
+    update_env_file → env_file_path() 只写本文件——**真实 .env
+    （REPO_ROOT/.env）零接触**（曾实测：未隔离时保存直接改写开发者
+    真实密钥）。文件可不存在（update_env_file 自动创建）；会话级 tmp
+    由 pytest 清理（server fixture teardown 之后）。
+    """
+    return tmp_path_factory.mktemp("e2e_env") / ".env"
+
+
+@pytest.fixture(scope="session")
+def server(request, e2e_env_file):
     """session 级：子进程起 streamlit mock 服务器，health 就绪后 yield。
 
     env 注入 dummy DEEPSEEK_API_KEY——display 模块顶层
@@ -188,6 +218,9 @@ def server(request):
     亿信（08-08-billions-api-integration，Step 5）：另注入 dummy
     BILLIONS_API_KEY → ANALYST 开关开 → 信息面 Tab 渲染路径被真实覆盖；
     显式清除全部亿信开关/上限 env——开发者本机残留值不得影响 e2e 确定性。
+    设置面板（08-08-billions-switches-ui，Step 4）：注入
+    ENV_FILE_PATH=<会话级 tmp .env>——面板「保存」只写该文件，真实
+    .env 零接触（test_settings_panel.py 断言内容）。
     stdout/stderr 落盘 server.log（失败诊断 + 零 LLM/网络审计）。
     teardown: terminate + wait（超时 kill）。
     """
@@ -195,7 +228,8 @@ def server(request):
     env = os.environ.copy()
     env["DEEPSEEK_API_KEY"] = "dummy"
     env["BILLIONS_API_KEY"] = "dummy"
-    for name in _BILLIONS_ENV_KEYS:
+    env["ENV_FILE_PATH"] = str(e2e_env_file)
+    for name in _BILLIONS_ENV_KEYS + _PANEL_ENV_KEYS:
         env.pop(name, None)
     proc, logf = _start_streamlit(env, SERVER_PORT, SERVER_LOG)
     try:
@@ -207,7 +241,7 @@ def server(request):
 
 
 @pytest.fixture(scope="session")
-def server_no_billions(request):
+def server_no_billions(request, e2e_env_file):
     """session 级：无 BILLIONS_API_KEY 的第二个 streamlit mock 服务器。
 
     AC1 浏览器级断言（08-08-billions-api-integration，Step 5）：未配置
@@ -215,13 +249,16 @@ def server_no_billions(request):
     「信息面分析」Tab 不渲染（现有 UI 与今日逐字节一致）。env 仅注入
     dummy DEEPSEEK_API_KEY（顶层构造 + 门禁），并显式清除全部亿信开关/
     上限 env——开发者本机残留 key/开关值不得影响"无 key"语义。
+    ENV_FILE_PATH 同样注入（Step 4：本服务器上的面板保存也只写 tmp，
+    真实 .env 零接触）。
     端口 SERVER_PORT+1，日志独立文件（审计同样覆盖零调用）。
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["DEEPSEEK_API_KEY"] = "dummy"
+    env["ENV_FILE_PATH"] = str(e2e_env_file)
     env.pop("BILLIONS_API_KEY", None)
-    for name in _BILLIONS_ENV_KEYS:
+    for name in _BILLIONS_ENV_KEYS + _PANEL_ENV_KEYS:
         env.pop(name, None)
     proc, logf = _start_streamlit(env, NO_BILLIONS_PORT, NO_BILLIONS_LOG)
     try:
@@ -256,7 +293,10 @@ def page(browser_context, server):
     """
     pg = browser_context.new_page()
     pg.goto(BASE_URL, timeout=30000)
-    pg.locator("input").first.wait_for(timeout=30000)  # st.text_input 渲染
+    # st.text_input 渲染——按 label 定位（08-08-billions-switches-ui：
+    # 侧边栏「设置」面板先于表单渲染，页面首个 input 是折叠 expander 里
+    # 隐藏的 selectbox combobox，不能再用 input.first）
+    pg.get_by_label("股票代码").wait_for(timeout=30000)
     yield pg
     pg.close()
 
@@ -267,7 +307,9 @@ def page_no_billions(browser_context, server_no_billions):
     integration，Step 5：新 Tab 不渲染断言用），结构与 page 相同。"""
     pg = browser_context.new_page()
     pg.goto(f"http://127.0.0.1:{NO_BILLIONS_PORT}", timeout=30000)
-    pg.locator("input").first.wait_for(timeout=30000)  # st.text_input 渲染
+    # 同 page fixture：按 label 定位 ticker 输入（面板先渲染，input.first
+    # 会命中折叠 expander 里隐藏的 selectbox combobox）
+    pg.get_by_label("股票代码").wait_for(timeout=30000)
     yield pg
     pg.close()
 

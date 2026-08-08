@@ -272,3 +272,188 @@ class TestDisplayConditionalTabs():
         assert "continue" in source.split("if key not in report_tabs_map:")[1]
         # 渲染必须经映射容器（守卫后取容器，天然防 KeyError）
         assert "with report_tabs_map[key]:" in source
+
+
+class TestDisplaySettingsCollectors():
+    """08-08-billions-switches-ui，Step 3：设置面板纯函数（收集器）。
+
+    会话区收集（→ set_runtime_overrides）与持久化区收集（→ update_env_file）
+    是提交/保存路径的纯逻辑——离线喂合成 session_state 快照断言键名与值
+    （Streamlit 副作用不 mock，house style）。
+    """
+
+    def test_collect_session_overrides_full_state(self):
+        """8 开关 + 3 上限 → 覆盖层键表（runtime_config 键名逐一对齐）。"""
+        state = {
+            "settings_tdx_mcp": True,
+            "settings_web_search": False,
+            "settings_billions_master": True,
+            "settings_billions_findb": False,
+            "settings_billions_search": True,
+            "settings_billions_twitter": False,
+            "settings_billions_fetch": True,
+            "settings_billions_analyst": False,
+            "settings_billions_search_max": 5,
+            "settings_billions_twitter_max": 1,
+            "settings_billions_fetch_max": 7,
+        }
+        assert display._collect_session_overrides(state) == {
+            "TDX_MCP_ENABLED": True,
+            "WEB_SEARCH_ENABLED": False,
+            "BILLIONS_MASTER": True,
+            "BILLIONS_FINDB": False,
+            "BILLIONS_SEARCH": True,
+            "BILLIONS_TWITTER": False,
+            "BILLIONS_FETCH": True,
+            "BILLIONS_ANALYST": False,
+            "BILLIONS_SEARCH_MAX_CALLS": 5,
+            "BILLIONS_TWITTER_MAX_CALLS": 1,
+            "BILLIONS_FETCH_MAX_CALLS": 7,
+        }
+
+    def test_collect_session_overrides_number_float_normalized(self):
+        """number_input 可能返回 float → int 归一（bool 透传为 bool 非 0/1）。"""
+        state = {k: False for k in (
+            "settings_tdx_mcp", "settings_web_search", "settings_billions_master",
+            "settings_billions_findb", "settings_billions_search",
+            "settings_billions_twitter", "settings_billions_fetch",
+            "settings_billions_analyst")}
+        state.update({
+            "settings_billions_search_max": 3.0,
+            "settings_billions_twitter_max": 2.0,
+            "settings_billions_fetch_max": 3.0,
+        })
+        overrides = display._collect_session_overrides(state)
+        assert overrides["BILLIONS_SEARCH_MAX_CALLS"] == 3
+        assert isinstance(overrides["BILLIONS_SEARCH_MAX_CALLS"], int)
+        assert overrides["TDX_MCP_ENABLED"] is False
+
+    def test_collect_persisted_updates_password_empty_means_unchanged(self):
+        """密码框空 = 不修改：不收集密钥键（.env 现值保留）——「未修改」
+        与「清空」可区分，且 env_file 校验禁止空密钥。"""
+        state = {
+            "settings_model": "deepseek-v4-pro",
+            "settings_deepseek_key": "",
+            "settings_dashscope_key": "",
+            "settings_tdx_key": "",
+            "settings_billions_key": "",
+            "settings_langsmith_key": "",
+            "settings_langsmith_tracing": True,
+            "settings_langsmith_project": "soa-proj",
+        }
+        assert display._collect_persisted_updates(state) == {
+            "DEEPSEEK_MODEL": "deepseek-v4-pro",
+            "LANGSMITH_TRACING": "true",
+            "LANGSMITH_PROJECT": "soa-proj",
+        }
+
+    def test_collect_persisted_updates_password_filled_updates_key(self):
+        """非空密码框 = 更新对应密钥；未填的不收集；TRACING 布尔化 false。"""
+        state = {
+            "settings_model": "deepseek-v4-flash",
+            "settings_deepseek_key": "sk-new",
+            "settings_billions_key": "bk-new",
+            "settings_langsmith_tracing": False,
+            "settings_langsmith_project": "",
+        }
+        updates = display._collect_persisted_updates(state)
+        assert updates["DEEPSEEK_API_KEY"] == "sk-new"
+        assert updates["BILLIONS_API_KEY"] == "bk-new"
+        assert "DASHSCOPE_API_KEY" not in updates
+        assert "TDX_API_KEY" not in updates
+        assert updates["LANGSMITH_TRACING"] == "false"
+        assert updates["LANGSMITH_PROJECT"] == ""
+
+    def test_collect_persisted_updates_model_default_when_missing(self):
+        """widget 未渲染（防御）→ 模型回退默认 flash（与代码库默认一致）。"""
+        updates = display._collect_persisted_updates({})
+        assert updates["DEEPSEEK_MODEL"] == "deepseek-v4-flash"
+
+    def test_save_settings_passes_updates_to_env_file(self, monkeypatch):
+        """_save_settings 收集持久化字段并透传给 update_env_file（参数断言）。"""
+        captured = {}
+
+        def fake_update_env_file(updates, env_path=None):
+            captured["updates"] = updates
+            return True, ""
+
+        monkeypatch.setattr(display, "update_env_file", fake_update_env_file)
+        state = {
+            "settings_model": "deepseek-v4-pro",
+            "settings_deepseek_key": "sk-new",
+            "settings_langsmith_tracing": True,
+            "settings_langsmith_project": "p",
+        }
+        ok, message = display._save_settings(state)
+        assert (ok, message) == (True, "")
+        assert captured["updates"]["DEEPSEEK_API_KEY"] == "sk-new"
+        assert captured["updates"]["DEEPSEEK_MODEL"] == "deepseek-v4-pro"
+
+    def test_save_settings_failure_message_forwarded(self, monkeypatch):
+        """update_env_file 失败 → (False, 错误消息) 原样返回（UI st.error 用）。"""
+        def fake_update_env_file(updates, env_path=None):
+            return False, "写入 .env 失败：测试注入"
+
+        monkeypatch.setattr(display, "update_env_file", fake_update_env_file)
+        ok, message = display._save_settings(
+            {"settings_model": "deepseek-v4-flash"})
+        assert ok is False
+        assert "写入 .env 失败" in message
+
+
+class TestDisplayPanelEnablements():
+    """08-08-billions-switches-ui，Step 3：亿信面板置灰决策（纯函数）。
+
+    无 BILLIONS_API_KEY 或总闸关 → 5 个能力 toggle 置灰（AC3 两态）。
+    """
+
+    def test_no_key_greys_capabilities(self):
+        assert _with_billions_env(
+            {"BILLIONS_API_KEY": None},
+            lambda: display._panel_enablements(True)) == {
+            "has_billions_key": False, "capabilities_greyed": True}
+
+    def test_key_and_master_on_enables_capabilities(self):
+        assert _with_billions_env(
+            {"BILLIONS_API_KEY": "k"},
+            lambda: display._panel_enablements(True)) == {
+            "has_billions_key": True, "capabilities_greyed": False}
+
+    def test_master_off_greys_capabilities(self):
+        assert _with_billions_env(
+            {"BILLIONS_API_KEY": "k"},
+            lambda: display._panel_enablements(False)) == {
+            "has_billions_key": True, "capabilities_greyed": True}
+
+
+class TestDisplaySettingsPanelWiring():
+    """08-08-billions-switches-ui，Step 3：面板接线（源码断言，house style
+    同 TestDisplayChartWiring——Streamlit 副作用不 mock）。"""
+
+    def test_panel_renders_before_deepseek_key_check(self):
+        """面板在 _has_deepseek_key 门控**之前**渲染——无 key 用户靠面板
+        录入密钥（保存即 os.environ 同步，同次 run 门控即通过，无需重启）。"""
+        import inspect
+        source = inspect.getsource(display.write_ui)
+        assert source.find("_write_settings_panel()") < source.find("if not _has_deepseek_key():")
+
+    def test_submit_syncs_overrides_before_build_stock_information(self):
+        """会话级覆盖同步在 enrichment（build_stock_information）之前——
+        三处消费点（TDX MCP 调用时 / 联网搜索与亿信装配时）随即读到覆盖值。"""
+        import inspect
+        source = inspect.getsource(display.write_ui)
+        assert "set_runtime_overrides(_collect_session_overrides(st.session_state))" in source
+        assert (source.find("set_runtime_overrides(")
+                < source.find("build_stock_information("))
+
+    def test_password_inputs_hidden_and_save_wired(self):
+        """密钥输入框 type="password"（R6 不明文回显）——4 个密钥框 +
+        LangSmith key 共 5 处；保存按钮 → 成功/失败提示。"""
+        import inspect
+        source = inspect.getsource(display._write_settings_panel)
+        assert source.count('type="password"') == 5
+        assert "settings_save" in source
+        assert "st.success(" in source
+        assert "st.error(" in source
+        # 置灰决策接线：能力 toggle 的 disabled 来自 _panel_enablements
+        assert "disabled=enablements[\"capabilities_greyed\"]" in source

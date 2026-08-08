@@ -11,7 +11,7 @@
 
 import os
 
-from utils import billions_config
+from utils import billions_config, runtime_config
 
 # 测试涉及的全部 BILLIONS_* env——每次运行前全部清除（含 MAX_CALLS，
 # 防开发者本机残留影响开关断言）
@@ -160,3 +160,130 @@ class TestBillionsMaxCalls:
             {"BILLIONS_SEARCH_MAX_CALLS": "0"},
             lambda: billions_config.billions_max_calls("SEARCH", 3),
         ) == 0
+
+
+class TestBillionsRuntimeOverrides:
+    """覆盖层（runtime_config）优先于 env；无 key 硬约束不可覆盖。
+
+    每个用例在 finally 里 clear_runtime_overrides——覆盖层是模块级
+    全局，泄漏会翻转后续用例（既有 env 矩阵用例假设覆盖层为空）。
+    """
+
+    def test_no_key_override_cannot_enable(self):
+        # 主闸硬约束（AC1）：无 BILLIONS_API_KEY 时能力覆盖开也无效
+        runtime_config.set_runtime_overrides({"BILLIONS_SEARCH": True})
+        try:
+            assert _with_env(
+                {"BILLIONS_API_KEY": None},
+                lambda: billions_config.billions_enabled("SEARCH"),
+            ) is False
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_master_false_disables_everything(self):
+        # MASTER=False 覆盖 → 全关（即使 env 全开）
+        runtime_config.set_runtime_overrides({"BILLIONS_MASTER": False})
+        try:
+            def check():
+                for cap in _ALL_CAPS:
+                    assert billions_config.billions_enabled(cap) is False
+
+            _with_env({"BILLIONS_API_KEY": "k"}, check)
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_master_true_not_forcing(self):
+        # MASTER=True 覆盖 → 不强制（未覆盖项走 env）
+        runtime_config.set_runtime_overrides({"BILLIONS_MASTER": True})
+        try:
+            assert _with_env(
+                {"BILLIONS_API_KEY": "k", "BILLIONS_SEARCH_DISABLED": "1"},
+                lambda: billions_config.billions_enabled("SEARCH"),
+            ) is False
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_capability_override_enables_over_env_disabled(self):
+        # env 反例：env 能力闸关 + 覆盖开 → 开（覆盖优先于 env）
+        runtime_config.set_runtime_overrides({"BILLIONS_SEARCH": True})
+        try:
+            assert _with_env(
+                {"BILLIONS_API_KEY": "k", "BILLIONS_SEARCH_DISABLED": "1"},
+                lambda: billions_config.billions_enabled("SEARCH"),
+            ) is True
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_capability_override_disables_over_env_enabled(self):
+        # 覆盖关 → 关；其他未覆盖能力不受影响
+        runtime_config.set_runtime_overrides({"BILLIONS_TWITTER": False})
+        try:
+            assert _with_env(
+                {"BILLIONS_API_KEY": "k"},
+                lambda: billions_config.billions_enabled("TWITTER"),
+            ) is False
+            assert _with_env(
+                {"BILLIONS_API_KEY": "k"},
+                lambda: billions_config.billions_enabled("FINDB"),
+            ) is True
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_uncovered_capability_goes_env(self):
+        # 只覆盖 SEARCH——FETCH 未覆盖 → env 判定（能力闸关 → 关）
+        runtime_config.set_runtime_overrides({"BILLIONS_SEARCH": True})
+        try:
+            assert _with_env(
+                {"BILLIONS_API_KEY": "k", "BILLIONS_FETCH_DISABLED": "1"},
+                lambda: billions_config.billions_enabled("FETCH"),
+            ) is False
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_clear_restores_env_behavior(self):
+        runtime_config.set_runtime_overrides({"BILLIONS_SEARCH": False})
+        runtime_config.clear_runtime_overrides()
+        assert _with_env(
+            {"BILLIONS_API_KEY": "k"},
+            lambda: billions_config.billions_enabled("SEARCH"),
+        ) is True
+
+    def test_env_unchanged_by_overrides(self):
+        # env 隔离：覆盖层操作前后 os.environ 零改动
+        before = dict(os.environ)
+        runtime_config.set_runtime_overrides(
+            {"BILLIONS_MASTER": False, "BILLIONS_SEARCH_MAX_CALLS": 9}
+        )
+        runtime_config.clear_runtime_overrides()
+        assert dict(os.environ) == before
+
+    def test_max_calls_override_wins_over_env(self):
+        runtime_config.set_runtime_overrides({"BILLIONS_SEARCH_MAX_CALLS": 9})
+        try:
+            assert _with_env(
+                {"BILLIONS_SEARCH_MAX_CALLS": "5"},
+                lambda: billions_config.billions_max_calls("SEARCH", 3),
+            ) == 9
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_max_calls_invalid_override_falls_back_to_env(self):
+        # 覆盖值非法（set 时丢弃）→ env 兜底
+        runtime_config.set_runtime_overrides({"BILLIONS_SEARCH_MAX_CALLS": "abc"})
+        try:
+            assert _with_env(
+                {"BILLIONS_SEARCH_MAX_CALLS": "5"},
+                lambda: billions_config.billions_max_calls("SEARCH", 3),
+            ) == 5
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_max_calls_uncovered_goes_env(self):
+        runtime_config.set_runtime_overrides({"BILLIONS_TWITTER_MAX_CALLS": 4})
+        try:
+            assert _with_env(
+                {"BILLIONS_SEARCH_MAX_CALLS": "5"},
+                lambda: billions_config.billions_max_calls("SEARCH", 3),
+            ) == 5
+        finally:
+            runtime_config.clear_runtime_overrides()

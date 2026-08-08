@@ -16,7 +16,7 @@ import time
 
 
 def _submit_002027(page):
-    page.locator("input").first.fill("002027")
+    page.get_by_label("股票代码").fill("002027")
     page.get_by_role("button", name="提交").click()
 
 
@@ -100,8 +100,13 @@ class TestInteraction:
         # 看涨：初稿 + 修订版（marker 用面板独有文本——「第 1 次观点」在
         # 隐藏的看跌面板里也有一份，get_by_text().first 会命中隐藏那份）
         _open_tab(page, "看涨观点", "mock 看涨初稿")
-        # 隐藏面板的 expander 也在 DOM 中——用 :visible 限定激活面板
-        assert page.locator('[data-testid="stExpander"]:visible').count() == 2
+        # 隐藏面板的 expander 也在 DOM 中——用 :visible 限定激活面板；
+        # 侧边栏「设置」expander（08-08-billions-switches-ui）恒可见，
+        # 从总数中减去（主区域观点 expander = 总数 - 侧边栏那个）
+        assert (
+            page.locator('[data-testid="stExpander"]:visible').count()
+            - page.locator('[data-testid="stSidebar"] [data-testid="stExpander"]:visible').count()
+        ) == 2
         assert page.get_by_text("mock 看涨初稿").first.is_visible(), "第 1 次观点应默认展开"
         # 点击展开第 2 次观点（限定可见 expander——隐藏面板里也有一份）
         page.locator('[data-testid="stExpander"]:visible').filter(has_text="第 2 次观点").first.click()

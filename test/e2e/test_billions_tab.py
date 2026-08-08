@@ -19,7 +19,7 @@ import time
 
 
 def _submit(page):
-    page.locator("input").first.fill("002027")
+    page.get_by_label("股票代码").fill("002027")
     page.get_by_role("button", name="提交").click()
 
 

@@ -12,6 +12,8 @@ from core.ui import theme
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
 from utils.billions_config import billions_enabled
+from utils.env_file import update_env_file
+from utils.runtime_config import set_runtime_overrides
 
 committee = InvestmentCommittee()
 
@@ -103,6 +105,270 @@ def _stream_graph_events(graph, config, inputs, events):
         events.put(("done", None))
 
 
+# ---- 设置面板（08-08-billions-switches-ui，Step 3）----
+# 纯函数（收集器/置灰决策）与渲染（_write_settings_panel）分离：单测离线
+# 喂合成 session_state 快照验证收集逻辑（house style，不 mock Streamlit）。
+
+
+def _env_enabled(disabled_env_name: str) -> bool:
+    """env 有效态（面板初始值）：DISABLED 语义键未设置或显式假值 → 启用。
+
+    判定逐字对齐消费点（web_search.web_search_enabled /
+    get_market_intel._mcp_disabled / billsions_config._disabled）——
+    ""/"0"/"false"/"no" 之外的任意值视为禁用。
+    """
+    return os.environ.get(disabled_env_name, "") in ("", "0", "false", "no")
+
+
+def _env_billions_max_calls(capability: str, default: int) -> int:
+    """env 有效调用上限（面板初始值）：BILLIONS_{CAP}_MAX_CALLS，
+    非法值回退默认（与 billsions_config 的 env 兜底同判定）。"""
+    cap = capability.upper()
+    raw = os.environ.get(f"BILLIONS_{cap}_MAX_CALLS")
+    try:
+        return int(raw) if raw is not None else default
+    except ValueError:
+        return default
+
+
+def _panel_enablements(master_on: bool) -> dict:
+    """亿信面板置灰决策（纯函数）：无 BILLIONS_API_KEY 或总闸关 →
+    5 个能力 toggle 置灰（disabled）。
+
+    :param master_on: 亿信总闸会话 toggle 现值（首帧 = env 有效态）
+    :return: {"has_billions_key": bool, "capabilities_greyed": bool}
+    """
+    has_key = bool(os.environ.get("BILLIONS_API_KEY"))
+    return {
+        "has_billions_key": has_key,
+        "capabilities_greyed": not (has_key and master_on),
+    }
+
+
+# 会话区 widget key → 覆盖层键（键表见 utils/runtime_config.py）。提交时
+# 整组收集 → set_runtime_overrides（每次提交全量替换，未收集键自然回退
+# env）。注：design.md 所述"6 开关"实为 8 个（TDX MCP/联网搜索/亿信总闸
+# + 5 能力），以交付的覆盖层键表为准。
+_SESSION_TOGGLE_WIDGETS = {
+    "settings_tdx_mcp": "TDX_MCP_ENABLED",
+    "settings_web_search": "WEB_SEARCH_ENABLED",
+    "settings_billions_master": "BILLIONS_MASTER",
+    "settings_billions_findb": "BILLIONS_FINDB",
+    "settings_billions_search": "BILLIONS_SEARCH",
+    "settings_billions_twitter": "BILLIONS_TWITTER",
+    "settings_billions_fetch": "BILLIONS_FETCH",
+    "settings_billions_analyst": "BILLIONS_ANALYST",
+}
+
+_SESSION_NUMBER_WIDGETS = {
+    "settings_billions_search_max": "BILLIONS_SEARCH_MAX_CALLS",
+    "settings_billions_twitter_max": "BILLIONS_TWITTER_MAX_CALLS",
+    "settings_billions_fetch_max": "BILLIONS_FETCH_MAX_CALLS",
+}
+
+# 持久化区 password widget key → .env 键（UPDATE_WHITELIST 子集）。交互
+# 语义：密码框每次渲染**不留值**——空 = 不修改（不收集），非空 = 更新。
+_PERSISTED_PASSWORD_WIDGETS = {
+    "settings_deepseek_key": "DEEPSEEK_API_KEY",
+    "settings_dashscope_key": "DASHSCOPE_API_KEY",
+    "settings_tdx_key": "TDX_API_KEY",
+    "settings_billions_key": "BILLIONS_API_KEY",
+    "settings_langsmith_key": "LANGSMITH_API_KEY",
+}
+
+
+def _collect_session_overrides(state: dict) -> dict:
+    """会话区（能力开关 + 亿信上限）→ set_runtime_overrides 参数。
+
+    从 session_state 快照收集 8 个开关 + 3 个上限（面板恒在表单提交前
+    渲染，widget 键必存在——直接索引，缺失即接线 bug）。bool 原样透传、
+    上限 int 归一（number_input 可能返回 float）。
+    """
+    overrides = {}
+    for widget_key, override_key in _SESSION_TOGGLE_WIDGETS.items():
+        overrides[override_key] = bool(state[widget_key])
+    for widget_key, override_key in _SESSION_NUMBER_WIDGETS.items():
+        overrides[override_key] = int(state[widget_key])
+    return overrides
+
+
+def _collect_persisted_updates(state: dict) -> dict:
+    """持久化区（模型/密钥/LangSmith）→ update_env_file 参数。
+
+    交互语义（design.md「面板布局」节）：密码框**每次渲染不留值**——
+    空 = 未修改（不收集，.env 现值保留；且 env_file 校验禁止空密钥，
+    「清空」语义不存在），非空 = 更新该密钥。selectbox/toggle/text
+    恒有值 → 恒收集（保存按钮一次应用面板全部持久化字段；幂等重写
+    同值无害）。LANGSMITH_TRACING 布尔化 "true"/"false"。
+    """
+    updates = {}
+    for widget_key, env_key in _PERSISTED_PASSWORD_WIDGETS.items():
+        value = state.get(widget_key, "")
+        if value:
+            updates[env_key] = value
+    updates["DEEPSEEK_MODEL"] = state.get("settings_model", "deepseek-v4-flash")
+    updates["LANGSMITH_TRACING"] = (
+        "true" if state.get("settings_langsmith_tracing", False) else "false")
+    updates["LANGSMITH_PROJECT"] = state.get("settings_langsmith_project", "")
+    return updates
+
+
+def _save_settings(state: dict) -> tuple:
+    """保存持久化区：收集字段 → update_env_file（原子写 .env + 同步
+    os.environ，立即生效——同次 run 内 _has_deepseek_key 门控即通过）。
+
+    纯逻辑（不触 Streamlit）：(ok, message) 返回给渲染层提示——
+    st.success/st.error 调用点在 _write_settings_panel（离线可测）。
+    """
+    return update_env_file(_collect_persisted_updates(state))
+
+
+def _write_settings_panel():
+    """侧边栏「设置」面板（08-08-billions-switches-ui，Step 3）。
+
+    四节（design.md「面板布局」节）：
+    1. 模型与密钥（持久化）——DEEPSEEK_MODEL selectbox + 4 个 password
+       输入 + 保存按钮 → _save_settings → st.success/error；
+    2. LangSmith（持久化）——TRACING toggle + key + project（遥测配置
+       持久化例外，防重载意外重开追踪）；
+    3. 能力开关（会话级）——TDX MCP / 联网搜索 / 亿信总闸 + 5 能力
+       toggle，稳定 key 存 session_state（无 key/总闸关 → 能力置灰）；
+    4. 亿信调用上限（会话级）——3 个 number_input（默认 env 值）。
+
+    widget 全部用稳定 key=；会话区初始值 = env 有效状态（AC3，重载恢复
+    .env）。密码框不留值（空 = 不修改），占位文案只表明已配置与否——
+    不明文回显、不 log 值（R6）。
+    """
+    with st.sidebar.expander("设置"):
+        # ---- 模型与密钥（持久化）----
+        st.markdown("**模型与密钥（持久化）**")
+        st.caption("保存后立即生效并写入 .env，重启保留")
+        model_options = ("deepseek-v4-flash", "deepseek-v4-pro")
+        current_model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+        st.selectbox(
+            "DeepSeek 模型",
+            model_options,
+            index=0 if current_model == "deepseek-v4-flash" else 1,
+            key="settings_model",
+        )
+        st.text_input(
+            "DeepSeek API Key",
+            type="password",
+            placeholder=(
+                "已配置（留空表示不修改）" if "DEEPSEEK_API_KEY" in os.environ
+                else "未配置（输入后保存）"),
+            key="settings_deepseek_key",
+        )
+        st.text_input(
+            "DashScope API Key（Qwen 可选）",
+            type="password",
+            placeholder=(
+                "已配置（留空表示不修改）" if "DASHSCOPE_API_KEY" in os.environ
+                else "未配置（输入后保存）"),
+            key="settings_dashscope_key",
+        )
+        st.text_input(
+            "通达信 TDX API Key（可选）",
+            type="password",
+            placeholder=(
+                "已配置（留空表示不修改）" if "TDX_API_KEY" in os.environ
+                else "未配置（输入后保存）"),
+            key="settings_tdx_key",
+        )
+        st.text_input(
+            "亿信 API Key（可选）",
+            type="password",
+            placeholder=(
+                "已配置（留空表示不修改）" if "BILLIONS_API_KEY" in os.environ
+                else "未配置（输入后保存）"),
+            key="settings_billions_key",
+        )
+
+        # ---- LangSmith（持久化）----
+        st.markdown("**LangSmith（持久化）**")
+        st.caption("开发者遥测配置；持久化以免重载意外重开追踪")
+        tracing_on = os.environ.get("LANGSMITH_TRACING", "").strip().lower() == "true"
+        st.toggle("启用 LangSmith 追踪", value=tracing_on, key="settings_langsmith_tracing")
+        st.text_input(
+            "LangSmith API Key",
+            type="password",
+            placeholder="留空表示不修改",
+            key="settings_langsmith_key",
+        )
+        st.text_input(
+            "LangSmith 项目名",
+            value=os.environ.get("LANGSMITH_PROJECT", ""),
+            key="settings_langsmith_project",
+        )
+        if st.button("保存", key="settings_save"):
+            ok, message = _save_settings(st.session_state)
+            if ok:
+                st.success("配置已保存到 .env 并立即生效")
+            else:
+                st.error(f"保存失败：{message}")
+        st.caption("提示：保存前请先保存/关闭 IDE 中打开的 .env，避免 IDE 保存覆盖本次写入")
+
+        # ---- 能力开关（会话级）----
+        st.markdown("**能力开关（会话级）**")
+        st.caption("下次分析生效；重新加载后恢复 .env 配置")
+        st.toggle(
+            "通达信 MCP（实时市场情报）",
+            value=_env_enabled("TDX_MCP_DISABLED"),
+            key="settings_tdx_mcp",
+        )
+        st.toggle(
+            "联网搜索（DuckDuckGo）",
+            value=_env_enabled("WEB_SEARCH_DISABLED"),
+            key="settings_web_search",
+        )
+        master_on = st.toggle(
+            "亿信总闸",
+            value=_env_enabled("BILLIONS_DISABLED"),
+            key="settings_billions_master",
+        )
+        enablements = _panel_enablements(master_on)
+        if not enablements["has_billions_key"]:
+            st.caption("未配置亿信 API Key——亿信能力不可用，能力开关置灰")
+        elif enablements["capabilities_greyed"]:
+            st.caption("亿信总闸已关——能力开关置灰")
+        billions_caps = (
+            ("金融问数（FINDB）", "FINDB", "settings_billions_findb"),
+            ("搜索（SEARCH）", "SEARCH", "settings_billions_search"),
+            ("社交平台（TWITTER）", "TWITTER", "settings_billions_twitter"),
+            ("数据抓取（FETCH）", "FETCH", "settings_billions_fetch"),
+            ("信息面分析师（ANALYST）", "ANALYST", "settings_billions_analyst"),
+        )
+        for label, cap, widget_key in billions_caps:
+            st.toggle(
+                label,
+                value=_env_enabled(f"BILLIONS_{cap}_DISABLED"),
+                key=widget_key,
+                disabled=enablements["capabilities_greyed"],
+            )
+
+        # ---- 亿信调用上限（会话级）----
+        st.markdown("**亿信调用上限（会话级）**")
+        st.caption("单次分析内工具调用上限；重新加载后恢复 .env 配置")
+        st.number_input(
+            "亿信搜索（SEARCH）调用上限",
+            min_value=0, step=1,
+            value=_env_billions_max_calls("SEARCH", 3),
+            key="settings_billions_search_max",
+        )
+        st.number_input(
+            "亿信社交（TWITTER）调用上限",
+            min_value=0, step=1,
+            value=_env_billions_max_calls("TWITTER", 2),
+            key="settings_billions_twitter_max",
+        )
+        st.number_input(
+            "亿信抓取（FETCH）调用上限",
+            min_value=0, step=1,
+            value=_env_billions_max_calls("FETCH", 3),
+            key="settings_billions_fetch_max",
+        )
+
+
 def write_ui():
     # 主题打磨(08-05-ui-dark-mode-theme):set_page_config 必须是首个 st
     # 调用(Streamlit 要求);主题样式注入用 st.html(纯样式字符串,无
@@ -111,6 +377,11 @@ def write_ui():
     st.set_page_config(page_title="超绝AI股票分析系统", page_icon="📈", layout="wide")
     st.html(f"<style>{theme.CSS}</style>")
     st.title("超绝AI股票分析系统")
+
+    # 设置面板（08-08-billions-switches-ui，Step 3）：在 _has_deepseek_key
+    # 门控**之前**渲染——无 key 用户靠面板录入密钥（保存即同步 os.environ，
+    # 同次 run 内门控即通过，无需重启应用）。
+    _write_settings_panel()
 
     if not _has_deepseek_key():
         st.error("请在环境变量或.env中设置 DEEPSEEK_API_KEY 后重启应用")
@@ -127,6 +398,12 @@ def write_ui():
         elif is_bj_ticker(stock_ticker):
             st.error("北交所（BJ）股票暂不支持分析：TDX 数据源不覆盖 BJ 证券（无名称/无行情），请使用沪深 A 股代码")
         else:
+            # 会话级覆盖同步（08-08-billions-switches-ui，Step 3）：面板会话区
+            # （能力开关 + 亿信上限）在 enrichment 前整组写入运行时覆盖层——
+            # TDX MCP（调用时判定）、联网搜索与亿信开关（图装配时判定）三处
+            # 消费点随即读到覆盖值。持久化区不在此收集（保存按钮已落 .env +
+            # os.environ）。
+            set_runtime_overrides(_collect_session_overrides(st.session_state))
             status = st.container()
             updatable_container = status.empty()
             updatable_container.info("正在初始化环境，请稍候...")

@@ -9,6 +9,7 @@ spec：失败返回占位文本，图可继续）。开关三态（真值/假值
 import os
 
 from core.llms.tools.web_search import make_web_search_tool, web_search_enabled
+from utils import runtime_config
 
 
 def _invoke(searcher, query="贵州茅台 最新公告"):
@@ -42,6 +43,41 @@ class TestWebSearchEnabled:
             for value in ("0", "false", "no"):
                 os.environ["WEB_SEARCH_DISABLED"] = value
                 assert web_search_enabled() is True
+        finally:
+            if saved is not None:
+                os.environ["WEB_SEARCH_DISABLED"] = saved
+
+    def test_override_false_disables_even_without_env(self):
+        # 覆盖层 False → 关（env 未禁用也关）；finally 清理防泄漏
+        runtime_config.set_runtime_overrides({"WEB_SEARCH_ENABLED": False})
+        saved = os.environ.pop("WEB_SEARCH_DISABLED", None)
+        try:
+            assert web_search_enabled() is False
+        finally:
+            runtime_config.clear_runtime_overrides()
+            if saved is not None:
+                os.environ["WEB_SEARCH_DISABLED"] = saved
+
+    def test_override_true_enables_even_with_env_disabled(self):
+        # env 反例：env 禁用 + 覆盖 True → 开（覆盖优先）
+        runtime_config.set_runtime_overrides({"WEB_SEARCH_ENABLED": True})
+        saved = os.environ.get("WEB_SEARCH_DISABLED")
+        os.environ["WEB_SEARCH_DISABLED"] = "1"
+        try:
+            assert web_search_enabled() is True
+        finally:
+            runtime_config.clear_runtime_overrides()
+            if saved is None:
+                os.environ.pop("WEB_SEARCH_DISABLED", None)
+            else:
+                os.environ["WEB_SEARCH_DISABLED"] = saved
+
+    def test_clear_restores_env_behavior(self):
+        runtime_config.set_runtime_overrides({"WEB_SEARCH_ENABLED": False})
+        runtime_config.clear_runtime_overrides()
+        saved = os.environ.pop("WEB_SEARCH_DISABLED", None)
+        try:
+            assert web_search_enabled() is True
         finally:
             if saved is not None:
                 os.environ["WEB_SEARCH_DISABLED"] = saved

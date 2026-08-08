@@ -96,6 +96,21 @@ Cross-layer rules of thumb:
   消费方：`get_market_intel` 缓存判定（MCP 情报）。
 - `utils/state.py` — the LangGraph `State` TypedDict (documented in `agents/index.md`).
 - `utils/constants.py` — see above.
+- `utils/runtime_config.py`（2026-08-08，08-08-billions-switches-ui）— 通用
+  运行时覆盖层：`set_runtime_overrides` / `clear_runtime_overrides` /
+  `runtime_bool(key, env_fallback)` / `runtime_int`——**会话级配置**（UI 能力
+  开关/亿信上限）唯一落点；覆盖 → env 兜底，默认空 = 零行为变化。消费点：
+  `web_search_enabled`（WEB_SEARCH_ENABLED）、`_mcp_disabled`
+  （TDX_MCP_ENABLED）、`billions_enabled`/`billions_max_calls`
+  （BILLIONS_MASTER / BILLIONS_{CAP} / BILLIONS_{CAP}_MAX_CALLS）。
+- `utils/env_file.py`（2026-08-08）— `.env` 原子写：
+  `update_env_file(updates) -> (bool, msg)`——**只更新白名单 8 键**
+  （DEEPSEEK_API_KEY/MODEL、DASHSCOPE_API_KEY、TDX_API_KEY、
+  BILLIONS_API_KEY、LANGSMITH_TRACING/API_KEY/PROJECT），保留注释/顺序/
+  无关键，tmp + `os.replace` 原子替换，成功后同步 os.environ（立即生效，
+  无需重启）；失败返回消息不抛异常；密钥值不 log。
+  `env_file_path()`：env `ENV_FILE_PATH` 覆盖（e2e 隔离用）→ 回退
+  `REPO_ROOT / ".env"`。
 
 ## Known Quirks (do not "fix" without a task)
 

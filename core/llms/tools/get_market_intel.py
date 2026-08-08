@@ -24,6 +24,7 @@ from data_source.chinese_mainland.tdx.tdx_source import ensure_vendor_on_path
 
 ensure_vendor_on_path()
 from scripts.tdx_mcp.tdx_client import TdxMcpClient  # noqa: E402
+from utils.runtime_config import runtime_bool
 
 _FALLBACK_TEXT = "（未配置 TDX_API_KEY，跳过实时市场情报）"
 _DISABLED_TEXT = "（TDX MCP 已禁用，跳过实时市场情报）"
@@ -35,9 +36,14 @@ def _mcp_disabled() -> bool:
     真值判定（与 _has_deepseek_key 的 os.environ 检查同风格）：
     设置任意值（"1"/"true"/"yes"/随意）即视为禁用，除显式假值
     "0"/"false"/"no"（留恢复路径）。
+
+    覆盖层（08-08-billions-switches-ui）：`TDX_MCP_ENABLED` 覆盖
+    存在 → True=开、False=关（结果取反）；否则 env 判定（默认行为
+    与现状一致）。
     """
     value = os.environ.get("TDX_MCP_DISABLED", "")
-    return value not in ("", "0", "false", "no")
+    env_enabled = value in ("", "0", "false", "no")
+    return not runtime_bool("TDX_MCP_ENABLED", env_enabled)
 
 
 def _query_mcp(ticker: str, api_key: str) -> str:

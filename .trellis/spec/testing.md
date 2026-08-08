@@ -61,6 +61,13 @@ Playwright UI 测试框架（mock 模式），**零 LLM API 调用、零 TDX/aks
   `BILLIONS_API_KEY` 永不为缺席态（置 ""），因 `make_investment_committee`
   内部 `load_dotenv()` 会补入 `.env` 缺失键；③ 测试内断言前清除全部
   `BILLIONS_*` 键。
+- **e2e 选择器约定（2026-08-08 实测踩坑）**：设置面板渲染后页面首个
+  `input` 是折叠 expander 内隐藏控件——**禁用 `page.locator("input").first`**，
+  一律用 `get_by_label("股票代码")` 等标签选择器；stExpander 计数用
+  「总 − 侧边栏」减法（`:not(复杂后代)` 选择器 1.61.1 不支持）；st.toggle
+  渲染为 `stCheckbox`（非 stToggle）；selectbox 是 react-aria ComboBox，
+  `selectOption` 不可用——点容器开弹层再点 `[role="option"]`；交互侧边栏
+  前必须等整次 rerun 完全结束（流式 rerun 中点击会被吞）。
 - **e2e 亿信标记**：`_REAL_FLOW_MARKERS` 含 `亿信`（真实调用失败行必带前缀，
   如「亿信 fin-db 查询失败」；mock 内容刻意不含）——审计能真实抓到亿信调用
   （曾实测 `openapi.billionsintelligence.com` / `BillionsApiError` 子串在
@@ -119,8 +126,10 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 
 - **全量：0F/308P/20S，约 2-4 分钟**（2026-08-08 technical-indicator-analyst
   后实测，含 e2e 15 用例；另修复 test_theme.py 同名模块收集冲突——e2e 版
-  改名 test_theme_e2e.py，全量收集恢复）。**最新：0F/426P/20S**（2026-08-08
-  billions-api-integration 后实测，+118 亿信用例、e2e 15→17）。历史基线
+  改名 test_theme_e2e.py，全量收集恢复）。**最新：0F/494P/20S**（2026-08-08
+  billions-switches-ui 后实测，+68 配置面板用例、e2e 17→20；上版基线
+  0F/426P/20S = billions-api-integration 后 +118 亿信用例、e2e 15→17）。
+  历史基线
   0F/220P/20S（2026-08-02 disable-tdx-mcp 后实测，+4 开关用例）、0F/216P/20S（mcp-intel-cache +
   market-hours-util
   后）、0F/196P/20S（f10-financial-indicator-sections 后）、0F/188P/20S

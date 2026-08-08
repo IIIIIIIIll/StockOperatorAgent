@@ -52,6 +52,12 @@ protocol:
 Same shape in `get_trend_indicators` / `get_market_intel` (LLM tools): failures
 return placeholder text, never raise.
 
+**UI 配置写入（2026-08-08，08-08-billions-switches-ui）**：
+`utils/env_file.update_env_file` 是**返回协议而非 raise** 的例外形态：
+校验失败（白名单外键/非法 model/空密钥）/ IO 失败 → 返回
+`(False, 错误消息)`（消息只含键名不含值），UI 以 st.error 提示；写入
+失败不动原文件（tmp 清理）。密钥值任何路径不 log。
+
 **Wrapper-source exception (BillionsClient, 08-08-billions-api-integration)**：
 `data_source/chinese_mainland/billions/client.py` 是**唯一自定义异常**
 `BillionsApiError(code, status_code, message)` 的 raise 点——与 pytdx
