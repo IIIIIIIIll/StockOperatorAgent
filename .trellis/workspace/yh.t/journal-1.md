@@ -567,3 +567,25 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: 亿信 API 四端点接入（可选开关门控）
+
+**Date**: 2026-08-08
+**Task**: 亿信 API 四端点接入（可选开关门控）
+**Branch**: `master`
+
+### Summary
+
+亿信 Fin 开放平台 4 端点接入：BillionsClient 薄包装 + 可选开关门控（主闸/总闸/5 能力闸/工具调用上限）；fin-db 前置段；亿信工具三件套；信息面分析师条件节点（确定性预抓+LLM 总结）；条件 Tab + e2e 镜像。全量 0F/426P/20S 零回归，spec 六文件更新。API 文档研究存档 research/billions-api.md。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `90cdcf9` | (see git log) |
+| `cb59c07` | (see git log) |
+
+### Status
+
+[OK] **Completed**
