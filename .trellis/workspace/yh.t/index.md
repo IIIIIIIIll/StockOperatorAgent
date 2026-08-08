@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-08-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~591 | Active |
+| `journal-1.md` | ~613 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-08-08 | 设置面板：模型/密钥/开关全部进网页 | `17558af`, `5ef38b9` | `master` |
 | 16 | 2026-08-08 | 亿信 API 四端点接入（可选开关门控） | `90cdcf9`, `cb59c07` | `master` |
 | 15 | 2026-08-08 | 技术指标分析师：第 6 个 agent + MACD-VH/刘晨明乖离率 | `5906c47`, `96542f8`, `a38e087` | `master` |
 | 14 | 2026-08-08 | Playwright UI 测试框架（mock 模式 e2e 套件） | `8d2de28`, `2b608c2`, `5beda8a` | `master` |

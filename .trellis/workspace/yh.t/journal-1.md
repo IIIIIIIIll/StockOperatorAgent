@@ -589,3 +589,25 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 设置面板：模型/密钥/开关全部进网页
+
+**Date**: 2026-08-08
+**Task**: 设置面板：模型/密钥/开关全部进网页
+**Branch**: `master`
+
+### Summary
+
+侧边栏设置面板承载全部配置：持久化区（DeepSeek 模型+4 密钥+LangSmith，utils/env_file.py 白名单原子写 .env+同步 env）；会话区（TDX MCP/联网搜索/亿信总闸+5 能力+调用上限，utils/runtime_config.py 覆盖层）。e2e 20 用例（get_by_label 选择器修复 6 处既有用例），全量 0F/494P/20S 零回归，spec 四文件更新。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `17558af` | (see git log) |
+| `5ef38b9` | (see git log) |
+
+### Status
+
+[OK] **Completed**
