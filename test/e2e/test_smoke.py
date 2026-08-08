@@ -1,0 +1,46 @@
+"""冒烟：标题 / ticker 表单 / 提交按钮 / 6 tab（08-07-playwright-ui-test-framework）。
+
+结构断言为主（文本/存在性/数量），模型不能读图——不读像素内容。
+mock 服务器（test/e2e/mock_app.py）零 LLM、零网络；服务器/浏览器
+fixtures 见 conftest.py。
+
+1.61.1 结构注记（实测）：tab 按钮选择器是 `[role="tab"]`（非
+`[data-baseweb="tab"]`）；6 个 tab 只在**提交有效代码后**创建
+（write_ui 内 st.tabs）。
+"""
+
+
+class TestSmoke:
+
+    def test_page_title_and_heading(self, page):
+        """浏览器标签页标题 + 页面主标题（st.title）。"""
+        assert page.title() == "超绝AI股票分析系统"
+        heading = page.locator("h1").first
+        heading.wait_for(timeout=30000)
+        assert heading.inner_text() == "超绝AI股票分析系统"
+
+    def test_ticker_form_and_submit_button(self, page):
+        """ticker 输入框（带「股票代码」标签）+ 提交按钮存在。
+
+        1.61.1 结构注记（实测）：st.text_input 的「股票代码」渲染为
+        label（非 placeholder 属性——placeholder 为空串）。
+        """
+        inp = page.locator("input").first
+        assert inp.is_visible()
+        page.get_by_text("股票代码", exact=True).first.wait_for(timeout=10000)
+        assert page.get_by_role("button", name="提交").count() == 1
+
+    def test_six_tabs_after_submit(self, page):
+        """提交有效代码 → 数据 Tab + 5 报告 Tab 共 6 个（顺序契约 REPORT_TABS）。
+
+        1.61.1 结构注记（实测）：rerun 的 tab 条**渐进渲染**——等第一个
+        tab 出现后 count 可能只有 2，须等最后一个 tab（最终结论）出现
+        再断言数量。
+        """
+        page.locator("input").first.fill("002027")
+        page.get_by_role("button", name="提交").click()
+        tabs = page.locator('[role="tab"]')
+        tabs.filter(has_text="最终结论").first.wait_for(timeout=30000)
+        labels = [t.inner_text() for t in tabs.all()]
+        assert len(labels) == 6, f"expected 6 tabs, got {labels}"
+        assert labels == ["采集数据", "基本面分析", "趋势分析", "看涨观点", "看跌观点", "最终结论"]
