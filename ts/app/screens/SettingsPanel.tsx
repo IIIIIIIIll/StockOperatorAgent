@@ -17,7 +17,7 @@ interface Props {
 
 const SWITCH_ROWS: Array<{ key: keyof SettingsState['switches']; label: string; group: 'master' | 'capability' }> = [
   { key: 'tdxMcp', label: '通达信 MCP(实时市场情报)', group: 'master' },
-  { key: 'webSearch', label: '联网搜索(Tavily)', group: 'master' },
+  { key: 'webSearch', label: '联网搜索(DDG 免 key/Tavily 优先)', group: 'master' },
   { key: 'billionsMaster', label: '亿信总闸', group: 'master' },
   { key: 'findb', label: '亿信 · 金融问数(FINDB)', group: 'capability' },
   { key: 'search', label: '亿信 · 搜索(SEARCH)', group: 'capability' },
