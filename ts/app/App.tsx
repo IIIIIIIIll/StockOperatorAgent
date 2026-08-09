@@ -13,6 +13,7 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';import {
   loadSettings,
   missingLlmKeys,
   saveSettings,
+  describeLlmKeys,
   toLlmConfig,
   type SettingsState,
 } from './lib/settings';
@@ -60,8 +61,8 @@ export default function App() {
     const loaded = loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
     setSettings(loaded);
     const miss = missingLlmKeys(loaded.keys);
-    if (miss.length) warn(`LLM 三键未配置(${miss.join('/')})——演示模式;配置见侧边栏「模型与密钥」`);
-    else info(`LLM 已配置(${loaded.keys.llmModel},base=${loaded.keys.llmBaseUrl})`);
+    if (miss.length) warn(`LLM 三键未配置——${describeLlmKeys(loaded.keys)};缺失键请见侧边栏「模型与密钥」或 app/.env 的 EXPO_PUBLIC_LLM_*`);
+    else info(`LLM 已配置:${describeLlmKeys(loaded.keys)}`);
     info(`联网搜索供应商:${process.env.TAVILY_API_KEY ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
     setDataVersion(1); // store 为模块级对象:显式触发重渲染
   }, []);
