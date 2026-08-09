@@ -159,9 +159,7 @@ export default function App() {
         </View>
         {gateNotice ? <Text style={styles.warn}>⚠ {gateNotice}</Text> : null}
         {error ? <Text style={styles.error}>✗ {error}</Text> : null}
-        <Pressable style={styles.settingsToggle} onPress={() => setShowSettings((s) => !s)}>
-          <Text style={styles.settingsToggleText}>{showSettings ? '▸ 隐藏设置' : '⚙ 显示设置'}</Text>
-        </Pressable>
+
       </View>
 
       {/* 主体:内容区 + 侧边栏设置 */}
@@ -209,7 +207,7 @@ export default function App() {
           </View>
         </View>
 
-        {/* 侧边栏设置(可隐藏;宽屏默认展开,窄屏按钮切换) */}
+        {/* 侧边栏设置:展开 → 侧栏(头部 ✕ 收起);收起 → 右缘窄条按钮 */}
         {showSettings ? (
           <View style={styles.sidebar}>
             <View style={styles.sidebarHeader}>
@@ -220,7 +218,12 @@ export default function App() {
             </View>
             <SettingsPanel onSettingsChange={onSettingsChange} />
           </View>
-        ) : null}
+        ) : (
+          <Pressable style={styles.sidebarTab} onPress={() => setShowSettings(true)}>
+            <Text style={styles.sidebarTabIcon}>⚙</Text>
+            <Text style={styles.sidebarTabText}>设置</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -241,8 +244,9 @@ function makeStyles(theme: Theme) {
     buttonDisabled: { opacity: 0.5 },
     warn: { color: theme.colors.warn, fontSize: 12, marginTop: theme.spacing.sm },
     error: { color: theme.colors.error, fontSize: 12, marginTop: theme.spacing.sm },
-    settingsToggle: { marginTop: theme.spacing.sm, alignSelf: 'flex-start' },
-    settingsToggleText: { color: theme.colors.primary, fontSize: 13, fontWeight: '600' },
+    sidebarTab: { width: 44, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },
+    sidebarTabIcon: { fontSize: 18, color: theme.colors.primary },
+    sidebarTabText: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
     main: { flex: 1, flexDirection: 'row' },
     contentColumn: { flex: 1 },
     tabBar: { flexGrow: 0, backgroundColor: theme.colors.background, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
