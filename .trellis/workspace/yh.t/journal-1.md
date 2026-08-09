@@ -611,3 +611,24 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: LLM 服务去供应商化：可配置 endpoint/key/模型名
+
+**Date**: 2026-08-09
+**Task**: LLM 服务去供应商化：可配置 endpoint/key/模型名
+**Branch**: `master`
+
+### Summary
+
+通用 OpenAI 兼容工厂 make_llm()（LLM_API_KEY/LLM_MODEL/LLM_BASE_URL 三键必填 + 可选 LLM_REASONING_EFFORT），删除 DeepSeekApi/QwenApi 与 DEEPSEEK_*/DASHSCOPE_* env；设置面板改自由文本模型 + Base URL 输入（带校验）+ LLM API Key；env_file 白名单/校验迁移；e2e dummy 注入改三键。全量回归 0F/576P/19S。用户拍板：直接迁移不保留回退、私有参数可选 env 默认不传、必填强校验、删 QwenApi 死代码。commit 后手工迁移了 .env（gitignored）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fc7f22e` | (see git log) |
+
+### Status
+
+[OK] **Completed**

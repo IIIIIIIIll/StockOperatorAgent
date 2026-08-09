@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
-- **Last Active**: 2026-08-08
+- **Total Sessions**: 18
+- **Last Active**: 2026-08-09
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~613 | Active |
+| `journal-1.md` | ~634 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-08-09 | LLM 服务去供应商化：可配置 endpoint/key/模型名 | `fc7f22e` | `master` |
 | 17 | 2026-08-08 | 设置面板：模型/密钥/开关全部进网页 | `17558af`, `5ef38b9` | `master` |
 | 16 | 2026-08-08 | 亿信 API 四端点接入（可选开关门控） | `90cdcf9`, `cb59c07` | `master` |
 | 15 | 2026-08-08 | 技术指标分析师：第 6 个 agent + MACD-VH/刘晨明乖离率 | `5906c47`, `96542f8`, `a38e087` | `master` |
