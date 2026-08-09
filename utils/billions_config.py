@@ -24,13 +24,7 @@ from __future__ import annotations
 
 import os
 
-from utils.runtime_config import runtime_bool, runtime_int
-
-
-def _disabled(env_name: str) -> bool:
-    """env 置为禁用？存在且值非 ""/"0"/"false"/"no" → 禁用（truthy 语义）。"""
-    value = os.environ.get(env_name, "")
-    return value not in ("", "0", "false", "no")
+from utils.runtime_config import env_disabled, env_int, runtime_bool, runtime_int
 
 
 def billions_enabled(capability: str) -> bool:
@@ -51,7 +45,7 @@ def billions_enabled(capability: str) -> bool:
     if not runtime_bool("BILLIONS_MASTER", True):
         return False
     env_enabled = not (
-        _disabled("BILLIONS_DISABLED") or _disabled(f"BILLIONS_{cap}_DISABLED")
+        env_disabled("BILLIONS_DISABLED") or env_disabled(f"BILLIONS_{cap}_DISABLED")
     )
     return runtime_bool(f"BILLIONS_{cap}", env_enabled)
 
@@ -66,9 +60,5 @@ def billions_max_calls(capability: str, default: int) -> int:
         按默认走）
     """
     cap = capability.upper()
-    raw = os.environ.get(f"BILLIONS_{cap}_MAX_CALLS")
-    try:
-        env_value = int(raw) if raw is not None else default
-    except ValueError:
-        env_value = default
+    env_value = env_int(f"BILLIONS_{cap}_MAX_CALLS", default)
     return runtime_int(f"BILLIONS_{cap}_MAX_CALLS", env_value)

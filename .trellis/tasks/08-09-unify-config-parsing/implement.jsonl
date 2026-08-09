@@ -1,1 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/08-09-unify-config-parsing/design.md", "reason": "env_disabled/env_int 契约 + 5 处消费点替换表 + 极性边界"}
+{"file": ".trellis/spec/architecture.md", "reason": "Configuration 节（env 键清单/读取点/覆盖层键表）——改造对象与语义基线"}
+{"file": ".trellis/spec/testing.md", "reason": "三态 env 隔离约定（_with_env 全清模式）；配置测试定位"}

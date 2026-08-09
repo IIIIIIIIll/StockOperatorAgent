@@ -3,7 +3,7 @@
   "name": "unify-config-parsing",
   "title": "配置解析合一：env 假值元组 5 处收敛 + 极性归一",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

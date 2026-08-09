@@ -105,6 +105,13 @@ Cross-layer rules of thumb:
   `web_search_enabled`（WEB_SEARCH_ENABLED）、`_mcp_disabled`
   （TDX_MCP_ENABLED）、`billions_enabled`/`billions_max_calls`
   （BILLIONS_MASTER / BILLIONS_{CAP} / BILLIONS_{CAP}_MAX_CALLS）。
+  **env 判定单点（2026-08-09，08-09-unify-config-parsing）**：
+  `env_disabled(name)` / `env_int(name, default)` 是**全库唯一** env 假值
+  判定与 int 解析实现（`_FALSEY_STRINGS` 唯一假值元组，set_runtime_overrides
+  归一化共用）——env 层保持**负极性**键名（`X_DISABLED`，truthy = 禁用），
+  覆盖层保持**正极性** bool 键（`X_ENABLED`/`BILLIONS_*`）；消费点一律算
+  正布尔（`not env_disabled(...)` = 启用），翻转只发生在判定内部——新键
+  不会搞反。
 - `utils/env_file.py`（2026-08-08）— `.env` 原子写：
   `update_env_file(updates) -> (bool, msg)`——**只更新白名单 8 键**
   （DEEPSEEK_API_KEY/MODEL、DASHSCOPE_API_KEY、TDX_API_KEY、

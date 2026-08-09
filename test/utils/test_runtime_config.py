@@ -119,3 +119,86 @@ class TestValueNormalization:
             assert runtime_config.runtime_int("BILLIONS_SEARCH_MAX_CALLS", 3) == 0
         finally:
             runtime_config.clear_runtime_overrides()
+
+
+class TestEnvPrimitives:
+    """env_disabled / env_int（08-09-unify-config-parsing，Step 1）。
+
+    env_disabled 是全库唯一负极性判定（消费点一律取反算正布尔）——真假
+    值/未设置三态真值表与既有消费点语义逐字一致（""/"0"/"false"/"no"
+    显式假值，大小写敏感）；env_int 非法值回退默认（配置错误不阻断）。
+    """
+
+    _KEYS = ("TEST_DISABLED", "TEST_MAX_CALLS")
+
+    def _with_env(self, pairs, fn):
+        """临时设置 env（None = 清除），fn 执行后恢复原状（house style，
+        先全量清除再应用——防开发者 shell/.env 残留翻转断言）。"""
+        saved = {key: os.environ.get(key) for key in self._KEYS}
+        try:
+            for key in self._KEYS:
+                os.environ.pop(key, None)
+            for key, value in pairs.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            return fn()
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_disabled_unset_and_falsey_are_false(self):
+        # 未设置（三态 1）与显式假值（三态 2）→ 不 disabled
+        assert self._with_env(
+            {}, lambda: runtime_config.env_disabled("TEST_DISABLED")) is False
+        for value in ("", "0", "false", "no"):
+            assert self._with_env(
+                {"TEST_DISABLED": value},
+                lambda: runtime_config.env_disabled("TEST_DISABLED")) is False
+
+    def test_disabled_truthy_any_value_is_true(self):
+        # 其余任意值（三态 3）→ disabled；大小写敏感（"FALSE"/"No" 也禁用）
+        for value in ("1", "true", "yes", "anything", "FALSE", "No"):
+            assert self._with_env(
+                {"TEST_DISABLED": value},
+                lambda: runtime_config.env_disabled("TEST_DISABLED")) is True
+
+    def test_int_missing_returns_default(self):
+        assert self._with_env(
+            {}, lambda: runtime_config.env_int("TEST_MAX_CALLS", 3)) == 3
+
+    def test_int_valid_parsed(self):
+        assert self._with_env(
+            {"TEST_MAX_CALLS": "7"},
+            lambda: runtime_config.env_int("TEST_MAX_CALLS", 3)) == 7
+
+    def test_int_invalid_falls_back(self):
+        # 非法值（非整数/空串/小数）→ 回退默认，配置错误不阻断
+        for value in ("abc", "", "3.5"):
+            assert self._with_env(
+                {"TEST_MAX_CALLS": value},
+                lambda: runtime_config.env_int("TEST_MAX_CALLS", 3)) == 3
+
+    def test_int_zero_and_negative_allowed(self):
+        # 0 与负数都是合法 int（0 = 禁用该工具）
+        assert self._with_env(
+            {"TEST_MAX_CALLS": "0"},
+            lambda: runtime_config.env_int("TEST_MAX_CALLS", 3)) == 0
+        assert self._with_env(
+            {"TEST_MAX_CALLS": "-1"},
+            lambda: runtime_config.env_int("TEST_MAX_CALLS", 3)) == -1
+
+    def test_env_primitives_do_not_touch_overrides(self):
+        # env 判定与覆盖层隔离：env 原语不读写 _RUNTIME，覆盖值不受影响
+        runtime_config.set_runtime_overrides({"WEB_SEARCH_ENABLED": False})
+        try:
+            assert self._with_env(
+                {"TEST_DISABLED": ""},
+                lambda: runtime_config.env_disabled("TEST_DISABLED")) is False
+            assert runtime_config.runtime_bool("WEB_SEARCH_ENABLED", True) is False
+        finally:
+            runtime_config.clear_runtime_overrides()

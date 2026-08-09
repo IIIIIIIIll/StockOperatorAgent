@@ -28,13 +28,40 @@ env truthy 语义（`""`/`"0"`/`"false"`/`"no"` → False，其余 True，
 
 from __future__ import annotations
 
+import os
+
 from typing import Union
 
 _RUNTIME: dict[str, Union[bool, int]] = {}
 
-# env truthy 语义：这些值视为假，其余字符串视为真（与 _disabled /
-# web_search_enabled 判定一致）
+# env truthy 语义：这些值视为假，其余字符串视为真（全库唯一假值元组——
+# env_disabled 与 set_runtime_overrides 归一化共用）
 _FALSEY_STRINGS = ("", "0", "false", "no")
+
+
+def env_disabled(name: str) -> bool:
+    """env 负极性判定原语（08-09-unify-config-parsing：全库唯一假值判定）。
+
+    env 层语义保持负极性（`X_DISABLED` 键，truthy = 禁用）：值缺失或
+    显式假值（""/"0"/"false"/"no"，大小写敏感）→ False；其余任意值 →
+    True。消费点一律取反算**正布尔**（`not env_disabled(...)` = 启用）——
+    极性翻转只发生在判定内部，新键不会搞反。
+    """
+    return os.environ.get(name, "") not in _FALSEY_STRINGS
+
+
+def env_int(name: str, default: int) -> int:
+    """env 整数原语：值缺失或非法（非整数）→ 回退默认（配置错误不阻断）。
+
+    收敛 env 读路径（billions_max_calls / display 面板初始值）；覆盖层
+    set_runtime_overrides 的 dict 值归一化是不同输入形态，保留各自实现
+    （不硬并）。
+    """
+    raw = os.environ.get(name)
+    try:
+        return int(raw) if raw is not None else default
+    except ValueError:
+        return default
 
 
 def set_runtime_overrides(overrides: dict) -> None:

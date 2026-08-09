@@ -13,7 +13,7 @@ from core.role_registry import ROLES, enabled_roles
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
 from utils.env_file import update_env_file
-from utils.runtime_config import set_runtime_overrides
+from utils.runtime_config import env_disabled, env_int, set_runtime_overrides
 
 committee = InvestmentCommittee()
 
@@ -105,22 +105,16 @@ def _stream_graph_events(graph, config, inputs, events):
 def _env_enabled(disabled_env_name: str) -> bool:
     """env 有效态（面板初始值）：DISABLED 语义键未设置或显式假值 → 启用。
 
-    判定逐字对齐消费点（web_search.web_search_enabled /
-    get_market_intel._mcp_disabled / billsions_config._disabled）——
-    ""/"0"/"false"/"no" 之外的任意值视为禁用。
+    一行包装：负极性翻转收敛到 runtime_config.env_disabled 单点（负 env
+    → 正 bool），面板渲染逻辑不动。
     """
-    return os.environ.get(disabled_env_name, "") in ("", "0", "false", "no")
+    return not env_disabled(disabled_env_name)
 
 
 def _env_billions_max_calls(capability: str, default: int) -> int:
     """env 有效调用上限（面板初始值）：BILLIONS_{CAP}_MAX_CALLS，
-    非法值回退默认（与 billsions_config 的 env 兜底同判定）。"""
-    cap = capability.upper()
-    raw = os.environ.get(f"BILLIONS_{cap}_MAX_CALLS")
-    try:
-        return int(raw) if raw is not None else default
-    except ValueError:
-        return default
+    非法值回退默认（env_int 收敛 env 读路径，与消费点同判定）。"""
+    return env_int(f"BILLIONS_{capability.upper()}_MAX_CALLS", default)
 
 
 def _panel_enablements(master_on: bool) -> dict:
