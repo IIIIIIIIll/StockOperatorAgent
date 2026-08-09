@@ -1,0 +1,28 @@
+{
+  "id": "tdx-singleton-and-transactions",
+  "name": "tdx-singleton-and-transactions",
+  "title": "TdxSource 单例 + ZODB 单事务提交",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "yh.t",
+  "assignee": "yh.t",
+  "createdAt": "2026-08-09",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "08-09-refactor-architecture-debt",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "架构评审产物"
+  }
+}
