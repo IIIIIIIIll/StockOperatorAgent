@@ -21,12 +21,16 @@
 
 ## Acceptance Criteria
 
-- [ ] 三个子任务全部验收通过。
-- [ ] 依赖改动后 fresh venv 安装冒烟通过（deps-manifest 验收项）。
-- [ ] 所有生产读取的 env 键在 .env.example 可发现（config-discoverability 验收项）。
-- [ ] 测试套件新增用例全绿，无新 skip/xfail（test-quality 验收项）。
-- [ ] spec 与代码漂移项（ZODB/altair 版本注记、logging.md f-string 注记等）同步更新。
-- [ ] 父任务集成复核：跨子任务边界无遗漏（如 env 键改动与文档一致性、requirements 改动后 e2e 仍可跑）。
+- [x] 三个子任务全部验收通过。
+- [x] 依赖改动后 fresh venv 安装冒烟通过（deps-manifest 验收项——以
+      `pip install --dry-run`（exit 0）+ import 冒烟替代实装，PRD 允许的可选路径）。
+- [x] 所有生产读取的 env 键在 .env.example 可发现（config-discoverability 验收项）。
+- [x] 测试套件新增用例全绿，无新 skip/xfail（test-quality 验收项：0F/570P/20S）。
+- [x] spec 与代码漂移项（ZODB/altair 版本注记、logging.md f-string 注记、
+      testing.md 基线）同步更新。
+- [x] 父任务集成复核：跨子任务边界无遗漏——requirements 改动后全量回归
+      （含 e2e）0 失败；env 键审计与 .env.example/README 一致；ZODB 注释
+      版本与对齐后 pin 一致。
 
 ## Notes
 
