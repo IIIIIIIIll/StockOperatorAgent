@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
-import { qfqAdjust, type Bar, type XdxrEventLike } from '../src/adjust';
+import { qfqAdjust, type Bar, type XdxrEventLike } from '../src/adjust.ts';
 
 const fixture = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')) as {
   raw: Array<{ date: string; open: number; close: number; high: number; low: number; volume: number | null }>;

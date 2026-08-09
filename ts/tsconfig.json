@@ -1,15 +1,24 @@
 {
   "compilerOptions": {
     "target": "ES2024",
-    "lib": ["ES2024"],
+    "lib": [
+      "ES2024"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"],
-    "forceConsistentCasingInFileNames": true
+    "types": [
+      "node"
+    ],
+    "forceConsistentCasingInFileNames": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "tools/**/*.mts"
+  ]
 }

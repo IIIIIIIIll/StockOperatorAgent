@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
-import { invokeWithTools } from '../src/toolLoop';
+import { invokeWithTools } from '../src/toolLoop.ts';
 
 // 脚本化 LLM：按调用序返回预置响应（函数形式，Runnable 兼容）
 function scriptedLlm(script: Array<() => AIMessage>) {

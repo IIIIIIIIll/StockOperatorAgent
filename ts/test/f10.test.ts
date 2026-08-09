@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
-import { parseFinanceIndicatorsAllTables, toNum } from '../src/f10';
+import { parseFinanceIndicatorsAllTables, toNum } from '../src/f10.ts';
 
 const tdxText = fs.readFileSync('test/fixtures/f10_tdx.txt', 'utf8');
 const hkText = fs.readFileSync('test/fixtures/f10_hk.txt', 'utf8');

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { Store, type DailyBar } from '../src/store';
+import { Store, type DailyBar } from '../src/store.ts';
 import {
   FetchScope,
   getLastBusinessDay,
   latestPastQuarterEnd,
   overviewNeedsRefresh,
   reportsFresh,
-} from '../src/gates';
+} from '../src/gates.ts';
 
 function bars(dates: string[]): DailyBar[] {
   return dates.map((date) => ({ date, open: 1, close: 2, high: 3, low: 0.5, volume: 100 }));

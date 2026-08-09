@@ -4,14 +4,14 @@
 // 信息面分析师为条件节点：启用谓词关 → 完全不注册
 import { addMessages, Annotation, END, MemorySaver, START, StateGraph } from '@langchain/langgraph';
 import { HumanMessage } from '@langchain/core/messages';
-import { webSearchEnabled, makeWebSearchTool } from './webSearch';
-import type { ToolLike } from './toolLoop';
-import type { LlmLike } from './agents';
-import type { ProgressUpdater } from './progress';
+import { webSearchEnabled, makeWebSearchTool } from './webSearch.ts';
+import type { ToolLike } from './toolLoop.ts';
+import type { LlmLike } from './agents.ts';
+import type { ProgressUpdater } from './progress.ts';
 import {
   BearishTrader, BillionsInformationAnalyst, BullishTrader,
   FundamentalAnalysisExpert, InvestmentManager, TechnicalIndicatorAnalyst, TrendAnalysisExpert,
-} from './agents';
+} from './agents.ts';
 
 // ─── 角色注册表（对齐 Python Role dataclass） ─────────────────────────────
 

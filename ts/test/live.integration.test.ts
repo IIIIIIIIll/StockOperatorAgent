@@ -3,9 +3,9 @@
 //   SOA_LIVE=1 npx vitest run test/live.integration.test.ts
 import { describe, expect, it } from 'vitest';
 import { TdxClient, KlineCategory } from 'node-tdx-market';
-import { getXdxrInfo, parseXdxrResponse } from '../src/tdx/xdxr';
-import { getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client';
-import { qfqAdjust } from '../src/adjust';
+import { getXdxrInfo, parseXdxrResponse } from '../src/tdx/xdxr.ts';
+import { getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client.ts';
+import { qfqAdjust } from '../src/adjust.ts';
 
 const LIVE = process.env.SOA_LIVE === '1';
 
@@ -40,7 +40,7 @@ describe.skipIf(!LIVE)('live TDX integration (AC7)', () => {
       expect(sec).toBeTruthy();
       const text = await getCompanyInfoContent(client, 1, '600036', sec!.filename, sec!.start, sec!.length);
       expect(text.length).toBeGreaterThan(1000);
-      const { parseFinanceIndicatorsAllTables } = await import('../src/f10');
+      const { parseFinanceIndicatorsAllTables } = await import('../src/f10.ts');
       expect(parseFinanceIndicatorsAllTables(text).length).toBeGreaterThan(100);
 
       // qfq 端到端：日K + xdxr → 复权（最近 250 根与 fixture 逐位一致）

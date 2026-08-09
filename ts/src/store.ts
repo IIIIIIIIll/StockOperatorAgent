@@ -56,7 +56,21 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 `;
 
-export class Store {
+/** 仓储接口(Node better-sqlite3 与 RN/web InMemory 共用;业务层只依赖此面)。 */
+export interface StoreLike {
+  close(): void;
+  getStock(ticker: string): StockRecord | null;
+  putStock(record: StockRecord): void;
+  addDatas(ticker: string, bars: DailyBar[]): number;
+  addPerformanceReports(ticker: string, reports: PerformanceReport[]): number;
+  updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void;
+  getDatas(ticker: string): DailyBar[];
+  getPerformanceReports(ticker: string): PerformanceReport[];
+  getMeta(key: string): string | null;
+  setMeta(key: string, value: string): void;
+}
+
+export class Store implements StoreLike {
   private db: Database.Database;
 
   constructor(dbPath = ':memory:') {

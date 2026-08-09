@@ -3,8 +3,8 @@
 // 轮数耗尽且仍在要工具 → 追加"收尾轮"（强约束不再调用）；未知工具占位；
 // 工具异常 → 占位不 raise（图不中断）；空 tools → 单轮直调
 import { AIMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
-import { invokeWithRetry } from './retry';
-import { safeProgress, type ProgressUpdater } from './progress';
+import { invokeWithRetry } from './retry.ts';
+import { safeProgress, type ProgressUpdater } from './progress.ts';
 
 export const MAX_TOOL_ROUNDS = 15;
 

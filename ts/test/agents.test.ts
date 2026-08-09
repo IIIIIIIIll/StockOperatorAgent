@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AIMessage } from '@langchain/core/messages';
-import { BullishTrader } from '../src/agents';
+import { BullishTrader } from '../src/agents.ts';
 
 function stubLlm() {
   const fn = async () => new AIMessage({ content: 'ok' });

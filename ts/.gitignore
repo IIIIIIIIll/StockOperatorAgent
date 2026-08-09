@@ -5,3 +5,6 @@ dist/
 *.db-shm
 *.db-wal
 logs/
+app/dist/
+probe-output/
+app/.expo/

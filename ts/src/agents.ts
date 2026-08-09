@@ -4,11 +4,11 @@
 // M3 逐字对齐 Python agents/（test_query_baselines 契约）
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import type { RunnableLike } from '@langchain/core/runnables';
-import { system_prompt, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt';
-import { getLastBusinessDay } from './gates';
-import { invokeWithRetry } from './retry';
-import { invokeWithTools, type ToolLike } from './toolLoop';
-import { pushReport, safeProgress, type ProgressUpdater } from './progress';
+import { system_prompt, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';
+import { getLastBusinessDay } from './gates.ts';
+import { invokeWithRetry } from './retry.ts';
+import { invokeWithTools, type ToolLike } from './toolLoop.ts';
+import { pushReport, safeProgress, type ProgressUpdater } from './progress.ts';
 
 export interface LlmLike {
   invoke(payload: unknown, config?: unknown): Promise<{ content: string }>;

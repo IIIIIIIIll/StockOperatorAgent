@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { invokeWithRetry } from '../src/retry';
+import { invokeWithRetry } from '../src/retry.ts';
 
 function failingLlm(failures: Array<{ status?: number; message?: string }>, okContent = 'ok') {
   let calls = 0;

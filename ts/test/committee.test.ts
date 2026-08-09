@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
-import { ROLES, buildEdges, buildNodeNames, enabledRoles, makeInvestmentCommittee } from '../src/committee';
+import { ROLES, buildEdges, buildNodeNames, enabledRoles, makeInvestmentCommittee } from '../src/committee.ts';
 
 // 路由式假 LLM（对齐 Python 集成测试约定：按 system 消息独有短语路由）
 function contentText(content: unknown): string {

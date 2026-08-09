@@ -2,7 +2,7 @@
 // 供应商：TAVILY_API_KEY 配置 → Tavily（主选）；未配置 → 空结果占位
 // （Python 侧 DDG 降级——langchain_community 系 sunset，TS 侧 M4 决定是否移植；
 // 本模块降级语义：查询失败/空结果 → 占位文本不 raise，图不中断）
-import type { ToolLike } from './toolLoop';
+import type { ToolLike } from './toolLoop.ts';
 
 export interface SearchResult {
   title: string;

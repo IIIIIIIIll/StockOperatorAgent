@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
-import { computeAll } from '../src/indicators';
+import { computeAll } from '../src/indicators.ts';
 
 const daily = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')) as {
   raw: Array<{ open: number; high: number; low: number; close: number; volume: number }>;
