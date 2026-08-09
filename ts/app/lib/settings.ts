@@ -156,15 +156,23 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   } catch {
     /* 保留原文 */
   }
-  info(`LLM 可达性检测:${host}/models`);
+  info(`LLM 可达性检测(直接提问):${host} model=${keys.llmModel}`);
   const t0 = Date.now();
   try {
-    const resp = await fetch(`${base}/models`, {
-      headers: { Authorization: `Bearer ${keys.llmApiKey.trim()}` },
+    // 直接给 LLM 提问(最小 chat 请求)——比 GET /models 更真实:
+    // 同时验证端点可达、认证有效、模型名正确、生成可用
+    const resp = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${keys.llmApiKey.trim()}` },
+      body: JSON.stringify({
+        model: keys.llmModel.trim(),
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+      }),
     });
     const ms = Date.now() - t0;
     if (resp.ok) {
-      info(`LLM 可达:${host} ${ms}ms`);
+      info(`LLM 可达且可生成:${host} ${ms}ms`);
       return { ok: true, latencyMs: ms, message: `${ms}ms` };
     }
     if (resp.status === 401 || resp.status === 403) {
@@ -172,20 +180,26 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
       return { ok: false, latencyMs: ms, message: `认证失败(HTTP ${resp.status})——检查 API Key` };
     }
     if (resp.status === 404) {
-      logError(`LLM 端点不存在:${host}/models HTTP 404(${ms}ms)——检查 Base URL 是否含 /v1`);
-      return { ok: false, latencyMs: ms, message: `端点不存在(HTTP 404)——检查 Base URL 是否含 /v1` };
+      logError(`LLM 提问 404:${host}(${ms}ms)——Base URL 缺 /v1 或模型名 ${keys.llmModel} 不存在`);
+      return { ok: false, latencyMs: ms, message: `端点/模型不存在(404)——检查 Base URL 是否含 /v1 或模型名是否正确` };
     }
-    logError(`LLM 可达但 HTTP ${resp.status}:${host}(${ms}ms)`);
+    if (resp.status === 429) {
+      logError(`LLM 限流:${host} HTTP 429(${ms}ms)`);
+      return { ok: false, latencyMs: ms, message: `限流(HTTP 429)——稍后重试` };
+    }
+    logError(`LLM 提问 HTTP ${resp.status}:${host}(${ms}ms)`);
     return { ok: false, latencyMs: ms, message: `HTTP ${resp.status}` };
   } catch (err) {
     const ms = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
     logError(`LLM 不可达:${host}(${ms}ms)——${msg}`);
+    const nodeVerify =
+      'Node/真机 App 无 CORS 限制,可直连该端点——`npm run probe`(配三键后)或 Node 一行命令验证可达性';
     return {
       ok: false,
       latencyMs: ms,
       message: msg.includes('fetch')
-        ? `网络/CORS 失败——浏览器跨域限制或端点不可达;可用 Node 验证:node -e "fetch('${base}/models',{headers:{Authorization:'Bearer <key>'}}).then(r=>console.log(r.status))"`
+        ? `浏览器跨域被拒(CORS)——端点不支持浏览器直连(如 OpenCode Zen 无 CORS 头),服务本身可能可达。${nodeVerify}`
         : msg,
     };
   }
