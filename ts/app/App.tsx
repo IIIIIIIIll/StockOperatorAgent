@@ -9,8 +9,8 @@ import DataScreen from './screens/DataScreen';
 import SettingsPanel from './screens/SettingsPanel';
 import { THEME_HEADING, useTheme, type Theme } from './theme';import {
   applySwitchesToEnv,
-  defaultSettings,
   llmConfigured,
+  loadSettings,
   missingLlmKeys,
   saveSettings,
   toLlmConfig,
@@ -39,7 +39,7 @@ export default function App() {
   const [finalDecision, setFinalDecision] = React.useState('');
   const [stockInformation, setStockInformation] = React.useState('');
   const [ticker, setTicker] = React.useState('600036');
-  const [settings, setSettings] = React.useState<SettingsState>(() => defaultSettings());
+  const [settings, setSettings] = React.useState<SettingsState>(() => loadSettings());
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
@@ -57,9 +57,11 @@ export default function App() {
     loadDemoData();
     const bars = store.getDatas('600036');
     info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
-    const miss = missingLlmKeys(settings.keys);
+    const loaded = loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
+    setSettings(loaded);
+    const miss = missingLlmKeys(loaded.keys);
     if (miss.length) warn(`LLM 三键未配置(${miss.join('/')})——演示模式;配置见侧边栏「模型与密钥」`);
-    else info(`LLM 已配置(${settings.keys.llmModel})`);
+    else info(`LLM 已配置(${loaded.keys.llmModel},base=${loaded.keys.llmBaseUrl})`);
     info(`联网搜索供应商:${process.env.TAVILY_API_KEY ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
     setDataVersion(1); // store 为模块级对象:显式触发重渲染
   }, []);
