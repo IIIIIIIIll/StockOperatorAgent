@@ -444,7 +444,7 @@ function formatTaskStatusText(
 ): string | undefined {
    if (!taskDir || !taskTitle) return undefined;
    const slug = basename(taskDir);
-   return `${slug} · ${taskTitle} [${status}]`;
+   return `◈ ${slug} · ${taskTitle} [${status}]`;
 }
 
 function refreshTaskStatus(
@@ -613,6 +613,16 @@ export default function(pi: ExtensionAPI): void {
       const contextKey = rememberContextKey(ctx);
       // Pre-warm the cache so before_agent_start and context can use it
       turnCache.get(projectRoot, contextKey);
+      refreshTaskStatus(ctx, projectRoot, contextKey);
+   });
+
+   // Task transitions happen through bash tool calls (task.py start/finish/
+   // archive). Refresh right after every tool result so the status line no
+   // longer lags until the next user input.
+   pi.on("tool_result", (_event, ctx) => {
+      if (!projectRoot) return;
+      const contextKey = rememberContextKey(ctx);
+      if (!contextKey) return;
       refreshTaskStatus(ctx, projectRoot, contextKey);
    });
 }
