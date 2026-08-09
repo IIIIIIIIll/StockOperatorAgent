@@ -158,10 +158,18 @@ prompt（外加 State 注解——一致性由 `test/core/test_role_registry.py`
 langchain-core 1.5.3 / langchain-openai 1.4.1 / langgraph 1.2.10 /
 langgraph-checkpoint 4.1.1 / langgraph-prebuilt 1.1.0 / langgraph-sdk 0.4.2 /
 langsmith 0.10.15 / openai 2.52.0（传递）。代码零改动，全量回归 116 passed
-（含 graph streaming / reducer / get_state_history 集成测试）。**Gotcha**：
+（含 graph streaming / reducer / get_state_history 集成测试）。
+**08-09 依赖清单对齐（08-09-debt-cleanup/deps-manifest）**：requirements.txt
+全部 pin 对齐本环境已验证安装版（46 项降对齐——ZODB 6.2→6.0.1、altair
+6.0.0→5.5.0 为模板遗留零验证 pin（ffc94c6 带入，历次真实升级未触碰，环境
+从未安装过）；langchain-text-splitters 0.3.11→1.1.2 反向对齐），补回漏 pin
+的 python-dotenv==1.1.1（`main.py:1` / `investment_committee.py:1` direct
+import，08-09 前只靠 conda 传递依赖存在——fresh 非 conda 安装即缺）。
+**Gotcha**：
 requirements.txt 是全量 freeze，但曾漏 pin 直接导入的包（langchain /
 langchain-openai / openai 缺失——fresh `pip install -r requirements.txt` 会
-缺 `langchain_openai`）；更新依赖时确保**直接 import 的包**也在 freeze 中，
+缺 `langchain_openai`；08-09 后同类的 dotenv 已修）；更新依赖时确保
+**直接 import 的包**也在 freeze 中，
 不能只靠传递依赖。升级 langgraph 大版本后先跑 test/integration（reducer
 行为是 0.x → 1.x 最大风险面）。**Gotcha（08-03-websearch-tool-calling）**：
 `langchain-community==0.4.2`（已停更自担维护）的 `DuckDuckGoSearchResults`

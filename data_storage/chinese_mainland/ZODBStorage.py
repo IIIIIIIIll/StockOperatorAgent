@@ -87,7 +87,7 @@ _instance_lock = threading.Lock()
 def get_zodb_storage():
     """进程级单例：整个进程共享一个 ZODB 连接。
 
-    FileStorage 的 flock 锁在同一进程内不可重入——本环境（ZODB 6.2 +
+    FileStorage 的 flock 锁在同一进程内不可重入——本环境（ZODB 6.0.1 +
     Python 3.13）下实例的 __del__ 偶发无法关闭连接（ConnectionStateError），
     锁泄漏会导致同进程第二个实例打开失败（zc.lockfile.LockError）。所有
     DataAcquisition 共用本单例即消除该类问题（core spec 所述"module-level
