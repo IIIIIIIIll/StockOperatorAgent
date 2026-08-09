@@ -1,12 +1,14 @@
-// 设置面板 —— 对齐 Python display.py 四节:
-// 1. 模型与密钥(持久化) 2. LangSmith(持久化) 3. 能力开关(会话级,8 个)
-// 4. 亿信调用上限(会话级,3 个)。持久化 localStorage;开关分析前应用。
+// 设置面板 —— 分类重排 + LLM 可达性监测 + 缺键红色禁用
+// 分节:1) LLM(大模型:模型/BaseURL/Key + 保存 + 可达性)
+//       2) 外部服务密钥(TDX/亿信) 3) LangSmith 4) 能力开关 5) 调用上限
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import {
-  defaultSettings,
+  checkLlmReachability,
   loadSettings,
+  missingLlmKeys,
   saveSettings,
+  type ReachabilityResult,
   type SettingsState,
 } from '../lib/settings';
 import { useTheme, type Theme } from '../theme';
@@ -36,11 +38,16 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const [settings, setSettings] = React.useState<SettingsState>(() => loadSettings());
+  const [reach, setReach] = React.useState<ReachabilityResult | 'idle' | 'checking'>('idle');
+
+  const missing = missingLlmKeys(settings.keys);
+  const keysComplete = missing.length === 0;
 
   function update(patch: Partial<SettingsState>): void {
     const next = { ...settings, ...patch };
     setSettings(next);
     onSettingsChange(next);
+    setReach('idle'); // 配置变化 → 旧检测结果失效
   }
 
   function updateSwitch(key: keyof SettingsState['switches'], value: boolean): void {
@@ -55,46 +62,81 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     update({ keys: { ...settings.keys, [key]: value } });
   }
 
+  /** 保存(仅三键齐全时可用)+ LLM 可达性监测。 */
+  async function saveAndCheck(): Promise<void> {
+    if (!keysComplete) return; // 缺键:按钮已禁用,双保险
+    saveSettings(settings);
+    setReach('checking');
+    const result = await checkLlmReachability(settings.keys);
+    setReach(result);
+  }
+
   const billionsGreyed = !settings.keys.billionsApiKey.trim() || !settings.switches.billionsMaster;
 
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>设置</Text>
 
-      {/* 1. 模型与密钥(持久化) */}
+      {/* ── 1. LLM(大模型)────────────────────────────────────── */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>模型与密钥(持久化)</Text>
-        <Text style={styles.muted}>保存后写入本地配置,重启保留。</Text>
+        <Text style={styles.sectionTitle}>LLM(大模型)</Text>
+        <Text style={styles.muted}>OpenAI 兼容;三键必填。保存时自动检测可达性。</Text>
         <Text style={styles.label}>LLM 模型</Text>
         <TextInput style={styles.input} value={settings.keys.llmModel} onChangeText={(v) => updateKey('llmModel', v)} placeholder="deepseek-v4-flash" autoCapitalize="none" />
         <Text style={styles.label}>LLM Base URL</Text>
         <TextInput style={styles.input} value={settings.keys.llmBaseUrl} onChangeText={(v) => updateKey('llmBaseUrl', v)} placeholder="https://api.example.com/v1" autoCapitalize="none" autoCorrect={false} />
         <Text style={styles.label}>LLM API Key</Text>
-        <TextInput style={styles.input} value={settings.keys.llmApiKey} onChangeText={(v) => updateKey('llmApiKey', v)} placeholder="sk-...(三键之一)" autoCapitalize="none" secureTextEntry />
-        <Text style={styles.label}>通达信 TDX API Key(可选)</Text>
+        <TextInput style={styles.input} value={settings.keys.llmApiKey} onChangeText={(v) => updateKey('llmApiKey', v)} placeholder="sk-..." autoCapitalize="none" secureTextEntry />
+
+        {/* 保存按钮:缺键 → 红色禁用 + 点名;齐全 → 正常 + 可达性检测 */}
+        <Pressable
+          style={[styles.button, keysComplete ? styles.buttonPrimary : styles.buttonError, reach === 'checking' && styles.buttonDisabled]}
+          disabled={!keysComplete || reach === 'checking'}
+          onPress={() => void saveAndCheck()}
+        >
+          <Text style={styles.buttonText}>{reach === 'checking' ? '检测中…' : keysComplete ? '保存配置' : `缺少 ${missing.join('/')}`}</Text>
+        </Pressable>
+        {!keysComplete ? (
+          <Text style={styles.error}>✗ 三键不齐——无法保存,LLM 不可用。缺失:{missing.join(' / ')}</Text>
+        ) : null}
+
+        {/* 可达性监测结果 */}
+        {reach === 'checking' ? (
+          <Text style={styles.muted}>正在检测 LLM 可达性…</Text>
+        ) : reach !== 'idle' ? (
+          reach.ok ? (
+            <Text style={styles.ok}>✓ LLM 可达({reach.message})</Text>
+          ) : (
+            <Text style={styles.error}>✗ LLM 不可达:{reach.message}</Text>
+          )
+        ) : null}
+      </View>
+
+      {/* ── 2. 外部服务密钥(可选)──────────────────────────────── */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>外部服务密钥(可选)</Text>
+        <Text style={styles.muted}>未配置时对应能力自动降级占位,不影响分析。</Text>
+        <Text style={styles.label}>通达信 TDX API Key</Text>
         <TextInput style={styles.input} value={settings.keys.tdxApiKey} onChangeText={(v) => updateKey('tdxApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
-        <Text style={styles.label}>亿信 API Key(可选)</Text>
+        <Text style={styles.label}>亿信 API Key</Text>
         <TextInput style={styles.input} value={settings.keys.billionsApiKey} onChangeText={(v) => updateKey('billionsApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
       </View>
 
-      {/* 2. LangSmith(持久化) */}
+      {/* ── 3. LangSmith(遥测)─────────────────────────────────── */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>LangSmith(持久化)</Text>
-        <Text style={styles.muted}>开发者遥测配置;TS 侧未接入,仅持久化。</Text>
+        <Text style={styles.sectionTitle}>LangSmith(遥测)</Text>
+        <Text style={styles.muted}>开发者追踪配置;TS 侧未接入,仅持久化。</Text>
         <View style={styles.toggleRow}>
-          <Text style={styles.label}>启用 LangSmith 追踪</Text>
+          <Text style={styles.label}>启用追踪</Text>
           <Switch value={settings.keys.langsmithTracing} onValueChange={(v) => updateKey('langsmithTracing', v)} />
         </View>
-        <Text style={styles.label}>LangSmith API Key</Text>
+        <Text style={styles.label}>API Key</Text>
         <TextInput style={styles.input} value={settings.keys.langsmithKey} onChangeText={(v) => updateKey('langsmithKey', v)} placeholder="留空表示不修改" autoCapitalize="none" secureTextEntry />
-        <Text style={styles.label}>LangSmith 项目名</Text>
+        <Text style={styles.label}>项目名</Text>
         <TextInput style={styles.input} value={settings.keys.langsmithProject} onChangeText={(v) => updateKey('langsmithProject', v)} placeholder="soa-ts" autoCapitalize="none" />
-        <Pressable style={[styles.button, styles.buttonSecondary]} onPress={() => saveSettings(settings)}>
-          <Text style={styles.buttonText}>保存配置</Text>
-        </Pressable>
       </View>
 
-      {/* 3. 能力开关(会话级) */}
+      {/* ── 4. 能力开关(会话级)────────────────────────────────── */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>能力开关(会话级)</Text>
         <Text style={styles.muted}>下次分析生效;重新加载后恢复默认。</Text>
@@ -111,7 +153,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         })}
       </View>
 
-      {/* 4. 亿信调用上限(会话级) */}
+      {/* ── 5. 亿信调用上限(会话级)────────────────────────────── */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>亿信调用上限(会话级)</Text>
         <Text style={styles.muted}>单次分析内工具调用上限;重新加载后恢复默认。</Text>
@@ -130,7 +172,6 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
           </View>
         ))}
       </View>
-
     </ScrollView>
   );
 }
@@ -138,21 +179,22 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.md },
-    title: { fontSize: 20, fontWeight: '700', color: theme.colors.text, marginBottom: theme.spacing.md },
-    section: { marginBottom: theme.spacing.lg },
-    sectionTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.text, marginBottom: theme.spacing.xs },
+    title: { fontSize: 18, fontWeight: '700', color: theme.colors.text, marginBottom: theme.spacing.md },
+    section: { marginBottom: theme.spacing.lg, paddingBottom: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    sectionTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.primary, marginBottom: 2 },
     muted: { fontSize: 11, color: theme.colors.textSecondary, marginBottom: theme.spacing.sm },
     label: { fontSize: 12, color: theme.colors.textSecondary, marginTop: theme.spacing.sm, marginBottom: 3 },
     input: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: theme.colors.text },
     button: { borderRadius: theme.radius.sm, paddingVertical: 10, alignItems: 'center', marginTop: theme.spacing.md },
-    buttonSecondary: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
     buttonPrimary: { backgroundColor: theme.colors.primary },
+    buttonError: { backgroundColor: theme.colors.error, opacity: 0.7 },
     buttonDisabled: { opacity: 0.5 },
-    buttonText: { color: theme.colors.text, fontWeight: '600', fontSize: 14 },
+    buttonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
     toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 },
     rowDisabled: { opacity: 0.4 },
     capRow: { flexDirection: 'row', alignItems: 'center', marginTop: theme.spacing.sm },
     warn: { color: theme.colors.warn, fontSize: 12, marginTop: theme.spacing.sm },
     error: { color: theme.colors.error, fontSize: 12, marginTop: theme.spacing.sm },
+    ok: { color: theme.colors.ok, fontSize: 12, marginTop: theme.spacing.sm, fontWeight: '600' },
   });
 }
