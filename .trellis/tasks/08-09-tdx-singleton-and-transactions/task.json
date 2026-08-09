@@ -3,7 +3,7 @@
   "name": "tdx-singleton-and-transactions",
   "title": "TdxSource 单例 + ZODB 单事务提交",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -14,10 +14,10 @@ import pytest
 
 from data_source.chinese_mainland.tdx.overview import (
     OVERVIEW_COLUMNS,
+    build_overview,
     compose_overview,
     latest_period_value,
 )
-from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 from data_structure.chinese_mainland.StockOverview import StockOverview
 
 GOLDEN_LAST_DATE = date(2026, 7, 31)
@@ -250,7 +250,7 @@ class TestLiveBuildOverview:
     """live：000001 概览字段合理性；TDX 不可达（build_overview 返回 None）→ 跳过。"""
 
     def test_live_build_overview_000001(self):
-        df = TdxSource().build_overview("000001")
+        df = build_overview("000001")
         if df is None:
             pytest.skip("TDX unreachable in this environment (no price source)")
         row = df.iloc[0]

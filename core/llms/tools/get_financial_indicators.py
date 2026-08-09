@@ -27,10 +27,10 @@ def get_financial_indicators(ticker: str) -> str:
     （与 get_trend_indicators 的"（无 ... 跳过）"风格一致）。
     """
     from data_source.chinese_mainland.tdx.f10_parser import parse_indicator_section
-    from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+    from data_source.chinese_mainland.tdx.tdx_source import get_tdx_source
     from utils.formatting import fmt_number
 
-    src = TdxSource()
+    src = get_tdx_source()
     raw = src.fetch_company_finance_raw(ticker)
     if not raw:
         return f"（无 {ticker} 的盈利能力指标，跳过）"

@@ -64,9 +64,16 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
   date=<YYYYMMDD>/data.parquet` 当日分区已存在 → 直接读回补 market 标签列
   （与 vendor 写后读回同一契约，列序/类型不变），不重拉全市场列表（~2.1 万
   行/市场多页往返的大头）；文件缺失/空/损坏 → 回退网络。
-  另有构建入口（委托 overview.py/reports.py）：`build_overview(ticker) ->
-  pd.DataFrame | None`、`build_reports(ticker) -> pd.DataFrame | None`、
-  `get_stock_name(ticker) -> str`。名称索引模块级缓存
+  **进程级单例（2026-08-09，08-09-tdx-singleton-and-transactions）**：
+  `get_tdx_source()` 照 get_zodb_storage 模式（模块级缓存 + 双重检查锁）——
+  生产链路全部消费点（DataAcquisition / overview / reports /
+  get_financial_indicators）经单例获取，TdxDownloader 构造与 parquet_root
+  只在单例内发生一次；`TdxSource()` 直接构造仍可用（测试/独立路径不受限）。
+  概览/业绩构建入口已**双入口合一**：TdxSource 上的
+  `build_overview`/`build_reports` facade 已删除（曾绕开 `_scope` 穿线），
+  唯一入口是模块函数 `overview.build_overview(ticker, _scope=None) ->
+  pd.DataFrame | None` 与 `reports.build_reports(ticker, _scope=None) ->
+  pd.DataFrame | None`（grep 无 `TdxSource().build_*` 调用）。名称索引模块级缓存
   `_NAME_INDEX: dict[tuple[int, str], str]`（**(market, code)** 键——SH 列表
   含指数代码，纯 code 键会撞车；market 由 `infer_hq_market` 推断），失败回退
   ticker 本身（name 永不 NaN）。**2026-08-02 修复**：`_NAME_INDEX_LOADED`

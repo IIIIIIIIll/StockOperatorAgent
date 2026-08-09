@@ -68,6 +68,13 @@ Behavior rules:
 - Every mutating method ends with `transaction.commit()` — the persistent-object
   write pattern (see `data_storage/index.md`). (`update_overview` 同步
   `overview_last_update` + commit；`add_info`/`get_info` 已删，勿再添加。)
+- **mutator commit 参数（2026-08-09，08-09-tdx-singleton-and-transactions）**：
+  `add_datas(datas, commit=True)` / `add_performance_reports(reports,
+  commit=True)` / `update_overview(new_overview, commit=True)`——链上调用
+  （DataAcquisition 三数据阶段）传 `commit=False` 只 mutate 不 commit，由
+  `put_stock` 一次 commit 持久化（单事务，见 data_storage spec 交易规则）；
+  默认 True 保持既有调用零变化。单行版 `add_data` / `add_performance_report`
+  委托批量版，commit 语义跟随批量版默认。
 - **批量 mutator 例外（2026-08-02，review #3）**：`add_datas(list) -> int` /
   `add_performance_reports(list) -> int` 整批**一次 commit**（返回实际追加数，
   0 = 全部重复不 commit；输入须按 date / report_date 升序——数据链路保证）。

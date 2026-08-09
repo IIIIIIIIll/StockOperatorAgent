@@ -75,6 +75,15 @@ patterns:
 - **Every write ends with `transaction.commit()`** — in `ZODBStorageInstance`
   (`put_stock`, `set_overview_updated_now`) and in `ChinaStock` mutators
   (`add_data`, `add_performance_report`, `update_overview`, `add_info`).
+- **单事务链（2026-08-09，08-09-tdx-singleton-and-transactions）**：一次逻辑写
+  一次 commit——`ChinaStock` 三个批量 mutator（`add_datas` /
+  `add_performance_reports` / `update_overview`）带 `commit: bool = True`
+  参数（默认保持既有行为），链上调用（`ensure_stock` 刷新路径 /
+  `acquire_historical_data_tdx` / `acquire_performance_report_tdx`）传
+  `commit=False`——mutate 的 persistent 变更与 `root.stocks` 引用由紧随的
+  `put_stock` 一次 commit 同事务持久化（提交 2 → 1；"0 = 全部重复不 commit"
+  语义不变）。链形态统一为 get → mutate(`commit=False`) → `put_stock` →
+  commit（data_structure spec 的 mutator commit 参数实例）。
 - Reads never commit. If a method touches `root`/storage only for reading, no
   `transaction` import is needed.
 - The `transaction` module is used directly (`import transaction`), not via ZODB

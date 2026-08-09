@@ -12,6 +12,7 @@ those imports resolve without touching the upstream code.
 from __future__ import annotations
 
 import sys
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -169,7 +170,7 @@ class TdxSource:
         return self.downloader.download_index(code, market=market, max_bars=max_bars)
 
     # ------------------------------------------------------------------
-    # 概览构建（按需单股）：get_stock_name + build_overview（→ overview.py）
+    # 名称构建（按需单股）：get_stock_name（→ 名称索引，模块级缓存）
     # ------------------------------------------------------------------
     def get_stock_name(self, ticker: str) -> str:
         """code → 名称：security_list 全市场名称索引，模块级缓存一次。
@@ -212,14 +213,24 @@ class TdxSource:
         if ok:
             _NAME_INDEX_LOADED = True
 
-    def build_overview(self, ticker: str) -> "pd.DataFrame | None":
-        """按需单股构建 22 列概览 DataFrame（单行；列序契约见 overview.py）。"""
-        from data_source.chinese_mainland.tdx.overview import build_overview as _build_overview
 
-        return _build_overview(ticker)
+_instance = None
+_instance_lock = threading.Lock()
 
-    def build_reports(self, ticker: str) -> "pd.DataFrame | None":
-        """按需单股构建业绩报告 DataFrame（每报告期一行；列序契约见 reports.py）。"""
-        from data_source.chinese_mainland.tdx.reports import build_reports as _build_reports
 
-        return _build_reports(ticker)
+def get_tdx_source() -> TdxSource:
+    """进程级懒单例（照 get_zodb_storage 模式）：同一进程共享一个 TdxSource。
+
+    生产链路收敛点（08-09-tdx-singleton-and-transactions）：TdxDownloader
+    构造与 parquet_root 只在单例内发生一次——单次分析里 pytdx 连接/根路径
+    不再反复重建，缓存树一致性更稳。幂等：同一进程多次调用返回同一实例。
+    ``TdxSource()`` 直接构造仍可用（测试/独立路径不受限），单例只为生产
+    链路收敛（DataAcquisition / overview / reports / 指标工具全部消费点
+    经本函数获取）。
+    """
+    global _instance
+    if _instance is None:
+        with _instance_lock:
+            if _instance is None:
+                _instance = TdxSource()
+    return _instance

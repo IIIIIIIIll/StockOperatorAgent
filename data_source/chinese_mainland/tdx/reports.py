@@ -35,7 +35,7 @@ from __future__ import annotations
 import pandas as pd
 from loguru import logger
 
-from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+from data_source.chinese_mainland.tdx.tdx_source import get_tdx_source
 
 NAN = float("nan")
 
@@ -167,7 +167,7 @@ def build_reports(ticker: str, _scope=None) -> pd.DataFrame | None:
     raw 文本读取绕过 scope 直读本地 parquet（无网络、无去重需求）。
     """
     from data_source.chinese_mainland.tdx.f10_parser import parse_finance_indicators_all_tables
-    src = TdxSource()
+    src = get_tdx_source()
     name = src.get_stock_name(ticker)
     fetcher = _scope or src
 

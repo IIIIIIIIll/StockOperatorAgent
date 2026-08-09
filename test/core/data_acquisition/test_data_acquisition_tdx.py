@@ -16,7 +16,7 @@ from numpy import float64
 
 from core.data_acquisition import DataAcquisition, FetchScope
 from data_source.chinese_mainland.tdx.overview import OVERVIEW_COLUMNS
-from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+from data_source.chinese_mainland.tdx.reports import build_reports
 from data_structure.chinese_mainland import ChinaStock
 from data_structure.chinese_mainland.StockOverview import StockOverview
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
@@ -398,7 +398,7 @@ class TestDataAcquisitionTdx:
         assert da.acquire_performance_report_tdx("000001") is True
         reports = stock.get_performance_reports()
         # F10 可达 → 应有报告；不可达（build_reports None 降级）→ 0 份且不报错
-        if TdxSource().build_reports("000001") is not None:
+        if build_reports("000001") is not None:
             assert len(reports) > 0
         for report in reports:
             assert len(report.report_date) == 8  # '%Y%m%d' 字符串协议
@@ -417,7 +417,7 @@ class TestDataAcquisitionTdx:
         assert stock.overview.ticker == "000001"
         assert stock.overview.name  # TDX 名称或回退 ticker
         assert len(stock.get_datas()) > 0  # 历史（TDX 日K）
-        if TdxSource().build_reports("000001") is not None:
+        if build_reports("000001") is not None:
             assert len(stock.get_performance_reports()) > 0
 
     # ---------- 业绩报告 freshness 门（08-02-fix-report-freshness-gate） ----------
@@ -440,7 +440,7 @@ class TestDataAcquisitionTdx:
 
         def fake_fetch(t):
             calls.append(t)
-            return TdxSource().build_reports(t)
+            return build_reports(t)
 
         assert da.acquire_performance_report_tdx("600000", _fetch_reports=fake_fetch) is True
         assert calls == []  # 门跳过：无 F10 网络访问
@@ -501,7 +501,7 @@ class TestDataAcquisitionTdx:
 
         def fake_fetch(t):
             calls.append(t)
-            return TdxSource().build_reports(t)
+            return build_reports(t)
 
         assert da.acquire_performance_report_tdx("600000", _fetch_reports=fake_fetch) is True
         assert len(calls) == 1  # 旧报告期 → 门未命中，首拉必走远端
@@ -511,3 +511,109 @@ class TestDataAcquisitionTdx:
             assert stock.get_performance_reports()[-1].report_date == "20260630"
         else:
             assert len(calls) == 2
+
+    # ---------- 08-09：ZODB 单事务（3 条 get→mutate→put 链） ----------
+    # mutator 链上调用传 commit=False，由 put_stock 一次 commit 持久化——
+    # 首建/刷新/历史/业绩各 1 次 commit（原 add_datas/update_overview/
+    # add_performance_reports 内部 commit + put_stock commit = 2 次）。
+    # 计数注入 monkeypatch transaction.commit（测试内 try/finally 保存恢复，
+    # house style 不用 pytest fixture）。ticker 用专用 dummy，前置条件显式
+    # 设置（共享 DB 跨运行持久化，见 testing spec）。
+
+    def _commit_counter(self):
+        calls = []
+        orig_commit = transaction.commit
+
+        def counting():
+            calls.append(1)
+            orig_commit()
+
+        transaction.commit = counting
+        return calls, orig_commit
+
+    def _synthetic_report_rows(self, ticker, report_date="20260630"):
+        """15 列 StockPerformanceReport 恒等路径合成 DataFrame（from_row 按列名）。"""
+        return pd.DataFrame([{
+            "ticker": ticker, "name": "测试",
+            "eps": 0.5, "total_income": 1e9, "total_income_YoY_rate": 1.0,
+            "total_income_QoQ_rate": 1.0, "net_profit": 1e8,
+            "net_profit_YoY_rate": 1.0, "net_profit_QoQ_rate": 1.0,
+            "net_worth_per_share": 5.0, "net_worth_return_rate": 5.0,
+            "cash_flow_per_share": 1.0, "sales_gross_margin": 10.0,
+            "industry": "", "report_date": report_date,
+        }])
+
+    def test_ensure_stock_first_build_single_commit(self):
+        """首建：put_stock 一次 commit 完成 构建 + 入仓（无 mutator 内部提交）。"""
+        da = DataAcquisition()
+        ticker = "999991"
+        if da.storage.get_stock(ticker) is not None:
+            del da.storage.root.stocks[ticker]
+            transaction.commit()
+        calls, orig_commit = self._commit_counter()
+        try:
+            def fake_build(t):
+                row = {col: (ticker if col == "代码" else ("测试" if col == "名称" else 1.0)) for col in OVERVIEW_COLUMNS}
+                return pd.DataFrame([row])
+            assert da.ensure_stock(ticker, _build_overview=fake_build) is True
+        finally:
+            transaction.commit = orig_commit
+        assert len(calls) == 1
+        assert da.storage.get_stock(ticker).overview.ticker == ticker
+
+    def test_ensure_stock_refresh_single_commit(self):
+        """刷新路径：update_overview(commit=False) + put_stock = 1 次 commit。"""
+        da = DataAcquisition()
+        stock = _seed_stock(da, "999991", "旧名称")
+        stock.overview_last_update = datetime.datetime.combine(
+            asia_today() - datetime.timedelta(days=3), datetime.time(12, 0)
+        )
+        transaction.commit()
+        calls, orig_commit = self._commit_counter()
+        try:
+            def fake_build(t):
+                row = {col: (t if col == "代码" else ("新名称" if col == "名称" else 1.0)) for col in OVERVIEW_COLUMNS}
+                return pd.DataFrame([row])
+            assert da.ensure_stock("999991", _build_overview=fake_build) is True
+        finally:
+            transaction.commit = orig_commit
+        assert len(calls) == 1
+        assert da.storage.get_stock("999991").overview.name == "新名称"
+
+    def test_acquire_historical_data_tdx_single_commit(self):
+        """历史链：add_datas(commit=False) + put_stock = 1 次 commit（原 2 次）。"""
+        da = DataAcquisition()
+        stock = _seed_stock(da, "999990")
+        stock.last_data_update = asia_today() - datetime.timedelta(days=10)
+        transaction.commit()
+        fake = _CountingSrc()
+        calls, orig_commit = self._commit_counter()
+        try:
+            assert da.acquire_historical_data_tdx("999990", _scope=FetchScope(fake)) is True
+        finally:
+            transaction.commit = orig_commit
+        assert len(calls) == 1
+        assert len(stock.get_datas()) > 0  # mutate 已随 put_stock 事务持久化
+
+    def test_acquire_performance_report_tdx_single_commit(self):
+        """业绩链：add_performance_reports(commit=False) + put_stock = 1 次 commit。
+
+        前置条件：先删除 999989——共享 DB 跨运行持久化，前次运行已写入的
+        '20260630' 报告会让业绩门命中跳过拉取（0 commit），删除后门必未命中
+        走拉取路径，确定性成立。
+        """
+        da = DataAcquisition()
+        ticker = "999989"
+        if da.storage.get_stock(ticker) is not None:
+            del da.storage.root.stocks[ticker]
+            transaction.commit()
+        stock = _seed_stock(da, ticker)
+        calls, orig_commit = self._commit_counter()
+        try:
+            assert da.acquire_performance_report_tdx(
+                ticker, _fetch_reports=lambda t: self._synthetic_report_rows(t)
+            ) is True
+        finally:
+            transaction.commit = orig_commit
+        assert len(calls) == 1
+        assert len(stock.get_performance_reports()) == 1

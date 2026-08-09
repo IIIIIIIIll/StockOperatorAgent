@@ -4,7 +4,7 @@ from data_source.chinese_mainland.tdx.adjust import qfq_adjust
 from data_source.chinese_mainland.tdx.mapping import AKSHARE_HIST_COLUMN_MAP, to_akshare_hist_schema
 from data_source.chinese_mainland.tdx.overview import OVERVIEW_COLUMN_MAP, build_overview as _build_overview_module
 from data_source.chinese_mainland.tdx.reports import build_reports as _build_reports_module
-from data_source.chinese_mainland.tdx.tdx_source import TdxSource, is_bj_ticker
+from data_source.chinese_mainland.tdx.tdx_source import get_tdx_source, is_bj_ticker
 from data_structure.chinese_mainland import ChinaStock, ChinaStockData
 from data_structure.chinese_mainland.StockOverview import StockOverview
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
@@ -106,8 +106,8 @@ class DataAcquisition(LegacyAksharePaths):
 
         _scope（review #2+#3）：FetchScope 透传——给出时各源拉取走 scope
         复用（与概览/业绩共享同一 DataFrame）；None → 独立直拉（独立调用
-        语义不变）。方法名与 TdxSource 同构，`_scope or TdxSource()` 直接
-        作 fetcher。
+        语义不变）。方法名与 TdxSource 同构，`_scope or get_tdx_source()`
+        直接作 fetcher。
 
         读写锁（review #5）：数据阶段全程持 `storage.lock`（RLock，get →
         mutate → commit 嵌套可重入）——单例连接非线程安全，Streamlit 多会话
@@ -134,7 +134,7 @@ class DataAcquisition(LegacyAksharePaths):
                 return True
             max_bars = None if gap_days > 120 else gap_days
 
-            tdx_source = _scope or TdxSource()
+            tdx_source = _scope or get_tdx_source()
 
             float_shares = None
             try:
@@ -162,11 +162,13 @@ class DataAcquisition(LegacyAksharePaths):
             # 事务（原逐行 add_data 数千次 FileStorage tpc）。命名行构造
             # （08-09）：mapping 输出 12 列中文列名 → AKSHARE_HIST_COLUMN_MAP，
             # 列序漂移 → KeyError（响亮失败）而非位置错位静默写垃圾。
+            # 单事务（08-09）：add_datas 内部不 commit（commit=False），mutate
+            # 的 persistent 变更由紧接的 put_stock 一次 commit 持久化（2 → 1）。
             rows = [
                 ChinaStockData.ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)
                 for row in adjusted.to_dict(orient='records')
             ]
-            stock.add_datas(rows)
+            stock.add_datas(rows, commit=False)
 
             self.storage.put_stock(ticker, stock)
             logger.info("Historical data for stock {} updated until {}.", ticker, stock.last_data_update)
@@ -189,21 +191,20 @@ class DataAcquisition(LegacyAksharePaths):
         失败"语义区分（error-handling.md：expected absence 才回 False）。
 
         _build_overview：测试注入点（house style 无 mock 框架）——默认
-        TdxSource().build_overview（远端 TDX），测试传计数包装验证门跳过/
-        命中时不触发网络。
+        overview.build_overview 模块函数（远端 TDX，_scope 透传），测试传
+        计数包装验证门跳过/命中时不触发网络。
 
         _scope（review #2+#3）：FetchScope 透传——给出时构建/刷新走
         overview.build_overview(_scope=...) 复用共享拉取；None → 独立直拉
         （独立调用语义不变）。_build_overview 注入点优先级最高（完整替换）。
+        默认路径与 _scope 走同一模块函数（08-09 双入口合一：facade
+        TdxSource().build_overview 已删除，无绕路入口）。
 
         读写锁（review #5）：数据阶段全程持 `storage.lock`（RLock 可重入）。
         """
         with self.storage.lock:
             if _build_overview is None:
-                if _scope is not None:
-                    _build_overview = lambda t: _build_overview_module(t, _scope=_scope)
-                else:
-                    _build_overview = TdxSource().build_overview
+                _build_overview = lambda t: _build_overview_module(t, _scope=_scope)
             stock = self.storage.get_stock(ticker)
             if stock is not None:
                 if self._overview_stale(stock):
@@ -214,7 +215,14 @@ class DataAcquisition(LegacyAksharePaths):
                         # 22 列名契约（overview.py OVERVIEW_COLUMN_MAP，from_row 命名构造——
                         # 列名承重，列序漂移 → KeyError，08-09）
                         row = overview_df.to_dict(orient='records')[0]
-                        stock.update_overview(new_overview=StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP))
+                        # 单事务（08-09）：update_overview 不 commit（commit=False），
+                        # mutate 的 persistent 变更由 put_stock 一次 commit 持久化
+                        # （get → mutate → put → commit 链统一）
+                        stock.update_overview(
+                            new_overview=StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP),
+                            commit=False,
+                        )
+                        self.storage.put_stock(ticker, stock)
                         logger.info("Overview refreshed for {}.", ticker)
                 return True
             # 北交所（4/8 前缀）：TDX 全链路不可用（无名称/无行情）——显式提示 +
@@ -293,11 +301,13 @@ class DataAcquisition(LegacyAksharePaths):
         补拉。
 
         _fetch_reports：测试注入点（house style 无 mock 框架）——默认
-        TdxSource().build_reports（远端 F10），测试传计数包装验证门跳过时
-        不触发网络。
+        reports.build_reports 模块函数（远端 F10，_scope 透传），测试传
+        计数包装验证门跳过时不触发网络。
 
         _scope（review #2+#3）：FetchScope 透传——给出时 F10 拉取走
         reports.build_reports(_scope=...) 复用共享拉取；None → 独立直拉。
+        默认路径与 _scope 走同一模块函数（08-09 双入口合一：facade
+        TdxSource().build_reports 已删除，无绕路入口）。
 
         读写锁（review #5）：数据阶段全程持 `storage.lock`（RLock 可重入）。
         """
@@ -311,21 +321,20 @@ class DataAcquisition(LegacyAksharePaths):
                 logger.debug("Performance reports for {} already include the latest quarter {}; skipping F10 fetch.", ticker, latest_quarter_end)
                 return True
             if _fetch_reports is None:
-                if _scope is not None:
-                    _fetch_reports = lambda t: _build_reports_module(t, _scope=_scope)
-                else:
-                    _fetch_reports = TdxSource().build_reports
+                _fetch_reports = lambda t: _build_reports_module(t, _scope=_scope)
             reports = _fetch_reports(ticker)
             if reports is None:
                 logger.warning("TDX performance reports unavailable for {}; skipped.", ticker)
                 return True
             # 15 列名契约（reports.py REPORT_COLUMNS 即字段名 → from_row 恒等路径，
-            # 08-09）；批量追加（review #3）：先收集后一次 commit
+            # 08-09）；批量追加（review #3）：先收集后一次 commit。单事务
+            # （08-09）：add_performance_reports 内部不 commit（commit=False），
+            # mutate 的 persistent 变更由 put_stock 一次 commit 持久化（2 → 1）。
             rows = [
                 StockPerformanceReport.from_row(row)
                 for row in reports.to_dict(orient='records')
             ]
-            stock.add_performance_reports(rows)
+            stock.add_performance_reports(rows, commit=False)
             self.storage.put_stock(ticker, stock)
             return True
 
@@ -352,7 +361,7 @@ class DataAcquisition(LegacyAksharePaths):
 
         _scope：测试注入点——传计数 scope 验证各源恰一次。
         """
-        scope = _scope or FetchScope(TdxSource())
+        scope = _scope or FetchScope(get_tdx_source())
         stock = self.storage.get_stock(ticker)
         if stock is None:
             try:

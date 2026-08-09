@@ -13,8 +13,7 @@ import pytest
 
 from loguru import logger
 
-from data_source.chinese_mainland.tdx.reports import REPORT_COLUMNS, compose_reports
-from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+from data_source.chinese_mainland.tdx.reports import REPORT_COLUMNS, build_reports, compose_reports
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
 
 # 合成 F10 三个报告期（与真实 vendor 输出同构：metric/period/value_num 列）。
@@ -236,7 +235,7 @@ class TestLiveBuildReports:
     """live：000001 F10 → ≥1 份报告；TDX 不可达（build_reports 返回 None）→ 跳过。"""
 
     def test_live_build_reports_000001(self):
-        df = TdxSource().build_reports("000001")
+        df = build_reports("000001")
         if df is None:
             pytest.skip("TDX unreachable in this environment (company_finance unavailable)")
         assert len(df) >= 1
@@ -252,7 +251,7 @@ class TestLiveBuildReports:
         """08-02-fix-f10-quarterly-data：raw 路径含季度（2025 Q1-Q3 在表 2，
         vendor 解析器曾丢弃；本层非 vendor 解析器并入）。raw 缓存缺失 →
         回退 vendor 路径（无季度，跳过本断言）。"""
-        df = TdxSource().build_reports("000001")
+        df = build_reports("000001")
         if df is None:
             pytest.skip("TDX unreachable in this environment (company_finance unavailable)")
         import os

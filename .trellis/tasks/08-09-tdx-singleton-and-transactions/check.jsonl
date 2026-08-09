@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/08-09-tdx-singleton-and-transactions/prd.md", "reason": "AC1-AC5（单例构造 ≤1 次/_scope 保留/单 commit/回归/spec）"}
+{"file": ".trellis/tasks/08-09-tdx-singleton-and-transactions/design.md", "reason": "兼容清单（构造器公开/facade 删除前 grep）"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "fetch_* 语义与降级不变核对"}
+{"file": ".trellis/spec/testing.md", "reason": "回归基线 551P/20S"}

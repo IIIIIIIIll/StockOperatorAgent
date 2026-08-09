@@ -1,5 +1,6 @@
 import datetime
 
+import transaction
 from numpy import float64, int64
 
 from data_structure.chinese_mainland.ChinaStock import ChinaStock
@@ -140,4 +141,61 @@ class TestChinaStock():
         stock = ChinaStock("测试", "000001", _make_overview("000001"))
         stock.add_performance_report(_make_report("000001", "20240630"))
         stock.add_performance_report(_make_report("000001", "20240630"))  # 重复拒绝
+        assert len(stock.get_performance_reports()) == 1
+
+    # ---------- 08-09：mutator commit 参数（单事务链） ----------
+    # commit=False：只 mutate 不 commit（由链上 put_stock 一次 commit 持久化）；
+    # 默认 True 保持既有行为。计数注入用 monkeypatch transaction.commit
+    # （测试内 try/finally 保存恢复，house style 不用 pytest fixture）。
+
+    def _count_commits(self):
+        calls = []
+        orig_commit = transaction.commit
+
+        def counting():
+            calls.append(1)
+            orig_commit()
+
+        transaction.commit = counting
+        return calls, orig_commit
+
+    def test_add_datas_commits_by_default(self):
+        stock = ChinaStock("测试", "000001", _make_overview("000001"))
+        calls, orig_commit = self._count_commits()
+        try:
+            stock.add_datas([_make_data(datetime.date(2024, 1, 2), "000001")])
+        finally:
+            transaction.commit = orig_commit
+        assert len(calls) == 1
+
+    def test_add_datas_commit_false_defers_commit(self):
+        stock = ChinaStock("测试", "000001", _make_overview("000001"))
+        calls, orig_commit = self._count_commits()
+        try:
+            stock.add_datas([_make_data(datetime.date(2024, 1, 2), "000001")], commit=False)
+        finally:
+            transaction.commit = orig_commit
+        assert calls == []  # mutate 生效但不 commit
+        assert len(stock.get_datas()) == 1
+        assert stock.last_data_update == datetime.date(2024, 1, 2)
+
+    def test_update_overview_commit_false_defers_commit(self):
+        stock = ChinaStock("测试", "000001", _make_overview("000001"))
+        new_overview = _make_overview("000001")
+        calls, orig_commit = self._count_commits()
+        try:
+            stock.update_overview(new_overview, commit=False)
+        finally:
+            transaction.commit = orig_commit
+        assert calls == []
+        assert stock.overview == new_overview  # 替换已生效，commit 延后
+
+    def test_add_performance_reports_commit_false_defers_commit(self):
+        stock = ChinaStock("测试", "000001", _make_overview("000001"))
+        calls, orig_commit = self._count_commits()
+        try:
+            stock.add_performance_reports([_make_report("000001", "20240630")], commit=False)
+        finally:
+            transaction.commit = orig_commit
+        assert calls == []
         assert len(stock.get_performance_reports()) == 1

@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/08-09-tdx-singleton-and-transactions/design.md", "reason": "get_tdx_source 单例契约 + 7 处替换表 + 单事务参数语义"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "TdxSource 层契约（fetch_* 同构/降级语义/_scope 单遍拉取）——改造对象"}
+{"file": ".trellis/spec/data_storage/index.md", "reason": "ZODB 交易纪律（写路径 commit 约定）与 get_zodb_storage 单例先例"}
+{"file": ".trellis/spec/testing.md", "reason": "house style；共享 ZODB 文件注意（事务计数测试不破坏其他用例）"}

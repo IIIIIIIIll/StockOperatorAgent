@@ -33,7 +33,7 @@ import pandas as pd
 from loguru import logger
 
 from data_source.chinese_mainland.tdx.mapping import LOT_SIZE
-from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+from data_source.chinese_mainland.tdx.tdx_source import get_tdx_source
 from data_structure.chinese_mainland.StockOverview import StockOverview
 from utils.time_helper import asia_today
 
@@ -250,9 +250,10 @@ def build_overview(ticker: str, _scope=None) -> pd.DataFrame | None:
     _scope（review #2+#3）：FetchScope（core.data_acquisition）透传——给出时
     各源拉取走 scope 复用（与历史/业绩共享同一 DataFrame）；None → 独立直拉
     （独立调用语义不变）。FetchScope 与 TdxSource 方法名同构（fetch_*），
-    `_scope or src` 直接作 fetcher。
+    `_scope or src` 直接作 fetcher；src 经进程级单例获取（08-09，TdxDownloader
+    只构造一次）。
     """
-    src = TdxSource()
+    src = get_tdx_source()
     name = src.get_stock_name(ticker)
     fetcher = _scope or src
 
