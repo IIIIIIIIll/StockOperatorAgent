@@ -1,5 +1,5 @@
 ---
-description: LangGraph agent pattern, prompt conventions, QwenApi, and the State contract
+description: LangGraph agent pattern, prompt conventions, LLM factory config, and the State contract
 paths:
   - agents/**
   - core/llms/**
@@ -125,26 +125,32 @@ prompt（外加 State 注解——一致性由 `test/core/test_role_registry.py`
   (valuation methods, target prices, scenarios). Keep that style.
 - 联网指示（08-03-websearch-tool-calling）：investment_manager 的"善用联网
   搜索"与 bullish/bearish 的"可使用联网搜索工具验证行业与市场论据"指示，
-  默认 DeepSeek 路径下经 **bind_tools 工具调用真实生效**（OpenAI 兼容
-  function calling）——不再是 QwenApi `enable_search`（DashScope 私有扩展）
-  专属；`WEB_SEARCH_DISABLED` 可整体停用（见 Tools 段）。历史：该指示曾仅
-  QwenApi enable_search 生效、DeepSeek 默认路径失效。
+  经 **bind_tools 工具调用真实生效**（OpenAI 兼容 function calling）——
+  不再依赖供应商私有扩展（如 DashScope enable_search）；`WEB_SEARCH_DISABLED`
+  可整体停用（见 Tools 段）。
 
 ## LLM Configuration (`core/llms/`)
 
-**默认 DeepSeek**（`core/llms/deepseek/deepseek_api.py`）：
-`DeepSeekApi(ChatOpenAI)` — `model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")`
-（可切 `deepseek-v4-pro`）、`api_key=os.getenv("DEEPSEEK_API_KEY")`、
-`base_url="https://api.deepseek.com"`、`seed=114514`；不传 `extra_body`。
-无 key 时构造即抛 OpenAIError（与 QwenApi 一致），UI 层 display.py 渲染前
-**只检查 `DEEPSEEK_API_KEY`**（2026-08-02 修复：检查与实现对齐——图装配永远
-构造 DeepSeekApi，只配 DASHSCOPE 时放行即崩溃）。
+**通用 OpenAI 兼容工厂**（08-09-llm-provider-agnostic）：
+`core/llms/llm_factory.py` 的 `make_llm() -> ChatOpenAI` 是**全库唯一
+ChatOpenAI 构造点**，不绑定供应商——改 env 即换供应商（DeepSeek 官方、
+OpenCode Zen 网关、OpenAI、本地 vLLM/Ollama 网关等）。契约（R5 必填强
+校验，缺任一构造即抛 ValueError，消息列出缺失键）：
 
-**可选 Qwen**（`core/llms/qwen/qwen_api.py`）：`QwenApi` 同上形状 —
-`model="qwen-plus-latest"`、`base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"`、
-`api_key=os.getenv("DASHSCOPE_API_KEY")`；`extra_body` 传 `enable_search`。
+| env 键 | 必填 | 校验 |
+|--------|------|------|
+| `LLM_API_KEY` | ✅ | 非空 |
+| `LLM_MODEL` | ✅ | 非空（自由文本，不再枚举供应商模型） |
+| `LLM_BASE_URL` | ✅ | 非空且 `http://` / `https://` 开头（格式级，不做网络探测） |
+| `LLM_REASONING_EFFORT` | 可选 | 设了才传 `reasoning_effort`（DeepSeek 用户配 `max` 保持推理档；空/未设 → 不传，任意兼容服务安全） |
 
-图装配（`core/investment_committee.py`）用 `DeepSeekApi()`；换回 Qwen 只需改这一行。
+`seed=114514` 恒定；`extra_body` 一律不传（供应商私有参数不内置于工厂）。
+UI 层 display.py 渲染前 `_llm_configured()` **三键齐全才放行**（与实现对齐
+——缺任一键构造即崩）。历史：旧 `DeepSeekApi`（deepseek_api.py）/
+`QwenApi`（qwen_api.py）及其 `DEEPSEEK_*` / `DASHSCOPE_*` env 于 08-09
+删除；迁移映射见 `.env.example` 迁移说明。
+
+图装配（`core/investment_committee.py`）：`llm = _llm or make_llm()`。
 
 **LLM 调用重试（2026-08-02，review #6）**：节点 invoke 统一走
 `core/llms/retry.py` 的 `invoke_with_retry(llm, payload, config)`——

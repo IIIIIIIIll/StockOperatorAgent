@@ -17,14 +17,18 @@ from utils.runtime_config import env_disabled, env_int, set_runtime_overrides
 
 committee = InvestmentCommittee()
 
-def _has_deepseek_key():
-    """只认 DEEPSEEK_API_KEY——与 InvestmentCommittee 实现对齐。
+# LLM 必填三键（与 core/llms/llm_factory.py 的 make_llm 契约一致，
+# 08-09-llm-provider-agnostic R5 必填强校验）
+_LLM_REQUIRED_ENV = ("LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL")
 
-    make_investment_committee 永远构造 DeepSeekApi()（无 key 构造即抛
-    OpenAIError）；只配 DASHSCOPE_API_KEY 时旧检查放行但构造崩溃。Qwen
-    已降级为可选项（默认 LLM 是 DeepSeek），UI 不再为其放行。
+def _llm_configured():
+    """三键齐全非空才放行——与 make_llm 实现对齐。
+
+    make_investment_committee 默认 make_llm()（缺任一必填键构造即抛
+    ValueError）；门控只认 LLM_API_KEY / LLM_MODEL / LLM_BASE_URL 三者
+    非空（旧检查只认 key 时，缺模型/endpoint 会放行但构造崩溃）。
     """
-    return "DEEPSEEK_API_KEY" in os.environ
+    return all((os.environ.get(key) or "").strip() for key in _LLM_REQUIRED_ENV)
 
 # 采集数据 Tab 标题（08-02-ui-collected-data-display）：放 st.tabs 最前，
 # 在 build_stock_information 成功后、stream 前填充 markdown 表格
@@ -155,8 +159,7 @@ _SESSION_NUMBER_WIDGETS = {
 # 持久化区 password widget key → .env 键（UPDATE_WHITELIST 子集）。交互
 # 语义：密码框每次渲染**不留值**——空 = 不修改（不收集），非空 = 更新。
 _PERSISTED_PASSWORD_WIDGETS = {
-    "settings_deepseek_key": "DEEPSEEK_API_KEY",
-    "settings_dashscope_key": "DASHSCOPE_API_KEY",
+    "settings_llm_key": "LLM_API_KEY",
     "settings_tdx_key": "TDX_API_KEY",
     "settings_billions_key": "BILLIONS_API_KEY",
     "settings_langsmith_key": "LANGSMITH_API_KEY",
@@ -192,7 +195,10 @@ def _collect_persisted_updates(state: dict) -> dict:
         value = state.get(widget_key, "")
         if value:
             updates[env_key] = value
-    updates["DEEPSEEK_MODEL"] = state.get("settings_model", "deepseek-v4-flash")
+    # 模型/endpoint 非密钥：文本框恒有值 → 恒收集（空值由 env_file 必填
+    # 校验拒绝保存，st.error 提示——R5 必填强校验）
+    updates["LLM_MODEL"] = state.get("settings_model", "")
+    updates["LLM_BASE_URL"] = state.get("settings_llm_base_url", "")
     updates["LANGSMITH_TRACING"] = (
         "true" if state.get("settings_langsmith_tracing", False) else "false")
     updates["LANGSMITH_PROJECT"] = state.get("settings_langsmith_project", "")
@@ -201,7 +207,7 @@ def _collect_persisted_updates(state: dict) -> dict:
 
 def _save_settings(state: dict) -> tuple:
     """保存持久化区：收集字段 → update_env_file（原子写 .env + 同步
-    os.environ，立即生效——同次 run 内 _has_deepseek_key 门控即通过）。
+    os.environ，立即生效——同次 run 内 _llm_configured 门控即通过）。
 
     纯逻辑（不触 Streamlit）：(ok, message) 返回给渲染层提示——
     st.success/st.error 调用点在 _write_settings_panel（离线可测）。
@@ -213,8 +219,9 @@ def _write_settings_panel():
     """侧边栏「设置」面板（08-08-billions-switches-ui，Step 3）。
 
     四节（design.md「面板布局」节）：
-    1. 模型与密钥（持久化）——DEEPSEEK_MODEL selectbox + 4 个 password
-       输入 + 保存按钮 → _save_settings → st.success/error；
+    1. 模型与密钥（持久化）——LLM_MODEL / LLM_BASE_URL 文本输入 +
+       4 个 password 输入 + 保存按钮 → _save_settings →
+       st.success/error；
     2. LangSmith（持久化）——TRACING toggle + key + project（遥测配置
        持久化例外，防重载意外重开追踪）；
     3. 能力开关（会话级）——TDX MCP / 联网搜索 / 亿信总闸 + 5 能力
@@ -229,29 +236,25 @@ def _write_settings_panel():
         # ---- 模型与密钥（持久化）----
         st.markdown("**模型与密钥（持久化）**")
         st.caption("保存后立即生效并写入 .env，重启保留")
-        model_options = ("deepseek-v4-flash", "deepseek-v4-pro")
-        current_model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
-        st.selectbox(
-            "DeepSeek 模型",
-            model_options,
-            index=0 if current_model == "deepseek-v4-flash" else 1,
+        st.text_input(
+            "LLM 模型",
+            value=os.environ.get("LLM_MODEL", ""),
+            placeholder="任意 OpenAI 兼容模型名（如 deepseek-v4-flash）",
             key="settings_model",
         )
         st.text_input(
-            "DeepSeek API Key",
-            type="password",
-            placeholder=(
-                "已配置（留空表示不修改）" if "DEEPSEEK_API_KEY" in os.environ
-                else "未配置（输入后保存）"),
-            key="settings_deepseek_key",
+            "LLM Base URL",
+            value=os.environ.get("LLM_BASE_URL", ""),
+            placeholder="OpenAI 兼容 endpoint（http:// 或 https:// 开头）",
+            key="settings_llm_base_url",
         )
         st.text_input(
-            "DashScope API Key（Qwen 可选）",
+            "LLM API Key",
             type="password",
             placeholder=(
-                "已配置（留空表示不修改）" if "DASHSCOPE_API_KEY" in os.environ
+                "已配置（留空表示不修改）" if "LLM_API_KEY" in os.environ
                 else "未配置（输入后保存）"),
-            key="settings_dashscope_key",
+            key="settings_llm_key",
         )
         st.text_input(
             "通达信 TDX API Key（可选）",
@@ -364,13 +367,13 @@ def write_ui():
     st.html(f"<style>{theme.CSS}</style>")
     st.title("超绝AI股票分析系统")
 
-    # 设置面板（08-08-billions-switches-ui，Step 3）：在 _has_deepseek_key
-    # 门控**之前**渲染——无 key 用户靠面板录入密钥（保存即同步 os.environ，
+    # 设置面板（08-08-billions-switches-ui，Step 3）：在 _llm_configured
+    # 门控**之前**渲染——未配置用户靠面板录入三键（保存即同步 os.environ，
     # 同次 run 内门控即通过，无需重启应用）。
     _write_settings_panel()
 
-    if not _has_deepseek_key():
-        st.error("请在环境变量或.env中设置 DEEPSEEK_API_KEY 后重启应用")
+    if not _llm_configured():
+        st.error("请在环境变量或.env中设置 LLM_API_KEY / LLM_MODEL / LLM_BASE_URL（OpenAI 兼容配置）后重启应用")
         return
 
     st.write("输入您想要分析的沪深京A股六位股票代码")

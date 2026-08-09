@@ -18,7 +18,9 @@ Streamlit UI (core/ui/display.py)
        └─ 6 agents (agents/chinese_mainland/)  — 8/9 图节点（信息面分析师条件启用，
            对抗修订为双节点）；expert/trader 带 bind_tools 工具（web_search +
            亿信三件套，开关门控）
-            └─ DeepSeekApi (core/llms/deepseek/deepseek_api.py) — 默认；QwenApi 可选
+            └─ make_llm (core/llms/llm_factory.py) — 通用 OpenAI 兼容工厂
+                 （08-09-llm-provider-agnostic：LLM_API_KEY/LLM_MODEL/
+                 LLM_BASE_URL 三键，任意供应商）
                  └─ tool: get_stock_info (core/llms/tools/get_company_info.py)
                       └─ DataAcquisition (core/data_acquisition.py)
                            ├─ TdxSource (data_source/chinese_mainland/tdx/) — 主链路：
@@ -55,16 +57,21 @@ Cross-layer rules of thumb:
   the loguru handler, calls `load_dotenv()`, then `write_ui()`.
 - `main.py` 日志 handler 落位 `LOG_DIR / "stock_operator_agent.log"`（2026-08-02
   修复：原 `./logs/...` 相对路径随 CWD 漂移，日志落别处；现锚定仓库 `logs/`）。
-- `core/ui/display.py` checks **only `DEEPSEEK_API_KEY`** in `os.environ` before
-  rendering（2026-08-02 修复：`investment_committee.py` 永远构造 `DeepSeekApi()`，
-  只配 DASHSCOPE 时旧检查放行但构造即抛 OpenAIError 崩溃）and validates the
+- `core/ui/display.py` checks **LLM 三键齐全**（`_llm_configured()`：
+  `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL` 均非空，08-09-llm-provider-
+  agnostic）in `os.environ` before rendering（2026-08-02 修复：检查与实现
+  对齐——`investment_committee.py` 默认 `make_llm()`，缺任一必填键构造即抛
+  ValueError，旧只查 key 的检查会放行但构造崩溃）and validates the
   ticker input (6-digit numeric) before analysis.
 
 ## Configuration
 
-- API key: `DEEPSEEK_API_KEY`（默认 LLM）+ `DEEPSEEK_MODEL`（默认
-  `deepseek-v4-flash`，可切 `deepseek-v4-pro`）在 `.env`；`DASHSCOPE_API_KEY`
-  保留为 Qwen 可选项；`BILLIONS_API_KEY`（亿信 Fin 开放平台，2026-08-08）为
+- LLM 配置（08-09-llm-provider-agnostic，**三键必填**）：
+  `LLM_API_KEY` + `LLM_MODEL`（自由文本，如 deepseek-v4-flash、gpt-4o）+
+  `LLM_BASE_URL`（http(s):// 开头的 OpenAI 兼容 endpoint）在 `.env`；
+  可选 `LLM_REASONING_EFFORT`（设了才传 reasoning_effort）。旧
+  `DEEPSEEK_*` / `DASHSCOPE_API_KEY` 已删除（迁移映射见 `.env.example`）。
+  `BILLIONS_API_KEY`（亿信 Fin 开放平台，2026-08-08）为
   可选信息面能力主闸——未配置时亿信全部能力关闭、现有流程零变化。loaded
   with `load_dotenv()` in `main.py`, `investment_committee.py`, and LLM tests。
   亿信开关族（truthy 语义对齐 `WEB_SEARCH_DISABLED`）：总闸
@@ -114,10 +121,12 @@ Cross-layer rules of thumb:
   不会搞反。
 - `utils/env_file.py`（2026-08-08）— `.env` 原子写：
   `update_env_file(updates) -> (bool, msg)`——**只更新白名单 8 键**
-  （DEEPSEEK_API_KEY/MODEL、DASHSCOPE_API_KEY、TDX_API_KEY、
-  BILLIONS_API_KEY、LANGSMITH_TRACING/API_KEY/PROJECT），保留注释/顺序/
+  （LLM_API_KEY/MODEL/BASE_URL、TDX_API_KEY、
+  BILLIONS_API_KEY、LANGSMITH_TRACING/API_KEY/PROJECT——08-09-llm-
+  provider-agnostic 替换 DEEPSEEK_*/DASHSCOPE_*），保留注释/顺序/
   无关键，tmp + `os.replace` 原子替换，成功后同步 os.environ（立即生效，
-  无需重启）；失败返回消息不抛异常；密钥值不 log。
+  无需重启）；失败返回消息不抛异常；密钥值不 log。校验：LLM_MODEL 非空
+  （自由文本）、LLM_BASE_URL 非空且 http(s):// 开头（格式级，不探测网络）。
   `env_file_path()`：env `ENV_FILE_PATH` 覆盖（e2e 隔离用）→ 回退
   `REPO_ROOT / ".env"`。
 

@@ -1,13 +1,17 @@
-"""08-02-fix-data-correctness：UI key 检查只认 DEEPSEEK_API_KEY（修复 1）。
+"""08-09-llm-provider-agnostic：UI 门控只认 LLM 必填三键（R5 必填强校验）。
 
-投资委员会永远构造 DeepSeekApi()（无 key 构造即抛 OpenAIError），旧检查
-"DEEPSEEK 或 DASHSCOPE 任一存在"放行后构造崩溃。测试验证 _has_deepseek_key
-只认 DEEPSEEK_API_KEY——操纵 os.environ 保存/恢复，不触碰用户真实配置。
+make_investment_committee 默认 make_llm()（缺任一必填键构造即抛
+ValueError——LLM_API_KEY / LLM_MODEL / LLM_BASE_URL），旧检查只认 key 时
+缺模型/endpoint 会放行但构造崩溃。测试验证 _llm_configured 三键齐全才
+放行——操纵 os.environ 保存/恢复，不触碰用户真实配置。
 """
 
 import os
 
 from core.ui import display
+
+# LLM 必填三键（与 display._LLM_REQUIRED_ENV 对齐）
+_LLM_ENV_KEYS = ("LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL")
 
 # 亿信 env（08-08-billions-api-integration，Step 5）：report_tabs() 开关在
 # 调用时读 env——测试必须显式清除/设置（开发者本机可能残留 key/开关值，
@@ -51,41 +55,66 @@ def _with_billions_env(pairs, fn):
 
 class TestDisplayKeyCheck():
 
-    def test_deepseek_key_passes_check(self):
-        saved = os.environ.get("DEEPSEEK_API_KEY")
-        os.environ["DEEPSEEK_API_KEY"] = "dummy"
-        try:
-            assert display._has_deepseek_key() is True
-        finally:
-            if saved is None:
-                os.environ.pop("DEEPSEEK_API_KEY", None)
+    def _set_llm_env(self, **pairs):
+        """三键先全清再设置目标对（跨运行确定性，对齐 _with_billions_env
+        语义）；None 值 = 清除。返回环境快照供 finally 恢复。"""
+        saved = {key: os.environ.get(key) for key in _LLM_ENV_KEYS}
+        for key in _LLM_ENV_KEYS:
+            os.environ.pop(key, None)
+        for key, value in pairs.items():
+            if value is None:
+                os.environ.pop(key, None)
             else:
-                os.environ["DEEPSEEK_API_KEY"] = saved
+                os.environ[key] = value
+        return saved
 
-    def test_no_key_fails_check(self):
-        saved = os.environ.get("DEEPSEEK_API_KEY")
-        os.environ.pop("DEEPSEEK_API_KEY", None)
-        try:
-            assert display._has_deepseek_key() is False
-        finally:
-            if saved is not None:
-                os.environ["DEEPSEEK_API_KEY"] = saved
-
-    def test_dashscope_alone_fails_check(self):
-        """只配 DASHSCOPE 不放行——与 make_investment_committee 永远构造
-        DeepSeekApi 的实现对齐（旧检查放行但构造即崩）。"""
-        saved_deepseek = os.environ.pop("DEEPSEEK_API_KEY", None)
-        saved_dashscope = os.environ.get("DASHSCOPE_API_KEY")
-        os.environ["DASHSCOPE_API_KEY"] = "dummy"
-        try:
-            assert display._has_deepseek_key() is False
-        finally:
-            if saved_deepseek is not None:
-                os.environ["DEEPSEEK_API_KEY"] = saved_deepseek
-            if saved_dashscope is None:
-                os.environ.pop("DASHSCOPE_API_KEY", None)
+    def _restore_env(self, saved):
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
             else:
-                os.environ["DASHSCOPE_API_KEY"] = saved_dashscope
+                os.environ[key] = value
+
+    def test_all_three_keys_pass_check(self):
+        saved = self._set_llm_env(
+            LLM_API_KEY="dummy", LLM_MODEL="deepseek-v4-flash",
+            LLM_BASE_URL="https://api.deepseek.com")
+        try:
+            assert display._llm_configured() is True
+        finally:
+            self._restore_env(saved)
+
+    def test_no_keys_fail_check(self):
+        saved = self._set_llm_env()
+        try:
+            assert display._llm_configured() is False
+        finally:
+            self._restore_env(saved)
+
+    def test_key_alone_fails_check(self):
+        """只配 key 不放行——缺模型/endpoint 时 make_llm 构造即崩，
+        门控必须与实现对齐（旧检查只认 key 会放行但构造崩溃）。"""
+        saved = self._set_llm_env(LLM_API_KEY="dummy")
+        try:
+            assert display._llm_configured() is False
+        finally:
+            self._restore_env(saved)
+
+    def test_missing_base_url_fails_check(self):
+        saved = self._set_llm_env(LLM_API_KEY="dummy", LLM_MODEL="m")
+        try:
+            assert display._llm_configured() is False
+        finally:
+            self._restore_env(saved)
+
+    def test_blank_value_fails_check(self):
+        # 空白值视同缺失（R5 必填强校验）
+        saved = self._set_llm_env(
+            LLM_API_KEY=" ", LLM_MODEL="m", LLM_BASE_URL="https://x.com")
+        try:
+            assert display._llm_configured() is False
+        finally:
+            self._restore_env(saved)
 
 
 class TestDisplayEnrichmentWiring():
@@ -336,9 +365,9 @@ class TestDisplaySettingsCollectors():
         """密码框空 = 不修改：不收集密钥键（.env 现值保留）——「未修改」
         与「清空」可区分，且 env_file 校验禁止空密钥。"""
         state = {
-            "settings_model": "deepseek-v4-pro",
-            "settings_deepseek_key": "",
-            "settings_dashscope_key": "",
+            "settings_model": "gpt-4o",
+            "settings_llm_base_url": "https://api.openai.com/v1",
+            "settings_llm_key": "",
             "settings_tdx_key": "",
             "settings_billions_key": "",
             "settings_langsmith_key": "",
@@ -346,7 +375,8 @@ class TestDisplaySettingsCollectors():
             "settings_langsmith_project": "soa-proj",
         }
         assert display._collect_persisted_updates(state) == {
-            "DEEPSEEK_MODEL": "deepseek-v4-pro",
+            "LLM_MODEL": "gpt-4o",
+            "LLM_BASE_URL": "https://api.openai.com/v1",
             "LANGSMITH_TRACING": "true",
             "LANGSMITH_PROJECT": "soa-proj",
         }
@@ -355,23 +385,27 @@ class TestDisplaySettingsCollectors():
         """非空密码框 = 更新对应密钥；未填的不收集；TRACING 布尔化 false。"""
         state = {
             "settings_model": "deepseek-v4-flash",
-            "settings_deepseek_key": "sk-new",
+            "settings_llm_base_url": "https://api.deepseek.com",
+            "settings_llm_key": "sk-new",
             "settings_billions_key": "bk-new",
             "settings_langsmith_tracing": False,
             "settings_langsmith_project": "",
         }
         updates = display._collect_persisted_updates(state)
-        assert updates["DEEPSEEK_API_KEY"] == "sk-new"
+        assert updates["LLM_API_KEY"] == "sk-new"
         assert updates["BILLIONS_API_KEY"] == "bk-new"
-        assert "DASHSCOPE_API_KEY" not in updates
+        assert updates["LLM_MODEL"] == "deepseek-v4-flash"
+        assert updates["LLM_BASE_URL"] == "https://api.deepseek.com"
         assert "TDX_API_KEY" not in updates
         assert updates["LANGSMITH_TRACING"] == "false"
         assert updates["LANGSMITH_PROJECT"] == ""
 
-    def test_collect_persisted_updates_model_default_when_missing(self):
-        """widget 未渲染（防御）→ 模型回退默认 flash（与代码库默认一致）。"""
+    def test_collect_persisted_updates_model_missing_state(self):
+        """widget 未渲染（防御）→ 模型/endpoint 空串收集（R5：env_file
+        必填校验拒绝保存并提示，不静默回退供应商默认）。"""
         updates = display._collect_persisted_updates({})
-        assert updates["DEEPSEEK_MODEL"] == "deepseek-v4-flash"
+        assert updates["LLM_MODEL"] == ""
+        assert updates["LLM_BASE_URL"] == ""
 
     def test_save_settings_passes_updates_to_env_file(self, monkeypatch):
         """_save_settings 收集持久化字段并透传给 update_env_file（参数断言）。"""
@@ -383,15 +417,17 @@ class TestDisplaySettingsCollectors():
 
         monkeypatch.setattr(display, "update_env_file", fake_update_env_file)
         state = {
-            "settings_model": "deepseek-v4-pro",
-            "settings_deepseek_key": "sk-new",
+            "settings_model": "gpt-4o",
+            "settings_llm_base_url": "https://api.openai.com/v1",
+            "settings_llm_key": "sk-new",
             "settings_langsmith_tracing": True,
             "settings_langsmith_project": "p",
         }
         ok, message = display._save_settings(state)
         assert (ok, message) == (True, "")
-        assert captured["updates"]["DEEPSEEK_API_KEY"] == "sk-new"
-        assert captured["updates"]["DEEPSEEK_MODEL"] == "deepseek-v4-pro"
+        assert captured["updates"]["LLM_API_KEY"] == "sk-new"
+        assert captured["updates"]["LLM_MODEL"] == "gpt-4o"
+        assert captured["updates"]["LLM_BASE_URL"] == "https://api.openai.com/v1"
 
     def test_save_settings_failure_message_forwarded(self, monkeypatch):
         """update_env_file 失败 → (False, 错误消息) 原样返回（UI st.error 用）。"""
@@ -434,12 +470,12 @@ class TestDisplaySettingsPanelWiring():
     """08-08-billions-switches-ui，Step 3：面板接线（源码断言，house style
     同 TestDisplayChartWiring——Streamlit 副作用不 mock）。"""
 
-    def test_panel_renders_before_deepseek_key_check(self):
-        """面板在 _has_deepseek_key 门控**之前**渲染——无 key 用户靠面板
-        录入密钥（保存即 os.environ 同步，同次 run 门控即通过，无需重启）。"""
+    def test_panel_renders_before_llm_configured_check(self):
+        """面板在 _llm_configured 门控**之前**渲染——未配置用户靠面板
+        录入三键（保存即 os.environ 同步，同次 run 门控即通过，无需重启）。"""
         import inspect
         source = inspect.getsource(display.write_ui)
-        assert source.find("_write_settings_panel()") < source.find("if not _has_deepseek_key():")
+        assert source.find("_write_settings_panel()") < source.find("if not _llm_configured():")
 
     def test_submit_syncs_overrides_before_build_stock_information(self):
         """会话级覆盖同步在 enrichment（build_stock_information）之前——
@@ -451,13 +487,17 @@ class TestDisplaySettingsPanelWiring():
                 < source.find("build_stock_information("))
 
     def test_password_inputs_hidden_and_save_wired(self):
-        """密钥输入框 type="password"（R6 不明文回显）——4 个密钥框 +
-        LangSmith key 共 5 处；保存按钮 → 成功/失败提示。"""
+        """密钥输入框 type="password"（R6 不明文回显）——LLM + TDX +
+        亿信 + LangSmith 共 4 处；保存按钮 → 成功/失败提示。"""
         import inspect
         source = inspect.getsource(display._write_settings_panel)
-        assert source.count('type="password"') == 5
+        assert source.count('type="password"') == 4
         assert "settings_save" in source
         assert "st.success(" in source
         assert "st.error(" in source
+        # 模型与 endpoint 为自由文本输入（去供应商化：不再枚举模型下拉）
+        assert "LLM 模型" in source
+        assert "LLM Base URL" in source
+        assert "settings_llm_base_url" in source
         # 置灰决策接线：能力 toggle 的 disabled 来自 _panel_enablements
         assert "disabled=enablements[\"capabilities_greyed\"]" in source

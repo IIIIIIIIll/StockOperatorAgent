@@ -12,16 +12,17 @@ from langgraph.graph.message import add_messages
 from agents.chinese_mainland.bearish_trader import BearishTrader
 from agents.chinese_mainland.investment_manager import InvestmentManager
 from utils.state import State
-from core.llms.qwen.qwen_api import QwenApi
+from core.llms.llm_factory import make_llm
 from core.llms.tools.get_company_info import get_stock_info
 from agents.chinese_mainland.fundamental_analysis_expert import FundamentalAnalysisExpert
 from agents.chinese_mainland.trend_analysis_expert import  TrendAnalysisExpert
 from agents.chinese_mainland.bullish_trader import BullishTrader
 
-# deprecated（2026-08-02）：TestBasicAgent 5 个用例均实例化 QwenApi（可选 LLM），
-# 本环境无 DASHSCOPE_API_KEY，live 调用失败拖慢回归。单 agent 节点测试模式
-# （testing.md reference）保留参考价值，代码保留。恢复方式：删掉本行，在有 key 的环境执行。
-pytestmark = pytest.mark.skip(reason="deprecated: 依赖 QwenApi live 调用，常规不跑")
+# deprecated（2026-08-02）：TestBasicAgent 5 个用例均实例化 live LLM，
+# 本环境无 LLM_API_KEY 或网络受限，live 调用失败拖慢回归。单 agent 节点
+# 测试模式（testing.md reference）保留参考价值，代码保留。恢复方式：删掉
+# 本行，在有 key 的环境执行。
+pytestmark = pytest.mark.skip(reason="deprecated: 依赖 live LLM 调用，常规不跑")
 from langgraph.checkpoint.memory import InMemorySaver
 from loguru import logger
 
@@ -555,7 +556,7 @@ class TestBasicAgent:
 
         graph_builder = StateGraph(State)
 
-        llm = QwenApi()
+        llm = make_llm()
         tool = get_stock_info
         config: RunnableConfig = {"configurable": {"thread_id": "1"}}
         agent = FundamentalAnalysisExpert(llm, config)
@@ -595,7 +596,7 @@ class TestBasicAgent:
 
         graph_builder = StateGraph(State)
 
-        llm = QwenApi()
+        llm = make_llm()
         config: RunnableConfig = {"configurable": {"thread_id": "1"}}
         agent = TrendAnalysisExpert(llm, config)
         graph_builder.add_node("trend_analysis_expert", agent.trend_analysis_expert)
@@ -633,7 +634,7 @@ class TestBasicAgent:
 
         graph_builder = StateGraph(State)
 
-        llm = QwenApi()
+        llm = make_llm()
         config: RunnableConfig = {"configurable": {"thread_id": "1"}}
         agent = BullishTrader(llm, config)
         graph_builder.add_node("bullish_trader", agent.bullish_trader)
@@ -674,7 +675,7 @@ class TestBasicAgent:
 
         graph_builder = StateGraph(State)
 
-        llm = QwenApi()
+        llm = make_llm()
         config: RunnableConfig = {"configurable": {"thread_id": "1"}}
         agent = BearishTrader(llm, config)
         graph_builder.add_node("bearish_trader", agent.bearish_trader)
@@ -714,7 +715,7 @@ class TestBasicAgent:
 
         graph_builder = StateGraph(State)
 
-        llm = QwenApi()
+        llm = make_llm()
         config: RunnableConfig = {"configurable": {"thread_id": "1"}}
         agent = InvestmentManager(llm, config)
         graph_builder.add_node("investment_manager", agent.investment_manager)

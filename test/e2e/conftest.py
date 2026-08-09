@@ -1,7 +1,7 @@
 """Playwright UI e2e 测试 fixtures（08-07-playwright-ui-test-framework）。
 
 session 级 fixture：子进程起 streamlit mock 服务器（test/e2e/mock_app.py，
-env 注入 dummy DEEPSEEK_API_KEY + dummy BILLIONS_API_KEY）→ 轮询
+env 注入 dummy LLM 三键 + dummy BILLIONS_API_KEY）→ 轮询
 /_stcore/health 就绪（超时 60s）→ chromium context；每个用例独立 page；
 用例失败自动截图 logs/e2e/<test_name>.png；teardown terminate + wait。
 
@@ -64,13 +64,16 @@ _BILLIONS_ENV_KEYS = (
 )
 
 # 设置面板渲染相关 env（08-08-billions-switches-ui，Step 4）：显式清除，
-# 保证 e2e 子进程 env 完全确定（面板状态只由注入的 dummy DEEPSEEK/BILLIONS
+# 保证 e2e 子进程 env 完全确定（面板状态只由注入的 dummy LLM/BILLIONS
 # key 决定），不依赖单元测试的 env 卫生（历史泄漏已修：test_mcp_intel_cache
 # 的 TDX_API_KEY=dummy 08-09 改 monkeypatch.setenv 自动还原；test_web_search
 # 本就是 try/finally 恢复）——防御性约定，与 _BILLIONS_ENV_KEYS 同哲学。
+# LLM_MODEL/LLM_BASE_URL 在 pop 循环**之后**显式注入（08-09-llm-
+# provider-agnostic：_llm_configured 门控要求三键齐全）。
 _PANEL_ENV_KEYS = (
-    "DEEPSEEK_MODEL",
-    "DASHSCOPE_API_KEY",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
+    "LLM_REASONING_EFFORT",
     "TDX_API_KEY",
     "LANGSMITH_API_KEY",
     "LANGSMITH_PROJECT",
@@ -82,7 +85,9 @@ _PANEL_ENV_KEYS = (
 # 真实链路痕迹（审计用）：mock 路径绝不产生这些日志。
 # - "Expert Query"/"Trader Query"/"Manager Query"：真实 agent 每次 LLM
 #   调用前必打（agents/*.py debug，loguru 默认 stderr 级别 DEBUG 全捕获）
-# - "api.deepseek.com"：DeepSeekApi base_url（真实调用异常 traceback 含）
+# - "api.deepseek.com"：LLM_BASE_URL（conftest 注入的 dummy endpoint；
+#   真实调用异常 traceback 含——08-09-llm-provider-agnostic 起 base_url
+#   可配置，审计标记跟随 dummy 注入值）
 # - "fetching from network"：tdx_source.py:160 安全列表缓存 miss 时的真实
 #   抓取 debug 日志（成功抓取也打）——比类名 "TdxSource"（仅异常 traceback
 #   出现）可靠；"akshare" 覆盖备用抓取路径
@@ -212,9 +217,9 @@ def e2e_env_file(tmp_path_factory):
 def server(request, e2e_env_file):
     """session 级：子进程起 streamlit mock 服务器，health 就绪后 yield。
 
-    env 注入 dummy DEEPSEEK_API_KEY——display 模块顶层
-    `InvestmentCommittee()` 构造 DeepSeekApi（无 key 抛 OpenAIError），
-    dummy key 一箭双雕：满足顶层构造 + 绕过 _has_deepseek_key() 门禁。
+    env 注入 dummy LLM 三键——display 模块顶层 `InvestmentCommittee()`
+    构造 make_llm()（缺任一必填键抛 ValueError），dummy 三键一箭三雕：
+    满足顶层构造 + 绕过 _llm_configured() 门禁 + 面板初始值确定。
     亿信（08-08-billions-api-integration，Step 5）：另注入 dummy
     BILLIONS_API_KEY → ANALYST 开关开 → 信息面 Tab 渲染路径被真实覆盖；
     显式清除全部亿信开关/上限 env——开发者本机残留值不得影响 e2e 确定性。
@@ -226,11 +231,14 @@ def server(request, e2e_env_file):
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env["DEEPSEEK_API_KEY"] = "dummy"
     env["BILLIONS_API_KEY"] = "dummy"
     env["ENV_FILE_PATH"] = str(e2e_env_file)
     for name in _BILLIONS_ENV_KEYS + _PANEL_ENV_KEYS:
         env.pop(name, None)
+    # LLM 三键在 pop 循环后注入（_PANEL_ENV_KEYS 含 LLM_MODEL/LLM_BASE_URL）
+    env["LLM_API_KEY"] = "dummy"
+    env["LLM_MODEL"] = "deepseek-v4-flash"
+    env["LLM_BASE_URL"] = "https://api.deepseek.com"
     proc, logf = _start_streamlit(env, SERVER_PORT, SERVER_LOG)
     try:
         _wait_healthy(proc)
@@ -247,7 +255,7 @@ def server_no_billions(request, e2e_env_file):
     AC1 浏览器级断言（08-08-billions-api-integration，Step 5）：未配置
     BILLIONS_API_KEY → ANALYST 开关关 → report_tabs() 无信息面条目 →
     「信息面分析」Tab 不渲染（现有 UI 与今日逐字节一致）。env 仅注入
-    dummy DEEPSEEK_API_KEY（顶层构造 + 门禁），并显式清除全部亿信开关/
+    dummy LLM 三键（顶层构造 + 门禁），并显式清除全部亿信开关/
     上限 env——开发者本机残留 key/开关值不得影响"无 key"语义。
     ENV_FILE_PATH 同样注入（Step 4：本服务器上的面板保存也只写 tmp，
     真实 .env 零接触）。
@@ -255,11 +263,14 @@ def server_no_billions(request, e2e_env_file):
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env["DEEPSEEK_API_KEY"] = "dummy"
     env["ENV_FILE_PATH"] = str(e2e_env_file)
     env.pop("BILLIONS_API_KEY", None)
     for name in _BILLIONS_ENV_KEYS + _PANEL_ENV_KEYS:
         env.pop(name, None)
+    # LLM 三键在 pop 循环后注入（_PANEL_ENV_KEYS 含 LLM_MODEL/LLM_BASE_URL）
+    env["LLM_API_KEY"] = "dummy"
+    env["LLM_MODEL"] = "deepseek-v4-flash"
+    env["LLM_BASE_URL"] = "https://api.deepseek.com"
     proc, logf = _start_streamlit(env, NO_BILLIONS_PORT, NO_BILLIONS_LOG)
     try:
         _wait_healthy(proc, port=NO_BILLIONS_PORT, log_path=NO_BILLIONS_LOG)

@@ -3,13 +3,15 @@
 设置面板「持久化区」（模型/密钥/LangSmith）保存时调用 `update_env_file`：
 读-改-写现有 .env（保留行序/注释/空白与白名单外键），白名单键原位替换
 值、新键末尾追加（带一行简短注释），tmp 文件 + os.replace 原子替换，
-成功后同步 os.environ（立即生效——display 的 `_has_deepseek_key` 门控
+成功后同步 os.environ（立即生效——display 的 `_llm_configured` 门控
 读 os.environ，保存后无需重启）。
 
 设计要点（design.md「.env 原子写」节）：
 - **只动白名单键** `UPDATE_WHITELIST`：用户手写键（TDX_MCP_DISABLED 等）
   零改动——UI 无法破坏手写配置
-- **值校验**：DEEPSEEK_MODEL ∈ {flash, pro}；LANGSMITH_TRACING 布尔化
+- **值校验**：LLM_MODEL 非空（自由文本，08-09-llm-provider-agnostic 起
+  不再枚举供应商模型）；LLM_BASE_URL 非空且 http:// 或 https:// 开头
+  （格式级校验，不做网络可达性探测）；LANGSMITH_TRACING 布尔化
   （true/false，小写归一）；密钥类键非空字符串；LANGSMITH_PROJECT 可空
   （用户可能清空项目名）
 - **原子性**：写同目录 `.env.tmp.<pid>` → os.replace 原子替换；失败清理
@@ -32,9 +34,9 @@ from utils.constants import REPO_ROOT
 # UI 可更新的 .env 键（白名单）：键名恒为大写，行内匹配即原位替换。
 # 白名单外的键（TDX_MCP_DISABLED 等用户手写配置）一律拒绝写入。
 UPDATE_WHITELIST: frozenset[str] = frozenset({
-    "DEEPSEEK_API_KEY",
-    "DEEPSEEK_MODEL",
-    "DASHSCOPE_API_KEY",
+    "LLM_API_KEY",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
     "TDX_API_KEY",
     "BILLIONS_API_KEY",
     "LANGSMITH_TRACING",
@@ -42,13 +44,9 @@ UPDATE_WHITELIST: frozenset[str] = frozenset({
     "LANGSMITH_PROJECT",
 })
 
-# DEEPSEEK_MODEL 合法取值（与 .env.example 注释一致）
-_MODELS = ("deepseek-v4-flash", "deepseek-v4-pro")
-
 # 密钥类键：非空字符串校验（UI 不允许清空——清空 = 拒绝保存并提示）
 _KEY_KEYS = frozenset({
-    "DEEPSEEK_API_KEY",
-    "DASHSCOPE_API_KEY",
+    "LLM_API_KEY",
     "TDX_API_KEY",
     "BILLIONS_API_KEY",
     "LANGSMITH_API_KEY",
@@ -56,9 +54,9 @@ _KEY_KEYS = frozenset({
 
 # 新键末尾追加时的注释行（键 → 简短中文说明，与 .env.example 风格一致）
 _NEW_KEY_COMMENTS = {
-    "DEEPSEEK_API_KEY": "# DeepSeek（默认 LLM）API Key",
-    "DEEPSEEK_MODEL": "# DeepSeek 模型：deepseek-v4-flash / deepseek-v4-pro",
-    "DASHSCOPE_API_KEY": "# DashScope API Key（Qwen 可选 LLM）",
+    "LLM_API_KEY": "# LLM API Key（OpenAI 兼容服务，如 DeepSeek 官方 key）",
+    "LLM_MODEL": "# LLM 模型名（任意 OpenAI 兼容模型，如 deepseek-v4-flash）",
+    "LLM_BASE_URL": "# LLM OpenAI 兼容 endpoint（http:// 或 https:// 开头）",
     "TDX_API_KEY": "# 通达信 TDX API Key（可选）：实时市场情报",
     "BILLIONS_API_KEY": "# 亿信 Fin 开放平台 API Key（可选）",
     "LANGSMITH_TRACING": "# LangSmith 追踪开关（true/false）",
@@ -85,9 +83,15 @@ def _validate(updates: dict) -> tuple[dict, str]:
             return None, f"拒绝写入非白名单键：{key}（UI 只更新已批准配置项）"
         if not isinstance(value, str):
             return None, f"{key} 的值必须是字符串"
-        if key == "DEEPSEEK_MODEL":
-            if value not in _MODELS:
-                return None, f"DEEPSEEK_MODEL 只支持 {' / '.join(_MODELS)}"
+        if key == "LLM_BASE_URL":
+            if not value.strip():
+                return None, "LLM_BASE_URL 不能为空"
+            if not (value.strip().startswith("http://")
+                    or value.strip().startswith("https://")):
+                return None, "LLM_BASE_URL 必须以 http:// 或 https:// 开头"
+        elif key == "LLM_MODEL":
+            if not value.strip():
+                return None, "LLM_MODEL 不能为空"
         elif key == "LANGSMITH_TRACING":
             low = value.strip().lower()
             if low not in ("true", "false"):

@@ -2,8 +2,9 @@
 
 投资经理 + 多头/空头交易员经 LLM 工具调用（bind_tools，节点内工具循环——
 见 core/llms/tool_loop.py）决定是否联网搜索：agent 自行判断是否需要外部
-信息验证论据，搜索结果以 ToolMessage 消息回流参与生成（默认 DeepSeek
-路径首次真实可用，不再依赖 QwenApi enable_search）。
+信息验证论据，搜索结果以 ToolMessage 消息回流参与生成（OpenAI 兼容
+bind_tools 路径首次真实可用——08-09-llm-provider-agnostic 起 LLM 配置
+通用化，不再依赖供应商私有扩展（如 DashScope enable_search））。
 
 供应商：仅 DuckDuckGo（用户拍板，选型与代价见
 research/search-provider-comparison.md）——langchain_community 0.4.2 的

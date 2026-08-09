@@ -97,8 +97,9 @@ problem becomes a user-facing failure.
   `graph.stream`（LLM 失败）各包一层 `try/except`——`st.error` 中文提示 +
   `logger.exception`，不裸 traceback 红屏、不吞错误（错误仍记录到日志）。
   Agent 节点内部不 catch，失败照旧冒泡到这两个边界。
-- Test-side `try/except`：`test/core/llms/qwen/test_qwen_api.py` 捕获 API
-  错误打印 DashScope error-code 文档链接。
+- Test-side `try/except`：已被删除的 `test/core/llms/qwen/test_qwen_api.py`
+  曾捕获 API 错误打印 DashScope error-code 文档链接（08-09-llm-provider-
+  agnostic 随 QwenApi 死代码删除）。
 
 ## Rules of Thumb
 
@@ -108,10 +109,12 @@ problem becomes a user-facing failure.
   `Exception("<short English message>")` — do not invent exception classes until
   there are callers that need to distinguish failure kinds.
 - Log first, return/raise second — the log line identifies the ticker/operation.
-- Guard the app against a missing API key at the UI layer
-  (`display.py` checks `DEEPSEEK_API_KEY` in `os.environ` and shows a Chinese
-  error banner) rather than in the data pipeline. UI 层同样守护运行期错误
-  （`build_stock_information` / `graph.stream` 的 try/except → `st.error`）。
+- Guard the app against a missing LLM 配置 at the UI layer
+  (`display.py` 的 `_llm_configured()` checks `LLM_API_KEY` / `LLM_MODEL` /
+  `LLM_BASE_URL` 三键 in `os.environ` and shows a Chinese error banner——
+  08-09-llm-provider-agnostic 必填强校验) rather than in the data pipeline.
+  UI 层同样守护运行期错误（`build_stock_information` / `graph.stream` 的
+  try/except → `st.error`）。
 
 ## Anti-Patterns
 

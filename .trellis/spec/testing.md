@@ -22,9 +22,9 @@ paths:
 - **Smoke/integration orientation**: most tests call the real systems — live
   akshare endpoints (`test/data_source/test_akshare.py`), the real ZODB file
   (`test/data_storage/test_ZODBStorage.py`, `test/core/data_acquisition/`), and
-  the live Qwen API (`test/core/llms/qwen/test_qwen_api.py`). They require
-  network access, a populated `database/china_stock_data.fs`, and
-  `DASHSCOPE_API_KEY` in `.env` (tests call `load_dotenv()` themselves).
+  live LLM endpoints（08-09-llm-provider-agnostic 起通用 LLM 配置三键）.
+  They require network access, a populated `database/china_stock_data.fs`, and
+  `LLM_API_KEY` in `.env` (tests call `load_dotenv()` themselves).
 - **Assertions are behavioral, not strict**: e.g.
   `assert storage.get_stock('000001') == stock`,
   `assert da.update_bjex_overview() is True`,
@@ -98,16 +98,18 @@ when a change touches only one agent.
   `stocks` BTree 使测试自包含（不依赖 akshare 填充）。
 - `test_get_trend_indicators.py` / `test_get_market_intel.py` — 指标输出结构
   + 无 key 降级文本（显式清 `TDX_API_KEY` 环境变量，与开发者本机 key 解耦）。
-- `test/core/llms/deepseek/test_deepseek_api.py` — 离线：默认模型
-  `deepseek-v4-flash` / `DEEPSEEK_MODEL` 覆盖 / 无 key 构造抛错（与 QwenApi
-  同构，UI 层负责提示）/ 不传 DashScope 私有参数。
+- `test/core/llms/test_llm_factory.py`（08-09-llm-provider-agnostic 替代
+  旧 deepseek 测试）— 离线：三键构造正确 / 缺任一键抛 ValueError（消息
+  含缺失键名）/ Base URL 非 http(s) 前缀拒绝 / `LLM_REASONING_EFFORT`
+  未设不传、设了才传（env 用 monkeypatch 清空防残留）。
 - `test_tdx_overview.py` / `test_tdx_reports.py` — 离线合成数据（golden
   values + 列序契约钉死）+ live 冒烟（TDX 可达执行，不可达跳过）。
 
 ## Deprecated Tests（2026-08-02，akshare/qwen 相关全部常规不跑）
 
-主流程已纯 TDX（TDX 覆盖个股概览与业绩报告）+ DeepSeek 默认 LLM，akshare 与
-Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部端点挂超时（曾把全量
+主流程已纯 TDX（TDX 覆盖个股概览与业绩报告）+ 通用 OpenAI 兼容 LLM
+（08-09-llm-provider-agnostic；旧 DeepSeek/Qwen 备用路径已删除）。其 live
+测试在本网络受限环境连外部端点挂超时（曾把全量
 回归拖到 20+ 分钟）。处理方式：**代码与方法全部保留**，测试加
 `pytest.mark.skip`（模块级 `pytestmark` 或方法装饰器，reason 注明 deprecated
 + 恢复方式=删行）。清单：
@@ -117,17 +119,21 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
   （`update_*_overview` / `acquire_daily_overview` / `acquire_historical_data`
   / `acquire_performance_report`）；**`test_acquire_stock_data` 保留**——
   M3 后 `get_stock_data` 走纯 TDX 链路，需常态回归
-- `test/core/llms/qwen/test_qwen_api.py` — 整个文件（Qwen 可选 LLM）
-- `test/integration/test_basic_graph.py` — 整个文件（5 用例均实例化 QwenApi）
-- `test/integration/test_investment_committee.py` — 整个文件（DeepSeek live
-  E2E，本机 .env 有 key 但网络受限连 api.deepseek.com 挂起）
+- `test/core/llms/qwen/test_qwen_api.py` — **已删除**（08-09-llm-provider-
+  agnostic 随 QwenApi 死代码移除）
+- `test/integration/test_basic_graph.py` — 整个文件（5 用例均实例化 live
+  LLM——08-09 起构造 `make_llm()`，仍整文件 skip）
+- `test/integration/test_investment_committee.py` — 整个文件（live LLM
+  E2E，本机 .env 有 key 但网络受限连 LLM 端点挂起）
 
 ## 基线（本环境，2026-08-02 实测）
 
 - **全量：0F/308P/20S，约 2-4 分钟**（2026-08-08 technical-indicator-analyst
   后实测，含 e2e 15 用例；另修复 test_theme.py 同名模块收集冲突——e2e 版
-  改名 test_theme_e2e.py，全量收集恢复）。**最新：0F/570P/20S（590 收集）**
-  （2026-08-09 test-quality 后实测，新增 7 用例：专家 agent 行为测试
+  改名 test_theme_e2e.py，全量收集恢复）。**最新：0F/576P/19S（595 收集）**
+  （2026-08-09 llm-provider-agnostic 后实测：+7 工厂测试（test_llm_factory.py）
+  −6 旧 deepseek 测试 −1 qwen 测试（随 QwenApi 死代码删除）；skip 20→19。
+  上版基线 0F/570P/20S = test-quality 后，新增 7 用例：专家 agent 行为测试
   （test_expert_agents.py 5 例）、get_stock_data/get_company_info None 降级
   路径（2 例）；同任务 mcp_intel_cache dummy key 泄漏改 monkeypatch.setenv
   自动还原；test_need_update 改表驱动独立期望（反证门：恒 True 实现必 FAIL）。

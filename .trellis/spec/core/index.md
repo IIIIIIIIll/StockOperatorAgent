@@ -133,7 +133,8 @@ Keep it that way; do not add a second storage abstraction.
   display 只读最终 state，不依赖顺序）。边/节点两形态（16/19 边、8/9
   节点）由 `test/core/test_role_registry.py` 冻结断言钉死；加 agent 改
   `ROLES` 即可，**不要**在 committee 手写条件接线。
-- `_llm` 为测试注入点（house style 无 mock 框架）：默认 `DeepSeekApi()`；
+- `_llm` 为测试注入点（house style 无 mock 框架）：默认 `make_llm()`
+  （08-09-llm-provider-agnostic 通用 OpenAI 兼容工厂，见 agents spec）；
   离线图测试（test/integration/test_graph_parallel.py）传假 LLM 验证
   join/并行语义。**假 LLM 路由注意**：FakeListChatModel 按共享调用计数器
   循环响应——并行下节点调用顺序非确定，必须按 system 消息路由（角色文案
@@ -229,8 +230,10 @@ Keep it that way; do not add a second storage abstraction.
   异常经队列回抛（error 事件 → raise），失败 `st.error` 中文提示 +
   `logger.exception`，不裸 traceback 红屏、不吞错误。
 - **2026-08-08（设置面板，08-08-billions-switches-ui）**：侧边栏「设置」
-  expander 4 分区承载全部配置——①模型与密钥（DEEPSEEK_MODEL selectbox +
-  4 个 password 框，**空 = 不修改**、非空 = 更新）+ LangSmith（TRACING/
+  expander 4 分区承载全部配置——①模型与密钥（08-09 起 LLM_MODEL /
+  LLM_BASE_URL 自由文本输入 + LLM_API_KEY 等 4 个 password 框，**空 =
+  不修改**、非空 = 更新；模型/endpoint 非密钥恒收集，空值由 env_file
+  必填校验拒绝保存）+ LangSmith（TRACING/
   key/project）→「保存」按钮经 `utils/env_file.update_env_file` **原子写
   .env + 同步 os.environ**（立即生效、重启保留；只动白名单 8 键，不 log
   密钥值）；②能力开关（TDX MCP/联网搜索/亿信总闸+5 能力）与亿信调用上限
@@ -347,9 +350,10 @@ Keep it that way; do not add a second storage abstraction.
     （bullish/bearish 各两条不同内容验证 expander 追加渲染）。`streamlit run`
     以脚本方式加载，mock_app 需显式把仓库根加入 sys.path（否则
     `import core.ui.display` ModuleNotFoundError）。
-  - **dummy key 真实用途**：env `DEEPSEEK_API_KEY=dummy` 只为绕过
-    `_has_deepseek_key()` 门禁（display.py:104）——`InvestmentCommittee` 无
-    `__init__`，DeepSeekApi 只在真实 `make_investment_committee` 内构造
+  - **dummy 三键真实用途**：env `LLM_API_KEY` / `LLM_MODEL` /
+    `LLM_BASE_URL` dummy 只为绕过 `_llm_configured()` 门禁（三键齐全才
+    放行，08-09-llm-provider-agnostic）——`InvestmentCommittee` 无
+    `__init__`，make_llm() 只在真实 `make_investment_committee` 内构造
     （mock 已替换，不触发任何 LLM 构造）。
   - **种子快照**：`test/e2e/seed/fixture_002027.txt` 为
     `build_stock_information("002027")` 输出原样固化（overview/日K/业绩/

@@ -3,7 +3,7 @@ from langchain_core.runnables import RunnableConfig
 from utils.state import State
 
 from langgraph.graph import StateGraph, START, END
-from core.llms.deepseek.deepseek_api import DeepSeekApi
+from core.llms.llm_factory import make_llm
 from core.role_registry import (
     END_MARKER,
     START_MARKER,
@@ -91,14 +91,16 @@ class InvestmentCommittee:
         of Scope 组合（ANALYST 开但 SEARCH/TWITTER 均关）视为分析师
         不可用不产出。
 
-        _llm：测试注入点（house style 无 mock 框架）——默认 DeepSeekApi()；
-        离线图测试传 FakeListChatModel 等假 LLM 验证图形状/join 语义。
+        _llm：测试注入点（house style 无 mock 框架）——默认 make_llm()
+        （通用 OpenAI 兼容配置 LLM_API_KEY / LLM_MODEL / LLM_BASE_URL，
+        见 core/llms/llm_factory.py）；离线图测试传 FakeListChatModel
+        等假 LLM 验证图形状/join 语义。
         """
         load_dotenv()
 
         graph_builder = StateGraph(State)
 
-        llm = _llm or DeepSeekApi()
+        llm = _llm or make_llm()
 
         checkpointer = InMemorySaver()
 

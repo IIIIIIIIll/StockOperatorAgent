@@ -8,7 +8,7 @@ prd（08-02-fix-dead-code-cleanup）验收：
   无 [HumanMessage(...)] 列表元数据、无 '$' 前缀残留。
 
 假 LLM 模式（testing.md 允许的隔离法）：记录 query 并返回固定 AIMessage，
-不触网——与 deprecated 的 test_basic_graph（QwenApi live）解耦。
+不触网——与 deprecated 的 test_basic_graph（live LLM）解耦。
 """
 
 import os

@@ -6,14 +6,16 @@
 顶层构造（display.py:31）虽然会发生，但从不被调用。
 
 运行（conftest session fixture 自动执行；手动冒烟）：
-    DEEPSEEK_API_KEY=dummy streamlit run test/e2e/mock_app.py \
+    LLM_API_KEY=dummy LLM_MODEL=deepseek-v4-flash \
+    LLM_BASE_URL=https://api.deepseek.com streamlit run test/e2e/mock_app.py \
         --server.headless=true --server.port=8502 --server.address=127.0.0.1
 
-**env 要求**：服务器 env 必须注入 dummy `DEEPSEEK_API_KEY`——display 模块
-顶层 `committee = InvestmentCommittee()` 本身无副作用（无 __init__，
-DeepSeekApi 只在真实 make_investment_committee 内构造，mock 已替换），
-dummy key 的真实用途是绕过 `_has_deepseek_key()` 门禁（display.py:104，
-无 key 时 write_ui 直接 st.error 返回，表单/报告都不会渲染）。
+**env 要求**：服务器 env 必须注入 dummy LLM 三键（LLM_API_KEY /
+LLM_MODEL / LLM_BASE_URL）——display 模块顶层
+`committee = InvestmentCommittee()` 本身无副作用（无 __init__，
+make_llm() 只在真实 make_investment_committee 内构造，mock 已替换），
+dummy 三键的真实用途是绕过 `_llm_configured()` 门禁（display.py，
+缺任一键时 write_ui 直接 st.error 返回，表单/报告都不会渲染）。
 
 mock 替换契约（design.md 已验证）：
 - `build_stock_information(ticker, progress=...)` → 读
@@ -67,7 +69,7 @@ display.write_ui()
 
 # mock 自检（design：FakeGraph 计数器断言）——CALL_COUNT 是本进程内
 # MockCommittee.make_investment_committee 被调次数（真实 InvestmentCommittee
-# / DeepSeekApi 从不被调用）。loguru 默认 stderr → 服务器日志文件
+# / make_llm 从不被调用）。loguru 默认 stderr → 服务器日志文件
 # （conftest 收集），pytest_sessionfinish 审计「零真实 LLM/网络调用」。
 # 每次 rerun（页面加载/提交）都会执行到这一行：无提交 → 0，有效提交
 # → 递增。

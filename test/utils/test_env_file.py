@@ -1,11 +1,11 @@
 """.env 原子写测试（离线，tmp_path 注入 env_path，不碰真实 .env）。
 
 覆盖（implement.md Step 2 清单）：新文件追加带注释、既有文件原位替换
-（注释/顺序/无关键不动）、重复键全替换、白名单外键拒绝、非法 model /
-TRACING / 空密钥拒绝、LANGSMITH_PROJECT 可空、TRACING 小写归一、原子性
-（写失败 → 原文件不变 + 无 tmp 残留；env_path 为目录 → 读失败返回 False）、
-os.environ 同步（成功后 getenv 新值、失败路径零改动）、批量混合更新、
-成功路径无 tmp 残留。
+（注释/顺序/无关键不动）、重复键全替换、白名单外键拒绝、空 model /
+非法 Base URL / TRACING / 空密钥拒绝、LANGSMITH_PROJECT 可空、TRACING
+小写归一、原子性（写失败 → 原文件不变 + 无 tmp 残留；env_path 为目录
+→ 读失败返回 False）、os.environ 同步（成功后 getenv 新值、失败路径
+零改动）、批量混合更新、成功路径无 tmp 残留。
 
 env 隔离：成功写入会改 os.environ——每个成功路径用例 save/restore 白名单
 键（对齐 test_billions_config 跨运行确定性约定）。所有用例显式传
@@ -40,14 +40,14 @@ class TestAppendNewKeys:
     def test_missing_file_creates_with_comments(self, tmp_path):
         env_f = tmp_path / ".env"
         ok, msg = env_file.update_env_file(
-            {"DEEPSEEK_API_KEY": "sk-1", "BILLIONS_API_KEY": "b-1"},
+            {"LLM_API_KEY": "sk-1", "BILLIONS_API_KEY": "b-1"},
             env_path=env_f,
         )
         assert ok is True and msg == ""
         lines = _nonempty_lines(env_f)
         # 每个新键前带一行简短注释；键行顺序 = updates 传入顺序
-        assert lines[0] == "# DeepSeek（默认 LLM）API Key"
-        assert lines[1] == "DEEPSEEK_API_KEY=sk-1"
+        assert lines[0] == "# LLM API Key（OpenAI 兼容服务，如 DeepSeek 官方 key）"
+        assert lines[1] == "LLM_API_KEY=sk-1"
         assert lines[-2] == "# 亿信 Fin 开放平台 API Key（可选）"
         assert lines[-1] == "BILLIONS_API_KEY=b-1"
 
@@ -87,23 +87,23 @@ class TestReplaceInPlace:
         env_f = tmp_path / ".env"
         env_f.write_text(
             "# 顶部注释\n"
-            "DEEPSEEK_API_KEY=sk-old\n"
+            "LLM_API_KEY=sk-old\n"
             "\n"
-            "DEEPSEEK_MODEL=deepseek-v4-flash\n"
+            "LLM_MODEL=deepseek-v4-flash\n"
             "TDX_MCP_DISABLED=1\n"
             "LANGSMITH_TRACING=false\n"
         )
         ok, msg = env_file.update_env_file(
-            {"DEEPSEEK_MODEL": "deepseek-v4-pro", "DEEPSEEK_API_KEY": "sk-new"},
+            {"LLM_MODEL": "gpt-4o", "LLM_API_KEY": "sk-new"},
             env_path=env_f,
         )
         assert ok is True and msg == ""
         lines = env_f.read_text().split("\n")
         assert lines == [
             "# 顶部注释",
-            "DEEPSEEK_API_KEY=sk-new",
+            "LLM_API_KEY=sk-new",
             "",
-            "DEEPSEEK_MODEL=deepseek-v4-pro",
+            "LLM_MODEL=gpt-4o",
             "TDX_MCP_DISABLED=1",  # 非白名单键原样不动
             "LANGSMITH_TRACING=false",
             "",
@@ -112,21 +112,21 @@ class TestReplaceInPlace:
     def test_duplicate_key_all_occurrences_replaced(self, tmp_path):
         # 重复行全部替换（load_dotenv 末行生效，不能留旧值）
         env_f = tmp_path / ".env"
-        env_f.write_text("DEEPSEEK_API_KEY=old1\nKEEP=1\nDEEPSEEK_API_KEY=old2\n")
-        ok, _ = env_file.update_env_file({"DEEPSEEK_API_KEY": "new"}, env_path=env_f)
+        env_f.write_text("LLM_API_KEY=old1\nKEEP=1\nLLM_API_KEY=old2\n")
+        ok, _ = env_file.update_env_file({"LLM_API_KEY": "new"}, env_path=env_f)
         assert ok is True
-        assert env_f.read_text() == "DEEPSEEK_API_KEY=new\nKEEP=1\nDEEPSEEK_API_KEY=new\n"
+        assert env_f.read_text() == "LLM_API_KEY=new\nKEEP=1\nLLM_API_KEY=new\n"
 
     def test_mixed_batch_existing_and_new(self, tmp_path):
         saved = _snapshot_env()
         env_f = tmp_path / ".env"
-        env_f.write_text("DEEPSEEK_API_KEY=sk-old\nDEEPSEEK_MODEL=deepseek-v4-flash\n")
+        env_f.write_text("LLM_API_KEY=sk-old\nLLM_MODEL=deepseek-v4-flash\n")
         try:
             ok, msg = env_file.update_env_file(
                 {
-                    "DEEPSEEK_API_KEY": "sk-new",
-                    "DEEPSEEK_MODEL": "deepseek-v4-pro",
-                    "DASHSCOPE_API_KEY": "dash-1",
+                    "LLM_API_KEY": "sk-new",
+                    "LLM_MODEL": "gpt-4o",
+                    "LLM_BASE_URL": "https://api.openai.com/v1",
                     "LANGSMITH_TRACING": "true",
                 },
                 env_path=env_f,
@@ -134,10 +134,10 @@ class TestReplaceInPlace:
             assert ok is True and msg == ""
             lines = env_f.read_text().split("\n")
             # 已有键原位（前两行），新键追加末尾（注释 + 键值），末尾空元素 = 尾换行
-            assert lines[:2] == ["DEEPSEEK_API_KEY=sk-new", "DEEPSEEK_MODEL=deepseek-v4-pro"]
+            assert lines[:2] == ["LLM_API_KEY=sk-new", "LLM_MODEL=gpt-4o"]
             assert lines[-3] == "# LangSmith 追踪开关（true/false）"
             assert lines[-2] == "LANGSMITH_TRACING=true"
-            assert "DASHSCOPE_API_KEY=dash-1" in lines
+            assert "LLM_BASE_URL=https://api.openai.com/v1" in lines
         finally:
             _restore_env(saved)
 
@@ -157,12 +157,40 @@ class TestValidation:
         assert "TDX_MCP_DISABLED" in msg
         assert env_f.read_text() == "SENTINEL=1\n"  # 文件未动
 
-    def test_invalid_model_rejected(self, tmp_path):
+    def test_empty_model_rejected(self, tmp_path):
+        # 模型自由文本（不再枚举供应商模型），但必填非空
         env_f = self._write_guard(tmp_path)
-        ok, msg = env_file.update_env_file({"DEEPSEEK_MODEL": "gpt-4"}, env_path=env_f)
+        ok, msg = env_file.update_env_file({"LLM_MODEL": ""}, env_path=env_f)
         assert ok is False
-        assert "DEEPSEEK_MODEL" in msg
+        assert "LLM_MODEL" in msg
         assert env_f.read_text() == "SENTINEL=1\n"
+
+    def test_invalid_base_url_scheme_rejected(self, tmp_path):
+        # 裸域名不是 http(s) 前缀——格式级校验拒绝
+        env_f = self._write_guard(tmp_path)
+        ok, msg = env_file.update_env_file(
+            {"LLM_BASE_URL": "api.deepseek.com"}, env_path=env_f)
+        assert ok is False
+        assert "http" in msg
+        assert env_f.read_text() == "SENTINEL=1\n"
+
+    def test_empty_base_url_rejected(self, tmp_path):
+        env_f = self._write_guard(tmp_path)
+        ok, msg = env_file.update_env_file({"LLM_BASE_URL": ""}, env_path=env_f)
+        assert ok is False
+        assert "LLM_BASE_URL" in msg
+        assert env_f.read_text() == "SENTINEL=1\n"
+
+    def test_valid_base_url_accepted(self, tmp_path):
+        saved = _snapshot_env()
+        env_f = tmp_path / ".env"
+        try:
+            ok, msg = env_file.update_env_file(
+                {"LLM_BASE_URL": "http://localhost:8000/v1"}, env_path=env_f)
+            assert ok is True and msg == ""
+            assert "LLM_BASE_URL=http://localhost:8000/v1" in env_f.read_text()
+        finally:
+            _restore_env(saved)
 
     def test_invalid_tracing_rejected(self, tmp_path):
         env_f = self._write_guard(tmp_path)
@@ -173,9 +201,9 @@ class TestValidation:
 
     def test_empty_api_key_rejected(self, tmp_path):
         env_f = self._write_guard(tmp_path)
-        ok, msg = env_file.update_env_file({"DEEPSEEK_API_KEY": ""}, env_path=env_f)
+        ok, msg = env_file.update_env_file({"LLM_API_KEY": ""}, env_path=env_f)
         assert ok is False
-        assert "DEEPSEEK_API_KEY" in msg
+        assert "LLM_API_KEY" in msg
         assert env_f.read_text() == "SENTINEL=1\n"
 
     def test_blank_api_key_rejected(self, tmp_path):
@@ -187,9 +215,9 @@ class TestValidation:
 
     def test_non_string_value_rejected(self, tmp_path):
         env_f = self._write_guard(tmp_path)
-        ok, msg = env_file.update_env_file({"DEEPSEEK_API_KEY": 123}, env_path=env_f)
+        ok, msg = env_file.update_env_file({"LLM_API_KEY": 123}, env_path=env_f)
         assert ok is False
-        assert "DEEPSEEK_API_KEY" in msg
+        assert "LLM_API_KEY" in msg
         assert env_f.read_text() == "SENTINEL=1\n"
 
     def test_empty_project_allowed(self, tmp_path):
@@ -213,13 +241,13 @@ class TestValidation:
             _restore_env(saved)
 
     def test_error_message_contains_no_value(self, tmp_path):
-        # R6：错误消息只含键名不含值（用非法 model 触发校验失败，
+        # R6：错误消息只含键名不含值（用非法 Base URL 触发校验失败，
         # 值不落入错误消息；合法密钥值会真的写入，不适用于本断言）
         ok, msg = env_file.update_env_file(
-            {"DEEPSEEK_MODEL": "sk-secret-value"}, env_path=tmp_path / "x.env"
+            {"LLM_BASE_URL": "sk-secret-value"}, env_path=tmp_path / "x.env"
         )
         assert ok is False
-        assert "DEEPSEEK_MODEL" in msg
+        assert "LLM_BASE_URL" in msg
         assert "sk-secret-value" not in msg
 
 
@@ -235,7 +263,7 @@ class TestAtomicity:
 
         env_file.os.replace = _boom
         try:
-            ok, msg = env_file.update_env_file({"DEEPSEEK_API_KEY": "sk-new"}, env_path=env_f)
+            ok, msg = env_file.update_env_file({"LLM_API_KEY": "sk-new"}, env_path=env_f)
             assert ok is False
             assert "写入 .env 失败" in msg
             assert env_f.read_text() == "KEEP=1\n"  # 原文件不变
@@ -246,7 +274,7 @@ class TestAtomicity:
     def test_env_path_is_directory_returns_false(self, tmp_path):
         target = tmp_path / ".env"
         target.mkdir()
-        ok, msg = env_file.update_env_file({"DEEPSEEK_API_KEY": "k"}, env_path=target)
+        ok, msg = env_file.update_env_file({"LLM_API_KEY": "k"}, env_path=target)
         assert ok is False
         assert "读取 .env 失败" in msg
         assert list(tmp_path.glob(".env.tmp.*")) == []
@@ -316,17 +344,18 @@ class TestEnvironSync:
     def test_environ_updated_after_successful_write(self, tmp_path):
         saved = _snapshot_env()
         env_f = tmp_path / ".env"
-        env_f.write_text("DEEPSEEK_API_KEY=sk-old\n")
+        env_f.write_text("LLM_API_KEY=sk-old\n")
         try:
-            ok, _ = env_file.update_env_file({"DEEPSEEK_API_KEY": "sk-new"}, env_path=env_f)
+            ok, _ = env_file.update_env_file({"LLM_API_KEY": "sk-new"}, env_path=env_f)
             assert ok is True
-            assert os.environ.get("DEEPSEEK_API_KEY") == "sk-new"
+            assert os.environ.get("LLM_API_KEY") == "sk-new"
             # 批量：新增键也同步
             ok, _ = env_file.update_env_file(
-                {"DASHSCOPE_API_KEY": "dash-1", "LANGSMITH_TRACING": "false"}, env_path=env_f
+                {"LLM_BASE_URL": "https://api.deepseek.com", "LANGSMITH_TRACING": "false"},
+                env_path=env_f,
             )
             assert ok is True
-            assert os.environ.get("DASHSCOPE_API_KEY") == "dash-1"
+            assert os.environ.get("LLM_BASE_URL") == "https://api.deepseek.com"
             assert os.environ.get("LANGSMITH_TRACING") == "false"
         finally:
             _restore_env(saved)
@@ -335,9 +364,9 @@ class TestEnvironSync:
         saved = _snapshot_env()
         try:
             ok, _ = env_file.update_env_file(
-                {"DEEPSEEK_API_KEY": "x"}, env_path=tmp_path / "missing" / ".env"
+                {"LLM_API_KEY": "x"}, env_path=tmp_path / "missing" / ".env"
             )
             assert ok is False
-            assert os.environ.get("DEEPSEEK_API_KEY") == saved["DEEPSEEK_API_KEY"]
+            assert os.environ.get("LLM_API_KEY") == saved["LLM_API_KEY"]
         finally:
             _restore_env(saved)
