@@ -88,9 +88,16 @@ downstream agents from live LLM calls).
 loop 起 opinions 列表含初稿 + 修订版（revise 追加写原 key）——`[-1]` 恒为
 最新一版（manager 零改动读修订版），初稿保留供 UI 展示对抗过程。
 
-Node names in the graph and the `State` keys must stay in sync — the graph wiring
-in `investment_committee.py` (`make_investment_committee`) maps each node to
-`agent.<role>_method`.
+Node names, `State` keys, Tab 标题与启用谓词的**单一事实源是
+`core/role_registry.py`**（08-09-role-registry）——`ROLES` 每条 Role 携带
+node_name / state_key / tab_title / kind / opinion / enabled 谓词 /
+factory / revise_node_name；图装配（`investment_committee.py` 的
+`make_investment_committee`）与 UI 渲染（`display.report_tabs` /
+`OPINION_REPORT_KEYS`）都从注册表读取。新增 agent = 加一条 Role + 一个
+prompt（外加 State 注解——一致性由 `test/core/test_role_registry.py` 双向
+断言钉死）。信息面分析师的启用谓词（ANALYST 开且 SEARCH/TWITTER 至少一
+者开）在注册表单点定义，装配与 Tab 共用。**不要**在 committee/display 里
+再手写条件接线。
 
 ## Prompt Conventions (`core/llms/prompt.py`)
 
@@ -221,11 +228,14 @@ def bullish_revise(self, state: State):
 - **UI 契约（core spec Streamlit UI 段）**：display 同 key **追加渲染**
   （观点 tab 初稿 → `---` 分隔 → 修订版），去重集合按 `(key, content)` 对
   （防 superstep 兜底重复推送同内容）。
-- 图装配：8 节点 15 边（+2 节点 +6 边：各 revise 双入边 join 两份初稿、
-  各 revise → manager；+1 节点 +3 边：08-08-technical-indicator-analyst
-  技术指标分析师——START → 分析师 与三专家并行、分析师 → 两个 trader，
-  bullish/bearish 变**三入边 join**）；墙钟 3 → 4 阶段。manager / State /
-  tool_loop 公共语义零改动。
+- 图装配：8 节点 16 边（ANALYST 开 9 节点 19 边；08-09-role-registry
+  起由 `core/role_registry.py` 注册表驱动——加角色只改 `ROLES`，装配
+  循环生成，见 core spec InvestmentCommittee 节）。历史增量：+2 节点
+  +6 边（各 revise 双入边 join 两份初稿、各 revise → manager）；+1 节点
+  +3 边（技术指标分析师——START → 分析师 与三专家并行、分析师 → 两个
+  trader，bullish/bearish 变**三入边 join**）；+1 节点 +4 边（信息面分析
+  师，条件接线——启用谓词在注册表单点定义）；墙钟 3 → 4 阶段。manager /
+  State / tool_loop 公共语义零改动。
 
 ## Tools (`core/llms/tools/`)
 

@@ -9,9 +9,9 @@ from core.llms.progress import ProgressBridge
 from core.ui import charts
 from core.ui import data_markdown
 from core.ui import theme
+from core.role_registry import ROLES, enabled_roles
 from data_source.chinese_mainland.tdx.tdx_source import is_bj_ticker
 from loguru import logger
-from utils.billions_config import billions_enabled
 from utils.env_file import update_env_file
 from utils.runtime_config import set_runtime_overrides
 
@@ -31,35 +31,27 @@ def _has_deepseek_key():
 # （data_markdown.to_markdown_tables，08-02-ui-data-markdown-tables）。
 DATA_TAB_TITLE = "采集数据"
 
-# 报告 state key → Tab 标题。顺序即 write_ui 里 st.tabs 中报告 Tab 的
-# 创建顺序（数据 Tab 插入不影响相对顺序）——渲染 dispatch 依赖该契约
-# （08-02-ui-incremental-report-render）。
-# 08-08-billions-api-integration（Step 5）：REPORT_TABS 常量 → report_tabs()
-# 条件函数——ANALYST 开关开 → 追加「信息面分析」；关 → 与既有六 Tab 逐
-# 字节一致（AC1）。开关在**调用时**求值（对齐 web_search_enabled 图装配
-# 时判定），同一次 rerun 内 st.tabs 创建与渲染 dispatch 读到同一份列表。
-_BASE_REPORT_TABS = (
-    ("fundamental_analysis", "基本面分析"),
-    ("trend_analysis", "趋势分析"),
-    ("technical_indicator_analysis", "技术指标分析"),
-    ("bullish_opinions", "看涨观点"),
-    ("bearish_opinions", "看跌观点"),
-    ("final_decision", "最终结论"),
-)
-
-
+# 报告 state key → Tab 标题。顺序 = 注册表 ROLES 顺序（即 write_ui 里
+# st.tabs 中报告 Tab 的创建顺序；数据 Tab 插入不影响相对顺序）——渲染
+# dispatch 依赖该契约（08-02-ui-incremental-report-render；
+# 08-09-role-registry：名册单一事实源收敛到 core/role_registry.py）。
+# 开关在**调用时**求值（对齐 web_search_enabled 图装配时判定），同一
+# 次 rerun 内 st.tabs 创建与渲染 dispatch 读到同一份列表。
 def report_tabs():
-    """报告 Tab 契约：ANALYST 开 → 追加「信息面分析」（第 4 位专家报告，
-    与技术指标分析相邻）；关 → 与既有六 Tab 完全一致（AC1/AC3）。"""
-    tabs = list(_BASE_REPORT_TABS)
-    if billions_enabled("ANALYST"):
-        tabs.insert(3, ("information_analysis", "信息面分析"))
-    return tuple(tabs)
+    """报告 Tab 契约（08-09-role-registry 注册表驱动）：ANALYST 开 →
+    含「信息面分析」（第 4 位专家报告，与技术指标分析相邻）；关 → 与
+    既有六 Tab 完全一致（AC1/AC3）。"""
+    return tuple(
+        (r.state_key, r.tab_title)
+        for r in enabled_roles()
+        if r.state_key is not None and r.tab_title is not None
+    )
 
 # 观点 key（08-05-ui-opinion-expanders）：渲染为可折叠条目（每份观点一个
 # expander）——对抗修订轮后同 key 含初稿+修订版多份内容，平铺占空间；
-# 非观点 key 单份内容保持平铺。
-OPINION_REPORT_KEYS = {"bullish_opinions", "bearish_opinions"}
+# 非观点 key 单份内容保持平铺。（08-09-role-registry：从注册表 opinion
+# 标志派生。）
+OPINION_REPORT_KEYS = frozenset(r.state_key for r in ROLES if r.opinion)
 
 
 def _report_content(value):

@@ -13,7 +13,9 @@ paths:
 ```
 Streamlit UI (core/ui/display.py)
   └─ InvestmentCommittee (core/investment_committee.py)  — LangGraph StateGraph
-       └─ 6 agents (agents/chinese_mainland/)  — 8 图节点（信息面分析师条件启用，
+       └─ core/role_registry.py（08-09-role-registry）— agent 名册单一事实源
+            （ROLES：节点名/State key/Tab 标题/启用谓词/工厂；装配与 UI 共用）
+       └─ 6 agents (agents/chinese_mainland/)  — 8/9 图节点（信息面分析师条件启用，
            对抗修订为双节点）；expert/trader 带 bind_tools 工具（web_search +
            亿信三件套，开关门控）
             └─ DeepSeekApi (core/llms/deepseek/deepseek_api.py) — 默认；QwenApi 可选

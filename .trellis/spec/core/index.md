@@ -108,20 +108,25 @@ Keep it that way; do not add a second storage abstraction.
 ## InvestmentCommittee (`core/investment_committee.py`)
 
 - `make_investment_committee(config, progress_updater=None, _llm=None)` builds
-  a `StateGraph(State)` with **8 节点（条件 9 节点）15 边**（2026-08-02，
-  review #4；2026-08-04，08-04-adversarial-verdict-loop +2 revise 节点；
-  2026-08-08，08-08-technical-indicator-analyst +1 技术指标分析师；
-  08-08-billions-api-integration +1 条件信息面分析师）：`START →
-  fundamental`、`START → trend` 与 `START → technical_indicator_analyst`
-  并行（都只依赖 `stock_information`），三专家 → `bullish/bearish` 并行
-  （都只依赖三份报告，trader 变**三入边 join**），
+  a `StateGraph(State)` with **8 节点（条件 9 节点）16 边（ANALYST 开 19
+  边）**——**注册表驱动装配**（08-09-role-registry）：节点/边由
+  `core/role_registry.py` 的 `ROLES` + `build_edges` 生成，固定 4 阶段
+  形状（见下）。历史演进：2026-08-02 review #4 三对并行；08-04
+  adversarial-verdict-loop +2 revise 节点；08-08 technical-indicator-
+  analyst +1 技术指标分析师；08-08 billions-api-integration +1 条件信息面
+  分析师（启用谓词在注册表单点定义）。形状：`START → fundamental`、
+  `START → trend` 与 `START → technical_indicator_analyst` 并行（都只依赖
+  `stock_information`），三专家 → `bullish/bearish` 并行（都只依赖三份
+  报告，trader 变**三入边 join**），
   `bullish/bearish → bullish_revise/bearish_revise`（对抗修订轮——各
   revise 双入边 join 两份初稿，互相独立保持并行），两份修订版 →
   `investment_manager → END`。LangGraph 多入边 = **隐式 join**：trader 等
   三上游都完成、revise 等两份初稿都完成（否则对方初稿缺失）、manager 等
   两份修订版都完成——墙钟 8 串行 → 4 阶段。并行分支写不同 State key
   （无写冲突），`messages` 由 add_messages reducer 合并（顺序不确定——
-  display 只读最终 state，不依赖顺序）。
+  display 只读最终 state，不依赖顺序）。边/节点两形态（16/19 边、8/9
+  节点）由 `test/core/test_role_registry.py` 冻结断言钉死；加 agent 改
+  `ROLES` 即可，**不要**在 committee 手写条件接线。
 - `_llm` 为测试注入点（house style 无 mock 框架）：默认 `DeepSeekApi()`；
   离线图测试（test/integration/test_graph_parallel.py）传假 LLM 验证
   join/并行语义。**假 LLM 路由注意**：FakeListChatModel 按共享调用计数器

@@ -2,16 +2,14 @@ from dotenv import load_dotenv
 from langchain_core.runnables import RunnableConfig
 from utils.state import State
 
-from agents.chinese_mainland.fundamental_analysis_expert import FundamentalAnalysisExpert
-from agents.chinese_mainland.trend_analysis_expert import TrendAnalysisExpert
-from agents.chinese_mainland.technical_indicator_analyst import TechnicalIndicatorAnalyst
-from agents.chinese_mainland.information_analyst import BillionsInformationAnalyst
-from agents.chinese_mainland.bullish_trader import BullishTrader
-from agents.chinese_mainland.bearish_trader import BearishTrader
-from agents.chinese_mainland.investment_manager import InvestmentManager
-
 from langgraph.graph import StateGraph, START, END
 from core.llms.deepseek.deepseek_api import DeepSeekApi
+from core.role_registry import (
+    END_MARKER,
+    START_MARKER,
+    build_edges,
+    enabled_roles,
+)
 from core.llms.tools.get_company_info import get_stock_info
 from core.llms.tools.web_search import make_web_search_tool, web_search_enabled
 from core.llms.tools.billions_search import make_billions_search_tool
@@ -80,17 +78,18 @@ def build_stock_information(target_ticker: str, progress=None, _billions_intel=N
 class InvestmentCommittee:
 
     def make_investment_committee(self, config: RunnableConfig, progress_updater = None, _llm = None):
-        """装配 8 节点图（review #4：三对并行 + 隐式 join；08-04-adversarial-
-        verdict-loop：+2 revise 节点；08-08-technical-indicator-analyst：
-        +1 技术指标分析师；08-08-billions-api-integration：ANALYST 开关开
-        → 条件 +1 信息面分析师，见 agents spec）。
+        """装配图（08-09-role-registry：注册表驱动——节点/边由 ROLES
+        生成，固定 4 阶段形状：START → 专家∥ → 多空交易员（N 入边
+        join）→ 对抗修订（双入边 join）→ 经理 → END；行为与手写接线
+        逐字节一致，集成测试钉死）。
 
-        信息面分析师为**条件接线**（R2/AC1/AC3，08-08-billions-api-
-        integration，Step 4）：billions_enabled("ANALYST") 且 SEARCH 或
-        TWITTER 至少一者开 → 注册第 4 位专家节点（与三专家并行，多空
-        交易员变 4 入边 join）；否则完全不注册——图结构与工具绑定与
-        今日逐字节一致（零行为变化，AC1 由构造保证）。Out of Scope
-        组合（ANALYST 开但 SEARCH/TWITTER 均关）视为分析师不可用不产出。
+        信息面分析师为**条件接线**（08-08-billions-api-integration，
+        Step 4）：启用谓词在注册表单点定义（ANALYST 开且 SEARCH 或
+        TWITTER 至少一者开）——谓词开 → 注册第 4 位专家节点（与三专家
+        并行，多空交易员变 4 入边 join）；否则完全不注册——图结构与
+        工具绑定与现状逐字节一致（零行为变化，AC1 由构造保证）。Out
+        of Scope 组合（ANALYST 开但 SEARCH/TWITTER 均关）视为分析师
+        不可用不产出。
 
         _llm：测试注入点（house style 无 mock 框架）——默认 DeepSeekApi()；
         离线图测试传 FakeListChatModel 等假 LLM 验证图形状/join 语义。
@@ -122,74 +121,48 @@ class InvestmentCommittee:
         if not tools:
             tools = None
 
-        fundamental_expert = FundamentalAnalysisExpert(llm, config, progress_updater)
-        graph_builder.add_node("fundamental_analysis_expert", fundamental_expert.fundamental_analysis_expert)
+        # 注册表驱动装配（08-09-role-registry）：谓词装配时求值一次，
+        # 节点/边共用同一启用集合——4 份 if 条件块与手写边表删除
+        roles = enabled_roles()
+        experts = [r for r in roles if r.kind == "expert"]
+        traders = [r for r in roles if r.kind == "trader"]
 
-        trend_expert = TrendAnalysisExpert(llm, config, progress_updater)
-        graph_builder.add_node("trend_analysis_expert", trend_expert.trend_analysis_expert)
+        # 专家∥（只依赖 stock_information）——直调无工具
+        for r in experts:
+            instance = r.factory(llm, config, progress_updater, None)
+            graph_builder.add_node(r.node_name, getattr(instance, r.resolved_method))
 
-        # 技术指标分析师（08-08-technical-indicator-analyst）：第三位专家，
-        # 与 fundamental/trend 并行（同属第一梯队，只依赖 stock_information）
-        indicator_analyst = TechnicalIndicatorAnalyst(llm, config, progress_updater)
-        graph_builder.add_node("technical_indicator_analyst", indicator_analyst.technical_indicator_analyst)
-
-        # 信息面分析师（08-08-billions-api-integration，Step 4）：第 4 位
-        # 专家（确定性预抓 + 单次 LLM 总结，见 agents spec）——条件接线：
-        # ANALYST 开 且（SEARCH 或 TWITTER 至少一者开）→ 注册并与三专家
-        # 并行；否则完全不注册（Out of Scope 组合 = 分析师不可用，图与
-        # 今日逐字节一致，AC1）
-        information_analyst_enabled = (
-            billions_enabled("ANALYST")
-            and (billions_enabled("SEARCH") or billions_enabled("TWITTER"))
-        )
-        if information_analyst_enabled:
-            information_analyst = BillionsInformationAnalyst(llm, config, progress_updater)
-            graph_builder.add_node("information_analyst", information_analyst.information_analyst)
-
-        bullish_trader = BullishTrader(llm, config, progress_updater, tools)
-        graph_builder.add_node("bullish_trader", bullish_trader.bullish_trader)
-
-        bearish_trader = BearishTrader(llm, config, progress_updater, tools)
-        graph_builder.add_node("bearish_trader", bearish_trader.bearish_trader)
-
-        investment_manager = InvestmentManager(llm, config, progress_updater, tools)
-        graph_builder.add_node("investment_manager", investment_manager.investment_manager)
+        # 多空交易员∥（N 入边 join 全部专家报告）——bind_tools 工具角色
+        trader_instances = {}
+        for r in traders:
+            instance = r.factory(llm, config, progress_updater, tools)
+            trader_instances[r.node_name] = instance
+            graph_builder.add_node(r.node_name, getattr(instance, r.resolved_method))
 
         # 对抗修订轮（08-04-adversarial-verdict-loop）：同一 trader 实例的
-        # 第二个节点方法——bullish_revise / bearish_revise 各看对方初稿与
-        # 自己初稿，修订一版追加写原 opinions key（State 零新 key）。
-        graph_builder.add_node("bullish_revise", bullish_trader.bullish_revise)
-        graph_builder.add_node("bearish_revise", bearish_trader.bearish_revise)
+        # 第二个节点方法——各看对方初稿与自己初稿，修订一版追加写原
+        # opinions key（State 零新 key）
+        for r in traders:
+            instance = trader_instances[r.node_name]
+            graph_builder.add_node(
+                r.revise_node_name, getattr(instance, r.revise_method))
 
-        # 专家并行 + 两对并行（review #4 + 08-04-adversarial-verdict-loop +
-        # 08-08-technical-indicator-analyst + 08-08-billions-api-integration）：
-        # fundamental∥trend∥indicator（∥information——开关开时）、
-        # bullish∥bearish（只依赖专家报告）、bullish_revise∥bearish_revise
-        # ——LangGraph 多入边隐式 join：trader 等全部上游专家完成（含信息
-        # 面分析师）、revise 双入边等两份初稿都完成（否则对方初稿缺失）、
-        # manager 等两份修订版都完成。墙钟 8/9 串行 → 4 阶段。
-        graph_builder.add_edge(START, "fundamental_analysis_expert")
-        graph_builder.add_edge(START, "trend_analysis_expert")
-        graph_builder.add_edge(START, "technical_indicator_analyst")
-        if information_analyst_enabled:
-            graph_builder.add_edge(START, "information_analyst")
-        graph_builder.add_edge("fundamental_analysis_expert", "bullish_trader")
-        graph_builder.add_edge("trend_analysis_expert", "bullish_trader")
-        graph_builder.add_edge("technical_indicator_analyst", "bullish_trader")
-        if information_analyst_enabled:
-            graph_builder.add_edge("information_analyst", "bullish_trader")
-        graph_builder.add_edge("fundamental_analysis_expert", "bearish_trader")
-        graph_builder.add_edge("trend_analysis_expert", "bearish_trader")
-        graph_builder.add_edge("technical_indicator_analyst", "bearish_trader")
-        if information_analyst_enabled:
-            graph_builder.add_edge("information_analyst", "bearish_trader")
-        graph_builder.add_edge("bullish_trader", "bullish_revise")
-        graph_builder.add_edge("bearish_trader", "bullish_revise")
-        graph_builder.add_edge("bullish_trader", "bearish_revise")
-        graph_builder.add_edge("bearish_trader", "bearish_revise")
-        graph_builder.add_edge("bullish_revise", "investment_manager")
-        graph_builder.add_edge("bearish_revise", "investment_manager")
-        graph_builder.add_edge("investment_manager", END)
+        # 经理（唯一，收尾）：两份修订版双入边 join 后产出最终结论——
+        # 工具角色（bind_tools）
+        manager_role = next(r for r in roles if r.kind == "manager")
+        manager_instance = manager_role.factory(llm, config, progress_updater, tools)
+        graph_builder.add_node(
+            manager_role.node_name,
+            getattr(manager_instance, manager_role.resolved_method))
+
+        # 边表由注册表导出（build_edges 纯函数，单测钉死两形态边集）：
+        # START → 专家；专家 → 交易员（隐式 join）；交易员 → 双方 revise
+        # （双入边 join）；revise → 经理；经理 → END
+        for src, dst in build_edges(roles):
+            graph_builder.add_edge(
+                START if src == START_MARKER else src,
+                END if dst == END_MARKER else dst,
+            )
 
         committee = graph_builder.compile(checkpointer=checkpointer)
 
