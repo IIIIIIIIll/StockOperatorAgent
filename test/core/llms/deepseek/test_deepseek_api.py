@@ -17,6 +17,7 @@ class TestDeepSeekApi:
     def test_default_model_and_base_url(self):
         saved_key = os.environ.get("DEEPSEEK_API_KEY")
         saved_model = os.environ.pop("DEEPSEEK_MODEL", None)
+        saved_base = os.environ.pop("DEEPSEEK_BASE_URL", None)
         os.environ["DEEPSEEK_API_KEY"] = "test-key"
         try:
             api = DeepSeekApi()
@@ -28,6 +29,25 @@ class TestDeepSeekApi:
                 os.environ["DEEPSEEK_API_KEY"] = saved_key
             if saved_model is not None:
                 os.environ["DEEPSEEK_MODEL"] = saved_model
+            if saved_base is not None:
+                os.environ["DEEPSEEK_BASE_URL"] = saved_base
+
+    def test_base_url_override_via_env(self):
+        # DEEPSEEK_BASE_URL 覆盖 endpoint（如 OpenCode Zen 网关）
+        saved_key = os.environ.get("DEEPSEEK_API_KEY")
+        saved_base = os.environ.get("DEEPSEEK_BASE_URL")
+        os.environ["DEEPSEEK_API_KEY"] = "test-key"
+        os.environ["DEEPSEEK_BASE_URL"] = "https://opencode.ai/zen/go/v1"
+        try:
+            api = DeepSeekApi()
+            assert api.openai_api_base == "https://opencode.ai/zen/go/v1"
+        finally:
+            os.environ.pop("DEEPSEEK_API_KEY", None)
+            os.environ.pop("DEEPSEEK_BASE_URL", None)
+            if saved_key is not None:
+                os.environ["DEEPSEEK_API_KEY"] = saved_key
+            if saved_base is not None:
+                os.environ["DEEPSEEK_BASE_URL"] = saved_base
 
     def test_model_override_via_env(self):
         saved_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -51,6 +71,16 @@ class TestDeepSeekApi:
         finally:
             if saved is not None:
                 os.environ["DEEPSEEK_API_KEY"] = saved
+
+    def test_reasoning_effort_max(self):
+        # deepseek-v4-flash 是推理模型，走最强推理档（langchain-openai
+        # 1.4.1 已把 reasoning_effort 收为 ChatOpenAI 一等参数）
+        os.environ["DEEPSEEK_API_KEY"] = "test-key"
+        try:
+            api = DeepSeekApi()
+            assert api._default_params["reasoning_effort"] == "max"
+        finally:
+            os.environ.pop("DEEPSEEK_API_KEY", None)
 
     def test_no_dashscope_private_params(self):
         os.environ["DEEPSEEK_API_KEY"] = "test-key"
