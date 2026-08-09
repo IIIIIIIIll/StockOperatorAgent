@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/08-09-structured-enrichment-sections/design.md", "reason": "ParsedStockInfo/parse_stock_info/render_sections 契约 + 与 PRD 的落地差异（display 边界解析）——实现依据"}
+{"file": ".trellis/spec/core/index.md", "reason": "build_stock_information 组装契约、Streamlit UI 段（采集 Tab 渲染顺序/图表）、text 逐字节不变约束"}
+{"file": ".trellis/spec/testing.md", "reason": "house style、e2e mock 模式零调用审计、种子 fixture 契约"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层检查：text 契约（LLM 上下文/种子/e2e 断言）与展示层改动的联动"}

@@ -1,8 +1,13 @@
 """采集数据 → altair 图表（08-06-ui-data-charts）。
 
-输入是 data_markdown.parse_daily_rows / parse_financial_rows 的结构化
-行；输出 altair Chart spec。纯函数、无 Streamlit import——altair spec
-构造不渲染、无浏览器，离线测试断言（house style）。
+输入是 data_markdown.parse_stock_info 的结构化产物（ParsedStockInfo：
+daily_rows / financial_rows）；输出 altair Chart spec。纯函数、无
+Streamlit import——altair spec 构造不渲染、无浏览器，离线测试断言
+（house style）。
+
+**08-09 结构化边界**：iter_data_charts 入口为 ParsedStockInfo，本模块
+不再接触原始文本（解析只在 data_markdown 发生一次）；内部 chart 函数
+与行结构不变（parsed 行与 parse_* 输出同构，同一解析器）。
 
 **主题适配**：背景/文字/坐标轴交给 st.altair_chart 默认 streamlit
 theme（随激活主题亮暗自动切换）；mark 颜色由 spec 定死，选双主题可读
@@ -178,18 +183,20 @@ def financial_charts(rows) -> list:
     return charts
 
 
-def iter_data_charts(stock_info: str):
-    """stock_info 文本 → [(标题, altair.Chart), ...]（display 顺序渲染）。
+def iter_data_charts(parsed: "data_markdown.ParsedStockInfo"):
+    """ParsedStockInfo（data_markdown.parse_stock_info 产物）→ [(标题,
+    altair.Chart), ...]（display 顺序渲染）。
 
-    解析空（无日K/无业绩节）→ 空迭代，display 不画空图不打扰。标题即
-    st.subheader 文案；图表顺序：K线 → 成交量 → 收盘价 → 涨跌幅 →
-    财务折线（净利润/毛利率/每股收益）。
+    **08-09 结构化边界**：入口从文本改为 parsed——图表不再接触原始文本；
+    内部 chart 函数与行结构不变（parsed.daily_rows / financial_rows 与
+    改造前 parse_* 输出同构，同一解析器）。解析空（无日K/无业绩节）→
+    空迭代，display 不画空图不打扰。标题即 st.subheader 文案；图表顺序：
+    K线 → 成交量 → 收盘价 → 涨跌幅 → 财务折线（净利润/毛利率/每股收益）。
     """
-    daily = data_markdown.parse_daily_rows(stock_info)
-    if daily:
-        yield "K线", candlestick_chart(daily)
-        yield "成交量", volume_chart(daily)
-        yield "收盘价", close_line_chart(daily)
-        yield "涨跌幅", change_percent_chart(daily)
-    for label, chart in financial_charts(data_markdown.parse_financial_rows(stock_info)):
+    if parsed.daily_rows:
+        yield "K线", candlestick_chart(parsed.daily_rows)
+        yield "成交量", volume_chart(parsed.daily_rows)
+        yield "收盘价", close_line_chart(parsed.daily_rows)
+        yield "涨跌幅", change_percent_chart(parsed.daily_rows)
+    for label, chart in financial_charts(parsed.financial_rows):
         yield label, chart

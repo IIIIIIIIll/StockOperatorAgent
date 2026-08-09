@@ -135,21 +135,34 @@ class TestChartBuilders():
 
 
 class TestIterDataCharts():
+    """08-09 结构化边界：iter_data_charts 入口从文本改为 ParsedStockInfo
+    ——用例先 parse_stock_info 再传入（断言性修改；图表结构断言不变——
+    同一解析器，行结构同构）。"""
 
     def test_yields_charts_in_order(self):
-        items = list(charts.iter_data_charts(_sample()))
+        items = list(charts.iter_data_charts(dm.parse_stock_info(_sample())))
         assert [t for t, _ in items] == [
             "K线", "成交量", "收盘价", "涨跌幅",
             "净利润", "销售毛利率", "每股收益",
         ]
 
     def test_empty_input_yields_nothing(self):
-        assert list(charts.iter_data_charts("")) == []
-        assert list(charts.iter_data_charts("（无行情数据，跳过技术指标）")) == []
+        assert list(charts.iter_data_charts(dm.parse_stock_info(""))) == []
+        assert list(charts.iter_data_charts(
+            dm.parse_stock_info("（无行情数据，跳过技术指标）"))) == []
 
     def test_no_financial_section_skips_financial_charts(self):
         text = "\n".join(_OVERVIEW + ["Last 60 days prices:"] +
                          [_daily_line("2026-07-30")])
-        assert [t for t, _ in charts.iter_data_charts(text)] == [
+        assert [t for t, _ in charts.iter_data_charts(
+            dm.parse_stock_info(text))] == [
             "K线", "成交量", "收盘价", "涨跌幅",
         ]
+
+    def test_no_text_parsing_in_charts(self):
+        """图表不再接触文本：解析只在 data_markdown（parse_stock_info）
+        发生一次；charts 只消费结构化行（源码断言，08-09 边界）。"""
+        src = inspect.getsource(charts)
+        assert "parse_daily_rows" not in src
+        assert "parse_financial_rows" not in src
+        assert "iter_sections" not in src

@@ -11,8 +11,21 @@ style，与 iter_report_items 同约定）。
 唯一组装点，display 与 make_investment_decision 共用）——本模块只改
 展示端，源头文本零改动。
 
+**parse-once 边界（08-09-structured-enrichment-sections）**：
+`parse_stock_info(text)` 是**唯一解析入口**——iter_sections 一次产出
+全部节，daily/financial 行由 `_rows_from_sections` 从已分节的 lines 推导
+（不对 text 二次迭代）。display 采集 Tab 消费其产物：图表走
+`charts.iter_data_charts(parsed)`、表格走 `render_sections(parsed.sections)`
+——都不再接触原始文本。`iter_sections` / `parse_daily_rows` /
+`parse_financial_rows` / `to_markdown_tables` 公共签名与输出不变（内部
+重构共用 `_rows_from_sections` / `render_sections`，既有测试全绿即等价
+证明）。
+
 分节逻辑集中在 iter_sections（to_markdown_tables 与 parse_* 共用同一
-迭代器，marker 语义单一实现，不双份）。
+迭代器，marker 语义单一实现，不双份）。新段 = 生产者输出文本（含
+marker 行）+ `_SECTION_TITLES` 注册标题**一行**——`_marker_section`
+通用识别，`render_sections` 通用表格自动渲染（表格零代码；图表需显式
+映射）。
 
 格式认知（2026-08-02 实测三个生产者的输出）：
 - 行内 token 由 ', ' 分隔，三种键值形态：'Key: value'（概览/日K/业绩/
@@ -28,6 +41,7 @@ style，与 iter_report_items 同约定）。
 """
 
 import re
+from dataclasses import dataclass
 
 # 已知字段 key → 中文标签；未登记的 key 原样透传（不炸不丢）。
 # 技术指标标识符类（MA5/RSI6/BOLL_UP 等）显式登记为原文——避免误以为
@@ -85,6 +99,43 @@ _SECTION_TITLES = {
     # 数值 |' 形态，无 'Key: value' 对）→ 全部走 passthrough 原样透传。
     "billions": "亿信金融数据库",
 }
+
+
+@dataclass(frozen=True)
+class ParsedStockInfo:
+    """解析一次的结构化采集段（08-09-structured-enrichment-sections）。
+
+    display 采集 Tab 的消费形态：sections 交 render_sections 渲染表格，
+    daily_rows / financial_rows 交 charts.iter_data_charts 画图——都不再
+    接触原始文本。sections 是 iter_sections 输出；行与 parse_daily_rows /
+    parse_financial_rows 输出同构（同一 _rows_from_sections 推导）。
+    """
+
+    sections: tuple = ()
+    daily_rows: tuple = ()
+    financial_rows: tuple = ()
+
+
+def _marker_section(line: str):
+    """'【标题】' 或 '【标题（日期）】' marker 行 → (sid, title)；未注册 → None。
+
+    通用新段注册（08-09-structured-enrichment-sections）：标题前缀命中
+    `_SECTION_TITLES` 值 → 新节（sid = 键，title = 标题去【】原样）——
+    新段 = 生产者 marker 行 + `_SECTION_TITLES` 注册**一行**，表格零代码。
+    指标类节（技术指标/盈利能力指标）前缀特判（日期随标题保留，且不查
+    `_SECTION_TITLES`——其 sid indicators 不入注册表）。未知 marker →
+    None（归当前节，与 08-02 行为一致）。
+    """
+    if not (line.startswith("【") and line.endswith("】")):
+        return None
+    inner = line[1:-1]
+    prefix = inner.split("（")[0]
+    if prefix in ("技术指标", "盈利能力指标"):
+        return ("indicators" if "技术" in line else "profitability", inner)
+    for sid, title in _SECTION_TITLES.items():
+        if prefix == title:
+            return (sid, title)
+    return None
 
 
 def _is_numberish(value: str) -> bool:
@@ -166,17 +217,19 @@ def iter_sections(stock_info: str):
     """分节迭代器（08-06-ui-data-charts 抽出）：yield (section_id, title, lines)。
 
     section_id: overview / daily / financial / indicators / profitability /
-    intel / billions；title: 展示标题（指标类节去【】保留日期）；lines:
-    节内原始行（strip 后，含降级占位文本）。marker 语义与 08-02 版本逐一
-    等价——to_markdown_tables 与 parse_daily_rows / parse_financial_rows
-    共用同一实现，不双份分节逻辑。
+    intel / billions / 新注册段；title: 展示标题（指标类节去【】保留日期）；
+    lines: 节内原始行（strip 后，含降级占位文本）。marker 语义与 08-02
+    版本逐一等价——to_markdown_tables 与 parse_daily_rows /
+    parse_financial_rows 共用同一实现，不双份分节逻辑。
 
     marker：----------- 与空行丢弃；'Last 60 days prices:' / 'Last 20
-    financial abstracts:' 起日K/业绩节；'【技术指标（...）】' 与
-    '【盈利能力指标（...）】' 起指标节（08-02-f10-financial-indicator-
-    sections：独立成节，否则指标行混进技术指标表）；'【实时市场情报】'
-    起情报节；'【亿信金融数据库】' 起亿信问数节（08-08-billions-api-
-    integration：fin-db 上游 Markdown 表格，独立成节不并入情报节）；
+    financial abstracts:' 起日K/业绩节；其余 marker 统一走
+    `_marker_section` 通用识别（08-09-structured-enrichment-sections）：
+    '【技术指标（...）】' / '【盈利能力指标（...）】' 起指标节
+    （08-02-f10-financial-indicator-sections：独立成节，否则指标行混进
+    技术指标表）；'【实时市场情报】' 起情报节；'【亿信金融数据库】' 起
+    亿信问数节（08-08-billions-api-integration：fin-db 上游 Markdown
+    表格，独立成节不并入情报节）；`_SECTION_TITLES` 新注册标题 → 新节。
     其余行归属当前节（首个非 marker 行隐式起 overview 节）。
     """
     section = None  # (section_id, title, lines)
@@ -190,21 +243,11 @@ def iter_sections(stock_info: str):
             sid = "financial" if "financial" in line else "daily"
             section = (sid, _SECTION_TITLES[sid], [])
             continue
-        if line.startswith("【技术指标（") or line.startswith("【盈利能力指标（"):
+        marker = _marker_section(line)
+        if marker is not None:
             if section:
                 yield section
-            section = ("indicators" if "技术" in line else "profitability",
-                       line[1:-1], [])
-            continue
-        if line.startswith("【实时市场情报】"):
-            if section:
-                yield section
-            section = ("intel", _SECTION_TITLES["intel"], [])
-            continue
-        if line.startswith("【亿信金融数据库】"):
-            if section:
-                yield section
-            section = ("billions", _SECTION_TITLES["billions"], [])
+            section = (marker[0], marker[1], [])
             continue
         if section is None:
             section = ("overview", _SECTION_TITLES["overview"], [])
@@ -213,14 +256,17 @@ def iter_sections(stock_info: str):
         yield section
 
 
-def to_markdown_tables(stock_info: str) -> str:
-    """stock_information 文本 → markdown（加粗分节标题 + 表格 + 占位透传）。
+def render_sections(sections) -> str:
+    """已分节 sections → markdown（加粗分节标题 + 表格 + 占位透传）。
 
-    分节见 iter_sections；每节内键值行聚成表格（_pairs），非键值行
-    （降级占位）原样透传。
+    to_markdown_tables 的渲染半（08-09-structured-enrichment-sections
+    抽出）：display 用 `render_sections(parsed.sections)` 零重复解析；
+    每节内键值行聚成表格（_pairs），非键值行（降级占位）原样透传。
+    新段内容为 'Key: value' 形态 → 通用表格自动渲染（_pairs/_render_table
+    零改动）。
     """
     blocks = []
-    for _sid, title, lines in iter_sections(stock_info):
+    for _sid, title, lines in sections:
         blocks.append(f"**{title}**")
         rows, passthrough = [], []
         for line in lines:
@@ -233,6 +279,16 @@ def to_markdown_tables(stock_info: str) -> str:
             blocks.append(_render_table(rows))
         blocks.extend(passthrough)
     return "\n\n".join(blocks)
+
+
+def to_markdown_tables(stock_info: str) -> str:
+    """stock_information 文本 → markdown（加粗分节标题 + 表格 + 占位透传）。
+
+    公共签名与输出不变（08-09 重构为 parse-once 的渲染半——分节一次
+    iter_sections，渲染走 render_sections）；text 入口保留（既有测试 /
+    e2e 种子 fixture）。分节见 iter_sections。
+    """
+    return render_sections(tuple(iter_sections(stock_info)))
 
 
 def _to_number(value: str):
@@ -262,44 +318,67 @@ _FINANCIAL_KEYS = ("Report Date", "EPS", "Net Profit",
                    "Cash flow per share", "Sales gross margin percent")
 
 
-def parse_daily_rows(stock_info: str) -> list:
-    """日K节 → 结构化行（08-06-ui-data-charts）。
+def _rows_from_sections(sections, sid: str, date_key: str, keys: tuple) -> list:
+    """已分节 sections → 结构化行（08-09 parse-once 内部推导，**不再对
+    text 二次迭代**）。
 
-    每行复用 _pairs（兼容 'Open:' 无空格等真实格式）；Date 保留原始
-    字符串，其余 7 键数值归一（_to_number：去 %/lots 后缀、N/A→None）；
-    按 Date **升序**（源头顺序取决于 storage，图表统一旧→新）；无日K节
-    或行无 Date → []。
+    每行复用 _pairs（兼容 'Open:' 无空格等真实格式）；date_key 保留原始
+    字符串，其余键数值归一（_to_number：去 %/lots 后缀、N/A→None）；
+    按 date_key **升序**（源头顺序取决于 storage，图表统一旧→新）；无
+    对应节或行无 date_key → []。parse_daily_rows / parse_financial_rows
+    与 parse_stock_info 共用同一实现（行结构同构）。
     """
     rows = []
-    for sid, _title, lines in iter_sections(stock_info):
-        if sid != "daily":
+    for section_id, _title, lines in sections:
+        if section_id != sid:
             continue
         for line in lines:
             pairs = {k: v for k, v in (_pairs(line) or [])}
-            if not pairs.get("Date"):
+            if not pairs.get(date_key):
                 continue
-            row = {"Date": pairs["Date"]}
-            for key in _DAILY_KEYS[1:]:
+            row = {date_key: pairs[date_key]}
+            for key in keys[1:]:
                 row[key] = _to_number(pairs.get(key, "N/A"))
             rows.append(row)
-    rows.sort(key=lambda r: r["Date"])
+    rows.sort(key=lambda r: r[date_key])
     return rows
+
+
+def parse_stock_info(stock_info: str) -> ParsedStockInfo:
+    """文本 → ParsedStockInfo（**解析一次**，08-09 结构化边界）。
+
+    iter_sections 一次产出全部节；daily/financial 由 _rows_from_sections
+    从已分节的 lines 推导——不再对 text 二次迭代。display 采集 Tab 消费
+    本函数产物（图表/表格都不再接触原始文本）。空/占位文本 → sections
+    空元组（daily/financial 相应为空，图表空迭代、表格仅占位透传）。
+    """
+    sections = tuple(iter_sections(stock_info))
+    return ParsedStockInfo(
+        sections=sections,
+        daily_rows=tuple(_rows_from_sections(sections, "daily", "Date", _DAILY_KEYS)),
+        financial_rows=tuple(_rows_from_sections(
+            sections, "financial", "Report Date", _FINANCIAL_KEYS)),
+    )
+
+
+def parse_daily_rows(stock_info: str) -> list:
+    """日K节 → 结构化行（08-06-ui-data-charts）。
+
+    公共签名与输出不变（08-09 重构为 parse-once 推导：
+    `_rows_from_sections(tuple(iter_sections(text)), ...)`）。每行复用
+    _pairs（兼容 'Open:' 无空格等真实格式）；Date 保留原始字符串，其余
+    7 键数值归一（_to_number：去 %/lots 后缀、N/A→None）；按 Date 升序
+    （源头顺序取决于 storage，图表统一旧→新）；无日K节或行无 Date → []。
+    """
+    return _rows_from_sections(tuple(iter_sections(stock_info)),
+                               "daily", "Date", _DAILY_KEYS)
 
 
 def parse_financial_rows(stock_info: str) -> list:
     """业绩节 → 结构化行（08-06-ui-data-charts）；Report Date 升序；
-    数值归一同 parse_daily_rows；无业绩节 → []。"""
-    rows = []
-    for sid, _title, lines in iter_sections(stock_info):
-        if sid != "financial":
-            continue
-        for line in lines:
-            pairs = {k: v for k, v in (_pairs(line) or [])}
-            if not pairs.get("Report Date"):
-                continue
-            row = {"Report Date": pairs["Report Date"]}
-            for key in _FINANCIAL_KEYS[1:]:
-                row[key] = _to_number(pairs.get(key, "N/A"))
-            rows.append(row)
-    rows.sort(key=lambda r: r["Report Date"])
-    return rows
+    数值归一同 parse_daily_rows；无业绩节 → []。
+
+    公共签名与输出不变（08-09 重构为 parse-once 推导，同 parse_daily_rows）。
+    """
+    return _rows_from_sections(tuple(iter_sections(stock_info)),
+                               "financial", "Report Date", _FINANCIAL_KEYS)

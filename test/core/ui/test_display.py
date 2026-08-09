@@ -200,16 +200,20 @@ class TestDisplayChartWiring():
 
     def test_data_tab_renders_charts_before_tables(self):
         """数据 Tab 图表在 markdown 表格**之前**(2026-08-06 用户反馈
-        "把图往前提"——图表是视觉焦点)。纯函数解析文本、空数据空迭代
-        不画图,st.altair_chart 交给 streamlit theme 适配亮暗。"""
+        "把图往前提"——图表是视觉焦点)。08-09 结构化边界:parse-once——
+        parse_stock_info 解析一次,图表消费结构化行、表格用
+        render_sections(parsed.sections),都不再接触原始文本;空数据空
+        迭代不画图,st.altair_chart 交给 streamlit theme 适配亮暗。"""
         import inspect
         source = inspect.getsource(display.write_ui)
-        assert "charts.iter_data_charts(stock_info)" in source
+        assert "parsed = data_markdown.parse_stock_info(stock_info)" in source
+        assert "charts.iter_data_charts(parsed)" in source
+        assert "data_markdown.render_sections(parsed.sections)" in source
         assert "st.altair_chart(chart, use_container_width=True)" in source
         # 图表渲染在表格之前(语句级顺序;旧 08-02 注释也含
         # "to_markdown_tables" 字样,不能用 find 全文定位)
-        assert (source.find("for title, chart in charts.iter_data_charts")
-                < source.find("st.markdown(data_markdown.to_markdown_tables"))
+        assert (source.find("for title, chart in charts.iter_data_charts(parsed)")
+                < source.find("st.markdown(data_markdown.render_sections"))
 
 
 class TestDisplayConditionalTabs():

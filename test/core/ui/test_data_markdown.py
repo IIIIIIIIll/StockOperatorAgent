@@ -193,6 +193,82 @@ class TestToMarkdownTables:
         assert dm.to_markdown_tables("\n-----------\n") == ""
 
 
+class TestParseStockInfo:
+    """08-09-structured-enrichment-sections：parse-once 结构化边界。
+
+    parse_stock_info 一次解析产出 sections + daily/financial 行——与
+    parse_daily_rows / parse_financial_rows 输出等价（同解析器、同
+    _rows_from_sections 推导）；display 图表/表格都不再接触原始文本。
+    """
+
+    def test_sections_match_iter_sections(self):
+        text = _daily_sample(3)
+        parsed = dm.parse_stock_info(text)
+        assert parsed.sections == tuple(dm.iter_sections(text))
+
+    def test_daily_rows_equivalent_to_parse_daily_rows(self):
+        text = _daily_sample(60)
+        parsed = dm.parse_stock_info(text)
+        assert parsed.daily_rows == tuple(dm.parse_daily_rows(text))
+        assert len(parsed.daily_rows) == 60
+
+    def test_financial_rows_equivalent_to_parse_financial_rows(self):
+        text = _financial_sample(20)
+        parsed = dm.parse_stock_info(text)
+        assert parsed.financial_rows == tuple(dm.parse_financial_rows(text))
+        assert len(parsed.financial_rows) == 20
+
+    def test_render_sections_equals_to_markdown_tables(self):
+        """渲染半分离等价：display 的 render_sections(parsed.sections) 与
+        to_markdown_tables(text) 输出逐字节一致（text 入口保留）。"""
+        text = _daily_sample(60) + _INDICATORS_SAMPLE
+        parsed = dm.parse_stock_info(text)
+        assert dm.render_sections(parsed.sections) == dm.to_markdown_tables(text)
+
+    def test_empty_text_yields_empty_parsed(self):
+        parsed = dm.parse_stock_info("")
+        assert parsed.sections == ()
+        assert parsed.daily_rows == ()
+        assert parsed.financial_rows == ()
+        assert dm.render_sections(parsed.sections) == ""
+
+    def test_degraded_placeholder_text_yields_empty_rows(self):
+        """降级占位文本：无键值形态 → 行空（图表不画），但占位行仍在
+        sections 里（表格透传渲染，不吞降级信息）。"""
+        text = ("（无 000001 的行情数据，跳过技术指标）\n"
+                "（未配置 TDX_API_KEY，跳过实时市场情报）")
+        parsed = dm.parse_stock_info(text)
+        assert parsed.daily_rows == ()
+        assert parsed.financial_rows == ()
+        assert any("无 000001" in line
+                   for _sid, _title, lines in parsed.sections for line in lines)
+        assert "（未配置 TDX_API_KEY" in dm.render_sections(parsed.sections)
+
+    def test_new_section_one_line_registration(self):
+        """新段最小成本演示（PRD AC）：注册一条测试段 = 生产者输出文本
+        （marker 行 + 'Key: value' 行）+ `_SECTION_TITLES` 注册标题一行
+        ——_marker_section 通用识别 + render_sections 通用表格自动渲染，
+        不改任何解析/渲染代码（图表需显式映射，本演示只覆盖表格）。"""
+        dm._SECTION_TITLES["demo"] = "演示段"
+        try:
+            text = ("【演示段】\n"
+                    "名称: 演示股票, 最新价: 9.99\n"
+                    "涨跌幅: +2.00%")
+            parsed = dm.parse_stock_info(text)
+            # 独立成节，内容不混入概览节
+            assert any(sid == "demo" for sid, _t, _l in parsed.sections)
+            demo_lines = [line for sid, _t, lines in parsed.sections
+                          if sid == "demo" for line in lines]
+            assert demo_lines == ["名称: 演示股票, 最新价: 9.99", "涨跌幅: +2.00%"]
+            # 通用表格自动渲染（_pairs/_render_table 未改）
+            out = dm.render_sections(parsed.sections)
+            assert "**演示段**" in out
+            assert "| 名称 | 演示股票 |" in out
+            assert "| 最新价 | 9.99 |" in out
+        finally:
+            del dm._SECTION_TITLES["demo"]
+
+
 class TestParseDailyRows:
     """08-06-ui-data-charts:日K 节 → 结构化行(图表数据源)。"""
 
