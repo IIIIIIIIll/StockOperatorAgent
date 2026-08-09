@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { AIMessage } from '@langchain/core/messages';
 import { Store, type DailyBar } from '../src/store.ts';
-import { createPipelineRunner, type PipelineEvent } from '../src/events.ts';
+import { createPipelineRunner, describeError, type PipelineEvent } from '../src/events.ts';
 import { MissingLlmConfigError } from '../src/llm.ts';
 
 const fixtureRaw = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')).raw as DailyBar[];
@@ -109,5 +109,20 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     off();
     await runner.run('600036', { today: '2026-08-09', llm: stubLlm() });
     expect(count).toBe(0);
+  });
+});
+
+describe('describeError(聚合异常解包)', () => {
+  it('superstep 聚合错误 → 底层具体原因', () => {
+    const agg = { name: 'GraphRecursionError', message: 'Multiple errors occurred during superstep 1. See the "errors" field of this exception for more details.', errors: [{ message: 'AuthenticationError: 401 Invalid API key.' }, { message: 'AuthenticationError: 401 Invalid API key.' }] };
+    const out = describeError(agg);
+    expect(out).toContain('401 Invalid API key');
+    expect(out).not.toContain('Multiple errors occurred');
+  });
+  it('普通 Error → message', () => {
+    expect(describeError(new Error('boom'))).toBe('boom');
+  });
+  it('非对象 → String', () => {
+    expect(describeError('raw')).toBe('raw');
   });
 });

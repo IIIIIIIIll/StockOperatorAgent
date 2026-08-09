@@ -162,7 +162,7 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
     base,
     model: keys.llmModel.trim(),
     messages: [{ role: 'user', content: 'ping' }],
-    max_tokens: 16,
+    max_tokens: 64, // reasoning 模型会消耗部分预算(max_tokens 16 实测回复为空)
   };
   // 1) 同源代理优先(dev server / server.mjs 都有 /llm-proxy)——绕开浏览器
   //    CORS,拿到真实服务端响应;代理本身不可用(纯静态 server)再回退直连

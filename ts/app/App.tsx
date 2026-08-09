@@ -26,6 +26,7 @@ import {
   type PipelineEvent,
   type FinalReport,
 } from './lib/runner';
+import { describeError } from '../src/events.ts';
 import { info, warn, error as logError } from './lib/log';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
@@ -113,13 +114,23 @@ export default function App() {
       return;
     }
     applySwitchesToEnv(settings.switches);
+    // 浏览器无可用搜索源(DDG 反爬/Tavily 未配 key)——强制禁用工具绑定,
+    // 避免交易员工具循环反复失败挂起;真机/Node 走面板开关
+    if (Platform.OS === 'web') {
+      process.env.WEB_SEARCH_DISABLED = '1';
+      if (settings.switches.webSearch) warn('web 端联网搜索不可用(浏览器限制),已禁用工具绑定');
+    }
     const mode = llmConfigured(settings.keys) ? '真实 LLM' : '演示占位 LLM';
     info(`开始分析 ${code}(模式:${mode})`);
     const t0 = Date.now();
     setRunning(true);
     try {
-      // web 走同源代理(绕开 CORS);Node/真机直连
-      const proxyBase = Platform.OS === 'web' ? '/llm-proxy/v1' : undefined;
+      // web 走同源代理(绕开 CORS;绝对 URL——SDK 的 new URL 不接受相对路径);
+      // Node/真机直连
+      // 代理前缀不含 /v1(SDK 自行拼接路径;真实 base 已含 /v1,避免双重 /v1)
+      const proxyBase = Platform.OS === 'web'
+        ? `${globalThis.location.origin}/llm-proxy`
+        : undefined;
       const llm = llmConfigured(settings.keys)
         ? buildLlm(toLlmConfig(settings.keys), proxyBase)
         : buildLlm(null);
@@ -127,8 +138,9 @@ export default function App() {
       await runner.run(code, { llm, f10Text, today: new Date().toISOString().slice(0, 10) });
       info(`分析结束:耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     } catch (err) {
-      logError(`分析失败:${err instanceof Error ? err.message : String(err)}`);
-      setError(err instanceof Error ? err.message : String(err));
+      const detail = describeError(err);
+      logError(`分析失败:${detail}`);
+      setError(detail);
     } finally {
       setRunning(false);
     }

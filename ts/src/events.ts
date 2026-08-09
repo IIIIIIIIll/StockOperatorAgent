@@ -38,6 +38,24 @@ export interface PipelineRunner {
   run(ticker: string, opts?: RunOptions): Promise<FinalReport>;
 }
 
+/** LangGraph 聚合异常(如 superstep 并行节点全失败)含 errors[]——提取具体原因。 */
+export function describeError(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const e = err as { message?: unknown; errors?: unknown };
+    if (Array.isArray(e.errors) && e.errors.length) {
+      const parts = e.errors.map((x) => {
+        const m = (x as { message?: unknown })?.message;
+        if (typeof m === 'string') return m;
+        const s = JSON.stringify(x);
+        return s ? s.slice(0, 200) : String(x);
+      });
+      return parts.join('; ');
+    }
+    if (typeof e.message === 'string') return e.message;
+  }
+  return String(err);
+}
+
 /** 创建 pipeline runner（Node 探针与 App 共用）。 */
 export function createPipelineRunner(store: StoreLike): PipelineRunner {
   const listeners = new Set<(e: PipelineEvent) => void>();
@@ -117,7 +135,7 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         emit({ type: 'done', report });
         return report;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = describeError(err);
         emit({ type: 'error', error: message });
         throw err;
       }
