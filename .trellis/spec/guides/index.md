@@ -31,7 +31,7 @@ These guides help you **ask the right questions before coding**.
 ### When to Think About Cross-Layer Issues
 
 - [ ] Your change spans 2+ of: akshare → dataclass → ZODB → agent state → UI
-- [ ] You touch a DataFrame→dataclass construction site (`*list(row.values())`)
+- [ ] You touch a DataFrame→dataclass construction site (`from_row(row, column_map=...)`)
 - [ ] You change a dataclass field order or a `'%Y%m%d'` report-date format
 - [ ] You add a key to the LangGraph `State` (`utils/state.py`)
 - [ ] You change the agent constructor signature or the committee graph wiring

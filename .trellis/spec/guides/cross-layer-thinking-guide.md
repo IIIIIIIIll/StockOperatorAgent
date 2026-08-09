@@ -19,7 +19,7 @@ akshare DataFrame → persistent dataclass → ZODB → formatted string → Lan
 
 | Boundary | Format change | What breaks |
 |----------|---------------|-------------|
-| akshare row ↔ dataclass | DataFrame row → positional constructor `StockOverview(*list(row.values())[1:])` | Column reorder silently misaligns fields; wrong slice (`[1:]`) feeds the ticker into the wrong field |
+| DataFrame row ↔ dataclass | DataFrame row → named constructor `StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)` | Column **names** carry the contract; a missing/renamed column → loud `KeyError`; extra columns ignored (positional `*list(row.values())` silently misaligned on column reorder — removed 08-09) |
 | dataclass ↔ ZODB | In-memory object → `transaction.commit()` | Mutating a `PersistentList` without committing is lost on restart |
 | ZODB ↔ agent | `ChinaStock` object → `StockOutputFormatter` string | Formatter must stay in sync with dataclass fields (`stock_output_formatter.py` prints every field it reads) |
 | Storage ↔ `State` | `get_stock_info(ticker)` string → `state['stock_information']` | Key names are the contract — every agent reads `target_stock_ticker` / `stock_information` |
@@ -43,7 +43,9 @@ For each arrow in the chain, ask:
 ### Step 2: Follow the Layer Rules
 
 - Data source returns raw DataFrames only — never write akshare calls outside `data_source/`.
-- Dataclasses are constructed positionally — match field order to akshare columns.
+- Dataclasses are constructed via named `from_row(row, column_map=...)` — column
+  names carry the contract (missing column → `KeyError`); never positionally or
+  from dict keys.
 - Persistent objects commit after every mutation — no commit, no save.
 - Agents copy the uniform template in `agents/index.md` — constructor, prompt
   partials, node method, state-update dict.
@@ -55,20 +57,23 @@ For each arrow in the chain, ask:
 For each boundary you touch, state in your head:
 
 - Exact input format (DataFrame column order? `'%Y%m%d'` string? `datetime`?)
-- Exact output format (positional dataclass? return `True/False`? state dict?)
+- Exact output format (named-constructed dataclass? return `True/False`? state dict?)
 - What errors can occur and who handles them (see `error-handling.md`)
 
 ---
 
 ## Common Cross-Layer Mistakes In This Codebase
 
-### Mistake 1: Breaking the positional mapping
+### Mistake 1: Positional/dict construction instead of `from_row`
 
-**Bad**: Adding a field in the middle of `StockOverview` — every future
-`StockOverview(*list(row.values())[1:])` call shifts all fields after it.
+**Bad**: `StockOverview(*list(row.values())[1:])` or `StockOverview(**row)` —
+column drift silently misaligns fields (or `**row` chokes on extra columns);
+the old code had exactly this failure on an akshare column reorder.
 
-**Good**: Append new fields at the end of the dataclass, then re-check the
-akshare column order at the construction site.
+**Good**: `StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)` — a
+missing column raises `KeyError` loudly, extra columns are ignored. Still append
+new dataclass fields at the end (ZODB field-order stability) and keep the
+`column_map` in sync with its column constants (`zip(fields(...), COLUMNS)`).
 
 ### Mistake 2: Skipping the commit
 
@@ -112,7 +117,7 @@ single-agent tests (`test_basic_graph.py`) pass no updater and break.
       string → state → prompt → UI)
 - [ ] Identified every boundary and its format (positional vs keyed, `'%Y%m%d'`
       vs `datetime`, string vs message list)
-- [ ] Verified the mapping's column slice at the construction site (`[1:]` or not)
+- [ ] Verified the `column_map` covers every dataclass field at the construction site (missing column → `KeyError`)
 - [ ] Confirmed writes commit (`transaction.commit()`)
 - [ ] Confirmed `State` keys, graph nodes, and UI reads stay in sync
 - [ ] Kept the agent constructor signature uniform

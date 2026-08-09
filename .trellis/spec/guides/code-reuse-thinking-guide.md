@@ -24,7 +24,7 @@ When you copy-paste or rewrite existing logic:
 grep -rn "get_last_business_day" core agents data_storage utils
 
 # Search for similar logic
-grep -rn "list(row.values())" core data_source test
+grep -rn "from_row" core data_source data_structure
 ```
 
 ### Step 2: Ask These Questions
@@ -66,12 +66,17 @@ template again — `core/investment_committee.py` wires agents via
 - `web_search._summarize_results` **不并入**（键契约不同：title/link/
   snippet，非 result[].content[] 形态——只有形式相似，语义不同不硬并）。
 
-### Pattern 3: DataFrame → Dataclass Positional Construction
+### Pattern 3: DataFrame → Dataclass Named Row Construction
 
-`StockOverview(*list(row.values())[1:])`-style construction appears in
-`core/data_acquisition.py` and `test/data_source/test_akshare.py`. Reuse the
-existing dataclasses (`StockOverview`, `ChinaStockData`, `StockPerformanceReport`,
-`StockInfo`) rather than declaring new ones — see `data_structure/index.md`.
+Rows become dataclasses via `from_row(row, column_map=...)` classmethods:
+`StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)`,
+`ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)`,
+`StockPerformanceReport.from_row(row)` (identity — columns are field names).
+Column **names** carry the contract: missing column → `KeyError`, extra columns
+ignored. Reuse the existing dataclasses rather than declaring new ones — see
+`data_structure/index.md` and the mapping section of `data_source/index.md`.
+Positional `*list(row.values())` / dict `**row` construction is gone from
+production (08-09-named-row-constructors) — do not reintroduce it.
 
 ### Pattern 4: Business-Day and Date Logic
 

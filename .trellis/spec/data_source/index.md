@@ -265,5 +265,8 @@ prd 曾评估 `fetch_daily`/`fetch_xdxr` 按 symbol+max_bars+当日新鲜度读 
 - Importing `akshare` outside `data_source/` — always go through `AKShareSource`.
 - Wrapping/cleaning DataFrames inside `AKShareSource` — return raw; consumers
   (DataAcquisition) do the conversion.
-- Constructing dataclasses from dict keys (`**row`) — the local pattern is
-  positional with `list(row.values())`.
+- Constructing dataclasses from dict keys (`**row`) or positionally
+  (`StockOverview(*list(row.values())[1:])`) — the local pattern is named row
+  construction `from_row(row, column_map=...)`: column **names** carry the
+  contract (missing column → `KeyError`; extra columns ignored). Positional
+  construction was removed in 08-09-named-row-constructors — do not reintroduce it.
