@@ -215,17 +215,14 @@ export default function App() {
             })}
           </ScrollView>
 
-          {/* 进度区(所有 Tab 可见) */}
+          {/* 进度区(所有 Tab 可见;替换语义,对齐 Python updatable_container) */}
           {progress.length > 0 ? (
             <View style={styles.progressBar}>
-              {running ? <Text style={styles.running}>分析进行中…</Text> : null}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {progress.map((e, i) => (
-                  <Text key={i} style={[styles.progressLine, i === progress.length - 1 && running && styles.progressLatest]}>
-                    · {e.message}
-                  </Text>
-                ))}
-              </ScrollView>
+              {running ? (
+                <Text style={styles.progressLatest}>⏳ {progress[progress.length - 1].message}</Text>
+              ) : (
+                <Text style={styles.progressLine}>✓ 分析完成({progress.length} 步)</Text>
+              )}
             </View>
           ) : null}
 
