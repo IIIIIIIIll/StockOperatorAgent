@@ -97,9 +97,10 @@ function demoLlm(): unknown {
 
 export type { PipelineEvent, FinalReport, LlmConfig };
 
-/** 执行分析:三键齐 → 真 LLM;缺 → 演示 stub。抛 MissingLlmConfigError 由调用方渲染。 */
-export function buildLlm(cfg: LlmConfig | null): unknown {
-  if (cfg) return createLlm(cfg);
+/** 执行分析:三键齐 → 真 LLM;缺 → 演示 stub。proxyBase(web 同源代理)
+ *  传入则 LLM 调用经代理(绕开 CORS);Node/真机传 undefined 直连。 */
+export function buildLlm(cfg: LlmConfig | null, proxyBase?: string): unknown {
+  if (cfg) return createLlm(cfg, proxyBase ? { proxyBase } : undefined);
   return demoLlm();
 }
 

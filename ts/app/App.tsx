@@ -2,7 +2,7 @@
 // 标题 → ticker 表单(首页最显眼)→ 主 Tab 条([采集数据] + 角色报告)
 // → 内容区;设置四节放侧边栏(宽屏固定 / 窄屏按钮切换)。
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import ReportContent from './components/ReportContent';
 import DataScreen from './screens/DataScreen';
@@ -118,7 +118,11 @@ export default function App() {
     const t0 = Date.now();
     setRunning(true);
     try {
-      const llm = llmConfigured(settings.keys) ? buildLlm(toLlmConfig(settings.keys)) : buildLlm(null);
+      // web 走同源代理(绕开 CORS);Node/真机直连
+      const proxyBase = Platform.OS === 'web' ? '/llm-proxy/v1' : undefined;
+      const llm = llmConfigured(settings.keys)
+        ? buildLlm(toLlmConfig(settings.keys), proxyBase)
+        : buildLlm(null);
       const f10Text = store.getMeta('demo:f10') ?? undefined;
       await runner.run(code, { llm, f10Text, today: new Date().toISOString().slice(0, 10) });
       info(`分析结束:耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);

@@ -30,7 +30,8 @@ async function llmProxy(req, res) {
     let body = '';
     for await (const chunk of req) body += chunk;
     const { base, ...payload } = JSON.parse(body);
-    const target = `${base}/${req.url.slice('/llm-proxy/'.length)}`;
+    const baseUrl = req.headers['x-llm-base'] || base;
+    const target = `${baseUrl}/${req.url.slice('/llm-proxy/'.length)}`;
     const upstream = await fetch(target, {
       method: 'POST',
       headers: {

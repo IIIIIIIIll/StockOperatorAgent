@@ -41,12 +41,18 @@ export function readLlmEnv(env: Record<string, string | undefined> = process.env
   return cfg;
 }
 
-/** 构造 OpenAI 兼容 LLM（全库唯一 ChatOpenAI 构造点，对齐 Python make_llm）。 */
-export function createLlm(cfg: LlmConfig): ChatOpenAI {
+/** 构造 OpenAI 兼容 LLM（全库唯一 ChatOpenAI 构造点，对齐 Python make_llm）。
+ *  proxyBase：浏览器同源代理前缀(如 '/llm-proxy/v1')——baseURL 指向代理,
+ *  真实端点经 X-LLM-Base 头透传(绕开 CORS;Node/真机不传则直连)。 */
+export function createLlm(cfg: LlmConfig, opts?: { proxyBase?: string }): ChatOpenAI {
+  const viaProxy = !!opts?.proxyBase;
   return new ChatOpenAI({
     model: cfg.model,
     apiKey: cfg.apiKey,
-    configuration: { baseURL: cfg.baseUrl },
+    configuration: {
+      baseURL: viaProxy ? opts.proxyBase : cfg.baseUrl,
+      ...(viaProxy ? { defaultHeaders: { 'X-LLM-Base': cfg.baseUrl } } : {}),
+    },
     // Python 侧 seed=114514 为供应商兼容参数;JS ChatOpenAIFields 无 seed,
     // 经 modelKwargs 透传 OpenAISDK 自定义字段
     modelKwargs: { seed: 114514 },
