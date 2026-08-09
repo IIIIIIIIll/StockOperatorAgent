@@ -5,12 +5,11 @@ akshare 的业绩报表是全市场扫描（stock_yjbb_em），pytdx 无等效�
 两维）按报告期 pivot 成每期一行，映射到 StockPerformanceReport 字段，QoQ 环比
 自算。数据流见 .trellis/tasks/08-02-tdx-overview-reports design.md §3。
 
-**15 列序契约**：输出 DataFrame 的 15 列与 StockPerformanceReport 的 15 个
-字段序一一对应（ticker/name/eps/.../report_date，见 data_structure/
-chinese_mainland/StockPerformanceReport.py）。消费者用
-``StockPerformanceReport(*list(row.values()))`` 位置构造零改动复用——注意与
-akshare 路径不同：akshare 行首多一列需 ``[1:]`` 丢弃，本层输出**无序号列**，
-直接用全量 15 值构造。
+**15 列名契约**：输出 DataFrame 的 15 列与 StockPerformanceReport 的 15 个
+字段序一一对应，列名即英文字段名（ticker/name/eps/.../report_date，见
+data_structure/chinese_mainland/StockPerformanceReport.py）。消费者用
+``StockPerformanceReport.from_row(row)`` 命名构造（08-09——列名已是字段
+名 → from_row 恒等路径，无需 column_map）。
 
 字段映射与派生（缺失留 NaN，不整块失败）：
 - 8 个指标直接映射 F10 metric（名字见 METRIC_COLUMNS，与 overview.py 的
@@ -40,9 +39,10 @@ from data_source.chinese_mainland.tdx.tdx_source import TdxSource
 
 NAN = float("nan")
 
-# 输出列序 = StockPerformanceReport 字段序（ticker,name,eps,...,report_date）。
-# 顺序勿改；与字段数的对齐由 test_tdx_reports.py 钉死
-# （len(REPORT_COLUMNS) == len(fields(StockPerformanceReport))）。
+# 输出列序 = StockPerformanceReport 字段序，列名即英文字段名（ticker,name,
+# eps,...,report_date）——from_row 恒等路径（column_map=None）按字段名取值，
+# 列序不再承重。顺序勿改（输出列序契约）；与字段数的对齐由 test_tdx_reports.py
+# 钉死（REPORT_COLUMNS == [f.name for f in fields(StockPerformanceReport)]）。
 REPORT_COLUMNS = [
     "ticker", "name", "eps", "total_income", "total_income_YoY_rate",
     "total_income_QoQ_rate", "net_profit", "net_profit_YoY_rate",

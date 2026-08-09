@@ -3,7 +3,7 @@
   "name": "named-row-constructors",
   "title": "命名行构造：位置构造 DataFrame→dataclass 改列名映射",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

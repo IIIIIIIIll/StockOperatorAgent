@@ -21,7 +21,8 @@ from core.legacy_akshare import YJBB_COLUMN_MAP
 def _yjbb_row(**overrides):
     """按 akshare 1.18.81 stock_yjbb_em 列名构造一行（16 列中的 14 列契约）。
 
-    与 YJBB_COLUMN_MAP 键对齐；report_date 由调用方赋值不在行内。
+    与 YJBB_COLUMN_MAP 值对齐（08-09：map 方向为字段名 → 列名）；report_date
+    由调用方赋值不在行内。
     """
     row = {
         "股票代码": "601988",
@@ -82,12 +83,12 @@ class TestYjbbColumnNameMapping():
         """DataFrame 级列名契约：正确列序通过，变化列序被 issubset 拦截。
 
         与 acquire_performance_report 内联断言同一表达式（列名契约是
-        YJBB_COLUMN_MAP 的键集）。
+        YJBB_COLUMN_MAP 的值集，08-09 方向为字段名 → 列名）。
         """
         good_df = pd.DataFrame([_yjbb_row()])
-        assert set(YJBB_COLUMN_MAP).issubset(good_df.columns)
+        assert set(YJBB_COLUMN_MAP.values()).issubset(good_df.columns)
         bad_df = pd.DataFrame([{"股票代码": "601988", "股票简称": "中国银行"}])
-        assert not set(YJBB_COLUMN_MAP).issubset(bad_df.columns)
+        assert not set(YJBB_COLUMN_MAP.values()).issubset(bad_df.columns)
 
 
 class TestLatestPossibleReportDate():

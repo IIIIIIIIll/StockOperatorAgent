@@ -1,8 +1,9 @@
 """pytdx bars → akshare 日K 列序映射层.
 
 目的：输出 DataFrame 的列名/列序与 akshare ``stock_zh_a_hist`` **完全一致**，
-使既有位置构造 ``ChinaStockData(*list(row.values()))`` 零改动复用
-（见 .trellis/spec/data_source/index.md 的列序耦合约定）。
+使既有构造 ``ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)``
+零改动复用（08-09 命名行构造替代原 ``ChinaStockData(*list(row.values()))``
+位置构造——列名承重，列序不再承重，见 .trellis/spec/data_source/index.md）。
 
 输入：tdx_quant ``TdxDownloader.download_daily`` 的原始输出
 （列：datetime/open/high/low/close/vol/amount/market/code/ts_code/trade_date）。
@@ -25,9 +26,13 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
+
 import pandas as pd
 
-# akshare stock_zh_a_hist 列名（顺序即位置构造顺序，勿改）
+from data_structure.chinese_mainland.ChinaStockData import ChinaStockData
+
+# akshare stock_zh_a_hist 列名（顺序即输出列序，勿改——test_tdx_mapping.py 钉死）
 AKSHARE_HIST_COLUMNS = [
     "日期",
     "股票代码",
@@ -42,6 +47,14 @@ AKSHARE_HIST_COLUMNS = [
     "涨跌额",
     "换手率",
 ]
+
+# 列名契约（08-09 命名行构造）：ChinaStockData 字段名 → 行内列名。与
+# AKSHARE_HIST_COLUMNS 同源（zip(fields(ChinaStockData), AKSHARE_HIST_COLUMNS)）——
+# 字段序与列序对齐由 test_tdx_mapping.py 钉死，两处不可能漂移。from_row
+# 按列名取值，akshare 侧列序漂移 → KeyError（响亮失败）。
+AKSHARE_HIST_COLUMN_MAP = {
+    f.name: col for f, col in zip(fields(ChinaStockData), AKSHARE_HIST_COLUMNS)
+}
 
 LOT_SIZE = 100  # 1 手 = 100 股
 

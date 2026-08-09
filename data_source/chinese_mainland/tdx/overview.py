@@ -4,12 +4,13 @@ akshare 的 overview 是全市场行情扫描，pytdx 无等效接口；本模�
 构建（分析哪只构建哪只）。数据流见 .trellis/tasks/08-02-tdx-overview-reports
 design.md §1/§2。
 
-**22 列序契约**：输出 DataFrame 的 22 列与 akshare ``stock_*_a_spot_em``
-去掉序号列后的 22 值列序一致（代码/名称/最新价/.../年初至今涨跌幅），也就是
-``StockOverview`` 的 22 个字段序（见 data_structure/chinese_mainland/
-StockOverview.py）。因此消费者用 ``StockOverview(*list(row.values()))``
-位置构造零改动复用——注意与 akshare 路径不同：akshare 行首有"序号"列需
-``[1:]`` 丢弃，本层输出的 22 列**不含序号列**，直接用全量 22 值构造。
+**22 列名契约**：输出 DataFrame 的 22 列与 akshare ``stock_*_a_spot_em``
+去掉序号列后的 22 值列序一致（代码/名称/最新价/.../年初至今涨跌幅），列名
+即 ``OVERVIEW_COLUMNS``。消费者用 ``StockOverview.from_row(row,
+column_map=OVERVIEW_COLUMN_MAP)`` 命名构造（08-09——列名承重，列序不再
+承重）——注意与 akshare 路径不同：akshare 行首有"序号"列需 ``[1:]`` 丢弃，
+本层输出的 22 列**不含序号列**；from_row 按列名取值，akshare 侧多余的
+"序号"列自然被忽略（无需切片）。
 
 数据源与派生（逐源降级，单项失败 → 该源字段 NaN + logger.warning，不整块失败）：
 - snapshot：price/open/high/low（实时；失败 → latest_price 回退日K末根收盘）
@@ -25,6 +26,7 @@ False）；其余组合均可构建（缺源字段为 NaN）。
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import date
 
 import pandas as pd
@@ -32,10 +34,12 @@ from loguru import logger
 
 from data_source.chinese_mainland.tdx.mapping import LOT_SIZE
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource
+from data_structure.chinese_mainland.StockOverview import StockOverview
 from utils.time_helper import asia_today
 
 # akshare stock_*_a_spot_em 22 值列序（去掉序号列），与 StockOverview 字段序
-# 一一对应（ticker=代码, name=名称, latest_price=最新价, ...）。顺序勿改。
+# 一一对应（ticker=代码, name=名称, latest_price=最新价, ...）。顺序即输出
+# 列序（勿改，test_tdx_overview.py 钉死）；构造走列名契约见下。
 OVERVIEW_COLUMNS = [
     "代码", "名称", "最新价", "涨跌幅", "涨跌额",
     "成交量", "成交额", "振幅", "最高", "最低",
@@ -43,6 +47,15 @@ OVERVIEW_COLUMNS = [
     "市净率", "总市值", "流通市值", "涨速", "5分钟涨跌",
     "60日涨跌幅", "年初至今涨跌幅",
 ]
+
+# 列名契约（08-09 命名行构造）：StockOverview 字段名 → 行内列名。与
+# OVERVIEW_COLUMNS 同源（zip(fields(StockOverview), OVERVIEW_COLUMNS)）——
+# 字段序与列序对齐由 test_tdx_overview.py 钉死，两处不可能漂移。from_row
+# 按列名取值：akshare 侧（23 列含"序号"）无需 [1:] 切片，列序漂移 →
+# KeyError（响亮失败，替代位置构造的静默错位写垃圾）。
+OVERVIEW_COLUMN_MAP = {
+    f.name: col for f, col in zip(fields(StockOverview), OVERVIEW_COLUMNS)
+}
 
 NAN = float("nan")
 

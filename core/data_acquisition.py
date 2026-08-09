@@ -1,8 +1,8 @@
 from datetime import datetime
 import pandas as pd
 from data_source.chinese_mainland.tdx.adjust import qfq_adjust
-from data_source.chinese_mainland.tdx.mapping import to_akshare_hist_schema
-from data_source.chinese_mainland.tdx.overview import build_overview as _build_overview_module
+from data_source.chinese_mainland.tdx.mapping import AKSHARE_HIST_COLUMN_MAP, to_akshare_hist_schema
+from data_source.chinese_mainland.tdx.overview import OVERVIEW_COLUMN_MAP, build_overview as _build_overview_module
 from data_source.chinese_mainland.tdx.reports import build_reports as _build_reports_module
 from data_source.chinese_mainland.tdx.tdx_source import TdxSource, is_bj_ticker
 from data_structure.chinese_mainland import ChinaStock, ChinaStockData
@@ -159,9 +159,11 @@ class DataAcquisition(LegacyAksharePaths):
             mapped = to_akshare_hist_schema(daily, ticker, float_shares=float_shares)
             adjusted = qfq_adjust(mapped, xdxr)
             # 批量追加（review #3）：先收集后一次 commit——首建全量回填数千行 = 1 个
-            # 事务（原逐行 add_data 数千次 FileStorage tpc）
+            # 事务（原逐行 add_data 数千次 FileStorage tpc）。命名行构造
+            # （08-09）：mapping 输出 12 列中文列名 → AKSHARE_HIST_COLUMN_MAP，
+            # 列序漂移 → KeyError（响亮失败）而非位置错位静默写垃圾。
             rows = [
-                ChinaStockData.ChinaStockData(*list(row.values()))
+                ChinaStockData.ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)
                 for row in adjusted.to_dict(orient='records')
             ]
             stock.add_datas(rows)
@@ -209,9 +211,10 @@ class DataAcquisition(LegacyAksharePaths):
                     if overview_df is None:
                         logger.warning("Overview refresh failed for {}; keeping previous overview.", ticker)
                     else:
-                        # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）
+                        # 22 列名契约（overview.py OVERVIEW_COLUMN_MAP，from_row 命名构造——
+                        # 列名承重，列序漂移 → KeyError，08-09）
                         row = overview_df.to_dict(orient='records')[0]
-                        stock.update_overview(new_overview=StockOverview(*list(row.values())))
+                        stock.update_overview(new_overview=StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP))
                         logger.info("Overview refreshed for {}.", ticker)
                 return True
             # 北交所（4/8 前缀）：TDX 全链路不可用（无名称/无行情）——显式提示 +
@@ -226,10 +229,11 @@ class DataAcquisition(LegacyAksharePaths):
             if overview_df is None:
                 logger.error("TDX overview build failed for {}.", ticker)
                 return False
-            # 22 列序契约（overview.py OVERVIEW_COLUMNS == StockOverview 字段序）：
-            # 全量 22 值位置构造，无 [1:] 切片（与 akshare 路径不同，见 data_source spec）
+            # 22 列名契约（overview.py OVERVIEW_COLUMN_MAP == 字段名 → 行内列名）：
+            # from_row 命名构造（08-09），无 [1:] 切片（TDX 22 列不含序号列；
+            # akshare 路径的序号列由 map 天然忽略，见 legacy_akshare.py）
             row = overview_df.to_dict(orient='records')[0]
-            stock_overview = StockOverview(*list(row.values()))
+            stock_overview = StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)
             stock = ChinaStock.ChinaStock(stock_overview.name, stock_overview.ticker, stock_overview)
             self.storage.put_stock(stock_overview.ticker, stock)
             return True
@@ -315,10 +319,10 @@ class DataAcquisition(LegacyAksharePaths):
             if reports is None:
                 logger.warning("TDX performance reports unavailable for {}; skipped.", ticker)
                 return True
-            # 15 列序契约（reports.py REPORT_COLUMNS == StockPerformanceReport 字段序）；
-            # 批量追加（review #3）：先收集后一次 commit
+            # 15 列名契约（reports.py REPORT_COLUMNS 即字段名 → from_row 恒等路径，
+            # 08-09）；批量追加（review #3）：先收集后一次 commit
             rows = [
-                StockPerformanceReport(*list(row.values()))
+                StockPerformanceReport.from_row(row)
                 for row in reports.to_dict(orient='records')
             ]
             stock.add_performance_reports(rows)

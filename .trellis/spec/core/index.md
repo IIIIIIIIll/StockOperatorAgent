@@ -23,8 +23,12 @@ Orchestrates data freshness and ingestion. Local patterns:
 - **One exchange method per market**: `update_shex_overview` / `update_szex_overview` /
   `update_bjex_overview` iterate `AKShareSource().fetch_*_stocks()` rows and call
   `update_overview_in_storage(row)`.
-- **Row → model by positional args**: `StockOverview(*list(row.values())[1:])`
-  (first column dropped — see `data_source/index.md`), `ChinaStockData(*list(row.values()))`.
+- **Row → model by named construction (08-09)**: `from_row(row,
+  column_map=...)` on the persistent dataclasses — `StockOverview.from_row(row,
+  column_map=OVERVIEW_COLUMN_MAP)` (akshare 23 列含序号，map 天然忽略),
+  `ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)`,
+  `StockPerformanceReport.from_row(row)` (identity). Column **names** carry the
+  contract; missing column → KeyError — see `data_source/index.md`.
 - **Boolean result protocol**: methods return `True` on success and `False` + a
   `logger.error` when a stock is missing from storage (e.g.
   `acquire_historical_data`, `add_performance_report_in_storage`).
@@ -33,9 +37,10 @@ Orchestrates data freshness and ingestion. Local patterns:
   between the last stored date and the latest possible date.
 - `get_stock_data(ticker)` is the single entry — **纯 TDX 按需链路，无 akshare
   回退**：`ensure_stock(ticker)`（storage 无该股票 → `build_overview` →
-  `StockOverview` **全量 22 值位置构造，无 `[1:]` 切片**（TDX 概览恰 22 列含
-  代码列，与 akshare spot_em 23 列需 `[1:]` 不同）→ `ChinaStock(name, ticker,
-  overview)` → `put_stock`）→ `acquire_historical_data_tdx`（失败记日志不
+  `StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)` 命名构造
+  （08-09——TDX 22 列与 akshare 23 列共用同一 map，序号列天然忽略，无
+  `[1:]` 切片）→ `ChinaStock(name, ticker, overview)` → `put_stock`）→
+  `acquire_historical_data_tdx`（失败记日志不
   阻断）→ `acquire_performance_report_tdx` → return `storage.get_stock(ticker)`。
   `ensure_stock` 失败（overview None）→ `return None`（纯 TDX，无 akshare 兜底；
   `core/llms/tools/get_company_info.py` 的 `raise Exception('Stock not found')`
@@ -65,7 +70,7 @@ Orchestrates data freshness and ingestion. Local patterns:
   段）。首建 `build_overview` None（无价格来源）→ `logger.error` + `False`。
 - `acquire_performance_report_tdx(ticker, _fetch_reports=None, _scope=None) -> bool`
   — storage 无该股票 → `False`；`build_reports` 返回单表多行，批量
-  `StockPerformanceReport(*list(row.values()))`（15 列无切片）→
+  `StockPerformanceReport.from_row(row)`（恒等路径，列名即字段名，08-09）→
   `add_performance_reports`（单次 commit，report_date 字符串去重）→
   `put_stock` → `True`；`build_reports` None（无报告）→ `logger.warning` +
   `True`（无报告不是失败）。`_scope` 透传（review #2+#3，见单遍拉取段）。
@@ -96,7 +101,8 @@ Orchestrates data freshness and ingestion. Local patterns:
   协议；chain: `TdxSource.fetch_finance_capital`（流通股本, 失败降级 → 换手率
   NaN）→ `fetch_daily` (失败 → `False`) → `fetch_xdxr` (失败降级 → 未复权) →
   `mapping.to_akshare_hist_schema` → `adjust.qfq_adjust` → 批量
-  `ChinaStockData(*list(row.values()))` → `add_datas`（单次 commit，review #3）。
+  `ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)` →
+  `add_datas`（单次 commit，review #3）。
   `_scope` 透传（review #2+#3，见单遍拉取段）。
   See `data_source/index.md` for the layer contracts.
 

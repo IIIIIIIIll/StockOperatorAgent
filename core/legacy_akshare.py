@@ -11,32 +11,36 @@ AKShareSource 保持方法内惰性导入——import core.data_acquisition（�
 
 from datetime import datetime, timedelta
 
+from data_source.chinese_mainland.tdx.mapping import AKSHARE_HIST_COLUMN_MAP
+from data_source.chinese_mainland.tdx.overview import OVERVIEW_COLUMN_MAP
 from data_structure.chinese_mainland import ChinaStock, ChinaStockData
 from data_structure.chinese_mainland.StockOverview import StockOverview
 from data_structure.chinese_mainland.StockPerformanceReport import StockPerformanceReport
 from loguru import logger
 from utils.time_helper import asia_today, get_last_business_day
 
-# akshare stock_yjbb_em 列名 → StockPerformanceReport 字段映射（备用路径
-# 列名契约，prd 位置构造例外授权）。yjbb_em 列序曾在 akshare 版本间插入过
-# '_' 占位列（旧版位置构造把占位吃到 eps..QoQ、行业吃到净资产收益率，静默
-# 写垃圾）；按列名映射 + 存在性断言对列序变化健壮。report_date 由调用方
-# 赋值（'%Y%m%d'），不在映射内。1.18.81 源码实测列名见 data_source spec。
+# akshare stock_yjbb_em 列名契约（备用路径，08-09 随 from_row 统一为
+# **字段名 → 行内列名**方向，与 OVERVIEW_COLUMN_MAP / AKSHARE_HIST_COLUMN_MAP
+# 一致）。yjbb_em 列序曾在 akshare 版本间插入过 '_' 占位列（旧版位置构造把
+# 占位吃到 eps..QoQ、行业吃到净资产收益率，静默写垃圾）；from_row 按列名取值
+# + 存在性断言对列序变化健壮（缺失 → KeyError/None，响亮失败）。report_date
+# 由调用方赋值（'%Y%m%d'，overrides），不在映射内。1.18.81 源码实测列名见
+# data_source spec。
 YJBB_COLUMN_MAP = {
-    "股票代码": "ticker",
-    "股票简称": "name",
-    "每股收益": "eps",
-    "营业总收入-营业总收入": "total_income",
-    "营业总收入-同比增长": "total_income_YoY_rate",
-    "营业总收入-季度环比增长": "total_income_QoQ_rate",
-    "净利润-净利润": "net_profit",
-    "净利润-同比增长": "net_profit_YoY_rate",
-    "净利润-季度环比增长": "net_profit_QoQ_rate",
-    "每股净资产": "net_worth_per_share",
-    "净资产收益率": "net_worth_return_rate",
-    "每股经营现金流量": "cash_flow_per_share",
-    "销售毛利率": "sales_gross_margin",
-    "所处行业": "industry",
+    "ticker": "股票代码",
+    "name": "股票简称",
+    "eps": "每股收益",
+    "total_income": "营业总收入-营业总收入",
+    "total_income_YoY_rate": "营业总收入-同比增长",
+    "total_income_QoQ_rate": "营业总收入-季度环比增长",
+    "net_profit": "净利润-净利润",
+    "net_profit_YoY_rate": "净利润-同比增长",
+    "net_profit_QoQ_rate": "净利润-季度环比增长",
+    "net_worth_per_share": "每股净资产",
+    "net_worth_return_rate": "净资产收益率",
+    "cash_flow_per_share": "每股经营现金流量",
+    "sales_gross_margin": "销售毛利率",
+    "industry": "所处行业",
 }
 
 
@@ -85,7 +89,9 @@ class LegacyAksharePaths:
 
     def update_overview_in_storage(self, row):
         """deprecated（备用路径，主流程不调用）：akshare 概览行 → storage。"""
-        stock_overview = StockOverview(*list(row.values())[1:])
+        # 命名行构造（08-09）：spot_em 行首"序号"列不在 OVERVIEW_COLUMN_MAP
+        # 内 → 天然忽略，不再需要 [1:] 切片；列名漂移 → KeyError（响亮失败）
+        stock_overview = StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)
         if self.storage.get_stock(stock_overview.ticker) is None:
             logger.debug(f"Stock overview for {stock_overview.ticker} not found in database.")
             stock = ChinaStock.ChinaStock(stock_overview.name, stock_overview.ticker, stock_overview)
@@ -127,7 +133,9 @@ class LegacyAksharePaths:
             return True
 
         for row in AKShareSource().fetch_stock_history(ticker, look_back_days=gap_days).to_dict(orient='records'):
-            stock_data = ChinaStockData.ChinaStockData(*list(row.values()))
+            # 命名行构造（08-09）：stock_zh_a_hist 中文列名 → AKSHARE_HIST_COLUMN_MAP，
+            # 列名承重（akshare 侧"股票代码"列在末位的变体同样正确），列漂移 → KeyError
+            stock_data = ChinaStockData.ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)
             logger.debug(stock_data)
             stock.add_data(stock_data)
 
@@ -169,30 +177,21 @@ class LegacyAksharePaths:
             return datetime(year, 9, 30).date()
 
     def build_performance_report_from_row(self, row, report_date):
-        """deprecated（备用路径，主流程不调用）：yjbb_em 行 → StockPerformanceReport（按列名映射，位置构造例外）。
+        """deprecated（备用路径，主流程不调用）：yjbb_em 行 → StockPerformanceReport
+        （from_row 命名构造，08-09 统一模式）。
 
         列名存在性断言：任一必需列缺失 → logger.error + 返回 None（调用方
         acquire_performance_report 据此 return False，不静默写垃圾——位置
-        构造在 yjbb 列序变化时会静默错位）。report_date 为 '%Y%m%d' 字符串。
+        构造在 yjbb 列序变化时会静默错位；from_row 缺列 KeyError 由本断言
+        转化为 None，不穿透 boolean 协议）。report_date 为 '%Y%m%d' 字符串，
+        overrides 覆写（YJBB_COLUMN_MAP 不含该字段）。
         """
-        missing = [col for col in YJBB_COLUMN_MAP if col not in row]
+        missing = [col for col in YJBB_COLUMN_MAP.values() if col not in row]
         if missing:
-            logger.error("yjbb_em 列名缺失 {}，期望列名契约 {}；跳过写入。", missing, list(YJBB_COLUMN_MAP))
+            logger.error("yjbb_em 列名缺失 {}，期望列名契约 {}；跳过写入。", missing, list(YJBB_COLUMN_MAP.values()))
             return None
-        return StockPerformanceReport(
-            ticker=row["股票代码"], name=row["股票简称"], eps=row["每股收益"],
-            total_income=row["营业总收入-营业总收入"],
-            total_income_YoY_rate=row["营业总收入-同比增长"],
-            total_income_QoQ_rate=row["营业总收入-季度环比增长"],
-            net_profit=row["净利润-净利润"],
-            net_profit_YoY_rate=row["净利润-同比增长"],
-            net_profit_QoQ_rate=row["净利润-季度环比增长"],
-            net_worth_per_share=row["每股净资产"],
-            net_worth_return_rate=row["净资产收益率"],
-            cash_flow_per_share=row["每股经营现金流量"],
-            sales_gross_margin=row["销售毛利率"],
-            industry=row["所处行业"],
-            report_date=report_date,
+        return StockPerformanceReport.from_row(
+            row, column_map=YJBB_COLUMN_MAP, report_date=report_date,
         )
 
     def acquire_performance_report(self, ticker='601988'):
@@ -226,8 +225,8 @@ class LegacyAksharePaths:
             logger.info(f"Fetching report for {next_report_date}.")
             report_df = AKShareSource().fetch_performance_report(next_report_date.strftime('%Y%m%d'))
             # 列名契约断言：yjbb 列序曾在版本间变化，位置构造会静默错位写垃圾
-            if not set(YJBB_COLUMN_MAP).issubset(report_df.columns):
-                logger.error("yjbb_em 列名契约不符：缺 {}（期望 {}）；不写库。", set(YJBB_COLUMN_MAP) - set(report_df.columns), list(YJBB_COLUMN_MAP))
+            if not set(YJBB_COLUMN_MAP.values()).issubset(report_df.columns):
+                logger.error("yjbb_em 列名契约不符：缺 {}（期望 {}）；不写库。", set(YJBB_COLUMN_MAP.values()) - set(report_df.columns), list(YJBB_COLUMN_MAP.values()))
                 return False
             for row in report_df.to_dict(orient='records'):
                 stock_performance = self.build_performance_report_from_row(row, next_report_date.strftime('%Y%m%d'))

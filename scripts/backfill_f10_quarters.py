@@ -73,8 +73,9 @@ def backfill_one(ticker: str) -> int:
         logger.warning("No reports for {} (no raw cache?); skipped.", ticker)
         return -1
 
+    # 命名行构造（08-09）：REPORT_COLUMNS 即字段名 → from_row 恒等路径
     rows = [
-        StockPerformanceReport(*list(row.values()))
+        StockPerformanceReport.from_row(row)
         for row in reports.to_dict(orient="records")
     ]
     # 合并替换（绕过 add_performance_reports 的递增去重，见模块 docstring）：

@@ -27,25 +27,36 @@ class StockOverview(persistent.Persistent):
   (`StockOverview`, `StockPerformanceReport`, `ChinaStockData`, `StockInfo`).
 - Numeric fields typed as **numpy scalars** (`float64`, `int64`) — akshare
   returns numpy types and the dataclasses preserve them without casts.
-- Field **order matters**: positional construction from DataFrame rows
-  (`StockOverview(*list(row.values())[1:])`) means the declared field order must
-  match akshare column order — see `data_source/index.md`.
+- **Named row construction (08-09-named-row-constructors)**: DataFrame rows →
+  dataclass via `from_row(row, *, column_map=None, **overrides)` classmethods
+  on `ChinaStockData` / `StockOverview` / `StockPerformanceReport` — column
+  **names** carry the contract, not field order. `column_map` maps 字段名 →
+  行内列名 (None = 恒等); missing column → **KeyError** (loud failure vs the
+  old silent misalignment); extra row columns ignored; `overrides` applied
+  after mapping. Column maps live next to the column constants they derive
+  from (`OVERVIEW_COLUMN_MAP`, `AKSHARE_HIST_COLUMN_MAP`, `YJBB_COLUMN_MAP`;
+  `REPORT_COLUMNS` are field names → identity) — see `data_source/index.md`.
+  Field **order** stays stable (ZODB positional data compatibility), but
+  positional `*list(row.values())` construction is gone from production.
 - `date` / `report_date` fields are loose (`object` / `str`): `ChinaStockData.date`
-  is a datetime-like object; `StockPerformanceReport.report_date` is a
+  is a `datetime.date` object (mapping.py outputs `.dt.date`; keep `object`);
+  `ChinaStockData.ticker` is `str`; `StockPerformanceReport.report_date` is a
   `'%Y%m%d'` **string**, and `DataAcquisition` compares them as strings
-  (`get_next_report_date` cycle). Keep both formats as they are.
+  (`get_next_report_date` cycle). Keep these formats as they are.
 - `StockInfo` exists but is only exercised in `test/data_source/test_akshare.py`;
   `ChinaStock.update_overview` **写 `self.overview`**（2026-08-02 修复：原写
   `self.info` → formatter 永远读构造时的陈旧概览；现 overview 是唯一写入
-  槽位）；`info` 字段保留仅为兼容既有序列化数据，不再写入。`add_info` /
-  `get_info` 已删除（无引用）。
+  槽位）。`info` 死字段已移除（08-09，grep 确认无消费者；既有序列化对象上
+  的多余属性不受影响）。`StockInfo.float_market_cap` 与
+  `StockOverview.circulating_market_cap` 为语义孪生字段（只加注释，
+  不动存储 schema）。`add_info` / `get_info` 已删除（无引用）。
 
 ## ChinaStock (`ChinaStock.py`)
 
 `ChinaStock(persistent.Persistent)` is the aggregate root: `name`, `ticker`,
 `datas` (PersistentList), `performance_reports` (PersistentList), `overview`,
-`info`, `overview_last_update`, `last_data_update` (seeded from
-`utils.constants.default_start`).
+`overview_last_update`, `last_data_update` (seeded from
+`utils.constants.default_start`). (`info` removed in 08-09 — no consumers.)
 
 Behavior rules:
 

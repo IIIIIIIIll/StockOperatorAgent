@@ -25,24 +25,21 @@ The only module that talks to akshare. Local patterns:
 - **akshare 版本注记**（2026-08-02 升级 1.18.25 → 1.18.81，源码级对比确认 4 个
   使用中接口列序零变化：`stock_zh_a_hist` / `stock_*_a_spot_em` / `stock_yjbb_em`
   / `stock_individual_info_em`）。
-- **既有映射疑点（未修，待流程梳理任务实测）**：akshare 源码显示
+- **既有映射疑点（08-09 命名构造后已消除）**：akshare 源码显示
   `stock_zh_a_hist` 的"股票代码"列在**末尾**（日期,开盘,收盘,最高,最低,成交量,
   成交额,振幅,涨跌幅,涨跌额,换手率,股票代码），`stock_*_a_spot_em` 第 2 列是
-  "_" 占位——与位置构造假设（ticker 第 2 位）不匹配。本环境东方财富端点不可达
-  无法实测实际输出；若实测确认错位，需按列名构造或调整映射（TDX 路径的
-  `mapping.to_akshare_hist_schema` 输出 12 列序与 ChinaStockData 字段**对齐**，
-  不受此影响）。
+  "_" 占位——位置构造假设（ticker 第 2 位）下会静默错位。本环境东方财富端点
+  不可达无法实测实际输出；命名构造（`from_row` 按列名取值）后列的位置不再
+  承重——无论"股票代码"在第二还是末尾都正确取值，列漂移只可能 KeyError。
 - **`stock_yjbb_em` 列序实测（2026-08-02，源码级，1.18.81）**：最终输出恰
   16 列（列名已过滤中间 `_` 占位）：序号/股票代码/股票简称/每股收益/营业总收入-
   营业总收入/营业总收入-同比增长/营业总收入-季度环比增长/净利润-净利润/净利润-
   同比增长/净利润-季度环比增长/每股净资产/净资产收益率/每股经营现金流量/销售
-  毛利率/所处行业/最新公告日期。**位置构造例外（prd 授权，2026-08-02）**：
-  `core/data_acquisition.py` 的 `acquire_performance_report`（akshare 备用路径）
-  已改按列名映射构造（`YJBB_COLUMN_MAP` 列名 → `StockPerformanceReport` 字段）+
-  列名存在性断言（缺失 → `logger.error` + 返回 False 不写库）——yjbb 列序曾在
-  版本间插入过 `_` 占位列，位置构造会静默错位写垃圾；列名映射对列序变化健壮。
-  此例外仅限 yjbb 备用路径，TDX 路径（`build_reports` 15 列序契约）与其余
-  akshare 端点保持位置构造。
+  毛利率/所处行业/最新公告日期。akshare 备用路径（`core/legacy_akshare.py`）
+  按列名映射构造（`YJBB_COLUMN_MAP` 字段 → 列名，from_row 传入 +
+  `report_date` overrides）+ 列名存在性断言（缺失 → `logger.error` + 返回
+  False/None 不写库）——yjbb 列序曾在版本间插入过 `_` 占位列，命名构造对
+  列序变化健壮；该先例（2026-08-02）即 08-09 全量命名构造的原型。
 
 ## TdxSource (`data_source/chinese_mainland/tdx/`)
 
@@ -77,9 +74,10 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
   重试（不固化部分索引）。模块函数 `is_bj_ticker(ticker)`（4/8 前缀）供
   入口处拦截北交所代码（TDX 全链路不可用）。
 - `overview.py` — `compose_overview(...)` 纯函数 + `build_overview`：输出**恰
-  22 列**（含代码列），与 `StockOverview` 22 字段序一致，消费者**全量位置构造
-  `StockOverview(*list(row.values()))`（无切片）**——与 akshare spot_em 路径
-  （23 列含序号需 `[1:]`）不同，勿混淆。PE/PB/市值/涨跌幅/60日/ytd 均由
+  22 列**（含代码列），列名即 `OVERVIEW_COLUMNS`，消费者命名构造
+  `StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)`（08-09——
+  与 akshare spot_em 路径共用同一 map：akshare 23 列含序号，序号列不在 map
+  内被天然忽略，无需 `[1:]` 切片）。PE/PB/市值/涨跌幅/60日/ytd 均由
   snapshot/F10/股本/日K 派生；量比/5分钟/动量 = NaN（pytdx 无）。逐源降级：
   单项失败 → 该源字段 NaN + `logger.warning`；snapshot 与日K 均无价格来源 →
   None。日K 窗口 `max_bars=250`（覆盖 60 日前 + 年初窗口）。
@@ -90,8 +88,10 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
   NaN period 的 astype(str)='nan' 字典序最大，会掩盖真实最新期。`today`
   默认 `asia_today()`（北京时间）。
 - `reports.py` — `compose_reports(...)` 纯函数 + `build_reports`：F10 tidy
-  long（metric/period/value_num）→ pivot 每期一行，输出**恰 15 列** =
-  `StockPerformanceReport` 15 字段序（含 ticker），全量位置构造。QoQ 环比
+  long（metric/period/value_num）→ pivot 每期一行，输出**恰 15 列**，
+  列名即英文字段名（= `StockPerformanceReport` 15 字段序，含 ticker），
+  消费者命名构造 `StockPerformanceReport.from_row(row)`（恒等路径，
+  08-09）。QoQ 环比
   (本期-上期)/上期×100：period 升序（ISO 字符串序）后计算、首期 NaN、只防
   除零（负分母合法——净利可为负，与 overview `_divide` 的"分母≤0→NaN"有意
   区分）。**2026-08-02 修复**：QoQ 相邻性校验（`_qoq_series` 按 period 索引
@@ -138,8 +138,10 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
   `【盈利能力指标（` marker 独立成节渲染。
 - `mapping.py` — `to_akshare_hist_schema(df, ticker, float_shares=None)`：
   pytdx bars → akshare `stock_zh_a_hist` 12 列序（日期/股票代码/开盘/收盘/
-  最高/最低/成交量/成交额/振幅/涨跌幅/涨跌额/换手率），使既有
-  `ChinaStockData(*list(row.values()))` 位置构造零改动复用。
+  最高/最低/成交量/成交额/振幅/涨跌幅/涨跌额/换手率），列名契约
+  `AKSHARE_HIST_COLUMN_MAP`（字段名 → 列名，与 `AKSHARE_HIST_COLUMNS`
+  同源 zip）供 `ChinaStockData.from_row(row, column_map=...)` 命名构造使用
+  （08-09 替代位置构造）。
   日期列输出 **`datetime.date` 对象**（`add_data` 按 `data.date >
   last_data_update` 比较）；成交量单位与 akshare 一致（手）；首行无前收盘，
   振幅/涨跌幅/涨跌额 NaN。**2026-08-02 修复**：`vol` 先 `fillna(0)` 再
@@ -191,27 +193,37 @@ method per endpoint：
 
 ## DataFrame → Dataclass Mapping
 
-The codebase constructs persistent dataclasses from akshare rows **positionally**,
-so field order in the dataclasses must match akshare column order:
+The codebase constructs persistent dataclasses from DataFrame rows with **named
+row constructors** (08-09-named-row-constructors) — column **names** carry the
+contract, not column order:
 
 ```python
-StockOverview(*list(row.values())[1:])        # first column dropped (ticker)
-ChinaStockData(*list(row.values()))           # all columns kept
-StockPerformanceReport(*list(row.values())[1:])
+StockOverview.from_row(row, column_map=OVERVIEW_COLUMN_MAP)
+ChinaStockData.from_row(row, column_map=AKSHARE_HIST_COLUMN_MAP)
+StockPerformanceReport.from_row(row)          # identity: columns are field names
 ```
 
-See `core/data_acquisition.py` and `test/data_source/test_akshare.py`.
+`from_row(row, *, column_map=None, **overrides)` lives on each dataclass
+(`data_structure/chinese_mainland/`): `column_map` maps 字段名 → 行内列名
+(None = 恒等，字段名即列名); a missing column raises **KeyError** (loud
+failure — positional construction silently wrote garbage on column drift);
+unmapped extra columns are ignored (the akshare 序号 column no longer needs a
+`[1:]` slice); `overrides` are applied after the mapping (akshare 业绩的
+`report_date` comes from the caller).
 
-- The dropped first column differs per endpoint — verify against akshare output
-  before adding a new mapping.
-- This is **column-order coupling**: akshare column renames are fine, but
-  reordering akshare columns (or dataclass fields) silently misaligns fields.
-  When changing either side, run `test/data_source/test_akshare.py` and the
-  DataAcquisition tests.
-- Do not "fix" mappings by switching to keyword construction without checking
-  every construction site (DataAcquisition + tests) — keep the pattern uniform.
-  **唯一例外**：`stock_yjbb_em` 业绩报表行（列名曾在版本间变化，见上"列序实测"
-  段）按列名映射构造，其余端点一律位置构造。
+- Column maps live next to the column-order constants they derive from
+  (`zip(fields(Dataclass), COLUMNS)` — same-source, cannot drift):
+  `OVERVIEW_COLUMN_MAP` (overview.py), `AKSHARE_HIST_COLUMN_MAP` (mapping.py),
+  `YJBB_COLUMN_MAP` (legacy_akshare.py, field→column direction);
+  `REPORT_COLUMNS` already are field names → identity path, no map.
+- Output equivalence is field-by-field with the old positional construction
+  (NaN/None pass through unenforced numpy annotations) — proven by
+  `test/data_structure/test_row_constructors.py` plus the existing
+  data_source/data_structure/DataAcquisition tests.
+- When changing either side (a dataclass field or a column constant), run
+  `test/data_structure/`, `test/data_source/test_tdx_*.py` and the
+  DataAcquisition tests; the bijection tests pin
+  `set(COLUMN_MAP) == {f.name for f in fields(...)}`.
 
 ## Tests
 

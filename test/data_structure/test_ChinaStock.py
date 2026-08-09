@@ -64,13 +64,13 @@ class TestChinaStock():
         """修复（08-02-fix-dead-code-cleanup）：update_overview 写 self.overview。
 
         原实现写 self.info（formatter 读 self.overview）→ 概览永不刷新；
-        修复后 update_overview(new) → stock.overview == new，info 保持 None。
+        修复后 update_overview(new) → stock.overview == new（08-09：info
+        死字段已移除，无 info 断言）。
         """
         stock = ChinaStock("测试", "000001", _make_overview("000001"))
         new_overview = _make_overview("000001")
         stock.update_overview(new_overview)
         assert stock.overview == new_overview
-        assert stock.info is None
 
     # ---------- review #3：批量 mutator（2026-08-02） ----------
 
