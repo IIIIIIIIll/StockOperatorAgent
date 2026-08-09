@@ -41,7 +41,8 @@ export default function App() {
   const [settings, setSettings] = React.useState<SettingsState>(() => defaultSettings());
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [showSettings, setShowSettings] = React.useState(() => width >= 900);
+  // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
+  const [showSettings, setShowSettings] = React.useState(false);
   React.useEffect(() => {
     if (width < 900) setShowSettings(false);
   }, [width]);
@@ -134,9 +135,14 @@ export default function App() {
   return (
     <View style={styles.root}>
       <StatusBar style="auto" />
-      {/* 标题 */}
+      {/* 标题行:☰ 汉堡按钮(抽屉开关)+ 标题 */}
       <View style={styles.header}>
-        <Text style={styles.heading}>{THEME_HEADING}</Text>
+        <View style={styles.headerRow}>
+          <Pressable style={styles.hamburger} onPress={() => setShowSettings((v) => !v)} hitSlop={8} accessibilityLabel="切换设置侧边栏">
+            <Text style={styles.hamburgerIcon}>☰</Text>
+          </Pressable>
+          <Text style={styles.heading}>{THEME_HEADING}</Text>
+        </View>
         <Text style={styles.subtitle}>TS 版投资委员会 · 数据链/编排层/UI 全 TS 移植</Text>
       </View>
 
@@ -162,8 +168,19 @@ export default function App() {
 
       </View>
 
-      {/* 主体:内容区 + 侧边栏设置 */}
+      {/* 主体:侧边栏设置(左侧抽屉)+ 内容区 */}
       <View style={styles.main}>
+        {showSettings ? (
+          <View style={styles.sidebar}>
+            <View style={styles.sidebarHeader}>
+              <Text style={styles.sidebarTitle}>设置</Text>
+              <Pressable onPress={() => setShowSettings(false)} hitSlop={8} accessibilityLabel="关闭设置侧边栏">
+                <Text style={styles.sidebarClose}>✕</Text>
+              </Pressable>
+            </View>
+            <SettingsPanel onSettingsChange={onSettingsChange} />
+          </View>
+        ) : null}
         <View style={styles.contentColumn}>
           {/* 主 Tab 条(采集数据 + 角色报告) */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
@@ -207,23 +224,6 @@ export default function App() {
           </View>
         </View>
 
-        {/* 侧边栏设置:展开 → 侧栏(头部 ✕ 收起);收起 → 右缘窄条按钮 */}
-        {showSettings ? (
-          <View style={styles.sidebar}>
-            <View style={styles.sidebarHeader}>
-              <Text style={styles.sidebarTitle}>设置</Text>
-              <Pressable onPress={() => setShowSettings(false)} hitSlop={8}>
-                <Text style={styles.sidebarClose}>✕</Text>
-              </Pressable>
-            </View>
-            <SettingsPanel onSettingsChange={onSettingsChange} />
-          </View>
-        ) : (
-          <Pressable style={styles.sidebarTab} onPress={() => setShowSettings(true)}>
-            <Text style={styles.sidebarTabIcon}>⚙</Text>
-            <Text style={styles.sidebarTabText}>设置</Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );
@@ -233,6 +233,9 @@ function makeStyles(theme: Theme) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: theme.colors.background },
     header: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    headerRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
+    hamburger: { paddingVertical: 2, paddingRight: 2 },
+    hamburgerIcon: { fontSize: 22, color: theme.colors.text, lineHeight: 24 },
     heading: { fontSize: 24, fontWeight: '800', color: theme.colors.primary, letterSpacing: 0.5 },
     subtitle: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
     form: { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
