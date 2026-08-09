@@ -10,22 +10,20 @@ paths:
 
 ## The Agent Class Template
 
-All six agents (`fundamental_analysis_expert.py`, `trend_analysis_expert.py`,
-`technical_indicator_analyst.py`, `bullish_trader.py`, `bearish_trader.py`,
-`investment_manager.py` in `agents/chinese_mainland/`) are near-identical
-classes. **Copy the existing shape when adding an agent — do not redesign it.**
-The pattern:
+All seven agents (`agents/chinese_mainland/`) inherit **`AgentNode`
+（`agents/base.py`，08-09-agent-base-class）**——模板公共管道收敛到基类：
+**继承基类 + 显式查询构建**（不再复制模板）。基类承载**不变管道**：
 
-1. **Constructor** — `__init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater=None, tools: list | None = None)`:
-   - `ChatPromptTemplate.from_messages([("system", system_prompt), MessagesPlaceholder(variable_name="query")])`
-   - `self.prompt = self.prompt.partial(system_message=<role_message>)`
-   - `self.prompt = self.prompt.partial(current_date=get_last_business_day(datetime.date.today()))`
+1. **构造器** `AgentNode.__init__(llm, config, progress_updater=None, tools=None, *, role_message)`：
+   - prompt 壳 `ChatPromptTemplate.from_messages([("system", system_prompt),
+     MessagesPlaceholder(variable_name="query")])` + `system_message` /
+     `current_date` partials（`get_last_business_day(datetime.date.today())`）
    - **可选工具绑定（08-03-websearch-tool-calling）**——三个工具角色
      （bullish/bearish/investment_manager）由 committee 传 `tools`；构造时
      `llm.bind_tools(tools)` 包 **NotImplementedError 回退**（硬约束：
      langchain-core 1.5.3 `FakeListChatModel.bind_tools` 实测抛
      NotImplementedError——离线图测试靠它保持全绿；生产 DeepSeek/Qwen
-     OpenAI 兼容路径正常绑定）。fundamental/trend 两专家不传，保持直调：
+     OpenAI 兼容路径正常绑定）。专家不传 tools，保持直调：
      ```python
      if tools:
          try:
@@ -34,36 +32,55 @@ The pattern:
              logger.warning("LLM {} 不支持 bind_tools，跳过工具绑定", type(llm).__name__)
      self.llm = self.prompt | llm
      ```
-   - store `config` and `progress_updater`（工具角色另存 `self.tools = tools or []`）
-2. **Node method** — named after the role, takes `(self, state: State)`, builds a
-   Chinese human query from `state` (see `core/llms/prompt.py` for the system
-   messages), invokes **`invoke_with_retry(self.llm, {"query": query},
-   config=self.config)`**（2026-08-02，review #6——见下方重试约定；三个专家
-   fundamental/trend/technical_indicator_analyst 保持此直调；三个工具角色
-   bullish/bearish/
-   investment_manager 改用 **`invoke_with_tools`**——08-03-websearch-tool-
-   calling，见下方"工具调用循环"段，返回 `(final, 全量 messages)`），reports
-   progress via **`safe_progress(self.progress_updater, "...")`**
-   （2026-08-02，`core/llms/progress.py`——并行节点运行在 LangGraph 工作
-   线程，Streamlit DeltaGenerator 只能在脚本线程 enqueue，工作线程 info()
-   抛 NoSessionContext 会把分析打崩；safe_progress 降级为 debug 日志），
-   **`push_report(self.progress_updater, "<state_key>", response.content)`**
-   （2026-08-02，queue bridge——LLM 返回后即推送报告，display 节点级
-   即时填充；None/非 bridge updater 为 no-op，superstep update 兜底
-   渲染），and returns a state-update
-   dict: `{"messages": [query[0], response], "<state_key>": response.content}`.
-   工具角色返回 `{"messages": <invoke_with_tools 全量 messages>,
-   "<state_key>": final.content}`——消息通道完整含工具交换（AIMessage
-   with tool_calls + ToolMessage）。
-   UI 路径的 `progress_updater` 是 **`ProgressBridge`**（core/llms/progress.py，
-   `info`/`push_report` 线程安全入队，脚本线程消费后渲染；离线图测试可传
-   `_ThrowingUpdater` 验证 safe_progress 降级——详见 core spec Streamlit
-   UI 段）。
+   - 另存 `config` / `progress_updater` / `self.tools = tools or []`；
+     已绑定实例存 `self._bound_llm`（build_chain 复用）
+   - 子类构造签名保持 `(llm, config, progress_updater=None, tools=None)`
+     ——注册表 Role.factory 零改动（`super().__init__(llm, config,
+     progress_updater, tools, role_message=<角色消息>)`；information_analyst
+     的 `_client=None` 注入由子类 super() 前自存，不进基类）
+2. **`build_chain(role_message, llm=None)`** — 第二条链（trader 的 revise
+   链）：复用构造时**已绑定** llm（双链共享同一实例）；revise 角色 system
+   消息（含"对抗修订轮的多方/空方交易员"独有短语，与初稿路由短语互斥——
+   离线测试按 system 消息路由）
+3. **节点骨架方法**（progress/report/retry/state 返回收敛）：
+   - `complete_expert(query_text, state_key, *, start_msg, done_msg, log_label)`
+     ——专家（三专家 + 信息面分析师末段 LLM）：`logger.debug("{} Query: {}",
+     log_label, query_text)` → `safe_progress(start_msg)` →
+     `invoke_with_retry(self.llm, {"query": [("human", query_text)]},
+     config=self.config)`（2026-08-02，review #6 重试约定）→
+     `safe_progress(done_msg)` → `push_report(updater, state_key,
+     response.content)`（08-02 queue bridge 节点级即时填充；None/非 bridge
+     updater 为 no-op，superstep update 兜底）→
+     `{"messages": [query[0], response], state_key: response.content}`
+   - `complete_with_tools(query_text, state_key, *, chain=None,
+     max_tool_rounds=None, start_msg, done_msg, log_label)` ——工具角色
+     （bullish/bearish 初稿与修订 + manager）：`invoke_with_tools(...)`
+     （08-03-websearch-tool-calling，见"工具调用循环"段，返回
+     `(final, 全量 messages)`；修订轮传 `chain=self.revise_llm,
+     max_tool_rounds=3`，缺省 None → tool_loop 默认 15）→ push_report →
+     `{"messages": 全量, state_key: content}`——消息通道完整含工具交换
+     （AIMessage with tool_calls + ToolMessage）
+   - `info_section(state)` ——信息面条件段（3× 复制的 4 行收敛，见
+     Tools 段）
+   - 骨架不改变 invoke 语义：safe_progress 的中文文案、state dict 形状
+     与改造前逐字节一致（progress 文案原样传参；`test_query_baselines.py`
+     钉死查询文本）
+4. **State key 显式传参**：agent 不 import role_registry（注册表保持装配/
+   UI 面向——避免 agents → core.role_registry 反向耦合）
 
-Reference: any of the five agents, plus their wiring in
-`core/investment_committee.py` and single-agent test graphs in
-`test/integration/test_basic_graph.py` (which use `dummy_*` fixtures to isolate
-downstream agents from live LLM calls).
+**agent 文件保留差异化**（基类只收不变管道）：角色 prompt 常量
+（prompt.py）、查询构建（f-string，**逐字节不变**——`test/agents/
+test_query_baselines.py` 钉死）、角色特有逻辑（信息面分析师的确定性预抓
+`_prefetch`/`_search_section`）。
+
+UI 路径的 `progress_updater` 是 **`ProgressBridge`**（core/llms/progress.py，
+`info`/`push_report` 线程安全入队，脚本线程消费后渲染；离线图测试可传
+`_ThrowingUpdater` 验证 safe_progress 降级——详见 core spec Streamlit
+UI 段）。
+
+Reference: `agents/base.py` + 任一 agent，以及 wiring 在
+`core/investment_committee.py` 与单 agent 测试图（`test/integration/
+test_basic_graph.py`，用 `dummy_*` fixtures 隔离下游 live LLM）。
 
 ## The State Contract (`utils/state.py`)
 
@@ -208,12 +225,13 @@ def bullish_revise(self, state: State):
     return {"messages": messages, "bullish_opinions": response.content}
 ```
 
-- **第二条链 `self.revise_llm`**：同一实例的第二条 `ChatPromptTemplate`，
-  system 消息为 `bullish_revise_message` / `bearish_revise_message`
-  （prompt.py）——角色独有短语"对抗修订轮的多方/空方交易员"，**与初稿
-  路由短语（"坚定看多/看空的股票交易员"）互斥**（离线测试按 system 消息
-  路由，歧义即 "UNROUTED" 暴露）；`llm` 复用同一 bind_tools 后实例
-  （初稿链 `self.llm` 不动）。
+- **第二条链 `self.revise_llm`**：`self.revise_llm = self.build_chain(
+  <revise_message>)`（08-09-agent-base-class：基类 build_chain 承载同一
+  实例的第二条链）——system 消息为 `bullish_revise_message` /
+  `bearish_revise_message`（prompt.py），角色独有短语"对抗修订轮的多方/
+  空方交易员"，**与初稿路由短语（"坚定看多/看空的股票交易员"）互斥**
+  （离线测试按 system 消息路由，歧义即 "UNROUTED" 暴露）；`llm` 复用
+  同一 bind_tools 后实例（初稿链 `self.llm` 不动）。
 - **成本护栏**：revise 节点 `invoke_with_tools(..., max_tool_rounds=3)`
   ——初稿轮保持默认 15（`_MAX_TOOL_ROUNDS`）。公共签名零改动，只传参；
   评估跑批仍可用 `WEB_SEARCH_DISABLED` 整体停用搜索。
@@ -279,22 +297,31 @@ def bullish_revise(self, state: State):
   上游 422）；search 公告条目输出附 `doc_id`（供 fetch 精读，仅
   announcement 开放全文）；fetch 支持 `url` 与 `doc_id` 互斥（互斥校验
   留上游，薄包装不本地判）。`_format_item` 等输出格式化函数**单点实现**，
-  信息面分析师直接导入复用（防契约漂移）。
+  信息面分析师直接导入复用（防契约漂移）。**骨架收敛（08-09-agent-base-
+  class）**：三工厂的调用体骨架（上限判定 → 计数 → try/except 占位）收敛
+  到 `core/llms/tools/_capped.py` 的 `capped_call(counter, max_calls,
+  cap_text, fail_fmt, warn_msg, fn)`——占位文本以格式串直传（三工具措辞
+  各异，逐字保留，test_billions_tools 钉死）；`result[].content[]` 条目
+  walk 收敛到 `core/llms/tools/_items.py` 的 `collect_content_items(data)`
+  （billions_search/billions_twitter/信息面分析师三处共用，非 dict 跳过、
+  字段缺失容错单点维护）。web_search._summarize_results 不并入（键契约
+  不同：title/link/snippet，非 result[].content[] 形态）。
 - **信息面分析师（`agents/chinese_mainland/information_analyst.py`）**：
-  复制 expert 模板（ChatPromptTemplate + partial + invoke_with_retry +
-  safe_progress/push_report），但**不用工具循环**——node 内**确定性预抓**：
-  SEARCH 开 → announcement/report/web 各 1 次 `client.search`（fast、
-  count=5、time_range="past 3 months"）+ TWITTER 开 → 1 次
-  `client.twitter_search`；失败源 `logger.warning` + 报告注明跳过；全失败
-  仍产出报告（说明无可用信息）。`_client=None` 注入点（测试 fake）。
-  单次 LLM 总结写 `information_analysis`，prompt 唯一路由短语
-  "精于整合公告、研报、新闻与推特等多源信息"（与其余角色互斥）。
+  继承 AgentNode（`_client=None` 注入由子类自存），末段 LLM 走基类
+  `complete_expert`（直调 invoke_with_retry），但**不用工具循环**——
+  node 内**确定性预抓**：SEARCH 开 → announcement/report/web 各 1 次
+  `client.search`（fast、count=5、time_range="past 3 months"）+ TWITTER
+  开 → 1 次 `client.twitter_search`；失败源 `logger.warning` + 报告注明
+  跳过；全失败仍产出报告（说明无可用信息）。单次 LLM 总结写
+  `information_analysis`，prompt 唯一路由短语 "精于整合公告、研报、新闻
+  与推特等多源信息"（与其余角色互斥）。预抓逻辑保持本文件显式（差异化
+  不抽象）。
 - **info_section 条件插值模式（trader/manager 查询，AC1 硬约束）**：
-  `state.get("information_analysis")` 为空 → 插值变量为空串，f-string
-  其余逐字节不变（关闭态查询与改动前完全一致）；非空 → 追加
-  「信息面分析报告」段（trader 在查询尾、manager 在技术指标与多头观点
-  之间）。字节一致性由 test/agents/test_query_baselines.py 钉死（删除
-  插值立即 FAIL）。
+  `AgentNode.info_section(state)`——`state.get("information_analysis")`
+  为空 → 空串，f-string 其余逐字节不变（关闭态查询与改动前完全一致）；
+  非空 → 追加「信息面分析报告」段（trader 在查询尾、manager 在技术指标
+  与多头观点之间）。字节一致性由 test/agents/test_query_baselines.py 钉死
+  （删除插值立即 FAIL）。
 
 ## Anti-Patterns
 

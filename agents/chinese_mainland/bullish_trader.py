@@ -1,59 +1,28 @@
-import datetime
-
 from langchain_core.runnables import RunnableConfig
 
 from utils.state import State
 from langchain_core.language_models import BaseChatModel
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from core.llms.prompt import system_prompt, bullish_trader_message, bullish_revise_message
-from core.llms.progress import safe_progress, push_report
-from core.llms.tool_loop import invoke_with_tools
-from utils.time_helper import get_last_business_day
-from loguru import logger
+from agents.base import AgentNode
+from core.llms.prompt import bullish_trader_message, bullish_revise_message
 
-class BullishTrader:
+
+class BullishTrader(AgentNode):
 
     def __init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater = None, tools: list | None = None):
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="query"),
-        ])
-
-        self.prompt = self.prompt.partial(system_message=bullish_trader_message)
-        current_date = get_last_business_day(datetime.date.today())
-        self.prompt = self.prompt.partial(current_date=current_date)
         # 对抗修订轮（08-04-adversarial-verdict-loop）：同一实例的第二条链——
         # revise 角色 system 消息（含独有短语"对抗修订轮的多方交易员"，与
-        # 初稿路由短语互斥——离线测试按 system 消息路由）；llm 复用同一
-        # bind_tools 后实例，工具轮数由节点调用收紧（max_tool_rounds=3）
-        self.revise_prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="query"),
-        ])
-        self.revise_prompt = self.revise_prompt.partial(system_message=bullish_revise_message)
-        self.revise_prompt = self.revise_prompt.partial(current_date=current_date)
-        if tools:
-            try:
-                llm = llm.bind_tools(tools)
-            except NotImplementedError:
-                # 离线图测试的 FakeListChatModel 不支持 bind_tools（实测抛
-                # NotImplementedError）——跳过工具绑定保持原行为
-                logger.warning("LLM {} 不支持 bind_tools，跳过工具绑定", type(llm).__name__)
-        self.llm = self.prompt | llm
-        self.revise_llm = self.revise_prompt | llm
-        self.config = config
-        self.progress_updater = progress_updater
-        self.tools = tools or []
-
+        # 初稿路由短语互斥——离线测试按 system 消息路由）；build_chain 复用
+        # 同一已绑定 llm，工具轮数由节点调用收紧（max_tool_rounds=3）
+        super().__init__(llm, config, progress_updater, tools,
+                         role_message=bullish_trader_message)
+        self.revise_llm = self.build_chain(bullish_revise_message)
 
     def bullish_trader(self, state: State):
         # 信息面分析报告（08-08-billions-api-integration，Step 4 补接线）：
         # 条件段——key 缺失（ANALYST 关）→ 空串，查询与改动前逐字节一致
         # （AC1 零行为变化）；开 → 在技术指标报告之后追加信息面段
         # （4 入边 join 保证信息面报告已就绪）
-        info_section = ""
-        if state.get("information_analysis"):
-            info_section = f"\n        信息面分析报告: \n        {state['information_analysis']}\n        "
+        info_section = self.info_section(state)
         bullish_trader_query = f"""
         现在请基于以下信息，给出你对股票代码{state['target_stock_ticker']}的看法：
         基本面报告: \n
@@ -66,20 +35,12 @@ class BullishTrader:
         {state['technical_indicator_analysis']}
         \n
         {info_section}"""
-        logger.debug("Bullish Trader Query: {}", bullish_trader_query)
-        safe_progress(self.progress_updater, "开始多方观点生成。。。")
-        # 节点内工具循环（08-03-websearch-tool-calling）：LLM 决定是否
-        # 联网搜索，搜索结果以 ToolMessage 回流；返回 (final, 全量消息)
-        response, messages = invoke_with_tools(
-            self.llm, bullish_trader_query, self.config,
-            tools=self.tools, progress_updater=self.progress_updater,
+        return self.complete_with_tools(
+            bullish_trader_query, "bullish_opinions",
+            start_msg="开始多方观点生成。。。",
+            done_msg="多方观点生成完成。。。",
+            log_label="Bullish Trader",
         )
-        safe_progress(self.progress_updater, "多方观点生成完成。。。")
-        # 节点级即时填充（08-02-ui-live-progress-bridge）：见 fundamental
-        push_report(self.progress_updater, "bullish_opinions", response.content)
-        logger.debug("Bullish trader Response: {}", response.content)
-        return {"messages": messages, "bullish_opinions": response.content}
-
 
     def bullish_revise(self, state: State):
         # 对抗修订轮（08-04-adversarial-verdict-loop）：双入边 join 语义——
@@ -96,18 +57,13 @@ class BullishTrader:
         {own_draft}
         \n
         """
-        logger.debug("Bullish Trader Revise Query: {}", bullish_revise_query)
-        safe_progress(self.progress_updater, "开始多方观点修订。。。")
         # 修订轮工具轮数收紧（08-04-adversarial-verdict-loop，成本护栏）：
-        # max_tool_rounds=3——初稿轮保持默认 10，公共语义零改动，只传参；
-        # 用 self.revise_llm（revise 角色 system 消息，与初稿互斥）
-        response, messages = invoke_with_tools(
-            self.revise_llm, bullish_revise_query, self.config,
-            tools=self.tools, max_tool_rounds=3, progress_updater=self.progress_updater,
+        # max_tool_rounds=3——初稿轮保持默认（tool_loop 兜底 15），公共语义
+        # 零改动，只传参；用 self.revise_llm（revise 角色 system 消息）
+        return self.complete_with_tools(
+            bullish_revise_query, "bullish_opinions",
+            chain=self.revise_llm, max_tool_rounds=3,
+            start_msg="开始多方观点修订。。。",
+            done_msg="多方观点修订完成。。。",
+            log_label="Bullish Trader Revise",
         )
-        safe_progress(self.progress_updater, "多方观点修订完成。。。")
-        # 修订版追加写原 opinions key（State 零新 key）；push_report 同 key——
-        # display 按 (key, content) 去重追加渲染初稿与修订版
-        push_report(self.progress_updater, "bullish_opinions", response.content)
-        logger.debug("Bullish Trader Revise Response: {}", response.content)
-        return {"messages": messages, "bullish_opinions": response.content}

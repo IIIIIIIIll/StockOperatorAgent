@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/08-09-agent-base-class/prd.md", "reason": "AC1-AC5 逐条验收（行为等价/工具 schema/回归基线/spec 更新）"}
+{"file": ".trellis/tasks/08-09-agent-base-class/design.md", "reason": "硬边界 6 条（查询字节/tool schema/占位文本/progress 文案/State key 显式/预抓不抽象）"}
+{"file": ".trellis/spec/agents/index.md", "reason": "模板约定改写的核对对象；invoke 语义对齐"}
+{"file": ".trellis/spec/testing.md", "reason": "回归基线、query_baselines 字节断言、e2e 零调用审计"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "重复模式检查：剩余重复是否还有可收敛点"}

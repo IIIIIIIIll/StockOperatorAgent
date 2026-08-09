@@ -40,22 +40,40 @@ grep -rn "list(row.values())" core data_source test
 
 ## Real Reuse Patterns In This Codebase
 
-### Pattern 1: The Agent Class Template
+### Pattern 1: The Agent Base Class
 
-The five agents in `agents/chinese_mainland/` are deliberately near-identical:
-same constructor shape, same `prompt | llm` chain, same node method returning a
-state-update dict. **When adding an agent, copy the closest existing one and
-change the role message + node name + state key.** Do not redesign the pattern —
-`core/investment_committee.py` wires them all positionally.
+All seven agents in `agents/chinese_mainland/` inherit **`AgentNode`
+(`agents/base.py`)**——模板公共管道（prompt 壳 + partials、bind_tools
+NotImplementedError 回退、节点骨架 complete_expert / complete_with_tools、
+info_section、build_chain）收敛在基类。**When adding an agent, subclass
+`AgentNode`**（构造 super() 传 `role_message`）and keep in the agent file
+only: role prompt constant, the query f-string（逐字节不变——
+`test_query_baselines.py` 钉死）, role-specific logic. Do not copy the
+template again — `core/investment_committee.py` wires agents via
+`core/role_registry.py` factories positionally.
 
-### Pattern 2: DataFrame → Dataclass Positional Construction
+### Pattern 2: 亿信工具工厂骨架（capped_call）与条目收集（collect_content_items）
+
+- `core/llms/tools/_capped.py` 的 `capped_call(counter, max_calls, cap_text,
+  fail_fmt, warn_msg, fn)` — 亿信三工具（billions_search/billions_twitter/
+  billions_fetch）调用体骨架单点：上限判定 → 计数 → try/except 降级占位
+  （不 raise）。新亿信工具工厂复用；占位文本以格式串直传（逐字保留，
+  `test_billions_tools.py` 钉死）。
+- `core/llms/tools/_items.py` 的 `collect_content_items(data)` — 响应
+  `result[].content[]` 条目 walk（非 dict 跳过、字段缺失容错），
+  billions_search / billions_twitter / 信息面分析师三处共用。新消费方
+  直接导入，不再复制。
+- `web_search._summarize_results` **不并入**（键契约不同：title/link/
+  snippet，非 result[].content[] 形态——只有形式相似，语义不同不硬并）。
+
+### Pattern 3: DataFrame → Dataclass Positional Construction
 
 `StockOverview(*list(row.values())[1:])`-style construction appears in
 `core/data_acquisition.py` and `test/data_source/test_akshare.py`. Reuse the
 existing dataclasses (`StockOverview`, `ChinaStockData`, `StockPerformanceReport`,
 `StockInfo`) rather than declaring new ones — see `data_structure/index.md`.
 
-### Pattern 3: Business-Day and Date Logic
+### Pattern 4: Business-Day and Date Logic
 
 - `utils/time_helper.get_last_business_day` — the only trading-calendar helper.
   Reuse it; do not reimplement weekend handling (agents' `current_date` prompt
@@ -63,14 +81,14 @@ existing dataclasses (`StockOverview`, `ChinaStockData`, `StockPerformanceReport
 - `'%Y%m%d'` report-date strings — the cross-layer format for performance
   reports. Keep it; do not introduce a second date format on that boundary.
 
-### Pattern 4: Repeated Constants
+### Pattern 5: Repeated Constants
 
 `utils/constants.py` is the single source of truth for `default_start` and
 `china_db_path`. Import from there (`from utils.constants import default_start`)
 exactly as `ChinaStock.py` and `ZODBStorage.py` do — never re-define the values
 or the path literal.
 
-### Pattern 5: Logging Calls
+### Pattern 6: Logging Calls
 
 Every module logs with `logger.debug/info/error("{}", args)` from loguru.
 Copy the call style, not the message content — see `logging.md`.
@@ -113,5 +131,5 @@ on `else` being correct for new values.
 - [ ] No copy-pasted logic that should be shared (`time_helper`, `constants`)
 - [ ] No second implementation of akshare/ZODB access outside its layer
 - [ ] No re-declared dataclasses that already exist in `data_structure/`
-- [ ] New agent follows the five-agent template
+- [ ] New agent subclasses `AgentNode`（agents/base.py）——不复制模板
 - [ ] Constants defined in `utils/constants.py`, dates keep the `'%Y%m%d'` format

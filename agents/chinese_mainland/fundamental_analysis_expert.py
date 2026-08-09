@@ -1,45 +1,27 @@
-import datetime
-
 from langchain_core.runnables import RunnableConfig
 
 from utils.state import State
 from langchain_core.language_models import BaseChatModel
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from core.llms.prompt import system_prompt, fundamental_analysis_expert_message
-from core.llms.retry import invoke_with_retry
-from core.llms.progress import safe_progress, push_report
-from utils.time_helper import get_last_business_day
-from loguru import logger
+from agents.base import AgentNode
+from core.llms.prompt import fundamental_analysis_expert_message
 
 
-class FundamentalAnalysisExpert:
+class FundamentalAnalysisExpert(AgentNode):
 
     def __init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater = None):
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="query"),
-        ])
-
-        self.prompt = self.prompt.partial(system_message=fundamental_analysis_expert_message)
-        current_date = get_last_business_day(datetime.date.today())
-        self.prompt = self.prompt.partial(current_date=current_date)
-        self.llm = self.prompt | llm
-        self.config = config
-        self.progress_updater = progress_updater
-
+        super().__init__(llm, config, progress_updater,
+                         role_message=fundamental_analysis_expert_message)
 
     def fundamental_analysis_expert(self, state: State):
+        # 查询构建保持本文件显式（f-string 逐字节不变——基类只承载管道，
+        # test_query_baselines 钉死查询文本）
         fundamental_analysis_expert_query = f"""
         请基于以下真实数据给出你对股票代码{state['target_stock_ticker']}的基本面分析\n
         {state['stock_information']}
         """
-        query = [("human", fundamental_analysis_expert_query)]
-        logger.debug("Fundamental Analysis Expert Query: {}", fundamental_analysis_expert_query)
-        safe_progress(self.progress_updater, "开始基本面分析报告生成。。。")
-        response = invoke_with_retry(self.llm, {"query": query}, config=self.config)
-        safe_progress(self.progress_updater, "基本面分析报告生成完成。。。")
-        # 节点级即时填充（08-02-ui-live-progress-bridge）：报告在 LLM 返回
-        # 即入队（不等同一 superstep 的 trend），display 脚本线程消费即渲染
-        push_report(self.progress_updater, "fundamental_analysis", response.content)
-        logger.debug("Fundamental Analysis Expert Response: {}", response.content)
-        return {"messages": [query[0], response], "fundamental_analysis": response.content}
+        return self.complete_expert(
+            fundamental_analysis_expert_query, "fundamental_analysis",
+            start_msg="开始基本面分析报告生成。。。",
+            done_msg="基本面分析报告生成完成。。。",
+            log_label="Fundamental Analysis Expert",
+        )

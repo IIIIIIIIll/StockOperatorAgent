@@ -23,8 +23,9 @@ from __future__ import annotations
 from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
-from loguru import logger
 
+from core.llms.tools._capped import capped_call
+from core.llms.tools._items import collect_content_items
 from utils.billions_config import billions_enabled, billions_max_calls
 
 
@@ -68,18 +69,10 @@ def _summarize_tweets(data: dict) -> str:
     此处 result 恒为成功条目）。
     """
     lines = []
-    for entry in data.get("result") or []:
-        if not isinstance(entry, dict):
-            continue
-        content = entry.get("content")
-        if not isinstance(content, list):
-            continue
-        for item in content:
-            if not isinstance(item, dict):
-                continue
-            line = _format_tweet(item)
-            if line is not None:
-                lines.append(line)
+    for item in collect_content_items(data):
+        line = _format_tweet(item)
+        if line is not None:
+            lines.append(line)
     if not lines:
         return "（亿信推特检索失败：无返回结果）"
     return "【亿信推特结果】\n" + "\n".join(lines)
@@ -100,7 +93,7 @@ def make_billions_twitter_tool(_client=None, _max_calls: int | None = None) -> B
         return None
     max_calls = _max_calls if _max_calls is not None else billions_max_calls("TWITTER", 2)
     client = _client
-    calls = 0
+    calls = [0]  # 闭包计数器（capped_call 内可变，跨调用累计）
 
     def _get_client():
         nonlocal client
@@ -120,15 +113,14 @@ def make_billions_twitter_tool(_client=None, _max_calls: int | None = None) -> B
 
         search_mode 深度：fast 快（默认）、advanced / expert 更慢但结果更全。
         单次 run 内调用有次数上限，超限返回占位提示。查询失败时返回占位文本。"""
-        nonlocal calls
-        if calls >= max_calls:
-            return f"（已达本次运行推特检索上限（{max_calls} 次），请聚焦最关键的问题再检索）"
-        calls += 1
-        try:
-            data = _get_client().twitter_search(query, search_mode=search_mode, count=count)
-        except Exception as exc:
-            logger.warning("亿信 twitter 检索失败: {}", exc)
-            return f"（亿信推特检索失败：{exc}）"
-        return _summarize_tweets(data)
+        return capped_call(
+            calls, max_calls,
+            cap_text="（已达本次运行推特检索上限（{max_calls} 次），请聚焦最关键的问题再检索）",
+            fail_fmt="（亿信推特检索失败：{exc}）",
+            warn_msg="亿信 twitter 检索失败: {}",
+            fn=lambda: _summarize_tweets(_get_client().twitter_search(
+                query, search_mode=search_mode, count=count
+            )),
+        )
 
     return billions_twitter

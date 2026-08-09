@@ -22,8 +22,8 @@ research/billions-api.md）。
 from __future__ import annotations
 
 from langchain_core.tools import BaseTool, tool
-from loguru import logger
 
+from core.llms.tools._capped import capped_call
 from utils.billions_config import billions_enabled, billions_max_calls
 
 # 返回给 LLM 的正文长度上限（字符）——全文常超 6000 字符，截断防上下文膨胀
@@ -61,7 +61,7 @@ def make_billions_fetch_tool(_client=None, _max_calls: int | None = None) -> Bas
         return None
     max_calls = _max_calls if _max_calls is not None else billions_max_calls("FETCH", 3)
     client = _client
-    calls = 0
+    calls = [0]  # 闭包计数器（capped_call 内可变，跨调用累计）
 
     def _get_client():
         nonlocal client
@@ -78,15 +78,12 @@ def make_billions_fetch_tool(_client=None, _max_calls: int | None = None) -> Bas
         url（网页地址）与 doc_id（来自 billions_search 检索结果附带的
         doc_id，仅公告全文开放）二选一——两者都传或都不传会失败。单次
         run 内调用有次数上限，超限返回占位提示。抓取失败时返回占位文本。"""
-        nonlocal calls
-        if calls >= max_calls:
-            return f"（已达本次运行全文抓取上限（{max_calls} 次），请聚焦最关键的内容再抓取）"
-        calls += 1
-        try:
-            data = _get_client().fetch(url=url, doc_id=doc_id)
-        except Exception as exc:
-            logger.warning("亿信 fetch 全文抓取失败: {}", exc)
-            return f"（亿信全文抓取失败：{exc}）"
-        return _format_fetch(data)
+        return capped_call(
+            calls, max_calls,
+            cap_text="（已达本次运行全文抓取上限（{max_calls} 次），请聚焦最关键的内容再抓取）",
+            fail_fmt="（亿信全文抓取失败：{exc}）",
+            warn_msg="亿信 fetch 全文抓取失败: {}",
+            fn=lambda: _format_fetch(_get_client().fetch(url=url, doc_id=doc_id)),
+        )
 
     return billions_fetch

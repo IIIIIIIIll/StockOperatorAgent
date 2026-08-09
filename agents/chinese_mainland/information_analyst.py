@@ -7,10 +7,10 @@ search + 推特 1 次（fast、count=5、time_range past 3 months，固定成本
 可预期），把带来源的检索上下文拼给 LLM 撰写信息面报告，输出
 `information_analysis` State key（一次性写入，无追加语义）。
 
-约定（对齐 expert 模板 + error-handling spec 降级风格）：
+约定（对齐 AgentNode 基类 + error-handling spec 降级风格）：
 - 构造注入 `_client=None`（house style 无 mock 框架）——确定性预抓用；
   缺省 None → 懒加载真 BillionsClient（无 key 环境不构造、不触发 httpx
-  重依赖）
+  重依赖）；prompt 壳/节点骨架由基类承载（super() 后自存 _client）
 - 预抓按开关过滤源（SEARCH → announcement/report/web 各 1 次；TWITTER
   → 1 次）；失败源（BillionsApiError/任何异常/无有效条目）→
   logger.warning + 该源跳过并在上下文中注明，**不 raise、不阻断**
@@ -18,27 +18,24 @@ search + 推特 1 次（fast、count=5、time_range past 3 months，固定成本
   不崩溃
 - 开关门控在 committee 图装配处（billions_enabled("ANALYST") 且 SEARCH
   或 TWITTER 至少一者开——Out of Scope 组合视为分析师不可用不产出）；
-  本类不做构造期判定（与其余 agent 模板一致：gating 在接线处）
+  本类不做构造期判定（与其余 agent 一致：gating 在接线处）
 """
-
-import datetime
 
 from langchain_core.runnables import RunnableConfig
 
 from utils.state import State
 from langchain_core.language_models import BaseChatModel
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from core.llms.prompt import system_prompt, information_analyst_message
-from core.llms.retry import invoke_with_retry
-from core.llms.progress import safe_progress, push_report
-from utils.time_helper import get_last_business_day
+from agents.base import AgentNode
+from core.llms.prompt import information_analyst_message
+from core.llms.progress import safe_progress
+from core.llms.tools._items import collect_content_items
 from utils.billions_config import billions_enabled
 from loguru import logger
 
 # 单条条目格式化与 LLM 工具（billions_search/billions_twitter）共用同一
 # 实现（字段契约 research/billions-api.md 单点维护，防漂移——code-reuse
-# guide：契约容错逻辑两处复制 = 未来改动只落一处）；本文件只负责分节/
-# 失败注明等预抓层语义。
+# guide：契约容错逻辑多处复制 = 未来改动只落一处）；本文件只负责分节/
+# 失败注明等预抓层语义。条目收集 walk 同理收敛到 _items.py。
 from core.llms.tools.billions_search import _format_item as _format_search_item
 from core.llms.tools.billions_twitter import _format_tweet as _format_tweet_item
 
@@ -59,35 +56,12 @@ _SEARCH_SOURCES = ["announcement", "report", "web"]
 _SOURCE_LABELS = {"announcement": "公告", "report": "研报", "web": "新闻"}
 
 
-def _collect_items(data: dict) -> list[dict]:
-    """响应 result[].content[] 条目收集（非 dict 脏条目跳过，字段缺失容错）。"""
-    items = []
-    for entry in data.get("result") or []:
-        if not isinstance(entry, dict):
-            continue
-        content = entry.get("content")
-        if not isinstance(content, list):
-            continue
-        for item in content:
-            if isinstance(item, dict):
-                items.append(item)
-    return items
-
-
-class BillionsInformationAnalyst:
+class BillionsInformationAnalyst(AgentNode):
 
     def __init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater=None, _client=None):
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="query"),
-        ])
-
-        self.prompt = self.prompt.partial(system_message=information_analyst_message)
-        current_date = get_last_business_day(datetime.date.today())
-        self.prompt = self.prompt.partial(current_date=current_date)
-        self.llm = self.prompt | llm
-        self.config = config
-        self.progress_updater = progress_updater
+        # _client 注入保留（测试 fake）——基类 __init__ 不接收，子类自存
+        super().__init__(llm, config, progress_updater,
+                         role_message=information_analyst_message)
         self._client = _client
 
     def _get_client(self):
@@ -109,7 +83,7 @@ class BillionsInformationAnalyst:
             logger.warning("亿信 {} 检索失败（{}）: {}", source, ticker, exc)
             return f"【{_SOURCE_LABELS[source]}检索失败】{exc}"
         lines = []
-        for item in _collect_items(data):
+        for item in collect_content_items(data):
             line = _format_search_item(item)
             if line is not None:
                 lines.append(line)
@@ -129,7 +103,7 @@ class BillionsInformationAnalyst:
             logger.warning("亿信 twitter 检索失败（{}）: {}", ticker, exc)
             return f"【推特检索失败】{exc}"
         lines = []
-        for item in _collect_items(data):
+        for item in collect_content_items(data):
             line = _format_tweet_item(item)
             if line is not None:
                 lines.append(line)
@@ -159,6 +133,7 @@ class BillionsInformationAnalyst:
 
     def information_analyst(self, state: State):
         ticker = state['target_stock_ticker']
+        # 预抓进度在基类骨架之外（预抓段保持本文件显式）
         safe_progress(self.progress_updater, "开始信息面素材检索。。。")
         sections = self._prefetch(ticker)
         if sections:
@@ -173,12 +148,12 @@ class BillionsInformationAnalyst:
         检索到的信息面素材: \n
         {context}
         """
-        query = [("human", information_analyst_query)]
-        logger.debug("Information Analyst Query: {}", information_analyst_query)
-        safe_progress(self.progress_updater, "开始信息面分析报告生成。。。")
-        response = invoke_with_retry(self.llm, {"query": query}, config=self.config)
-        safe_progress(self.progress_updater, "信息面分析报告生成完成。。。")
-        # 节点级即时填充（08-02-ui-live-progress-bridge）：见 fundamental
-        push_report(self.progress_updater, "information_analysis", response.content)
-        logger.debug("Information Analyst Response: {}", response.content)
-        return {"messages": [query[0], response], "information_analysis": response.content}
+        # 末段 LLM 骨架走基类（complete_expert——直调 invoke_with_retry，
+        # payload {"query": query} 形状与三专家一致）；预抓段保持在
+        # 本文件显式（差异化逻辑不抽象）
+        return self.complete_expert(
+            information_analyst_query, "information_analysis",
+            start_msg="开始信息面分析报告生成。。。",
+            done_msg="信息面分析报告生成完成。。。",
+            log_label="Information Analyst",
+        )
