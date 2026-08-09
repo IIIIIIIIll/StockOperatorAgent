@@ -41,7 +41,10 @@ export default function App() {
   const [settings, setSettings] = React.useState<SettingsState>(() => defaultSettings());
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [showSettings, setShowSettings] = React.useState(false);
+  const [showSettings, setShowSettings] = React.useState(() => width >= 900);
+  React.useEffect(() => {
+    if (width < 900) setShowSettings(false);
+  }, [width]);
   const [dataVersion, setDataVersion] = React.useState(0);
 
   const roles = reportRoles(); // (stateKey, tabTitle) —— report_tabs() 契约
@@ -156,11 +159,9 @@ export default function App() {
         </View>
         {gateNotice ? <Text style={styles.warn}>⚠ {gateNotice}</Text> : null}
         {error ? <Text style={styles.error}>✗ {error}</Text> : null}
-        {!wide && (
-          <Pressable style={styles.settingsToggle} onPress={() => setShowSettings((s) => !s)}>
-            <Text style={styles.settingsToggleText}>{showSettings ? '收起设置 ▸' : '⚙ 设置'}</Text>
-          </Pressable>
-        )}
+        <Pressable style={styles.settingsToggle} onPress={() => setShowSettings((s) => !s)}>
+          <Text style={styles.settingsToggleText}>{showSettings ? '▸ 隐藏设置' : '⚙ 显示设置'}</Text>
+        </Pressable>
       </View>
 
       {/* 主体:内容区 + 侧边栏设置 */}
@@ -208,9 +209,15 @@ export default function App() {
           </View>
         </View>
 
-        {/* 侧边栏设置(宽屏固定;窄屏 showSettings 切换) */}
-        {wide || showSettings ? (
+        {/* 侧边栏设置(可隐藏;宽屏默认展开,窄屏按钮切换) */}
+        {showSettings ? (
           <View style={styles.sidebar}>
+            <View style={styles.sidebarHeader}>
+              <Text style={styles.sidebarTitle}>设置</Text>
+              <Pressable onPress={() => setShowSettings(false)} hitSlop={8}>
+                <Text style={styles.sidebarClose}>✕</Text>
+              </Pressable>
+            </View>
             <SettingsPanel onSettingsChange={onSettingsChange} />
           </View>
         ) : null}
@@ -249,5 +256,8 @@ function makeStyles(theme: Theme) {
     progressLatest: { color: theme.colors.primary, fontWeight: '600' },
     content: { flex: 1 },
     sidebar: { width: 320, borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },
+    sidebarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    sidebarTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
+    sidebarClose: { fontSize: 16, color: theme.colors.textSecondary, paddingHorizontal: 4 },
   });
 }
