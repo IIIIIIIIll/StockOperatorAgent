@@ -25,6 +25,7 @@ import {
   type PipelineEvent,
   type FinalReport,
 } from './lib/runner';
+import { info, warn, error as logError } from './lib/log';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
 
@@ -51,18 +52,30 @@ export default function App() {
   const roles = reportRoles(); // (stateKey, tabTitle) —— report_tabs() 契约
 
   React.useEffect(() => {
+    info(`应用启动:TS 版投资委员会(web)`);
+    const t0 = Date.now();
     loadDemoData();
+    const bars = store.getDatas('600036');
+    info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
+    const miss = missingLlmKeys(settings.keys);
+    if (miss.length) warn(`LLM 三键未配置(${miss.join('/')})——演示模式;配置见侧边栏「模型与密钥」`);
+    else info(`LLM 已配置(${settings.keys.llmModel})`);
+    info(`联网搜索供应商:${process.env.TAVILY_API_KEY ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
     setDataVersion(1); // store 为模块级对象:显式触发重渲染
   }, []);
 
   React.useEffect(() => {
     const off = runner.subscribe((e) => {
-      if (e.type === 'done') {
+      if (e.type === 'progress') info(e.message);
+      else if (e.type === 'report') info(`报告[${e.tabTitle}] ${e.content.length} 字符`);
+      else if (e.type === 'done') {
         const report = (e as Extract<PipelineEvent, { type: 'done' }>).report as FinalReport;
+        info(`分析完成:${report.opinions.length} 份观点,最终决策 ${report.final_decision.length} 字符`);
         setFinalDecision(report.final_decision);
         setStockInformation(report.stock_information);
       } else if (e.type === 'error') {
-        setError((e as Extract<PipelineEvent, { type: 'error' }>).error);
+        logError(e.error);
+        setError(e.error);
       }
       setEvents((prev) => [...prev, e]);
     });
@@ -97,12 +110,17 @@ export default function App() {
       return;
     }
     applySwitchesToEnv(settings.switches);
+    const mode = llmConfigured(settings.keys) ? '真实 LLM' : '演示占位 LLM';
+    info(`开始分析 ${code}(模式:${mode})`);
+    const t0 = Date.now();
     setRunning(true);
     try {
       const llm = llmConfigured(settings.keys) ? buildLlm(toLlmConfig(settings.keys)) : buildLlm(null);
       const f10Text = store.getMeta('demo:f10') ?? undefined;
       await runner.run(code, { llm, f10Text, today: new Date().toISOString().slice(0, 10) });
+      info(`分析结束:耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     } catch (err) {
+      logError(`分析失败:${err instanceof Error ? err.message : String(err)}`);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setRunning(false);
