@@ -420,6 +420,31 @@ class TestDataAcquisitionTdx:
         if build_reports("000001") is not None:
             assert len(stock.get_performance_reports()) > 0
 
+    def test_get_stock_data_none_when_overview_unavailable(self):
+        """ensure_stock 失败（无任何价格来源，overview 构建 None）→
+        get_stock_data 返回 None（纯 TDX 无 akshare 兜底契约，
+        error-handling spec；`get_company_info` 的 'Stock not found' 由此触发）。
+
+        注入（house style 无 mock 框架）：模块函数 `_build_overview_module`
+        属性交换返回 None（ensure_stock 默认 lambda 调用时经模块全局解析，
+        补丁生效）+ `_CountingSrc` scope（预播种不触网）。前置：删除专用
+        dummy 999997——跨运行确定性（首建路径）。
+        """
+        import core.data_acquisition as da_module
+        da = DataAcquisition()
+        ticker = "999997"  # 专用 dummy（非 BJ 前缀，TDX 符号域外）
+        if da.storage.get_stock(ticker) is not None:
+            del da.storage.root.stocks[ticker]
+            transaction.commit()
+        fake = _CountingSrc()
+        scope = FetchScope(fake)
+        orig = da_module._build_overview_module
+        da_module._build_overview_module = lambda t, _scope=None: None
+        try:
+            assert da.get_stock_data(ticker, _scope=scope) is None
+        finally:
+            da_module._build_overview_module = orig
+
     # ---------- 业绩报告 freshness 门（08-02-fix-report-freshness-gate） ----------
     # 门判定：ZODB 最新 report_date == 最近季度末（今天 2026-08-02 → '20260630'）
     # → 跳过远端 F10。验证方式（house style 无 mock 框架）：acquire_performance

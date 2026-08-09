@@ -126,9 +126,13 @@ Qwen 均为备用/可选项。其 live 测试在本网络受限环境连外部�
 
 - **全量：0F/308P/20S，约 2-4 分钟**（2026-08-08 technical-indicator-analyst
   后实测，含 e2e 15 用例；另修复 test_theme.py 同名模块收集冲突——e2e 版
-  改名 test_theme_e2e.py，全量收集恢复）。**最新：0F/494P/20S**（2026-08-08
-  billions-switches-ui 后实测，+68 配置面板用例、e2e 17→20；上版基线
-  0F/426P/20S = billions-api-integration 后 +118 亿信用例、e2e 15→17）。
+  改名 test_theme_e2e.py，全量收集恢复）。**最新：0F/570P/20S（590 收集）**
+  （2026-08-09 test-quality 后实测，新增 7 用例：专家 agent 行为测试
+  （test_expert_agents.py 5 例）、get_stock_data/get_company_info None 降级
+  路径（2 例）；同任务 mcp_intel_cache dummy key 泄漏改 monkeypatch.setenv
+  自动还原；test_need_update 改表驱动独立期望（反证门：恒 True 实现必 FAIL）。
+  上版基线 0F/494P/20S = billions-switches-ui 后 +68 配置面板用例、e2e
+  17→20）。
   历史基线
   0F/220P/20S（2026-08-02 disable-tdx-mcp 后实测，+4 开关用例）、0F/216P/20S（mcp-intel-cache +
   market-hours-util

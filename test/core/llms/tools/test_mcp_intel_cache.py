@@ -58,7 +58,7 @@ class TestMCPDisabledSwitch:
     def test_disabled_with_key_returns_placeholder_no_query(self, tmp_path, monkeypatch):
         """设开关 + 有 key → 占位文本，_query_mcp 零调用、无缓存文件。"""
         _reset_count()
-        _set_dummy_key()
+        monkeypatch.setenv("TDX_API_KEY", "dummy")
         monkeypatch.setattr(gmi, "_query_mcp", _counting_query)
         monkeypatch.setattr("utils.market_time.is_trading_time", lambda now=None: False)
         monkeypatch.setattr(mic, "DEFAULT_CACHE_ROOT", tmp_path)
@@ -117,7 +117,7 @@ class TestMCPDisabledSwitch:
         """集成：env 禁用 + 覆盖开 → 走真实查询路径（开关消费点在
         get_market_intel 入口生效）。"""
         _reset_count()
-        _set_dummy_key()
+        monkeypatch.setenv("TDX_API_KEY", "dummy")
         runtime_config.set_runtime_overrides({"TDX_MCP_ENABLED": True})
         try:
             monkeypatch.setattr(gmi, "_query_mcp", _counting_query)
@@ -137,7 +137,7 @@ class TestGetMarketIntelCaching:
     def test_after_hours_uses_cache_without_query(self, tmp_path, monkeypatch):
         """非交易时段 + 缓存存在 → 返回缓存，零查询。"""
         _reset_count()
-        _set_dummy_key()
+        monkeypatch.setenv("TDX_API_KEY", "dummy")
         mic.write_cache(tmp_path, "000001", "【实时市场情报】\n缓存文本")
         monkeypatch.setattr(gmi, "_query_mcp", _counting_query)
         monkeypatch.setattr("utils.market_time.is_trading_time", lambda now=None: False)
@@ -150,7 +150,7 @@ class TestGetMarketIntelCaching:
     def test_after_hours_no_cache_queries_and_writes(self, tmp_path, monkeypatch):
         """非交易时段 + 无缓存 → 实时查询一次并写缓存。"""
         _reset_count()
-        _set_dummy_key()
+        monkeypatch.setenv("TDX_API_KEY", "dummy")
         monkeypatch.setattr(gmi, "_query_mcp", _counting_query)
         monkeypatch.setattr("utils.market_time.is_trading_time", lambda now=None: False)
         monkeypatch.setattr(mic, "DEFAULT_CACHE_ROOT", tmp_path)
@@ -163,7 +163,7 @@ class TestGetMarketIntelCaching:
     def test_trading_hours_queries_even_with_cache(self, tmp_path, monkeypatch):
         """交易时段 → 实时查询（不读缓存），成功写缓存。"""
         _reset_count()
-        _set_dummy_key()
+        monkeypatch.setenv("TDX_API_KEY", "dummy")
         mic.write_cache(tmp_path, "000001", "旧缓存")
         monkeypatch.setattr(gmi, "_query_mcp", _counting_query)
         monkeypatch.setattr("utils.market_time.is_trading_time", lambda now=None: True)
@@ -188,7 +188,7 @@ class TestGetMarketIntelCaching:
     def test_query_failure_after_hours_writes_placeholder(self, tmp_path, monkeypatch):
         """非交易时段 + 无缓存 + 查询失败 → 占位文本仍写缓存（可缓存降级
         信息，下次非交易时段直接命中——不重复失败查询）。"""
-        _set_dummy_key()
+        monkeypatch.setenv("TDX_API_KEY", "dummy")
         def failing_query(ticker, api_key):
             return "（通达信 MCP 查询异常，跳过000001的实时情报）"
         monkeypatch.setattr(gmi, "_query_mcp", failing_query)
@@ -203,16 +203,6 @@ class TestGetMarketIntelCaching:
 def _reset_count():
     """每个测试开头重置模块级计数（跨测试累积会误判）。"""
     _counting_query.calls = 0
-
-
-def _set_dummy_key():
-    """缓存行为测试需要 key 通过首关（无 key 走 fallback 不触缓存）。
-
-    与既有 test_get_market_intel（清 key 测降级）方向相反——设 dummy
-    保证走缓存分支；try/finally 恢复由各调用方处理（此处仅设置）。
-    """
-    import os
-    os.environ["TDX_API_KEY"] = "dummy"
 
 
 def _counting_query(ticker, api_key):

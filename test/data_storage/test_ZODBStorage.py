@@ -1,12 +1,12 @@
 import datetime
 
+import transaction
 from loguru import logger
 from numpy import float64
 
 from data_storage.chinese_mainland import ZODBStorage
 from data_structure.chinese_mainland.ChinaStock import ChinaStock
 from data_structure.chinese_mainland.StockOverview import StockOverview
-from utils.time_helper import get_last_business_day
 
 
 def _make_overview(ticker):
@@ -46,14 +46,31 @@ class TestZODBStorage():
         assert storage.get_stock("999998") == stock
 
     def test_need_update(self):
+        """表驱动独立期望（08-09-test-quality R1 拆同义反复）。
+
+        旧版用实现自身公式（get_last_business_day + 17:00）推导期望、两分支
+        各自断言自己——删除实现测试照样绿。现改为固定绝对日期直接给期望
+        （远离今天的 2000/2100 与任何"上一工作日 17:00"比较结果恒定）：
+        远古 → 需更新（True）；未来 → 不更新（False）。删除实现或恒 True
+        实现必然 FAIL。
+
+        共享 DB 跨运行确定性：显式设置 + finally 恢复原值（对齐 spec 的
+        前置条件显式化约定）。
+        """
         storage = _get_storage()
-        # 基准与 check_need_update_overview 实现完全一致：
-        # 上一工作日（周末/工作日都成立）17:00
-        bench_time = datetime.datetime.combine(get_last_business_day(datetime.date.today()), datetime.time(17, 00))
-        if storage.root.overview_last_updated > bench_time:
-            assert storage.check_need_update_overview() is False
-        else:
-            assert storage.check_need_update_overview() is True
+        original = storage.root.overview_last_updated
+        try:
+            cases = [
+                (datetime.datetime(2000, 1, 4, 12, 0), True),   # 远古 → 早于任何上一工作日 17:00
+                (datetime.datetime(2100, 1, 4, 12, 0), False),  # 未来 → 晚于任何上一工作日 17:00
+            ]
+            for stamp, expected in cases:
+                storage.root.overview_last_updated = stamp
+                transaction.commit()
+                assert storage.check_need_update_overview() is expected
+        finally:
+            storage.root.overview_last_updated = original
+            transaction.commit()
 
     def test_set_update_now(self):
         storage = _get_storage()

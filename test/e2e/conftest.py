@@ -64,10 +64,10 @@ _BILLIONS_ENV_KEYS = (
 )
 
 # 设置面板渲染相关 env（08-08-billions-switches-ui，Step 4）：显式清除，
-# 防既有测试的 env 泄漏（实测：test_mcp_intel_cache 遗留
-# TDX_API_KEY=dummy、test_web_search 遗留 WEB_SEARCH_DISABLED 等）翻转
-# 面板 placeholder/初始值——与 _BILLIONS_ENV_KEYS 同哲学：e2e 子进程 env
-# 完全确定（面板状态只由注入的 dummy DEEPSEEK/BILLIONS key 决定）。
+# 保证 e2e 子进程 env 完全确定（面板状态只由注入的 dummy DEEPSEEK/BILLIONS
+# key 决定），不依赖单元测试的 env 卫生（历史泄漏已修：test_mcp_intel_cache
+# 的 TDX_API_KEY=dummy 08-09 改 monkeypatch.setenv 自动还原；test_web_search
+# 本就是 try/finally 恢复）——防御性约定，与 _BILLIONS_ENV_KEYS 同哲学。
 _PANEL_ENV_KEYS = (
     "DEEPSEEK_MODEL",
     "DASHSCOPE_API_KEY",
