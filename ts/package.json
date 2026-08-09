@@ -1,0 +1,24 @@
+{
+  "name": "soa-ts-prototype",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "type": "module",
+  "dependencies": {
+    "@langchain/core": "^1.2.5",
+    "@langchain/langgraph": "^1.4.9",
+    "node-tdx-market": "^0.2.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
+    "better-sqlite3": "^13.0.3",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

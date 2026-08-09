@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/m0-d1-rn-tcp.md", "reason": "D1 RN TCP 结论——数据层选型依据"}
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/m0-d2-quote.md", "reason": "getQuote 调用契约与快照字段对齐"}
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/m0-d3-xdxr-qfq.md", "reason": "xdxr opcode 移植与 qfq 算法——本任务核心移植源"}
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/m0-d4-f10.md", "reason": "F10 双格式发现与解析器移植——双格式兼容依据"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "数据源层契约：mapping/adjust/overview/reports 语义"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "数据模型字段契约：'%Y%m%d' 字符串、from_row 命名构造"}
+{"file": ".trellis/spec/data_storage/index.md", "reason": "存储与事务语义：freshness 门、批量 commit、单事务链"}

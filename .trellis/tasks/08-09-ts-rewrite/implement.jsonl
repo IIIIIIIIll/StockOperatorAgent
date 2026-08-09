@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/data_source/index.md", "reason": "数据源层契约：TDX/akshare 薄包装、DataFrame→dataclass 命名构造、fetch 语义"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "持久化数据模型契约：字段名/类型/'%Y%m%d' 字符串/from_row 语义——TS interface 对齐源"}
+{"file": ".trellis/spec/data_storage/index.md", "reason": "存储与事务语义：freshness 门、批量 commit、单事务链——SQLite 移植依据"}
+{"file": ".trellis/spec/core/index.md", "reason": "编排与 UI 契约：FetchScope 单遍拉取、committee 4 阶段、事件协议、图表/表格"}
+{"file": ".trellis/spec/agents/index.md", "reason": "agent 模板/工具循环/重试/State 契约——LangGraph JS 移植依据"}
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/gap-analysis.md", "reason": "库验证实测与四个决策点——M0 原型的直接依据"}

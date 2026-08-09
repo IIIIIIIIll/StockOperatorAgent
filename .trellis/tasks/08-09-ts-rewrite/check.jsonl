@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/core/index.md", "reason": "核心编排质量门：单遍拉取/事件协议/降级语义对齐"}
+{"file": ".trellis/spec/agents/index.md", "reason": "agent 语义质量门：join/对抗修订/工具循环/重试契约"}
+{"file": ".trellis/spec/guides/index.md", "reason": "思考指南：跨层数据流与复用检查"}
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/gap-analysis.md", "reason": "决策点结论与等价性 oracle 依据"}
+{"file": ".trellis/spec/testing.md", "reason": "测试基线：fixture oracle、离线契约测试约定"}

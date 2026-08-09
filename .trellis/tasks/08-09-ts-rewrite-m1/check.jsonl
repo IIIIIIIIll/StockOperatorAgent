@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/m0-d3-xdxr-qfq.md", "reason": "qfq 等价性验收对照"}
+{"file": ".trellis/tasks/08-09-ts-rewrite/research/m0-d4-f10.md", "reason": "F10 双格式解析验收对照"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "数据层质量门：列契约/复权/指标语义"}
+{"file": ".trellis/spec/testing.md", "reason": "测试基线：fixture oracle、离线契约测试约定"}

@@ -1,0 +1,7 @@
+# TS 重写工程（StockOperatorAgent 的 RN 全重写）
+node_modules/
+dist/
+*.db
+*.db-shm
+*.db-wal
+logs/
