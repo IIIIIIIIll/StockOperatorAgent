@@ -98,8 +98,8 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>能力开关(会话级)</Text>
         <Text style={styles.muted}>下次分析生效;重新加载后恢复默认。</Text>
-        {!settings.keys.billionsApiKey.trim() && <Text style={styles.warn}>未配置亿信 API Key —— 亿信能力不可用,能力开关置灰。</Text>}
-        {settings.keys.billionsApiKey.trim() && !settings.switches.billionsMaster && <Text style={styles.warn}>亿信总闸已关 —— 能力开关置灰。</Text>}
+        {!settings.keys.billionsApiKey.trim() ? <Text style={styles.warn}>未配置亿信 API Key —— 亿信能力不可用,能力开关置灰。</Text> : null}
+        {settings.keys.billionsApiKey.trim() && !settings.switches.billionsMaster ? <Text style={styles.warn}>亿信总闸已关 —— 能力开关置灰。</Text> : null}
         {SWITCH_ROWS.map((row) => {
           const disabled = row.group === 'capability' && billionsGreyed;
           return (
