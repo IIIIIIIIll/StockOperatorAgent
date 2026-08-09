@@ -226,10 +226,11 @@ class DataAcquisition(LegacyAksharePaths):
                         logger.info("Overview refreshed for {}.", ticker)
                 return True
             # 北交所（4/8 前缀）：TDX 全链路不可用（无名称/无行情）——显式提示 +
-            # 失败返回，不静默 NaN（BJ 走 akshare 备用路径，见 README）
+            # 失败返回，不静默 NaN（主流程无 BJ 支持；akshare 备用方法亦不自动接管，
+            # UI 输入 BJ 代码同样明确提示不支持）
             if is_bj_ticker(ticker):
                 logger.warning(
-                    "Ticker {} is a Beijing Stock Exchange (BJ) code; TDX does not serve BJ securities (no name/quotes). Use the akshare fallback path instead.",
+                    "Ticker {} is a Beijing Stock Exchange (BJ) code; TDX does not serve BJ securities (no name/quotes).",
                     ticker,
                 )
                 return False

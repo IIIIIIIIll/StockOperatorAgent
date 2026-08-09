@@ -47,8 +47,9 @@ logger.add(str(LOG_DIR / "stock_operator_agent.log"), enqueue=True, rotation="50
 - `info` — meaningful state transitions: updates performed, successful fetches,
   start-up, storage open/close (`ZODBStorageInstance.__init__` / `__del__`).
 - `error` — failures: missing stock, failed lookups
-  (`logger.error(f"Stock {ticker} not found in database.")` — note: this is the
-  one f-string in the codebase, keep `{}` style in new code).
+  （`core/data_acquisition.py` 的 `logger.error(f"Stock {ticker} not found in
+  database.")` 与 `core/legacy_akshare.py` 的 14 处 f-string 调用是**存量历史
+  例外**（备用路径，未改造）；新代码一律 `{}` 占位符风格）。
 - `warning` — unused so far; don't invent new conventions, but warning is
   available for recoverable issues if ever needed.
 
