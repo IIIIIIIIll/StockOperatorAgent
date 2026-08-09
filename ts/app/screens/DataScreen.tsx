@@ -14,7 +14,8 @@ import demo from '../data/demo.json';
 const DAILY_TABLE_N = 20;
 const KLINE_N = 60;
 
-export default function DataScreen({ stockInformation }: { stockInformation: string }) {
+export default function DataScreen({ stockInformation, dataVersion }: { stockInformation: string; dataVersion?: number }) {
+  void dataVersion; // 父组件数据就绪信号:触发本组件重渲染以读取 store
   const theme = useTheme();
   const styles = makeStyles(theme);
   const bars = store.getDatas('600036');

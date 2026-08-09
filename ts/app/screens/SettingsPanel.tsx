@@ -12,12 +12,6 @@ import {
 import { useTheme, type Theme } from '../theme';
 
 interface Props {
-  ticker: string;
-  setTicker: (t: string) => void;
-  onStart: () => void;
-  running: boolean;
-  error: string | null;
-  gateNotice: string | null;
   onSettingsChange: (s: SettingsState) => void;
 }
 
@@ -38,7 +32,7 @@ const CAP_ROWS: Array<{ key: keyof SettingsState['caps']; label: string }> = [
   { key: 'fetchMax', label: '亿信抓取(FETCH)调用上限' },
 ];
 
-export default function SettingsScreen({ ticker, setTicker, onStart, running, error, gateNotice, onSettingsChange }: Props) {
+export default function SettingsPanel({ onSettingsChange }: Props) {
   const theme = useTheme();
   const styles = makeStyles(theme);
   const [settings, setSettings] = React.useState<SettingsState>(() => loadSettings());
@@ -137,17 +131,6 @@ export default function SettingsScreen({ ticker, setTicker, onStart, running, er
         ))}
       </View>
 
-      {/* 分析 */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>分析</Text>
-        <Text style={styles.label}>股票代码</Text>
-        <TextInput style={styles.input} value={ticker} onChangeText={setTicker} placeholder="600036" autoCapitalize="none" />
-        <Pressable style={[styles.button, styles.buttonPrimary, running && styles.buttonDisabled]} disabled={running} onPress={onStart}>
-          <Text style={styles.buttonText}>{running ? '分析中…' : '开始分析'}</Text>
-        </Pressable>
-        {gateNotice && <Text style={styles.warn}>⚠ {gateNotice}</Text>}
-        {error && <Text style={styles.error}>✗ {error}</Text>}
-      </View>
     </ScrollView>
   );
 }
