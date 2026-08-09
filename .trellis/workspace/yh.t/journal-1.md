@@ -632,3 +632,24 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 19: statusline 全功能演示——Trellis workflow 完整生命周期
+
+**Date**: 2026-08-10
+**Task**: statusline 全功能演示——Trellis workflow 完整生命周期
+**Branch**: `master`
+
+### Summary
+
+演示任务：create→prd→start→trellis-implement(扩展状态栏)→trellis-check(抓到 pi.ui 不存在 bug 并修复为 ctx.ui)→commit→archive。产出 research/statusline-triggers.md(24 段触发条件全核验) + .omp/extensions/trellis 状态栏任务显示。确认 subagents 段为死代码、右侧摘要为设计位置、time_spent 为活动累计快照。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `213cd11` | (see git log) |
+
+### Status
+
+[OK] **Completed**
