@@ -51,7 +51,8 @@ export function createLlm(cfg: LlmConfig, opts?: { proxyBase?: string }): ChatOp
     apiKey: cfg.apiKey,
     configuration: {
       baseURL: viaProxy ? opts.proxyBase : cfg.baseUrl,
-      timeout: 120000, // 单次 LLM 调用挂起上限(120s 超时 → retry 重试,防无限挂)
+      // 不设 timeout:基本面分析师长 prompt/长生成可达数分钟(Python 版
+      // 同语义);超时会误杀正常生成
       ...(viaProxy ? { defaultHeaders: { 'X-LLM-Base': cfg.baseUrl } } : {}),
     },
     // Python 侧 seed=114514 为供应商兼容参数;JS ChatOpenAIFields 无 seed,
