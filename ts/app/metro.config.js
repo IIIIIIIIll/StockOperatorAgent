@@ -40,4 +40,42 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
+// LLM 同源代理(dev server):POST /llm-proxy/{path} → 转发配置的 base,
+// 补 CORS 头(网页与 dev server 同源,彻底绕开浏览器跨域限制——
+// 对齐 Streamlit 服务端调用 LLM 的架构)。生产构建见 server.mjs。
+async function llmProxyHandler(req, res) {
+  try {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    const { base, ...payload } = JSON.parse(body);
+    const target = `${base}/${req.url.slice('/llm-proxy/'.length)}`;
+    const upstream = await fetch(target, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: req.headers.authorization || '',
+      },
+      body: JSON.stringify(payload),
+    });
+    const text = await upstream.text();
+    res.writeHead(upstream.status, {
+      'Content-Type': upstream.headers.get('content-type') || 'application/json',
+    });
+    res.end(text);
+  } catch (err) {
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: `LLM 代理转发失败:${String((err).message ?? err)}` } }));
+  }
+}
+
+config.server.enhanceMiddleware = (middleware, _server) => {
+  return (req, res, next) => {
+    if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {
+      void llmProxyHandler(req, res);
+      return;
+    }
+    return middleware(req, res, next);
+  };
+};
+
 module.exports = config;

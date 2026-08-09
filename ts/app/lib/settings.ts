@@ -156,53 +156,86 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   } catch {
     /* 保留原文 */
   }
-  info(`LLM 可达性检测(直接提问):${host} model=${keys.llmModel}`);
+  info(`LLM 可达性检测(同源代理提问):${host} model=${keys.llmModel}`);
   const t0 = Date.now();
+  const payload = {
+    base,
+    model: keys.llmModel.trim(),
+    messages: [{ role: 'user', content: 'ping' }],
+    max_tokens: 16,
+  };
+  // 1) 同源代理优先(dev server / server.mjs 都有 /llm-proxy)——绕开浏览器
+  //    CORS,拿到真实服务端响应;代理本身不可用(纯静态 server)再回退直连
+  let proxyUsed = false;
   try {
-    // 直接给 LLM 提问(最小 chat 请求)——比 GET /models 更真实:
-    // 同时验证端点可达、认证有效、模型名正确、生成可用
+    const viaProxy = await fetch('/llm-proxy/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${keys.llmApiKey.trim()}` },
+      body: JSON.stringify(payload),
+    });
+    if (viaProxy.status !== 502 && viaProxy.status !== 404) {
+      proxyUsed = true;
+      return await classifyChatResponse(viaProxy, host, keys, Date.now() - t0);
+    }
+    warn(`LLM 代理不可用(HTTP ${viaProxy.status})——回退浏览器直连`);
+  } catch {
+    warn('LLM 代理不可达——回退浏览器直连');
+  }
+  try {
     const resp = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${keys.llmApiKey.trim()}` },
-      body: JSON.stringify({
-        model: keys.llmModel.trim(),
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 1,
-      }),
+      body: JSON.stringify(payload),
     });
-    const ms = Date.now() - t0;
-    if (resp.ok) {
-      info(`LLM 可达且可生成:${host} ${ms}ms`);
-      return { ok: true, latencyMs: ms, message: `${ms}ms` };
-    }
-    if (resp.status === 401 || resp.status === 403) {
-      logError(`LLM 可达但认证失败:${host} HTTP ${resp.status}(${ms}ms)——检查 API Key`);
-      return { ok: false, latencyMs: ms, message: `认证失败(HTTP ${resp.status})——检查 API Key` };
-    }
-    if (resp.status === 404) {
-      logError(`LLM 提问 404:${host}(${ms}ms)——Base URL 缺 /v1 或模型名 ${keys.llmModel} 不存在`);
-      return { ok: false, latencyMs: ms, message: `端点/模型不存在(404)——检查 Base URL 是否含 /v1 或模型名是否正确` };
-    }
-    if (resp.status === 429) {
-      logError(`LLM 限流:${host} HTTP 429(${ms}ms)`);
-      return { ok: false, latencyMs: ms, message: `限流(HTTP 429)——稍后重试` };
-    }
-    logError(`LLM 提问 HTTP ${resp.status}:${host}(${ms}ms)`);
-    return { ok: false, latencyMs: ms, message: `HTTP ${resp.status}` };
+    return await classifyChatResponse(resp, host, keys, Date.now() - t0);
   } catch (err) {
     const ms = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
     logError(`LLM 不可达:${host}(${ms}ms)——${msg}`);
-    const nodeVerify =
-      'Node/真机 App 无 CORS 限制,可直连该端点——`npm run probe`(配三键后)或 Node 一行命令验证可达性';
     return {
       ok: false,
       latencyMs: ms,
       message: msg.includes('fetch')
-        ? `浏览器跨域被拒(CORS)——端点不支持浏览器直连(如 OpenCode Zen 无 CORS 头),服务本身可能可达。${nodeVerify}`
+        ? `浏览器跨域被拒(CORS)——本环境无 /llm-proxy 代理(请用 npx expo start 或 node server.mjs 启动)。`
+          + 'Node/真机 App 无此限制(`npm run probe` 可直连验证)'
         : msg,
     };
   }
+}
+
+/** chat 响应分类:成功解析回复内容展示;失败按状态码给原因。 */
+async function classifyChatResponse(
+  resp: Response,
+  host: string,
+  keys: KeysState,
+  ms: number,
+): Promise<ReachabilityResult> {
+  const text = await resp.text();
+  if (resp.ok) {
+    try {
+      const data = JSON.parse(text) as { choices?: Array<{ message?: { content?: string } }> };
+      const reply = (data.choices?.[0]?.message?.content ?? '').trim();
+      info(`LLM 可达且真实回复:${host} ${ms}ms 回复「${reply.slice(0, 40)}」`);
+      return { ok: true, latencyMs: ms, message: `${ms}ms,回复:「${reply.slice(0, 60) || '(空)'}」` };
+    } catch {
+      info(`LLM 可达:${host} ${ms}ms(响应非 JSON)`);
+      return { ok: true, latencyMs: ms, message: `${ms}ms` };
+    }
+  }
+  if (resp.status === 401 || resp.status === 403) {
+    logError(`LLM 可达但认证失败:${host} HTTP ${resp.status}(${ms}ms)——检查 API Key`);
+    return { ok: false, latencyMs: ms, message: `认证失败(HTTP ${resp.status})——检查 API Key` };
+  }
+  if (resp.status === 404) {
+    logError(`LLM 提问 404:${host}(${ms}ms)——Base URL 缺 /v1 或模型名 ${keys.llmModel} 不存在`);
+    return { ok: false, latencyMs: ms, message: `端点/模型不存在(404)——检查 Base URL 是否含 /v1 或模型名是否正确` };
+  }
+  if (resp.status === 429) {
+    logError(`LLM 限流:${host} HTTP 429(${ms}ms)`);
+    return { ok: false, latencyMs: ms, message: `限流(HTTP 429)——稍后重试` };
+  }
+  logError(`LLM 提问 HTTP ${resp.status}:${host}(${ms}ms)${text.slice(0, 120)}`);
+  return { ok: false, latencyMs: ms, message: `HTTP ${resp.status}:${text.slice(0, 80)}` };
 }
 
 export { createLlm };
