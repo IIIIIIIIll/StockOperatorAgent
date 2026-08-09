@@ -1,52 +1,143 @@
-// 设置 Tab:LLM 三键 + ticker + 开始分析(门控:缺三键 → 演示模式提示)
+// 设置面板 —— 对齐 Python display.py 四节:
+// 1. 模型与密钥(持久化) 2. LangSmith(持久化) 3. 能力开关(会话级,8 个)
+// 4. 亿信调用上限(会话级,3 个)。持久化 localStorage;开关分析前应用。
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { LlmConfig } from '../../src/llm.ts';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import {
+  defaultSettings,
+  loadSettings,
+  saveSettings,
+  type SettingsState,
+} from '../lib/settings';
+import { useTheme, type Theme } from '../theme';
 
 interface Props {
   ticker: string;
   setTicker: (t: string) => void;
-  cfg: LlmConfig | null;
-  setCfg: (c: LlmConfig) => void;
   onStart: () => void;
   running: boolean;
   error: string | null;
+  gateNotice: string | null;
+  onSettingsChange: (s: SettingsState) => void;
 }
 
-export default function SettingsScreen({ ticker, setTicker, cfg, setCfg, onStart, running, error }: Props) {
-  const [apiKey, setApiKey] = React.useState(cfg?.apiKey ?? '');
-  const [model, setModel] = React.useState(cfg?.model ?? '');
-  const [baseUrl, setBaseUrl] = React.useState(cfg?.baseUrl ?? '');
-  const hasKeys = !!(apiKey.trim() && model.trim() && baseUrl.trim());
+const SWITCH_ROWS: Array<{ key: keyof SettingsState['switches']; label: string; group: 'master' | 'capability' }> = [
+  { key: 'tdxMcp', label: '通达信 MCP(实时市场情报)', group: 'master' },
+  { key: 'webSearch', label: '联网搜索(Tavily)', group: 'master' },
+  { key: 'billionsMaster', label: '亿信总闸', group: 'master' },
+  { key: 'findb', label: '亿信 · 金融问数(FINDB)', group: 'capability' },
+  { key: 'search', label: '亿信 · 搜索(SEARCH)', group: 'capability' },
+  { key: 'twitter', label: '亿信 · 社交平台(TWITTER)', group: 'capability' },
+  { key: 'fetch', label: '亿信 · 数据抓取(FETCH)', group: 'capability' },
+  { key: 'analyst', label: '亿信 · 信息面分析师(ANALYST)', group: 'capability' },
+];
 
-  function save(): void {
-    if (!hasKeys) return;
-    const next: LlmConfig = { apiKey: apiKey.trim(), model: model.trim(), baseUrl: baseUrl.trim() };
-    setCfg(next);
+const CAP_ROWS: Array<{ key: keyof SettingsState['caps']; label: string }> = [
+  { key: 'searchMax', label: '亿信搜索(SEARCH)调用上限' },
+  { key: 'twitterMax', label: '亿信社交(TWITTER)调用上限' },
+  { key: 'fetchMax', label: '亿信抓取(FETCH)调用上限' },
+];
+
+export default function SettingsScreen({ ticker, setTicker, onStart, running, error, gateNotice, onSettingsChange }: Props) {
+  const theme = useTheme();
+  const styles = makeStyles(theme);
+  const [settings, setSettings] = React.useState<SettingsState>(() => loadSettings());
+
+  function update(patch: Partial<SettingsState>): void {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    onSettingsChange(next);
   }
+
+  function updateSwitch(key: keyof SettingsState['switches'], value: boolean): void {
+    update({ switches: { ...settings.switches, [key]: value } });
+  }
+
+  function updateCap(key: keyof SettingsState['caps'], value: number): void {
+    update({ caps: { ...settings.caps, [key]: value } });
+  }
+
+  function updateKey(key: keyof SettingsState['keys'], value: string | boolean): void {
+    update({ keys: { ...settings.keys, [key]: value } });
+  }
+
+  const billionsGreyed = !settings.keys.billionsApiKey.trim() || !settings.switches.billionsMaster;
 
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>设置</Text>
 
+      {/* 1. 模型与密钥(持久化) */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>LLM(OpenAI 兼容,三键必填)</Text>
-        <Text style={styles.muted}>三键齐 → 真实分析;缺任一 → 演示占位报告(门控对齐 Python)。</Text>
-        <Text style={styles.label}>API Key</Text>
-        <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="sk-..." autoCapitalize="none" />
-        <Text style={styles.label}>模型</Text>
-        <TextInput style={styles.input} value={model} onChangeText={setModel} placeholder="deepseek-v4-flash" autoCapitalize="none" />
-        <Text style={styles.label}>Base URL</Text>
-        <TextInput style={styles.input} value={baseUrl} onChangeText={setBaseUrl} placeholder="https://api.example.com/v1" autoCapitalize="none" autoCorrect={false} />
-        <Pressable
-          style={[styles.button, !hasKeys && styles.buttonDisabled]}
-          disabled={!hasKeys}
-          onPress={save}
-        >
+        <Text style={styles.sectionTitle}>模型与密钥(持久化)</Text>
+        <Text style={styles.muted}>保存后写入本地配置,重启保留。</Text>
+        <Text style={styles.label}>LLM 模型</Text>
+        <TextInput style={styles.input} value={settings.keys.llmModel} onChangeText={(v) => updateKey('llmModel', v)} placeholder="deepseek-v4-flash" autoCapitalize="none" />
+        <Text style={styles.label}>LLM Base URL</Text>
+        <TextInput style={styles.input} value={settings.keys.llmBaseUrl} onChangeText={(v) => updateKey('llmBaseUrl', v)} placeholder="https://api.example.com/v1" autoCapitalize="none" autoCorrect={false} />
+        <Text style={styles.label}>LLM API Key</Text>
+        <TextInput style={styles.input} value={settings.keys.llmApiKey} onChangeText={(v) => updateKey('llmApiKey', v)} placeholder="sk-...(三键之一)" autoCapitalize="none" secureTextEntry />
+        <Text style={styles.label}>通达信 TDX API Key(可选)</Text>
+        <TextInput style={styles.input} value={settings.keys.tdxApiKey} onChangeText={(v) => updateKey('tdxApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
+        <Text style={styles.label}>亿信 API Key(可选)</Text>
+        <TextInput style={styles.input} value={settings.keys.billionsApiKey} onChangeText={(v) => updateKey('billionsApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
+      </View>
+
+      {/* 2. LangSmith(持久化) */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>LangSmith(持久化)</Text>
+        <Text style={styles.muted}>开发者遥测配置;TS 侧未接入,仅持久化。</Text>
+        <View style={styles.toggleRow}>
+          <Text style={styles.label}>启用 LangSmith 追踪</Text>
+          <Switch value={settings.keys.langsmithTracing} onValueChange={(v) => updateKey('langsmithTracing', v)} />
+        </View>
+        <Text style={styles.label}>LangSmith API Key</Text>
+        <TextInput style={styles.input} value={settings.keys.langsmithKey} onChangeText={(v) => updateKey('langsmithKey', v)} placeholder="留空表示不修改" autoCapitalize="none" secureTextEntry />
+        <Text style={styles.label}>LangSmith 项目名</Text>
+        <TextInput style={styles.input} value={settings.keys.langsmithProject} onChangeText={(v) => updateKey('langsmithProject', v)} placeholder="soa-ts" autoCapitalize="none" />
+        <Pressable style={[styles.button, styles.buttonSecondary]} onPress={() => saveSettings(settings)}>
           <Text style={styles.buttonText}>保存配置</Text>
         </Pressable>
       </View>
 
+      {/* 3. 能力开关(会话级) */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>能力开关(会话级)</Text>
+        <Text style={styles.muted}>下次分析生效;重新加载后恢复默认。</Text>
+        {!settings.keys.billionsApiKey.trim() && <Text style={styles.warn}>未配置亿信 API Key —— 亿信能力不可用,能力开关置灰。</Text>}
+        {settings.keys.billionsApiKey.trim() && !settings.switches.billionsMaster && <Text style={styles.warn}>亿信总闸已关 —— 能力开关置灰。</Text>}
+        {SWITCH_ROWS.map((row) => {
+          const disabled = row.group === 'capability' && billionsGreyed;
+          return (
+            <View key={row.key} style={[styles.toggleRow, disabled && styles.rowDisabled]}>
+              <Text style={[styles.label, { flex: 1 }]}>{row.label}</Text>
+              <Switch value={settings.switches[row.key]} onValueChange={(v) => updateSwitch(row.key, v)} disabled={disabled} />
+            </View>
+          );
+        })}
+      </View>
+
+      {/* 4. 亿信调用上限(会话级) */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>亿信调用上限(会话级)</Text>
+        <Text style={styles.muted}>单次分析内工具调用上限;重新加载后恢复默认。</Text>
+        {CAP_ROWS.map((row) => (
+          <View key={row.key} style={styles.capRow}>
+            <Text style={[styles.label, { flex: 1 }]}>{row.label}</Text>
+            <TextInput
+              style={[styles.input, { width: 72, textAlign: 'center' }]}
+              value={String(settings.caps[row.key])}
+              keyboardType="numeric"
+              onChangeText={(v) => {
+                const n = Math.max(0, Math.floor(Number(v)));
+                if (Number.isFinite(n)) updateCap(row.key, n);
+              }}
+            />
+          </View>
+        ))}
+      </View>
+
+      {/* 分析 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>分析</Text>
         <Text style={styles.label}>股票代码</Text>
@@ -54,27 +145,31 @@ export default function SettingsScreen({ ticker, setTicker, cfg, setCfg, onStart
         <Pressable style={[styles.button, styles.buttonPrimary, running && styles.buttonDisabled]} disabled={running} onPress={onStart}>
           <Text style={styles.buttonText}>{running ? '分析中…' : '开始分析'}</Text>
         </Pressable>
-        {!hasKeys ? <Text style={styles.warn}>⚠ 未配置 LLM 三键 —— 将使用演示占位报告(数据为 600036 示例)。</Text> : null}
-        {hasKeys ? <Text style={styles.ok}>✓ 三键已填 —— 将调用真实 LLM。需保存后生效。</Text> : null}
-        {error ? <Text style={styles.error}>✗ {error}</Text> : null}
+        {gateNotice && <Text style={styles.warn}>⚠ {gateNotice}</Text>}
+        {error && <Text style={styles.error}>✗ {error}</Text>}
       </View>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f7f7f7', padding: 12 },
-  title: { fontSize: 20, fontWeight: '700', marginBottom: 10 },
-  section: { marginBottom: 16 },
-  sectionTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6, color: '#333' },
-  muted: { fontSize: 12, color: '#888', marginBottom: 8 },
-  label: { fontSize: 12, color: '#555', marginTop: 8, marginBottom: 3 },
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14 },
-  button: { backgroundColor: '#ddd', borderRadius: 8, paddingVertical: 10, alignItems: 'center', marginTop: 12 },
-  buttonPrimary: { backgroundColor: '#1a5fb4' },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-  warn: { color: '#b8860b', fontSize: 12, marginTop: 8 },
-  ok: { color: '#1a8f3d', fontSize: 12, marginTop: 8 },
-  error: { color: '#d33', fontSize: 12, marginTop: 8 },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.md },
+    title: { fontSize: 20, fontWeight: '700', color: theme.colors.text, marginBottom: theme.spacing.md },
+    section: { marginBottom: theme.spacing.lg },
+    sectionTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.text, marginBottom: theme.spacing.xs },
+    muted: { fontSize: 11, color: theme.colors.textSecondary, marginBottom: theme.spacing.sm },
+    label: { fontSize: 12, color: theme.colors.textSecondary, marginTop: theme.spacing.sm, marginBottom: 3 },
+    input: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: theme.colors.text },
+    button: { borderRadius: theme.radius.sm, paddingVertical: 10, alignItems: 'center', marginTop: theme.spacing.md },
+    buttonSecondary: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+    buttonPrimary: { backgroundColor: theme.colors.primary },
+    buttonDisabled: { opacity: 0.5 },
+    buttonText: { color: theme.colors.text, fontWeight: '600', fontSize: 14 },
+    toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 },
+    rowDisabled: { opacity: 0.4 },
+    capRow: { flexDirection: 'row', alignItems: 'center', marginTop: theme.spacing.sm },
+    warn: { color: theme.colors.warn, fontSize: 12, marginTop: theme.spacing.sm },
+    error: { color: theme.colors.error, fontSize: 12, marginTop: theme.spacing.sm },
+  });
+}

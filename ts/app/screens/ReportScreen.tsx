@@ -1,6 +1,9 @@
-// 报告 Tab:进度流 + 各角色报告(观点 expander)+ 最终报告
+// 报告 Tab —— 对齐 Python st.tabs 语义:角色 Tab 条(注册表 report_tabs
+// 契约)+ 观点 expander(对抗修订多份平铺)+ 最终结论。
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { reportRoles, type Role } from '../../src/committee.ts';
+import { useTheme, type Theme } from '../theme';
 import type { PipelineEvent } from '../lib/runner';
 
 interface Props {
@@ -9,67 +12,107 @@ interface Props {
   running: boolean;
 }
 
+type ReportEvent = Extract<PipelineEvent, { type: 'report' }>;
+
 export default function ReportScreen({ events, finalDecision, running }: Props) {
+  const theme = useTheme();
+  const roles = reportRoles(); // (stateKey, tabTitle) —— 与 Python report_tabs() 同契约
+  const [activeKey, setActiveKey] = React.useState<string>('final_decision');
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
-  const reports = events.filter((e): e is Extract<PipelineEvent, { type: 'report' }> => e.type === 'report');
+
+  const reports: ReportEvent[] = events.filter((e): e is ReportEvent => e.type === 'report');
   const progress = events.filter((e): e is Extract<PipelineEvent, { type: 'progress' }> => e.type === 'progress');
 
+  const activeRole = roles.find((r) => r.stateKey === activeKey);
+  const tabReports = activeRole ? reports.filter((r) => r.key === activeRole.stateKey) : [];
+
+  const styles = makeStyles(theme);
+
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>投资委员会报告</Text>
-
-      {running ? <Text style={styles.running}>分析进行中…</Text> : null}
-
-      {progress.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>进度</Text>
-          {progress.map((e, i) => (
-            <Text key={i} style={styles.progressLine}>· {e.message}</Text>
-          ))}
+    <View style={styles.container}>
+      {/* 进度区(运行中高亮最新一条) */}
+      {progress.length > 0 && (
+        <View style={styles.progressBar}>
+          {running && <Text style={styles.running}>分析进行中…</Text>}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {progress.map((e, i) => (
+              <Text key={i} style={[styles.progressLine, i === progress.length - 1 && running && styles.progressLatest]}>
+                · {e.message}
+              </Text>
+            ))}
+          </ScrollView>
         </View>
-      ) : null}
+      )}
 
-      {reports.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>角色观点({reports.length})</Text>
-          {reports.map((e, i) => {
-            const open = expanded[i] ?? false;
+      {/* 角色 Tab 条(注册表驱动,与 Python st.tabs 同序) */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
+        {roles.map((r: Role) => {
+          const key = r.stateKey!;
+          const active = key === activeKey;
+          return (
+            <Pressable key={key} style={[styles.tab, active && styles.tabActive]} onPress={() => setActiveKey(key)}>
+              <Text style={[styles.tabText, active && styles.tabTextActive]}>{r.tabTitle}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {/* 选中 Tab 内容 */}
+      <ScrollView style={styles.content}>
+        {!activeRole ? null : activeKey === 'final_decision' ? (
+          finalDecision ? (
+            <View style={styles.finalCard}>
+              <Text style={styles.finalBody}>{finalDecision}</Text>
+            </View>
+          ) : (
+            <Text style={styles.muted}>分析完成后此处显示最终投资决策。</Text>
+          )
+        ) : tabReports.length === 0 ? (
+          <Text style={styles.muted}>该角色报告尚未产生{activeRole.opinion ? '(对抗修订后同 key 含初稿与修订版,可展开)' : ''}。</Text>
+        ) : activeRole.opinion ? (
+          // 观点 key → 每份一个 expander(初稿 + 修订版平铺)
+          tabReports.map((e, i) => {
+            const open = expanded[`${activeKey}:${i}`] ?? false;
             return (
               <View key={i} style={styles.opinionCard}>
-                <Pressable onPress={() => setExpanded((s) => ({ ...s, [i]: !open }))}>
-                  <Text style={styles.opinionTitle}>
-                    {e.tabTitle} {open ? '▾' : '▸'}
-                  </Text>
+                <Pressable onPress={() => setExpanded((s) => ({ ...s, [`${activeKey}:${i}`]: !open }))}>
+                  <Text style={styles.opinionTitle}>{i === 0 ? '初稿' : '对抗修订'} {open ? '▾' : '▸'}</Text>
                 </Pressable>
-                {open ? <Text style={styles.opinionBody}>{e.content}</Text> : null}
+                {open && <Text style={styles.opinionBody}>{e.content}</Text>}
               </View>
             );
-          })}
-        </View>
-      ) : null}
-
-      {finalDecision ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>最终投资决策</Text>
-          <View style={styles.finalCard}>
-            <Text style={styles.finalBody}>{finalDecision}</Text>
-          </View>
-        </View>
-      ) : null}
-    </ScrollView>
+          })
+        ) : (
+          // 非观点 → 平铺
+          tabReports.map((e, i) => (
+            <View key={i} style={styles.opinionCard}>
+              <Text style={styles.opinionBody}>{e.content}</Text>
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f7f7f7', padding: 12 },
-  title: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  running: { color: '#b8860b', marginBottom: 8, fontWeight: '600' },
-  section: { marginBottom: 14 },
-  sectionTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6, color: '#333' },
-  progressLine: { fontSize: 12, color: '#666', marginBottom: 2 },
-  opinionCard: { backgroundColor: '#fff', borderRadius: 8, padding: 10, marginBottom: 6, borderWidth: 1, borderColor: '#e5e5e5' },
-  opinionTitle: { fontSize: 14, fontWeight: '600', color: '#1a5fb4' },
-  opinionBody: { fontSize: 12, color: '#222', marginTop: 6, lineHeight: 18 },
-  finalCard: { backgroundColor: '#eef4ff', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#c8d8f0' },
-  finalBody: { fontSize: 13, lineHeight: 20, color: '#111' },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    progressBar: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
+    running: { color: theme.colors.warn, fontWeight: '700', marginBottom: 4, fontSize: 13 },
+    progressLine: { fontSize: 12, color: theme.colors.textSecondary, marginRight: 16 },
+    progressLatest: { color: theme.colors.primary, fontWeight: '600' },
+    tabBar: { flexGrow: 0, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    tab: { paddingHorizontal: 14, paddingVertical: 10 },
+    tabActive: { borderBottomWidth: 2, borderBottomColor: theme.colors.primary },
+    tabText: { fontSize: 14, color: theme.colors.textSecondary },
+    tabTextActive: { color: theme.colors.primary, fontWeight: '700' },
+    content: { flex: 1, padding: theme.spacing.md },
+    opinionCard: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, marginBottom: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.border },
+    opinionTitle: { fontSize: 13, fontWeight: '600', color: theme.colors.primary },
+    opinionBody: { fontSize: 13, lineHeight: 20, color: theme.colors.text, marginTop: 6 },
+    finalCard: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.primary },
+    finalBody: { fontSize: 14, lineHeight: 22, color: theme.colors.text },
+    muted: { color: theme.colors.textSecondary, fontSize: 13 },
+  });
+}
