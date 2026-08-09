@@ -1,6 +1,6 @@
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { join, dirname, isAbsolute, relative, resolve } from "node:path";
+import { join, dirname, isAbsolute, relative, resolve, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
@@ -432,6 +432,35 @@ function detectAgentType(): AgentType {
 }
 
 // ---------------------------------------------------------------------------
+// Statusline — active task + phase shown below the status line
+// ---------------------------------------------------------------------------
+
+const TRELLIS_STATUS_KEY = "trellis";
+
+function formatTaskStatusText(
+   status: string,
+   taskDir: string | null,
+   taskTitle: string | null,
+): string | undefined {
+   if (!taskDir || !taskTitle) return undefined;
+   const slug = basename(taskDir);
+   return `${slug} · ${taskTitle} [${status}]`;
+}
+
+function refreshTaskStatus(
+   ctx: ExtensionContext,
+   projectRoot: string,
+   contextKey: string | null,
+): void {
+   try {
+      const { status, taskDir, taskTitle } = resolveActiveTaskStatus(projectRoot, contextKey);
+      ctx.ui.setStatus(TRELLIS_STATUS_KEY, formatTaskStatusText(status, taskDir, taskTitle));
+   } catch {
+      // best-effort: never break session startup
+   }
+}
+
+// ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
 
@@ -493,6 +522,8 @@ export default function(pi: ExtensionAPI): void {
                });
             }
          }
+
+         refreshTaskStatus(ctx, projectRoot, contextKey);
 
          ctx.ui.notify("Trellis workflow system available", "info");
       }
@@ -582,5 +613,6 @@ export default function(pi: ExtensionAPI): void {
       const contextKey = rememberContextKey(ctx);
       // Pre-warm the cache so before_agent_start and context can use it
       turnCache.get(projectRoot, contextKey);
+      refreshTaskStatus(ctx, projectRoot, contextKey);
    });
 }
