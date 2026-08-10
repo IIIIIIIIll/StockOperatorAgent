@@ -57,3 +57,22 @@ retry / tool_loop / AgentNode / 角色注册表，语义对齐 Python 版
 - Python 移植源：`agents/base.py`、`core/role_registry.py`、
   `core/llms/{prompt,tool_loop,retry}.py`、`core/investment_committee.py`、
   `core/llms/tools/web_search.py`。
+
+## 验收结果（2026-08-09）
+
+- [x] **AC1** `test/committee.test.ts`（假 LLM 按 system 消息路由）：三专家
+      并行 join → 多空初稿 N 入边 → 对抗修订双入边（读对方初稿、追加写
+      opinions key）→ 经理读 `[-1]` 修订版 → END；消息通道含
+      AIMessage.tool_calls + ToolMessage 工具交换。
+- [x] **AC2** 条件信息面节点：启用谓词开 → 注册（4 专家 + 第 4 入边）；关 →
+      完全不注册（committee.test.ts 离线钉死）。
+- [x] **AC3** `test/tool-loop.test.ts`：轮数耗尽追加收尾轮、未知工具 → 占位
+      ToolMessage、工具异常不 raise、空 tools 单轮直调。
+- [x] **AC4** `test/retry.test.ts`：429/5xx/超时重试 3 次指数退避；400/认证
+      直抛零延迟。
+- [x] **AC5** `test/agents.test.ts`：bind_tools 回退 → warning + 不绑定。
+- [x] **AC6** `test/prompt.test.ts` + `fixtures/prompts.json`：TS prompt 与
+      Python prompt.py 常量 diff 级对比（删除一行即 FAIL）。
+- [x] **AC7** `tsc --noEmit` 干净 + vitest 全绿。
+- 搜索工具为可注入工厂（Tavily 默认，`test/web-search.test.ts`），`_searcher`
+  注入点保留（C2 满足）；事件协议形状对齐 ProgressBridge（M3 接 UI）。

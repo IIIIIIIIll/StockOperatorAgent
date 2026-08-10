@@ -68,3 +68,24 @@ OpenAI 兼容 API，无任何 Python 服务端依赖，Android/iOS 双平台。
 - 体量估计：4-8 周（逻辑可移植 + 硬部分有库），测试重建是最大隐性成本。
 - 父任务不含直接实现；每个里程碑为独立子任务，按 implement.md 顺序逐个
   `task.py start`。
+
+## 验收结果（2026-08-10 收尾复核）
+
+- [x] **AC1 缺口原型（M0）**：四决策点全部定案并落盘
+      `research/m0-d1~d4-*.md`，design 决策点表 D1-D7 回填（见 M0 验收结果）。
+- [~] **AC2 端到端**：Node 探针 + Expo web 全链跑通（真 TDX + 占位 LLM；
+      网页端真实 LLM 已于 9c0c039 打通）；**模拟器验收为环境依赖项**——本机
+      WSL2 无 Android/iOS 模拟器，Android dev build 步骤已文档化（M3 PRD
+      C5），真机验收留待有环境时补打勾。
+- [x] **AC3 等价性测试**：vitest 契约套件离线可跑——qfq（5835 根 fixture）、
+      indicators、add_datas 去重、f10 双格式，fixture 由 Python 侧导出作
+      oracle（`test/fixtures/`）。
+- [x] **AC4 无服务器**：`ts/src/` 纯 TS（零 RN 依赖）+ `ts/app/` 共享业务层；
+      分析全程本地执行，网络仅行情/LLM/搜索/亿信 API（各自可开关降级）。
+- [x] **AC5 编排语义测试**：committee/tool-loop/retry/prompt 离线测试钉死
+      join/并行/对抗修订/收尾轮/退避，对齐 Python test_graph_parallel /
+      test_tool_loop 契约（见 M2 验收结果）。
+- [x] **AC6 降级契约**：`test/llm.test.ts` 三键门控点名、web-search 占位、
+      gates 假 fetcher——开关语义对齐 Python 版。
+- 全量复核证据：`ts/` `tsc --noEmit` 干净 + `npm test` 14 文件 80 测试绿
+      （1 skip = live.integration，SOA_LIVE 门控）；`ts/app` 独立 typecheck 干净。

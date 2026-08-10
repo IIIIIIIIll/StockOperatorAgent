@@ -44,3 +44,24 @@
 
 - 参考：父任务 `research/gap-analysis.md`（实测证据与缺口清单）。
 - 决策点定义见父任务 `design.md` D1-D4（默认值/触发条件）。
+
+## 验收结果（2026-08-09）
+
+- [x] **AC1** `research/m0-d1-rn-tcp.md`：node-tdx-market 依赖 `node:net`/`Buffer`
+      （模块级 import + createConnection 全链路）——源码级证据；选型 =
+      react-native-tcp-socket（6.4.2）polyfill，node-tdx-market 本体零改动，
+      Expo Go 不支持 → dev build（风险/工作量落盘）。
+- [x] **AC2** `research/m0-d2-quote.md`：getQuote **无 bug**（0.2.1 报错源于探针
+      传参错误，库签名 `string | string[]`）；按签名调用 `getQuote('sh600036')`
+      拉真实快照成功，字段与 Python 侧 snapshot 逐字段一致。
+- [x] **AC3** `research/m0-d3-xdxr-qfq.md`：xdxr 定案 = node-tdx-market 内置
+      `CommandType.Gbbq`(15) + pytdx opcode 移植（data 段含 count u16，初版漏
+      count 返回 0 条已修正）；67/67 除权事件与 Python oracle 一致；qfq 750 根
+      与 Python `adjust.py` 逐字节 IDENTICAL。
+- [x] **AC4** `research/m0-d4-f10.md`：F10 数据源 = TCP 命令 `CompanyCategory`(719)/
+      `CompanyContent`(720)（非 HTTP，修正早期假设）；TS 解析器与 Python
+      `f10_parser.py` 输出逐字段一致（180 行，metric/period/value_num/
+      '%Y%m%d' 报告期）。
+- [x] **AC5** 四文档落盘 `.trellis/tasks/08-09-ts-rewrite/research/`；父任务
+      `design.md` 决策点表 D1-D7 全部回填结论并标注证据文件（m0-d1~d4）。
+- 原型代码在 `~/soa-ts-prototype/`（.mjs），Python 仓库零改动（C1 满足）。

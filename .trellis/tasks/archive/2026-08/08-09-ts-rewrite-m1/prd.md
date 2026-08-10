@@ -63,3 +63,24 @@ getQuote / xdxr+qfq / F10 解析）全部接入正式代码。
 - 参考：父任务 `research/m0-d1~d4-*.md`（决策点结论与原型代码）、
   `design.md` 数据契约节。
 - 原型代码：`~/soa-ts-prototype/*.mjs`（quote/xdxr/qfq/f10_client/f10_parser）。
+
+## 验收结果（2026-08-09）
+
+> 正式工程位置调整：落在仓库内 `ts/`（package.json name=soa-ts-prototype），
+> 非 `~/soa-ts-prototype`（该目录保留 .mjs 原型）；等价性契约不变。
+
+- [x] **AC1** `npm test` 全绿（14 文件 80 测试，vitest）。
+- [x] **AC2** `test/qfq.test.ts`：600036 全量日K fixture（`600036_daily.json`：
+      raw + Python qfq adjusted + xdxr）→ TS qfq 输出与 Python `adjust.py`
+      输出一致（5835 根）。
+- [x] **AC3** `test/indicators.test.ts`：同 fixture 日K → TS 指标 vs Python
+      vendor compute_all 输出（`600036_indicators.json` fixture）。
+- [x] **AC4** `test/store-gates.test.ts`：put/get 往返、add_datas 去重/批量
+      单事务、报告按 report_date 去重——对齐 Python add_data 契约。
+- [x] **AC5** `test/store-gates.test.ts`：overview 门/业绩门（'%Y%m%d' 比较）/
+      FetchScope 请求尺寸复用——注入假 fetcher 离线钉死。
+- [x] **AC6** `test/f10.test.ts`：双 fixture 各解析正确——`f10_hk.txt`
+      （港澳资讯 `｜` U+FF5C 无编号）/ `f10_tdx.txt`（通达信 `│` U+2502
+      带编号）；与 Python f10_parser 逐字段一致（港澳格式）。
+- [x] **AC7** M0 客户端接入 `src/tdx/{quoteClient,f10Client,xdxr}.ts`；Node
+      探针真服务器全链跑通（probe-output/soa.sqlite）。

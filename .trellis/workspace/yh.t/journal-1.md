@@ -653,3 +653,32 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 20: TS 全量重写收尾:AC 复核 + 任务归档
+
+**Date**: 2026-08-10
+**Task**: TS 全量重写收尾:AC 复核 + 任务归档
+**Branch**: `master`
+
+### Summary
+
+对 08-09-ts-rewrite 父任务及 M0-M3 五个任务做 finish-work:逐条复核 AC(实测 tsc 双工程干净 + vitest 14 文件 80 测试绿,1 skip=SOA_LIVE 门控),补 M3 上下文清单,PRD 追加验收结果,归档
+
+### Main Changes
+
+- 复核:父任务 AC1-AC6 逐条打勾(AC2 模拟器部分标环境依赖项)
+- M0/M1/M2 PRD 追加验收结果节,M3 jsonl 占位替换为真实 spec 条目
+- 5 任务 task.py archive 归档(status=completed)
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] ts/ tsc --noEmit exit 0; npm test 14 files/80 passed/1 skipped; ts/app tsc --noEmit exit 0
+
+### Status
+
+[OK] **Completed**

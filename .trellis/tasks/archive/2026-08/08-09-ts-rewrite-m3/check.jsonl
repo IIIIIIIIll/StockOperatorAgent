@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/core/index.md", "reason": "数据链质量门：build_stock_information 文本形状/事件序"}
+{"file": ".trellis/spec/testing.md", "reason": "测试约定：SOA_LIVE=1 探针、真实 LLM 不写单元测试"}
