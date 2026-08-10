@@ -11,6 +11,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
+    "react-native-markdown-display": "^7.0.2",
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
@@ -21,8 +22,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo export --platform web && node server.mjs",
-    "serve": "node server.mjs"
+    "web": "expo export --platform web && node --experimental-strip-types server.mjs",
+    "serve": "node --experimental-strip-types server.mjs"
   },
   "allowScripts": {
     "**": true

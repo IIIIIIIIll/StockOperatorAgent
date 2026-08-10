@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/data_source/index.md", "reason": "TDX 客户端契约：getQuote/getKline/名称回退/F10 市场码语义——proxy 采集依据"}
+{"file": ".trellis/spec/core/index.md", "reason": "build_stock_information 数据链：bars/name/f10Text 来源与五段组装——web 接线目标"}

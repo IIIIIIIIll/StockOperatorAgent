@@ -65,6 +65,8 @@ export interface StoreLike {
   addPerformanceReports(ticker: string, reports: PerformanceReport[]): number;
   updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void;
   getDatas(ticker: string): DailyBar[];
+  /** 全量替换该 ticker 日K(单事务)——web 采集语义:代理返回 IPO 全量历史。 */
+  replaceDatas(ticker: string, bars: DailyBar[]): number;
   getPerformanceReports(ticker: string): PerformanceReport[];
   getMeta(key: string): string | null;
   setMeta(key: string, value: string): void;
@@ -173,6 +175,31 @@ export class Store implements StoreLike {
     this.db
       .prepare('UPDATE stocks SET overview_json = ?, overview_last_update = ? WHERE ticker = ?')
       .run(JSON.stringify(overview), stamp, ticker);
+  }
+
+  /**
+   * 全量替换该 ticker 日K(单事务:DELETE + INSERT,更新 last_data_update)。
+   * web 采集语义:代理每次返回 IPO 全量历史——替换而非增量合并,
+   * 防 demo 预载数据与真实全量混入。返回入库数。
+   */
+  replaceDatas(ticker: string, bars: DailyBar[]): number {
+    if (!bars.length) return 0;
+    const insert = this.db.prepare(
+      `INSERT OR REPLACE INTO daily_bars (ticker, date, open, close, high, low, volume, amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM daily_bars WHERE ticker = ?').run(ticker);
+      for (const b of bars) {
+        insert.run(ticker, b.date, b.open, b.close, b.high, b.low, b.volume, b.amount ?? null);
+      }
+      const maxDate = bars[bars.length - 1].date;
+      this.db
+        .prepare('UPDATE stocks SET last_data_update = ? WHERE ticker = ?')
+        .run(maxDate, ticker);
+    });
+    tx();
+    return bars.length;
   }
 
   getDatas(ticker: string): DailyBar[] {

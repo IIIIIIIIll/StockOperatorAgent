@@ -34,12 +34,19 @@ export function changePercentSeries(bars: DailyBar[]): number[] {
   return bars.map((b, i) => (i === 0 ? NaN : ((b.close - bars[i - 1].close) / bars[i - 1].close) * 100));
 }
 
+/** 换手率%:成交量(手)×100 股 ×100% / 流通股本(股) = 量×10⁴/股本;缺股本 → NaN。 */
+function turnoverPct(b: DailyBar, capital: { liutongguben: number } | null): number {
+  if (!capital || !capital.liutongguben) return NaN;
+  return (b.volume * 10_000) / capital.liutongguben;
+}
+
 export function formatStockOutput(
   ticker: string,
   name: string,
   overview: Record<string, number | string>,
   bars: DailyBar[],
   reports: Array<{ report_date: string; fields: ReportFields }>,
+  capital: { zongguben: number; liutongguben: number } | null = null,
 ): string {
   const price = overview.latest_price as number;
   const changePct = changePercentSeries(bars);
@@ -55,7 +62,7 @@ export function formatStockOutput(
     out += `  Date: ${b.date}, Open:${fmtNumber(b.open, 2)}, Close: ${fmtNumber(b.close, 2)}, `
       + `High: ${fmtNumber(b.high, 2)}, Low: ${fmtNumber(b.low, 2)}, `
       + `Change Percent: ${fmtNumber(changePct[i], 2)}%, Volume: ${fmtNumber(b.volume, 2)}lots, `
-      + `Turnover Rate: ${fmtNumber(NaN, 2)}%\n`; // 换手率需流通股本(缺口) → N/A
+      + `Turnover Rate: ${fmtNumber(turnoverPct(b, capital), 2)}%\n`;
   }
   out += 'Last 20 financial abstracts:\n';
   for (const r of reports.slice(-20)) {
@@ -104,11 +111,13 @@ const INDICATOR_ROWS: Array<[string, string[], number]> = [
   ['换手率', ['TURNOVER_RATE'], 3],
 ];
 
-/** 指标摘要文本（compute_all 末根 + MACD-VH 相邻柱态 + 乖离率）。 */
-export function trendIndicatorsText(bars: DailyBar[], ticker: string): string {
+/** 指标摘要文本（compute_all 末根 + MACD-VH 相邻柱态 + 乖离率）。
+ *  liutongguben(股)→ 传 shares(万股,vendor 语义:vol手/万股 = 换手率%)。 */
+export function trendIndicatorsText(bars: DailyBar[], ticker: string, liutongguben?: number | null): string {
   if (!bars.length) return `（无 ${ticker} 的行情数据，跳过技术指标）`;
   const rows = computeAll(
     bars.map((b) => ({ datetime: b.date, open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume })),
+    liutongguben && liutongguben > 0 ? liutongguben / 10_000 : null,
   );
   const last = rows[rows.length - 1];
   const prevVh = rows.length >= 2 ? rows[rows.length - 2].MACD_VH : null;
@@ -186,10 +195,10 @@ export function buildStockInformation(ticker: string, deps: PipelineDeps): strin
     bars,
     today,
   });
-  let info = formatStockOutput(ticker, name, overview, bars, reports);
+  let info = formatStockOutput(ticker, name, overview, bars, reports, deps.capital ?? null);
 
   safe(progress, `正在计算 ${ticker} 的技术指标...`);
-  info += '\n' + trendIndicatorsText(bars, ticker);
+  info += '\n' + trendIndicatorsText(bars, ticker, deps.capital?.liutongguben ?? null);
 
   safe(progress, `正在获取 ${ticker} 的财务指标...`);
   info += '\n' + financialIndicatorsText(deps.f10Text ?? null, ticker);

@@ -18,6 +18,7 @@ export interface CollectedData {
   name: string | null;
   bars: DailyBar[];
   snapshot: CollectedSnapshot | null;
+  capital: { zongguben: number; liutongguben: number } | null; // 总/流通股本(股);失败 → null
 }
 
 const KLINE_PAGE = 800;
@@ -97,5 +98,5 @@ export async function collectAll(
     fetchDailyBars(client, ticker),
     fetchStockName(client, ticker, meta.get, meta.set),
   ]);
-  return { ticker, name, bars, snapshot };
+  return { ticker, name, bars, snapshot, capital: null };
 }

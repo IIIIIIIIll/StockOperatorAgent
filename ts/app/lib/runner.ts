@@ -1,15 +1,16 @@
 // 事件桥 runner 绑定 —— App 与业务层(ts/src)的唯一接线点
-// 数据:演示模式载入 demo.json;真模式留注入点(真机走 TCP 采集)。
+// 数据:web 走 server /tdx-collect 代理(collectForWeb);真机留注入点(走 RN TCP)。
 // LLM:三键齐(设置面板)→ 真 LLM;缺 → 演示 stub(图全链跑通)。
 import { InMemoryStore } from '../../src/store-memory.ts';
 import { createPipelineRunner, type PipelineEvent, type FinalReport } from '../../src/events.ts';
 import { createLlm, MissingLlmConfigError, type LlmConfig } from '../../src/llm.ts';
+import { applyCollectedToStore, collectViaProxy, type WebCollectResult } from '../../src/webCollect.ts';
 import { AIMessage } from '@langchain/core/messages';
 import demo from '../data/demo.json';
 
 export const store = new InMemoryStore();
 
-// 演示数据载入(600036:250 根日K + 指标 + F10)
+// 演示数据载入(600036:250 根日K + 指标 + F10;仅预览/未起 server 时的占位视图)
 export function loadDemoData(): void {
   store.putStock({
     ticker: demo.ticker,
@@ -23,6 +24,13 @@ export function loadDemoData(): void {
 }
 
 export const runner = createPipelineRunner(store);
+
+/** web 采集(server /tdx-collect 代理)→ 写 InMemoryStore;返回本次采集结果
+ *  (f10Text/snapshot/name 供 runner.run opts)。失败抛错 → 调用方中止分析。 */
+export async function collectForWeb(ticker: string): Promise<WebCollectResult> {
+  const payload = await collectViaProxy(ticker, globalThis.location.origin);
+  return applyCollectedToStore(store, payload);
+}
 
 // ─── 设置持久化(web:localStorage;RN 真机后续接 AsyncStorage) ──────────────
 

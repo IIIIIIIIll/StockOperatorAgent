@@ -682,3 +682,29 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 21: web 端到端修复:采集代理 + 数据链 + UI 补全
+
+**Date**: 2026-08-10
+**Task**: web 端到端修复:采集代理 + 数据链 + UI 补全
+**Branch**: `master`
+
+### Summary
+
+08-10-web-tdx-proxy 完成并验收:web 版 8 项修复(采集代理/F10 双词表业绩报告/日期格式/委员会 query 数据注入/演示上下文/去截断/Markdown 渲染/换手率),vitest 117 绿 + 双 tsc + 真数据 E2E
+
+### Main Changes
+
+- server.mjs /tdx-collect 代理(Node 侧 TDX 采集,浏览器无 TCP)
+- query 数据注入修复:专家嵌 stock_information、交易员嵌报告、经理嵌观点(Python f-string 逐字对齐)
+- 业绩报告/股本/换手率:F10 解析 + 双词表 + 万元归一
+- UI:Markdown 渲染、K线日期、演示上下文、去截断
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/core/index.md", "reason": "数据链质量门：采集→store→五段文本非空契约"}
+{"file": ".trellis/spec/testing.md", "reason": "测试约定：mock fetch 离线测试、SOA_LIVE 探针约定"}

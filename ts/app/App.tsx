@@ -18,8 +18,10 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';import {
   type SettingsState,
 } from './lib/settings';
 import { reportRoles } from '../src/committee.ts';
+import { buildStockInformation } from '../src/pipeline.ts';
 import {
   buildLlm,
+  collectForWeb,
   loadDemoData,
   runner,
   store,
@@ -50,6 +52,8 @@ export default function App() {
     if (width < 900) setShowSettings(false);
   }, [width]);
   const [dataVersion, setDataVersion] = React.useState(0);
+  // 最近一次成功分析/采集的 ticker(采集数据 Tab 的数据源;默认 demo 票)
+  const [lastRunTicker, setLastRunTicker] = React.useState('600036');
 
   const roles = reportRoles(); // (stateKey, tabTitle) —— report_tabs() 契约
 
@@ -59,6 +63,11 @@ export default function App() {
     loadDemoData();
     const bars = store.getDatas('600036');
     info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
+    // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
+    const demoF10 = store.getMeta('demo:f10');
+    setStockInformation(
+      buildStockInformation('600036', { store, f10Text: demoF10, today: new Date().toISOString().slice(0, 10) }),
+    );
     const loaded = loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
     setSettings(loaded);
     const miss = missingLlmKeys(loaded.keys);
@@ -134,8 +143,46 @@ export default function App() {
       const llm = llmConfigured(settings.keys)
         ? buildLlm(toLlmConfig(settings.keys), proxyBase)
         : buildLlm(null);
-      const f10Text = store.getMeta('demo:f10') ?? undefined;
-      await runner.run(code, { llm, f10Text, today: new Date().toISOString().slice(0, 10) });
+      // web:先经 /tdx-collect 代理采集真实行情(浏览器无 TCP,代理在 Node 跑);
+      // 失败 → 明确报错并中止,绝不以空数据喂 LLM(修复 002027 无数据问题)
+      let f10Text: string | undefined;
+      let snapshot: { price: number; high: number; low: number; open: number } | null = null;
+      let stockName: string | null = null;
+      let capital: { zongguben: number; liutongguben: number } | null = null;
+      if (Platform.OS === 'web') {
+        info(`正在采集 ${code} 的真实行情(TDX 代理)...`);
+        try {
+          const collected = await collectForWeb(code);
+          f10Text = collected.f10Text ?? undefined;
+          snapshot = collected.snapshot;
+          stockName = collected.name;
+          capital = collected.capital;
+          info(`采集完成:${store.getDatas(code).length} 根日K + F10`);
+          setDataVersion((v) => v + 1); // 采集数据 Tab 立即刷新
+        } catch (err) {
+          const detail = describeError(err);
+          logError(`采集失败:${detail}`);
+          setError(`行情采集失败:${detail}`);
+          return;
+        }
+      } else {
+        // 真机:采集注入点预留(走 RN TCP);当前沿用演示数据
+        f10Text = store.getMeta('demo:f10') ?? undefined;
+      }
+      setLastRunTicker(code);
+      // 采集完成立即生成上下文(委员会真 LLM 需数分钟——不等 done 才显示;
+      // runner.run 内部同源重算,结果一致,双算成本 ~ms)
+      setStockInformation(
+        buildStockInformation(code, {
+          store,
+          f10Text,
+          snapshot,
+          name: stockName,
+          capital,
+          today: new Date().toISOString().slice(0, 10),
+        }),
+      );
+      await runner.run(code, { llm, f10Text, snapshot, name: stockName, capital, today: new Date().toISOString().slice(0, 10) });
       info(`分析结束:耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     } catch (err) {
       const detail = describeError(err);
@@ -245,7 +292,7 @@ export default function App() {
           {/* 内容 */}
           <View style={styles.content}>
             {activeTab === 'data' ? (
-              <DataScreen stockInformation={stockInformation} dataVersion={dataVersion} />
+              <DataScreen stockInformation={stockInformation} dataVersion={dataVersion} ticker={lastRunTicker} />
             ) : activeRole ? (
               <ReportContent
                 roleKey={activeRole.stateKey!}

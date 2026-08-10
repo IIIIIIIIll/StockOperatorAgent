@@ -85,6 +85,27 @@ export function parseFinanceIndicatorsAllTables(text: string): F10Record[] {
   return parseSectionBlock(text, '【主要财务指标】');
 }
 
+/** 股本结构 → 总/流通股本(股)。F10「股本结构」节,数值单位万股(表头注明)×10⁴;
+ *  流通A股缺失 → 实际流通A股回退;无表/无值 → null。 */
+export function parseCapitalStructure(
+  text: string | null,
+): { zongguben: number; liutongguben: number } | null {
+  if (!text) return null;
+  const records = parseSectionBlock(text, '【股本结构】');
+  const latest = (metric: string): number | null => {
+    const rows = records.filter((r) => r.metric === metric && !Number.isNaN(r.value_num));
+    if (!rows.length) return null;
+    const best = rows.reduce((a, b) => (a.period > b.period ? a : b));
+    return best.value_num * 10_000;
+  };
+  const zongguben = latest('总股本');
+  const liutongguben = latest('流通A股') ?? latest('实际流通A股');
+  if (zongguben === null || liutongguben === null || zongguben <= 0 || liutongguben <= 0) {
+    return null;
+  }
+  return { zongguben, liutongguben };
+}
+
 export function parseIndicatorSection(text: string, sectionName: string): F10Record[] {
   return parseSectionBlock(text, sectionName);
 }

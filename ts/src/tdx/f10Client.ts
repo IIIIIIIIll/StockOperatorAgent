@@ -1,7 +1,13 @@
 // F10 公司资料客户端 —— 移植自 pytdx GetCompanyInfoCategory / GetCompanyInfoContent
 // node-tdx-market 已内置 CommandType.CompanyCategory(719) / CompanyContent(720)
 // 协议布局见 research/m0-d4-f10.md
-import { CommandType, TdxClient } from 'node-tdx-market';
+import { CommandType, TdxClient, inferExchange } from 'node-tdx-market';
+
+/** F10 market 参数(pytdx 契约:0=深 1=沪);inferExchange SZ=0/SH=1 直接对齐。
+ *  探针早期硬编码 1(沪)只对 6xxxxx 正确,深市 002027/300xxx 需 0。 */
+export function f10MarketFor(ticker: string): number {
+  return inferExchange(ticker) as number;
+}
 
 export interface F10Category {
   name: string;

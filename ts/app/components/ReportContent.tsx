@@ -3,6 +3,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTheme, type Theme } from '../theme';
+import MarkdownText from './MarkdownText';
 import type { PipelineEvent } from '../lib/runner';
 
 interface Props {
@@ -23,7 +24,7 @@ export default function ReportContent({ roleKey, opinion, tabTitle, reports, fin
       <ScrollView style={styles.container}>
         {finalDecision ? (
           <View style={styles.finalCard}>
-            <Text style={styles.finalBody}>{finalDecision}</Text>
+            <MarkdownText content={finalDecision} />
           </View>
         ) : (
           <Text style={styles.muted}>分析完成后此处显示最终投资决策。</Text>
@@ -51,14 +52,14 @@ export default function ReportContent({ roleKey, opinion, tabTitle, reports, fin
                 <Pressable onPress={() => setExpanded((s) => ({ ...s, [i]: !open }))}>
                   <Text style={styles.opinionTitle}>{i === 0 ? '初稿' : '对抗修订'} {open ? '▾' : '▸'}</Text>
                 </Pressable>
-                {open ? <Text style={styles.opinionBody}>{e.content}</Text> : null}
+                {open ? <MarkdownText content={e.content} /> : null}
               </View>
             );
           })
         : // 非观点 → 平铺
           reports.map((e, i) => (
             <View key={i} style={styles.opinionCard}>
-              <Text style={styles.opinionBody}>{e.content}</Text>
+              <MarkdownText content={e.content} />
             </View>
           ))}
     </ScrollView>
@@ -70,9 +71,7 @@ function makeStyles(theme: Theme) {
     container: { flex: 1, padding: theme.spacing.md },
     opinionCard: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, marginBottom: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.border },
     opinionTitle: { fontSize: 13, fontWeight: '600', color: theme.colors.primary },
-    opinionBody: { fontSize: 13, lineHeight: 20, color: theme.colors.text, marginTop: 6 },
     finalCard: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.primary },
-    finalBody: { fontSize: 14, lineHeight: 22, color: theme.colors.text },
     muted: { color: theme.colors.textSecondary, fontSize: 13 },
   });
 }

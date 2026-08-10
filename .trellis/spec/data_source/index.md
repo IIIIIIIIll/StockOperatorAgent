@@ -169,6 +169,26 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
 新数据源仍遵循同一形状：class per source、method per endpoint、raw DataFrame
 out；DataAcquisition 是唯一消费者。
 
+## TS 移植补充（2026-08-10，web 端到端修复沉淀）
+
+`ts/` 侧移植本契约时的实测结论（Python 侧语义不变）：
+
+- **F10 双词表**：真实 TDX 服务器（通达信格式）指标名与港澳资讯 fixture 不同——
+  `归母净利(未调整:万)`/`营业总收(未调整:万)`/`总营收同比增长率(%)` vs
+  `净利润(元)`/`营业总收入(元)`/`营业总收入增长率(%)`。`src/reports.ts`
+  `METRIC_COLUMNS` 双词表 + 单位归一（万元 ×10⁴ → 元）。
+- **流通股本来源**：pytdx `get_finance_info`（命令 0x000b）在 node-tdx-market
+  所连服务器**不响应**（实测超时/断连）——勿用；走 F10「股本结构」节文本解析
+  （`src/f10.ts parseCapitalStructure`，单位万股 ×10⁴ → 股）。换手率% =
+  成交量(手)×10⁴/流通股本(股)，vendor `compute_all` shares 传**万股**（量手/万股
+  = %）。
+- **web 无原始 TCP**：浏览器跑不了 node-tdx-market——`server.mjs` 加同源
+  `/tdx-collect` 代理（Node 侧采集回 JSON），与 `/llm-proxy` 同架构；RN 真机走
+  react-native-tcp-socket（M0-D1）。
+- **日期双格式**：TDX 采集日K 为 `YYYYMMDD`（无横线），展示/图表
+  （lightweight-charts 业务日）需 `YYYY-MM-DD`——`src/format.ts fmtDate`
+  幂等归一。
+
 ## BillionsClient (`data_source/chinese_mainland/billions/client.py`)
 
 亿信 Fin 开放平台薄包装（2026-08-08，08-08-billions-api-integration）。**与

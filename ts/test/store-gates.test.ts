@@ -37,6 +37,18 @@ describe('store (AC4)', () => {
     s.close();
   });
 
+  it('replaceDatas:全量替换(旧行删除 + last_data_update 更新,单事务)', () => {
+    const s = new Store();
+    s.putStock({ ticker: 'T', name: 'n', overview: null, overviewLastUpdate: null, lastDataUpdate: null });
+    s.addDatas('T', bars(['2026-01-01', '2026-01-02']));
+    expect(s.replaceDatas('T', bars(['2026-02-01', '2026-02-02', '2026-02-03']))).toBe(3);
+    const got = s.getDatas('T');
+    expect(got).toHaveLength(3); // 旧 01-01/01-02 不残留
+    expect(got[0].date).toBe('2026-02-01');
+    expect(s.getStock('T')?.lastDataUpdate).toBe('2026-02-03');
+    s.close();
+  });
+
   it('addPerformanceReports dedupes by report_date, single transaction', () => {
     const s = new Store();
     s.addPerformanceReports('T', [

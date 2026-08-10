@@ -131,10 +131,21 @@ export class AgentNode {
   }
 }
 
-// ─── 角色类（M2 查询构建简版；语义结构对齐 Python，M3 逐字对齐） ─────────
+// ─── 角色类（查询构建对齐 Python agents/chinese_mainland/*.py——f-string 逐字：
+//     专家嵌 stock_information；交易员嵌三份专家报告；经理嵌报告+双方观点） ─────
 
 function target(state: StateLike): string {
   return String(state['target_stock_ticker'] ?? '');
+}
+
+/** 专家报告文本（completeExpert 写字符串 key）。 */
+function expertReport(state: StateLike, key: string): string {
+  return String(state[key] ?? '');
+}
+
+/** 图前 enrichment 组装的数据文本（build_stock_information 输出）。 */
+function stockInfo(state: StateLike): string {
+  return String(state['stock_information'] ?? '');
 }
 
 export class FundamentalAnalysisExpert extends AgentNode {
@@ -142,7 +153,9 @@ export class FundamentalAnalysisExpert extends AgentNode {
     super(llm, config, progressUpdater, [], fundamental_analysis_expert_message);
   }
   async fundamental_analysis_expert(state: StateLike) {
-    return this.completeExpert(`请分析 ${target(state)} 的基本面`, 'fundamental_analysis', {
+    return this.completeExpert(
+      `\n        请基于以下真实数据给出你对股票代码${target(state)}的基本面分析\n        ${stockInfo(state)}\n        `,
+      'fundamental_analysis', {
       startMsg: '基本面分析师开始分析...', doneMsg: '基本面分析师完成分析', logLabel: 'Fundamental Analysis Expert',
     });
   }
@@ -153,7 +166,9 @@ export class TrendAnalysisExpert extends AgentNode {
     super(llm, config, progressUpdater, [], trend_analysis_expert_message);
   }
   async trend_analysis_expert(state: StateLike) {
-    return this.completeExpert(`请分析 ${target(state)} 的趋势`, 'trend_analysis', {
+    return this.completeExpert(
+      `\n        请基于以下真实数据给出你对股票代码${target(state)}的趋势分析\n        ${stockInfo(state)}\n        `,
+      'trend_analysis', {
       startMsg: '趋势分析师开始分析...', doneMsg: '趋势分析师完成分析', logLabel: 'Trend Analysis Expert',
     });
   }
@@ -164,7 +179,9 @@ export class TechnicalIndicatorAnalyst extends AgentNode {
     super(llm, config, progressUpdater, [], technical_indicator_analyst_message);
   }
   async technical_indicator_analyst(state: StateLike) {
-    return this.completeExpert(`请分析 ${target(state)} 的技术指标`, 'technical_indicator_analysis', {
+    return this.completeExpert(
+      `\n        请基于以下真实数据给出你对股票代码${target(state)}的技术指标分析\n        ${stockInfo(state)}\n        `,
+      'technical_indicator_analysis', {
       startMsg: '技术指标分析师开始分析...', doneMsg: '技术指标分析师完成分析', logLabel: 'Technical Indicator Analyst',
     });
   }
@@ -175,7 +192,11 @@ export class BillionsInformationAnalyst extends AgentNode {
     super(llm, config, progressUpdater, [], information_analyst_message);
   }
   async information_analyst(state: StateLike) {
-    return this.completeExpert(`请整合 ${target(state)} 的信息面素材`, 'information_analysis', {
+    // 对齐 Python information_analyst.py：嵌股票信息 + 素材上下文；
+    // web/Node 无亿信素材 → 固定回退文本（Python 无素材时逐字相同）
+    return this.completeExpert(
+      `\n        请基于以下已检索到的信息面素材，给出你对股票代码${target(state)}的信息面分析报告\n        股票信息: \n        ${stockInfo(state)}\n        \n        检索到的信息面素材: \n        （本次运行未检索到任何信息面素材：所有来源均不可用或未启用）\n        `,
+      'information_analysis', {
       startMsg: '信息面分析师开始分析...', doneMsg: '信息面分析师完成分析', logLabel: 'Information Analyst',
     });
   }
@@ -189,15 +210,16 @@ export class BullishTrader extends AgentNode {
   private reviseLlm: unknown;
   async bullish_trader(state: StateLike) {
     const info = this.infoSection(state);
-    return this.completeWithTools(`基于分析报告给出 ${target(state)} 的多头观点\n${info}`, 'bullish_opinions', {
+    const q = `\n        现在请基于以下信息，给出你对股票代码${target(state)}的看法：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n        ${info}`;
+    return this.completeWithTools(q, 'bullish_opinions', {
       startMsg: '多头交易员开始分析...', doneMsg: '多头交易员完成分析', logLabel: 'Bullish Trader',
     });
   }
   async bullish_revise(state: StateLike) {
-    const own = String((state['bullish_opinions'] as Array<{ content: string }>)?.[0]?.content ?? '');
-    const opp = String((state['bearish_opinions'] as Array<{ content: string }>)?.[0]?.content ?? '');
+    const own = String((state['bullish_opinions'] as Array<{ content: string }>)?.at(-1)?.content ?? '');
+    const opp = String((state['bearish_opinions'] as Array<{ content: string }>)?.at(-1)?.content ?? '');
     return this.completeWithTools(
-      `对方观点：${opp}\n你的初稿：${own}`,
+      `\n        现在请检视空方交易员对你多头初稿的质疑，给出股票代码${target(state)}的修订版完整多头观点：\n        空方交易员观点: \n        ${opp}\n        \n        你的初稿多头观点: \n        ${own}\n        \n`,
       'bullish_opinions',
       { chain: this.reviseLlm, maxToolRounds: 3, startMsg: '多方修订开始...', doneMsg: '多方修订完成', logLabel: 'Bullish Revise' },
     );
@@ -212,15 +234,16 @@ export class BearishTrader extends AgentNode {
   private reviseLlm: unknown;
   async bearish_trader(state: StateLike) {
     const info = this.infoSection(state);
-    return this.completeWithTools(`基于分析报告给出 ${target(state)} 的空头观点\n${info}`, 'bearish_opinions', {
+    const q = `\n        现在请基于以下信息，给出你对股票代码${target(state)}的看法：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n        ${info}`;
+    return this.completeWithTools(q, 'bearish_opinions', {
       startMsg: '空头交易员开始分析...', doneMsg: '空头交易员完成分析', logLabel: 'Bearish Trader',
     });
   }
   async bearish_revise(state: StateLike) {
-    const own = String((state['bearish_opinions'] as Array<{ content: string }>)?.[0]?.content ?? '');
-    const opp = String((state['bullish_opinions'] as Array<{ content: string }>)?.[0]?.content ?? '');
+    const own = String((state['bearish_opinions'] as Array<{ content: string }>)?.at(-1)?.content ?? '');
+    const opp = String((state['bullish_opinions'] as Array<{ content: string }>)?.at(-1)?.content ?? '');
     return this.completeWithTools(
-      `对方观点：${opp}\n你的初稿：${own}`,
+      `\n        现在请检视多方交易员对你空头初稿的质疑，给出股票代码${target(state)}的修订版完整空头观点：\n        多方交易员观点: \n        ${opp}\n        \n        你的初稿空头观点: \n        ${own}\n        \n`,
       'bearish_opinions',
       { chain: this.reviseLlm, maxToolRounds: 3, startMsg: '空方修订开始...', doneMsg: '空方修订完成', logLabel: 'Bearish Revise' },
     );
@@ -237,7 +260,7 @@ export class InvestmentManager extends AgentNode {
     const bearish = String((state['bearish_opinions'] as Array<{ content: string }> | undefined)?.at(-1)?.content ?? '');
     const info = this.infoSection(state);
     return this.completeWithTools(
-      `多头观点：${bullish}\n空头观点：${bearish}\n${info}给出最终投资决策`,
+      `\n        现在请基于以下信息，给出你对股票代码${target(state)}的最终投资建议：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n${info}\n        多头观点: \n        ${bullish}\n        \n        空头观点: \n        ${bearish}\n        \n`,
       'final_decision',
       { startMsg: '投资经理开始终审...', doneMsg: '投资经理完成终审', logLabel: 'Investment Manager' },
     );

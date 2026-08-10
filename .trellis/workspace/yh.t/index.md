@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 20
+- **Total Sessions**: 21
 - **Last Active**: 2026-08-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~684 | Active |
+| `journal-1.md` | ~710 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 21 | 2026-08-10 | web 端到端修复:采集代理 + 数据链 + UI 补全 | - | `master` |
 | 20 | 2026-08-10 | TS 全量重写收尾:AC 复核 + 任务归档 | - | `master` |
 | 19 | 2026-08-10 | statusline 全功能演示——Trellis workflow 完整生命周期 | `213cd11` | `master` |
 | 18 | 2026-08-09 | LLM 服务去供应商化：可配置 endpoint/key/模型名 | `fc7f22e` | `master` |

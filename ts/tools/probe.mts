@@ -6,14 +6,18 @@ import { TdxClient } from 'node-tdx-market';
 import { Store } from '../src/store.ts';
 import { createPipelineRunner } from '../src/events.ts';
 import { makeLlm } from '../src/llm.ts';
-import { getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client.ts';
+import { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client.ts';
 import { collectAll } from '../src/tdx/quoteClient.ts';
+import { parseCapitalStructure, parseFinanceIndicatorsAllTables } from '../src/f10.ts';
+import { composeReports } from '../src/reports.ts';
 
-async function fetchF10(client: TdxClient, ticker: string): Promise<string> {
-  const cats = await getCompanyInfoCategory(client, 1, ticker);
-  const section = cats.find((c) => c.name.includes('财务分析'));
+async function fetchSection(client: TdxClient, ticker: string, namePart: string): Promise<string> {
+  // market 按交易所推断(0=深 1=沪)——旧硬编码 1 只对 6xxxxx 正确
+  const market = f10MarketFor(ticker);
+  const cats = await getCompanyInfoCategory(client, market, ticker);
+  const section = cats.find((c) => c.name.includes(namePart));
   if (!section) return '';
-  return getCompanyInfoContent(client, 1, ticker, section.filename, section.start, section.length);
+  return getCompanyInfoContent(client, market, ticker, section.filename, section.start, section.length);
 }
 
 async function main(): Promise<void> {
@@ -30,7 +34,8 @@ async function main(): Promise<void> {
   try {
     console.error(`=== 探针 ${ticker} ===`);
     await client.connect();
-    const f10Text = await fetchF10(client, ticker);
+    const f10Text = await fetchSection(client, ticker, '财务分析');
+    const capitalText = await fetchSection(client, ticker, '股本结构');
     if (!f10Text) console.error('  ! F10 财务分析为空(跳过盈利能力段)');
 
     // 采集:快照/日K/名称 → store(探针侧,App bundle 不引入 node-tdx-market)
@@ -49,6 +54,19 @@ async function main(): Promise<void> {
     store.addDatas(ticker, collected.bars);
     console.error(`  · 行情已入库(${collected.bars.length} 根日K)`);
 
+    // 业绩报告:F10 财务分析节 → 每报告期一行入库(对齐 Python build_reports)
+    const reports = composeReports(
+      ticker,
+      collected.name ?? existing?.name ?? ticker,
+      parseFinanceIndicatorsAllTables(f10Text),
+    );
+    if (reports.length) {
+      store.addPerformanceReports(ticker, reports);
+      console.error(`  · 业绩报告已入库(${reports.length} 期,最新 ${reports[reports.length - 1].report_date})`);
+    } else {
+      console.error('  ! 无业绩报告(F10 无可映射指标)');
+    }
+
     // LLM:三键齐 → 真 LLM;缺 → 占位 stub(验证真数据链,LLM 段留待配 key)
     let llm: unknown;
     const keysOk = ['LLM_API_KEY', 'LLM_MODEL', 'LLM_BASE_URL'].every(
@@ -63,7 +81,7 @@ async function main(): Promise<void> {
     }
 
     const t0 = Date.now();
-    const report = await runner.run(ticker, { f10Text, llm });
+    const report = await runner.run(ticker, { f10Text, llm, capital: parseCapitalStructure(capitalText) });
     console.error(`  耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s;final_decision ${report.final_decision.length} 字符`);
     const out = {
       ticker: report.ticker,

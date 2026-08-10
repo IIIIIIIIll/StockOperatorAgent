@@ -7,39 +7,44 @@ import { store } from '../lib/runner';
 import type { IChartApi } from 'lightweight-charts';
 import { composeOverview } from '../../src/overview.ts';
 import { parseIndicatorSection } from '../../src/f10.ts';
+import { computeAll } from '../../src/indicators.ts';
 import { fmtNumber } from '../../src/pipeline.ts';
+import { fmtDate } from '../../src/format.ts';
 import { useTheme, type Theme } from '../theme';
-import demo from '../data/demo.json';
 
 const DAILY_TABLE_N = 20;
 const KLINE_N = 60;
 
-export default function DataScreen({ stockInformation, dataVersion }: { stockInformation: string; dataVersion?: number }) {
+export default function DataScreen({ stockInformation, dataVersion, ticker }: { stockInformation: string; dataVersion?: number; ticker: string }) {
   void dataVersion; // 父组件数据就绪信号:触发本组件重渲染以读取 store
   const theme = useTheme();
   const styles = makeStyles(theme);
-  const bars = store.getDatas('600036');
-  const stock = store.getStock('600036');
-  const f10Text = store.getMeta('demo:f10') ?? '';
+  const bars = store.getDatas(ticker);
+  const stock = store.getStock(ticker);
+  const f10Text = store.getMeta(`f10:${ticker}`) ?? (ticker === '600036' ? (store.getMeta('demo:f10') ?? '') : '');
   const profit = f10Text ? parseIndicatorSection(f10Text, '【盈利能力指标】') : [];
   const periods = [...new Set(profit.map((r) => r.period))].sort();
   const latest = periods[periods.length - 1] ?? '';
-  const reports = store.getPerformanceReports('600036');
+  const reports = store.getPerformanceReports(ticker);
 
   // 概览:snapshot 缺失 → 价格回退日K末根(与 compose_overview 语义一致)
   const overview = composeOverview({
-    ticker: '600036',
-    name: stock?.name ?? '招商银行',
+    ticker,
+    name: stock?.name ?? ticker,
     snapshot: null,
     capital: null,
     f10: parseIndicatorSection(f10Text, '【主要财务指标】'),
     bars,
-    today: bars.length ? bars[bars.length - 1].date : '2026-08-09',
+    today: bars.length ? bars[bars.length - 1].date : '2026-08-10',
   });
 
   const tail = bars.slice(-DAILY_TABLE_N);
   const klineBars = bars.slice(-KLINE_N);
-  const lastInd = demo.indicators[demo.indicators.length - 1] as Record<string, number | null>;
+  // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 600036 正确)
+  const indRows = computeAll(
+    bars.map((b) => ({ open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume })),
+  );
+  const lastInd = (indRows[indRows.length - 1] ?? {}) as Record<string, number | null>;
   const indicatorKeys = ['MA5', 'MA10', 'MA20', 'MACD', 'RSI6', 'K', 'BOLL_UP', 'ATR', 'VOL_RATIO', 'MACD_VH', 'LIU_BIAS'];
 
   return (
@@ -84,7 +89,7 @@ export default function DataScreen({ stockInformation, dataVersion }: { stockInf
           </View>
           {tail.map((b, i) => (
             <View key={i} style={styles.row}>
-              <Text style={[styles.cell, styles.dateCell]}>{b.date}</Text>
+              <Text style={[styles.cell, styles.dateCell]}>{fmtDate(b.date)}</Text>
               <Text style={styles.cell}>{b.open.toFixed(2)}</Text>
               <Text style={[styles.cell, { color: b.close >= b.open ? theme.colors.up : theme.colors.down }]}>{b.close.toFixed(2)}</Text>
               <Text style={styles.cell}>{b.high.toFixed(2)}</Text>
@@ -110,17 +115,22 @@ export default function DataScreen({ stockInformation, dataVersion }: { stockInf
         </View>
       )}
 
-      {/* 业绩表(采集层 M4 接入;当前演示数据为空) */}
+      {/* 业绩表(F10 财务分析 → composeReports 每期一行) */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>业绩报告({reports.length})</Text>
         {reports.length === 0 ? (
-          <Text style={styles.muted}>暂无业绩数据 —— TDX F10 业绩采集在 M4 接入(当前为演示数据)。</Text>
+          <Text style={styles.muted}>暂无业绩数据 —— 该股 F10 财务分析无可用指标。</Text>
         ) : (
-          reports.map((r, i) => (
-            <View key={i} style={styles.opinionCard}>
-              <Text style={styles.opinionBody}>{r.report_date}: {JSON.stringify(r.fields)}</Text>
-            </View>
-          ))
+          reports.slice(-4).reverse().map((r, i) => {
+            const f = r.fields as Record<string, unknown>;
+            return (
+              <View key={i} style={styles.opinionCard}>
+                <Text style={styles.opinionBody}>
+                  {r.report_date} — EPS {fmtNumber(f.eps as number, 2)} | 净利润 {fmtNumber(f.net_profit as number, 0)} | YoY {fmtNumber(f.net_profit_YoY_rate as number, 2)}% | QoQ {fmtNumber(f.net_profit_QoQ_rate as number, 2)}% | ROE {fmtNumber(f.net_worth_return_rate as number, 2)}% | 每股净资产 {fmtNumber(f.net_worth_per_share as number, 2)} | 每股现金流 {fmtNumber(f.cash_flow_per_share as number, 2)}
+                </Text>
+              </View>
+            );
+          })
         )}
       </View>
 
@@ -141,9 +151,9 @@ export default function DataScreen({ stockInformation, dataVersion }: { stockInf
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>分析上下文(build_stock_information 输出)</Text>
         {stockInformation ? (
-          <Text style={styles.infoText}>{stockInformation.slice(0, 2400)}{stockInformation.length > 2400 ? '\n…(截断)' : ''}</Text>
+          <Text style={styles.infoText}>{stockInformation}</Text>
         ) : (
-          <Text style={styles.muted}>尚未运行分析——上下文将在「设置」点击开始后生成。</Text>
+          <Text style={styles.muted}>尚未生成分析上下文——点击「开始分析」后生成。</Text>
         )}
       </View>
     </ScrollView>
@@ -183,7 +193,7 @@ function KLineChart({ bars, theme }: { bars: Array<{ date: string; open: number;
         wickDownColor: theme.colors.down,
       });
       candle.setData(bars.map((b) => ({
-        time: b.date as never,
+        time: fmtDate(b.date) as never,
         open: b.open, high: b.high, low: b.low, close: b.close,
       })));
       const volume = chart.addSeries(HistogramSeries, {
@@ -192,7 +202,7 @@ function KLineChart({ bars, theme }: { bars: Array<{ date: string; open: number;
       });
       volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
       volume.setData(bars.map((b) => ({
-        time: b.date as never,
+        time: fmtDate(b.date) as never,
         value: b.volume,
         color: b.close >= b.open ? 'rgba(211,47,47,0.4)' : 'rgba(26,143,61,0.4)',
       })));
