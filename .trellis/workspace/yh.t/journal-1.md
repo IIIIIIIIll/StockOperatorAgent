@@ -708,3 +708,38 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 22: 信息面分析师联网搜索回退:谓词放宽 + 预抓兜底 + /web-search 代理
+
+**Date**: 2026-08-11
+**Task**: 信息面分析师联网搜索回退:谓词放宽 + 预抓兜底 + /web-search 代理
+**Branch**: `master`
+
+### Summary
+
+08-10-web-search-fallback 完成:Python/TS 信息面分析师接入免 key DDG 回退——无 BILLIONS_API_KEY 时不再产出空素材报告,注册分析师节点并联网预抓;亿信优先、联网兜底、双失败逐字占位
+
+### Main Changes
+
+- Python:billions_cap_switch(无 key 能力开关) + information_analyst_enabled 放宽(ANALYST 且 SEARCH/TWITTER/联网任一) + _prefetch web 回退(_searcher 注入)
+- TS:makeProxySearcher/defaultSearcher 浏览器代理分支 + server.mjs /web-search 同源代理(q 校验/20s 超时/5xx) + 分析师桩改真实预抓 + App.tsx 移除 web 强制禁用
+- ddgSearcher html 端点反爬时回退 vqd+news.js(实测可达)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b57d88f` | (see git log) |
+
+### Testing
+
+- [OK] 全量回归:Python pytest 583 passed/19 skipped + TS vitest 130 passed/1 skipped + 双 tsc 干净 + AC4 curl 22 条 results
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 08-11-ts-log-persistence(另一会话任务)未触碰;新增 web 回退 spec 文档(agents/core/error-handling/testing/architecture + README)
