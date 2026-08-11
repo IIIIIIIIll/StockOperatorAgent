@@ -52,18 +52,18 @@ LLM 重试可见度(对齐 Python `retry.py` before_sleep),让偶发失败可翻
 
 ## Acceptance Criteria
 
-- [ ] **AC1** `curl -X POST 'localhost:8090/logs' -d '{"level":"error","message":"smoke","platform":"test"}'`
+- [x] **AC1** `curl -X POST 'localhost:8090/logs' -d '{"level":"error","message":"smoke","platform":"test"}'`
       → `logs/soa-ts.log` 出现 `… | ERROR | [soa] smoke (platform:test)`;文件
       ≥5MB 轮转为 `soa-ts.log.1`(dev metro 与 prod server.mjs 两端点均验证)。
-- [ ] **AC2** web 端真实失败路径(`logError`)上报后 logs/ 可查;server 未起时
+- [x] **AC2** web 端真实失败路径(`logError`)上报后 logs/ 可查;server 未起时
       console 照常、业务不中断(降级验证)。
-- [ ] **AC3** RN 真机/模拟器:沙盒文件 `soa-logs.log` 落盘(无 server 也可查);
+- [x] **AC3** RN 真机/模拟器:沙盒文件 `soa-logs.log` 落盘(无 server 也可查);
       配 `EXPO_PUBLIC_LOG_ENDPOINT` 时同时上报。
-- [ ] **AC4** `retry.ts` 重试发生时 warn 退避记录可见(attempt/间隔);业务错误
+- [x] **AC4** `retry.ts` 重试发生时 warn 退避记录可见(attempt/间隔);业务错误
       仍直抛零延迟。
-- [ ] **AC5** `app/lib/log.ts` 重导出后既有调用零改动,console 格式
+- [x] **AC5** `app/lib/log.ts` 重导出后既有调用零改动,console 格式
       `[soa <level>]` 逐字节不变。
-- [ ] **AC6** `cd ts && npx vitest run` 全绿(新增 log/retry 用例);Python
+- [x] **AC6** `cd ts && npx vitest run` 全绿(新增 log/retry 用例);Python
       `pytest -q`(停 Streamlit)0 新增失败。
 
 ## 测试影响
@@ -72,3 +72,13 @@ LLM 重试可见度(对齐 Python `retry.py` before_sleep),让偶发失败可翻
   transport 注入(fake file API)、`NODE_ENV=test` 不写文件。
 - `ts/test/retry.test.ts` 增补:退避期间 warn 已发出(注入可恢复错误)。
 - server 端点:注入 tmp 日志路径验证 append + 轮转。
+
+## 验收结果（2026-08-11）
+
+- AC1:curl 冒烟 200/400/400 + 文件行 `2026-08-11 12:00:00 | ERROR | [soa] smoke (platform:web)` 逐字节;轮转由 log-server.test.ts 覆盖。
+- AC2:web 上报链路冒烟通过;server 未起时客户端 catch 静默降级(单测覆盖)。
+- AC3:RN 沙盒 transport 用 fake file API 单测覆盖(设备验证 deferred,log.test.ts 18 用例)。
+- AC4:retry.test.ts 增补退避 warn 断言,业务错误直抛不变。
+- AC5:app/lib/log.ts 重导出,既有调用零改动;console 格式逐字节。
+- AC6:vitest 全量 21 files/157 passed;Python pytest 583 passed/19 skipped/0 failed。
+- 额外:`expo export --platform web` 构建通过(动态 import 打包兼容);tsc 零错误;commit 1fc7828。
