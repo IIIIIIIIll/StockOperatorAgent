@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/error-handling.md", "reason": "TS 日志上报失败静默降级不打断业务的依据;密钥不写日志约定"}
+{"file": ".trellis/spec/testing.md", "reason": "测试 house style:注入点、无 mock 框架;log/retry 用例写法"}
+{"file": ".trellis/spec/guides/index.md", "reason": "共享思考指南:跨层数据流、改动前搜索既有值"}

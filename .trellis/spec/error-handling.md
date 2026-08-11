@@ -107,6 +107,49 @@ problem becomes a user-facing failure.
   `make_web_search_tool`/`_summarize_results` 单点与 `_prefetch` 判定），
   图不中断；TS 分析师同语义（`webSearchEnabled()` 关 → 不触网直接回退）。
 
+## TS 侧日志（2026-08-11，ts-log-persistence）
+
+统一日志 API 在 `ts/src/log.ts`（web/RN/Node/vitest 全端共用），环境感知
+transport;`ts/app/lib/log.ts` 仅为重导出。落盘拓扑：浏览器无 fs → 上报
+server 汇聚；RN → expo-file-system 沙盒；server → 原生 fs。
+
+**Signatures**
+- `ts/src/log.ts` 导出 `log/info/warn/error/debug(level, message)`；transport
+  工厂 `makeReporter(_fetch, _endpoint)` / `makeRnFileTransport(_fs, _writeDisabled)`
+  （注入点，house style 无 mock）；`formatLogLine` 行格式单一来源（RN 沙盒）。
+- `POST /logs`（`ts/app/lib/logs-server.cjs` 共享实现，metro dev + server.mjs
+  双入口，CJS 因 metro 无 strip-types）：
+  `{ts?, level, message, platform}` → 200 `{ok:true}`。
+
+**Contracts**
+- 行格式（两端一致）：`<ts 本地 YYYY-MM-DD HH:mm:ss> | <LEVEL> | [soa] <message> (platform:<p>)`
+- 落盘：默认 `<repo>/logs/soa-ts.log`（`SOA_LOG_DIR` 覆盖）;≥5MB → rename `.1`。
+- env：`EXPO_PUBLIC_LOG_ENDPOINT`（RN 上报端点，空不上报）、`SOA_LOG_FILE=0`
+  或 `NODE_ENV=test`（客户端不写文件，防测试污染）、`__SOA_DEBUG=1`（debug 级）。
+
+**Validation & Error Matrix**
+- level ∉ info|warn|error|debug → 400；message 非 string → 400；platform 空 → 400；
+  body >64KB → 413；非 JSON → 400；写盘失败 → 500。客户端上报失败/写文件失败
+  → catch 静默降级 console，**不打断业务**（本条是 TS 侧降级风格核心）。
+
+**Good/Base/Bad**
+- Good：web 端 `logError` 后 server 未起 → console 照常，业务继续。
+- Base：dev/prod 端点行为一致（共享 `logs-server.cjs`，不各自实现防漂移）。
+- Bad：静态 import expo-file-system / react-native / node:fs 进 `src/log.ts`
+  → 污染其他平台打包（Metro 崩 / vitest 崩）；平台判定用全局探针
+  （`window+document` / `navigator.product==='ReactNative'` / `process.versions.node`）。
+
+**Tests Required**
+- `ts/test/log.test.ts`（环境分支/上报 payload/RN 沙盒注入/`NODE_ENV=test` 不写文件）、
+  `ts/test/log-server.test.ts`（校验矩阵 + 注入 tmp `SOA_LOG_DIR` 落盘/轮转）、
+  `retry.test.ts`（退避 warn 断言）。
+- 密钥不写日志（settings.ts 已 mask，上报内容与 console 相同）。
+
+**Wrong vs Correct**
+- Wrong：`import 'expo-file-system'` 顶层静态导入 → web/Node 构建携带平台专属
+  模块。Correct：仅 RN 分支 `await import('expo-file-system')`（静态 specifier，
+  Metro 打包要求），环境判定短路使其他平台永不执行。
+
 ## Rules of Thumb
 
 - New data-layer methods: return `False` + `logger.error(...)` on "expected

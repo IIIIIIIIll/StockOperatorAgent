@@ -17,6 +17,16 @@ function failingLlm(failures: Array<{ status?: number; message?: string }>, okCo
   return { llm: fn, calls: () => calls };
 }
 
+// 无 mock 框架:临时替换 console.warn 捕获输出,finally 还原。
+function captureWarn(): { lines: string[]; restore: () => void } {
+  const lines: string[] = [];
+  const orig = console.warn;
+  console.warn = ((...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  }) as typeof console.warn;
+  return { lines, restore: () => { console.warn = orig; } };
+}
+
 describe('retry (AC4)', () => {
   it('429 retries 3 times with backoff then succeeds', async () => {
     const { llm, calls } = failingLlm([
@@ -36,8 +46,31 @@ describe('retry (AC4)', () => {
 
   it('business error (400) throws immediately, zero retries', async () => {
     const { llm, calls } = failingLlm([{ status: 400, message: 'bad request' }]);
-    await expect(invokeWithRetry(llm, {}, {}, { baseDelay: 0.001 })).rejects.toThrow('bad request');
+    const cap = captureWarn();
+    try {
+      await expect(invokeWithRetry(llm, {}, {}, { baseDelay: 0.001 })).rejects.toThrow('bad request');
+    } finally {
+      cap.restore();
+    }
     expect(calls()).toBe(1);
+    expect(cap.lines).toHaveLength(0); // 业务错误直抛,不退避不 warn
+  });
+
+  it('退避前 warn 发出 attempt/异常类型/下次间隔(AC4,对齐 Python before_sleep)', async () => {
+    const { llm, calls } = failingLlm([
+      { status: 429, message: 'rate limited' },
+      { status: 503, message: 'unavailable' },
+    ]);
+    const cap = captureWarn();
+    try {
+      await invokeWithRetry(llm, {}, {}, { baseDelay: 0.001 });
+    } finally {
+      cap.restore();
+    }
+    expect(calls()).toBe(3); // 1 首 + 2 重试
+    expect(cap.lines).toHaveLength(2); // 每次退避前一条
+    expect(cap.lines[0]).toContain('LLM invoke attempt 1 failed with Error; retrying in 0.001s');
+    expect(cap.lines[1]).toContain('LLM invoke attempt 2 failed with Error; retrying in 0.002s');
   });
 
   it('exhausted retries reraise original error', async () => {

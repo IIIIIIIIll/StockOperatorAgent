@@ -43,6 +43,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 // LLM 同源代理(dev server):POST /llm-proxy/{path} → 转发配置的 base,
 // 补 CORS 头(网页与 dev server 同源,彻底绕开浏览器跨域限制——
 // 对齐 Streamlit 服务端调用 LLM 的架构)。生产构建见 server.mjs。
+const { handleLogs } = require('./lib/logs-server.cjs');
 async function llmProxyHandler(req, res) {
   try {
     let body = '';
@@ -73,6 +74,10 @@ config.server.enhanceMiddleware = (middleware, _server) => {
   return (req, res, next) => {
     if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {
       void llmProxyHandler(req, res);
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/logs') {
+      void handleLogs(req, res); // 日志汇聚(与 server.mjs 同实现,见 lib/logs-server.cjs)
       return;
     }
     return middleware(req, res, next);

@@ -11,6 +11,7 @@ import { TdxClient } from 'node-tdx-market';
 import { collectAll } from '../src/tdx/quoteClient.ts';
 import { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client.ts';
 import { ddgSearcher } from '../src/webSearch.ts';
+import { handleLogs } from './lib/logs-server.cjs';
 
 const PORT = Number(process.env.PORT || 8090);
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -190,9 +191,13 @@ const server = http.createServer((req, res) => {
     void webSearch(req, res);
     return;
   }
+  if (req.method === 'POST' && req.url === '/logs') {
+    void handleLogs(req, res); // 日志汇聚(与 metro 中间件同实现,见 lib/logs-server.cjs)
+    return;
+  }
   serveStatic(req, res);
 });
 
 server.listen(PORT, () => {
-  console.log(`[soa] web server: http://localhost:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理 + /web-search 搜索代理)`);
+  console.log(`[soa] web server: http://localhost:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理 + /web-search 搜索代理 + /logs 日志汇聚)`);
 });

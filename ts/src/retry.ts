@@ -1,6 +1,9 @@
 // LLM 调用重试 —— 移植自 Python core/llms/retry.py
 // 可恢复：429/500/502/503/504/连接/超时 → 指数退避 ×3（1s 起，上限 8s）
 // 业务错误（400/认证）直抛零延迟；耗尽 reraise 原异常
+// 每次退避前 warn(attempt/异常类型/下次间隔),对齐 Python before_sleep。
+import { warn } from './log.ts';
+
 const ATTEMPTS = 3;
 const BASE_DELAY = 1.0;
 const MAX_DELAY = 8.0;
@@ -39,8 +42,16 @@ export async function invokeWithRetry(
     } catch (err) {
       lastErr = err;
       if (!isRetryable(err) || attempt === attempts) throw err;
+      const delay = Math.min(baseDelay * 2 ** (attempt - 1), MAX_DELAY);
+      // 异常类型探针:任意 throw 值,运行时 shape 不可静态化(非 Error 实例也取 constructor.name)
+      let errType = 'Error';
+      if (err && typeof err === 'object' && 'constructor' in err) {
+        const ctor = err.constructor;
+        if (typeof ctor === 'function' && ctor.name) errType = ctor.name;
+      }
+      warn(`LLM invoke attempt ${attempt} failed with ${errType}; retrying in ${delay}s`);
       const { promise, resolve } = Promise.withResolvers<void>();
-      setTimeout(resolve, Math.min(baseDelay * 2 ** (attempt - 1), MAX_DELAY) * 1000);
+      setTimeout(resolve, delay * 1000);
       await promise;
     }
   }
