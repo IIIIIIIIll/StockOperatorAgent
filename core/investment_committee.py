@@ -84,12 +84,13 @@ class InvestmentCommittee:
         逐字节一致，集成测试钉死）。
 
         信息面分析师为**条件接线**（08-08-billions-api-integration，
-        Step 4）：启用谓词在注册表单点定义（ANALYST 开且 SEARCH 或
-        TWITTER 至少一者开）——谓词开 → 注册第 4 位专家节点（与三专家
+        Step 4；08-10-web-search-fallback 放宽谓词）：启用谓词在注册表
+        单点定义（ANALYST 能力开关开 且（SEARCH/TWITTER 至少一者开 或
+        联网搜索开）——ANALYST 段无主闸 key 约束，无 key + web 开同样
+        注册，预抓走 DDG 兜底）——谓词开 → 注册第 4 位专家节点（与三专家
         并行，多空交易员变 4 入边 join）；否则完全不注册——图结构与
-        工具绑定与现状逐字节一致（零行为变化，AC1 由构造保证）。Out
-        of Scope 组合（ANALYST 开但 SEARCH/TWITTER 均关）视为分析师
-        不可用不产出。
+        工具绑定与现状逐字节一致（AC1 由构造保证）。Out of Scope 组合
+        （ANALYST 开但亿信源与联网均关）视为分析师不可用不产出。
 
         _llm：测试注入点（house style 无 mock 框架）——默认 make_llm()
         （通用 OpenAI 兼容配置 LLM_API_KEY / LLM_MODEL / LLM_BASE_URL，

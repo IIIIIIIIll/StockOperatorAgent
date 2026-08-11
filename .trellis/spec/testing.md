@@ -73,12 +73,20 @@ Playwright UI 测试框架（mock 模式），**零 LLM API 调用、零 TDX/aks
   （曾实测 `openapi.billionsintelligence.com` / `BillionsApiError` 子串在
   实际日志行不出现，已弃用）；主服务器注入 dummy `BILLIONS_API_KEY` 覆盖
   ANALYST 开路径（8 Tab），另起 `server_no_billions`（端口 +1）验证无 key
-  → 7 Tab 无新 Tab。
+  + web 开 → 8 Tab 含信息面分析（mock 内容，FakeGraph 无条件吐全量 State）
+  ——08-10-web-search-fallback 起「无 key 零变化 7 Tab」语义废止，无 key +
+  web 关（显式 `WEB_SEARCH_DISABLED=1`）才是 7 Tab。
 - **字节一致性断言**：`test/agents/test_query_baselines.py` 用记录型 LLM 抓
   查询 repr 固化基线，`==` 全串比对——信息面报告插值缺失时 trader/manager
   查询必须与改动前逐字节一致（AC1）。
 - **开关矩阵测试**：三态（未设置/假值/真值）全覆盖；`test_graph_parallel`
   的 `_with_billions_env` 显式置空串防 `.env` 残留翻转图形状。
+- **联网回退测试（08-10-web-search-fallback）**：`_searcher` 注入点
+  （`make_web_search_tool(_searcher=…)` / 分析师构造 `_searcher`）测回退与
+  双失败；`_ENV_KEYS` 与 `_BILLIONS_ENV_KEYS` 均含 `WEB_SEARCH_DISABLED`
+  ——钉死「无 web 回退」旧行为的用例必须显式 `WEB_SEARCH_DISABLED=1`
+  （无 key 环境下 web 默认开，否则回退节会追加、字节断言破裂）；新图形态
+  用例：无 key + web 开 → 9 节点 19 边、预抓含【联网搜索结果】节。
 
 ## Isolating Agents from the Live Stack
 

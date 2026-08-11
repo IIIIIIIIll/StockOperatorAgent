@@ -11,9 +11,13 @@
 路由短语与初稿短语互斥、分析师短语与其余角色互斥（见 prompt.py），按
 system 消息路由不歧义。
 
-BILLIONS_* 开关由 _run_graph/_graph_node_names 统一隔离（默认全关——
-键显式置空串防开发者 .env 残留翻转图形状，跨运行确定性）；信息面分析师
-启用形态下经 client 模块工厂替换注入 fake（零网络，house style）。
+BILLIONS_* 开关 + 联网总闸（WEB_SEARCH_DISABLED，08-10-web-search-
+fallback）由 _run_graph/_graph_node_names 统一隔离（默认全关——键显式
+置空串防开发者 .env 残留翻转图形状，跨运行确定性；web 未显式设置的
+用例默认开，钉死 8 节点/17 messages 旧形态的用例显式设 "1"）；信息面
+分析师启用形态下经 client 模块工厂替换注入 fake（零网络，house
+style）；联网回退形态（无 key + web 开）经 make_web_search_tool 模块
+替换注入 searcher（同模式，零网络）。
 """
 
 import os
@@ -34,7 +38,10 @@ BULL_REV = "BULL_REV_MARKER 修订版多头：保留看多+回应空方"
 BEAR_REV = "BEAR_REV_MARKER 修订版空头：保留看空+回应多方"
 MANAGER = "MANAGER_MARKER 最终决策：持有"
 
-# 本文件涉及的 BILLIONS_* 开关键——统一隔离（含 ANALYST 与 FINDB 能力闸）
+# 本文件涉及的 BILLIONS_* 开关键 + 联网总闸——统一隔离（含 ANALYST 与
+# FINDB 能力闸）。WEB_SEARCH_DISABLED（08-10-web-search-fallback）：
+# 未显式设置的用例默认 web 开——钉死 8 节点/17 messages 旧形态的用例
+# 必须显式设 "1"（否则无 key 时分析师经联网路径注册并触发真实 DDG）
 _BILLIONS_ENV_KEYS = [
     "BILLIONS_API_KEY",
     "BILLIONS_DISABLED",
@@ -43,6 +50,7 @@ _BILLIONS_ENV_KEYS = [
     "BILLIONS_TWITTER_DISABLED",
     "BILLIONS_FETCH_DISABLED",
     "BILLIONS_ANALYST_DISABLED",
+    "WEB_SEARCH_DISABLED",
 ]
 
 
@@ -175,7 +183,7 @@ class TestGraphParallel:
         trader 查询不含观点 marker（revise/manager 才有），精确筛出恰好
         两条 trader 查询。
         """
-        final = _run_graph(_RoutedLlm(responses=[]))
+        final = _run_graph(_RoutedLlm(responses=[]), env={"WEB_SEARCH_DISABLED": "1"})
         contents = [m.content for m in final["messages"]]
         trader_queries = [
             c for c in contents
@@ -187,7 +195,7 @@ class TestGraphParallel:
 
     def test_manager_receives_both_opinions(self):
         """manager 查询含 bullish 与 bearish 修订版正文（[-1].content 语义）。"""
-        final = _run_graph(_RoutedLlm(responses=[]))
+        final = _run_graph(_RoutedLlm(responses=[]), env={"WEB_SEARCH_DISABLED": "1"})
         contents = [m.content for m in final["messages"]]
         assert any(BULL_REV in c and BEAR_REV in c for c in contents), \
             "manager 查询应含两份修订版观点"
@@ -205,7 +213,7 @@ class TestGraphParallel:
         manager 查询只含修订版 marker（BULL_REV/BEAR_REV，不含初稿
         BULL/BEAR），故含双初稿 marker 的查询必为 revise 轮——恰好两条。
         """
-        final = _run_graph(_RoutedLlm(responses=[]))
+        final = _run_graph(_RoutedLlm(responses=[]), env={"WEB_SEARCH_DISABLED": "1"})
         contents = [m.content for m in final["messages"]]
         both_drafts = [c for c in contents if BULL in c and BEAR in c]
         assert len(both_drafts) == 2, \
@@ -213,7 +221,7 @@ class TestGraphParallel:
 
     def test_messages_channel_complete(self):
         """messages 通道完整：初始 user 消息 + 8 组 query + response = 17 条。"""
-        final = _run_graph(_RoutedLlm(responses=[]))
+        final = _run_graph(_RoutedLlm(responses=[]), env={"WEB_SEARCH_DISABLED": "1"})
         assert final["messages"][0].content == "请帮我分析一下 000001"  # 初始消息保留
         assert len(final["messages"]) == 17
         assert final["fundamental_analysis"] == FUNDAMENTAL
@@ -225,7 +233,7 @@ class TestGraphParallel:
         """时序：三专家 + 两对并行 → 墙钟 ≈4 阶段（串行 8×2s≥16s，并行
         4×2s≈8s）。"""
         start = time.monotonic()
-        _run_graph(_SlowRoutedLlm(responses=[]))
+        _run_graph(_SlowRoutedLlm(responses=[]), env={"WEB_SEARCH_DISABLED": "1"})
         elapsed = time.monotonic() - start
         assert elapsed < 9.5, f"expected parallel 4-stage wall clock, got {elapsed:.1f}s"
 
@@ -236,7 +244,8 @@ class TestGraphParallel:
         info() 抛 NoSessionContext，整个分析崩溃——修复为安全调用后图形状
         与结果不受影响。
         """
-        final = _run_graph(_RoutedLlm(responses=[]), progress_updater=_ThrowingUpdater())
+        final = _run_graph(_RoutedLlm(responses=[]), progress_updater=_ThrowingUpdater(),
+                           env={"WEB_SEARCH_DISABLED": "1"})
         assert final["final_decision"] == MANAGER
         assert len(final["messages"]) == 17
 
@@ -255,7 +264,8 @@ class TestGraphParallel:
         from core.llms.progress import ProgressBridge
 
         events = queue_mod.Queue()
-        _run_graph(_RoutedLlm(responses=[]), progress_updater=ProgressBridge(events))
+        _run_graph(_RoutedLlm(responses=[]), progress_updater=ProgressBridge(events),
+                   env={"WEB_SEARCH_DISABLED": "1"})
         events_list = list(events.queue)
         report_events = [ev for ev in events_list if ev[0] == "report"]
         assert len(report_events) == 8  # 8 节点 × 1 份（opinions 各推送初稿 + 修订版）
@@ -361,6 +371,26 @@ def _with_fake_client(fake, fn):
         client_mod.BillionsClient = saved
 
 
+def _with_fake_searcher(searcher, fn):
+    """把 web_search 模块的 make_web_search_tool 替换为注入 searcher 的
+    工厂（零网络；08-10-web-search-fallback，对齐 _with_fake_client 模块
+    全局替换模式）。
+
+    分析师的 _get_web_tool 在调用时 `from ...web_search import
+    make_web_search_tool`——替换模块属性即让图内节点拿到注入 searcher
+    （复用真实 make_web_search_tool 构造，invoke 走 _summarize_results
+    单点实现，不复制摘要逻辑）。
+    """
+    import core.llms.tools.web_search as web_search_mod
+
+    saved = web_search_mod.make_web_search_tool
+    web_search_mod.make_web_search_tool = lambda _searcher=None: saved(_searcher=searcher)
+    try:
+        return fn()
+    finally:
+        web_search_mod.make_web_search_tool = saved
+
+
 class TestGraphAnalystShape:
     """信息面分析师条件接线（R2/AC1/AC3）：两种图形态。
 
@@ -370,9 +400,9 @@ class TestGraphAnalystShape:
     """
 
     def test_graph_shapes(self):
-        # 图形状：ANALYST 关 → 无分析师节点；开 → +1 节点
+        # 图形状：ANALYST 关（web 也关）→ 无分析师节点；开 → +1 节点
         # （get_graph().nodes 含 __start__/__end__，用相对计数断言）
-        base = _graph_node_names()
+        base = _graph_node_names({"WEB_SEARCH_DISABLED": "1"})
         assert "information_analyst" not in base
         enabled = _graph_node_names({"BILLIONS_API_KEY": "k"})
         assert "information_analyst" in enabled
@@ -413,14 +443,17 @@ class TestGraphAnalystShape:
         assert any(INFO_ANALYST in c and BULL_REV in c and BEAR_REV in c for c in contents)
 
     def test_analyst_absent_without_key(self):
-        # AC1：未配置 key → 分析师节点不入图（8 节点，与今日一致）
-        final = _run_graph(_RoutedLlm(responses=[]))
+        # AC3：未配置 key + 联网搜索关 → 分析师节点不入图（8 节点，
+        # 与今日一致）；无 key + web 开 → 经联网路径注册（见
+        # TestGraphWebFallbackShape）
+        final = _run_graph(_RoutedLlm(responses=[]), env={"WEB_SEARCH_DISABLED": "1"})
         assert len(final["messages"]) == 17
         assert final.get("information_analysis") is None
 
     def test_analyst_unavailable_when_both_sources_off(self):
-        # Out of Scope 组合：ANALYST 开但 SEARCH/TWITTER 均关 → 视为分析师
-        # 不可用，节点不入图（8 节点）+ 零亿信调用
+        # Out of Scope 组合（08-10-web-search-fallback 后）：ANALYST 开但
+        # SEARCH/TWITTER 均关 且 联网搜索关（WEB_SEARCH_DISABLED=1）→
+        # 视为分析师不可用，节点不入图（8 节点）+ 零亿信调用
         fake = _InfoFakeClient()
         final = _with_fake_client(
             fake,
@@ -428,6 +461,7 @@ class TestGraphAnalystShape:
                 "BILLIONS_API_KEY": "k",
                 "BILLIONS_SEARCH_DISABLED": "1",
                 "BILLIONS_TWITTER_DISABLED": "1",
+                "WEB_SEARCH_DISABLED": "1",
             }),
         )
         assert len(final["messages"]) == 17
@@ -448,3 +482,50 @@ class TestGraphAnalystShape:
         assert final["information_analysis"] == INFO_ANALYST
         assert fake.search_calls == []  # SEARCH 关 → 零 search 调用
         assert len(fake.twitter_calls) == 1
+
+
+class TestGraphWebFallbackShape:
+    """信息面分析师联网回退图形状（08-10-web-search-fallback，R2/AC2）：
+    无 key + 联网搜索开 → 分析师经联网路径注册（9 节点 19 messages），
+    预抓经注入 searcher（零网络、亿信 client 零构造）。"""
+
+    def test_web_fallback_shape_without_key(self):
+        fake = _InfoFakeClient()  # 记录亿信调用——断言零调用（client 零构造）
+        searcher_calls = []
+
+        def fake_searcher(query):
+            searcher_calls.append(query)
+            return [{
+                "title": "紫金矿业最新网络新闻",
+                "link": "https://example.com/web-news",
+                "snippet": "公司发布最新动态",
+            }]
+
+        def _run():
+            # BILLIONS_API_KEY 显式置空串（假值）——make_investment_committee
+            # 内部 load_dotenv() 会把 .env 里 os.environ 缺失的 key 填回来，
+            # pop 会翻回真 key（本机 .env 有值）；空串不被覆盖且判假
+            return _with_fake_searcher(
+                fake_searcher,
+                lambda: _run_graph(_RoutedLlm(responses=[]), env={"BILLIONS_API_KEY": ""}),
+            )
+
+        final = _with_fake_client(fake, _run)
+        # 9 节点形态：4 专家并行 → messages = 初始 1 条 + 9 组（查询 + 响应）
+        assert len(final["messages"]) == 19
+        assert final["information_analysis"] == INFO_ANALYST
+        # 亿信 client 零构造（无 key 不走亿信路径）——fake 记录零调用
+        assert fake.search_calls == [] and fake.twitter_calls == []
+        # 预抓：固定 1 次 web 查询（_QUERY_TEMPLATES["web"]：{ticker} 最新新闻）
+        assert searcher_calls == ["000001 最新新闻"]
+        # 联网素材进入分析师 LLM 查询（messages 通道含素材标题）
+        assert any("紫金矿业最新网络新闻" in m.content for m in final["messages"])
+        # 下游接线不变：trader 查询含信息面报告（4 专家 join 后输入完整）
+        contents = [m.content for m in final["messages"]]
+        trader_queries = [
+            c for c in contents
+            if FUNDAMENTAL in c and TREND in c and INDICATOR in c
+            and BULL_REV not in c and BEAR_REV not in c
+        ]
+        assert len(trader_queries) == 2
+        assert all(INFO_ANALYST in q for q in trader_queries)

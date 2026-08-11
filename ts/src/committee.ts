@@ -40,7 +40,10 @@ export function billionsEnabled(cap: string): boolean {
 }
 
 export function informationAnalystEnabled(): boolean {
-  return billionsEnabled('ANALYST') && (billionsEnabled('SEARCH') || billionsEnabled('TWITTER'));
+  // 契约公式（implement.md Step 8）：亿信路径（ANALYST 且 SEARCH/TWITTER 至少一者）
+  // 或联网路径（webSearchEnabled）——TS billionsEnabled 无 key 约束（committee.ts
+  // line 37-40 现状），分析师默认 env 恒注册，web 开时经 /web-search/DDG 兜底预抓。
+  return billionsEnabled('ANALYST') && (billionsEnabled('SEARCH') || billionsEnabled('TWITTER') || webSearchEnabled());
 }
 
 type AgentFactory = (llm: LlmLike, config: unknown, progress: ProgressUpdater | null, tools: ToolLike[]) => unknown;

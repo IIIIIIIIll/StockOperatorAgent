@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeDdgUrl, decodeEntities, parseDdgHtml, stripTags } from '../src/webSearch.ts';
+import { decodeDdgUrl, decodeEntities, makeProxySearcher, parseDdgHtml, stripTags } from '../src/webSearch.ts';
 
 const SAMPLE_HTML = `
 <div class="result results_links results_links_deep web-result ">
@@ -52,5 +52,37 @@ describe('HTML 工具', () => {
   it('decodeDdgUrl 解析 uddg 重定向;普通 URL 原样', () => {
     expect(decodeDdgUrl('//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fp%3Fx%3D1%26y%3D2')).toBe('https://a.com/p?x=1&y=2');
     expect(decodeDdgUrl('https://plain.example/2')).toBe('https://plain.example/2');
+  });
+});
+
+describe('makeProxySearcher（同源 /web-search 代理 searcher）', () => {
+  it('URL 含 web-search?q= + 编码;{results} 归一化返回', async () => {
+    let url = '';
+    const fakeFetch = (async (u: string) => {
+      url = u;
+      return { ok: true, json: async () => ({ results: [{ title: 't', link: 'l', snippet: 's' }] }) };
+    }) as unknown as typeof fetch;
+    const search = makeProxySearcher('http://localhost:8090', fakeFetch);
+    const results = await search('招商银行 最新新闻');
+    expect(url).toBe(`http://localhost:8090/web-search?q=${encodeURIComponent('招商银行 最新新闻')}`);
+    expect(results).toEqual([{ title: 't', link: 'l', snippet: 's' }]);
+  });
+
+  it('非 ok → throw 带 HTTP 状态', async () => {
+    const fakeFetch = async () => ({ ok: false, status: 502 }) as Response;
+    const search = makeProxySearcher('http://x', fakeFetch);
+    await expect(search('q')).rejects.toThrow(/502/);
+  });
+
+  it('results 缺失 → throw', async () => {
+    const fakeFetch = async () => ({ ok: true, json: async () => ({}) }) as Response;
+    const search = makeProxySearcher('http://x', fakeFetch);
+    await expect(search('q')).rejects.toThrow(/无返回结果/);
+  });
+
+  it('空 results → throw', async () => {
+    const fakeFetch = async () => ({ ok: true, json: async () => ({ results: [] }) }) as Response;
+    const search = makeProxySearcher('http://x', fakeFetch);
+    await expect(search('q')).rejects.toThrow(/无返回结果/);
   });
 });

@@ -16,9 +16,18 @@ search + 推特 1 次（fast、count=5、time_range past 3 months，固定成本
   logger.warning + 该源跳过并在上下文中注明，**不 raise、不阻断**
 - 预抓全部失败/无结果 → 仍单次 LLM 调用产出报告（说明无可用信息），
   不崩溃
-- 开关门控在 committee 图装配处（billions_enabled("ANALYST") 且 SEARCH
-  或 TWITTER 至少一者开——Out of Scope 组合视为分析师不可用不产出）；
-  本类不做构造期判定（与其余 agent 一致：gating 在接线处）
+- 联网搜索回退（08-10-web-search-fallback，R2）：亿信路径无真实素材
+  （无「检索结果】」分节）且 `web_search_enabled()` → 固定 1 次 web
+  查询（`_QUERY_TEMPLATES["web"]`，DDG 免 key）追加为「联网搜索结果」
+  节；回退也失败/空（双失败）→ 预抓返回空列表，调用方落固定回退文本
+  （「所有来源均不可用或未启用」，逐字节不变）。web 关时亿信失败/空
+  注明照旧保留（现状语义，逐字节不变）。构造注入 `_searcher=None`
+  （house style）——经 `make_web_search_tool(_searcher=...)` 复用单点
+  实现（不复制 _summarize_results）；缺省 None → 懒加载真 DDG searcher
+- 开关门控在 committee 图装配处（信息面分析师谓词：ANALYST 能力开关
+  且（SEARCH 或 TWITTER 或 联网搜索）至少一者开——Out of Scope 组合
+  视为分析师不可用不产出）；本类不做构造期判定（与其余 agent 一致：
+  gating 在接线处）
 """
 
 from langchain_core.runnables import RunnableConfig
@@ -29,6 +38,7 @@ from agents.base import AgentNode
 from core.llms.prompt import information_analyst_message
 from core.llms.progress import safe_progress
 from core.llms.tools._items import collect_content_items
+from core.llms.tools.web_search import web_search_enabled
 from utils.billions_config import billions_enabled
 from loguru import logger
 
@@ -58,11 +68,14 @@ _SOURCE_LABELS = {"announcement": "公告", "report": "研报", "web": "新闻"}
 
 class BillionsInformationAnalyst(AgentNode):
 
-    def __init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater=None, _client=None):
-        # _client 注入保留（测试 fake）——基类 __init__ 不接收，子类自存
+    def __init__(self, llm: BaseChatModel, config: RunnableConfig, progress_updater=None, _client=None, _searcher=None):
+        # _client/_searcher 注入保留（测试 fake）——基类 __init__ 不接收，
+        # 子类自存；既有位置参数不变，_searcher 追加在 _client 之后
         super().__init__(llm, config, progress_updater,
                          role_message=information_analyst_message)
         self._client = _client
+        self._searcher = _searcher
+        self._web_tool = None
 
     def _get_client(self):
         if self._client is None:
@@ -70,6 +83,16 @@ class BillionsInformationAnalyst(AgentNode):
 
             self._client = BillionsClient()
         return self._client
+
+    def _get_web_tool(self):
+        if self._web_tool is None:
+            from core.llms.tools.web_search import make_web_search_tool
+
+            # 复用单点实现（不复制 _summarize_results）——_searcher 注入点
+            # 缺省 None → 真 DDG searcher；方法内 import 对齐 _get_client
+            # 风格（懒加载，便于测试按模块全局替换）
+            self._web_tool = make_web_search_tool(_searcher=self._searcher)
+        return self._web_tool
 
     def _search_section(self, client, ticker: str, source: str) -> str:
         """单次 search 预抓 → 带来源标签的分节；失败/无有效条目 → 注明（不 raise）。"""
@@ -112,23 +135,54 @@ class BillionsInformationAnalyst(AgentNode):
             return "【推特无返回结果】"
         return "【推特检索结果】\n" + "\n".join(lines)
 
+    def _web_search_section(self, ticker: str) -> str:
+        """联网搜索回退（08-10-web-search-fallback，R2）：固定 1 次 DDG
+        查询（_QUERY_TEMPLATES["web"]）→ 中文摘要节。
+
+        失败/空 → 工具占位文本（「（联网搜索失败：…）」，不 raise——降级
+        语义收敛在 make_web_search_tool/_summarize_results 单点）；工具
+        本身之外的异常兜底同 style（logger.warning + 占位，不阻断）。
+        """
+        try:
+            return self._get_web_tool().invoke({
+                "query": _QUERY_TEMPLATES["web"].format(ticker)})
+        except Exception as exc:
+            logger.warning("联网搜索失败（{}）: {}", ticker, exc)
+            return f"（联网搜索失败：{exc}）"
+
     def _prefetch(self, ticker: str) -> list[str]:
         """确定性预抓（固定次数，成本可预期）：按开关过滤源，失败源跳过。
 
-        全部源关闭（SEARCH/TWITTER 均关）→ 返回空列表且不构造 client
-        （节点在图中不存在的组合由 committee 接线保证；此处为健壮性兜底）。
+        真实素材判定：「检索结果】」分节标记（亿信「…检索结果」/ 联网
+        「【联网搜索结果】」；「检索失败」「无返回结果」注明不算）。
+        - 亿信路径无真实素材且联网搜索开（R2）→ 追加 web 回退节（固定
+          1 次，DDG 免 key）；回退也失败/空（双失败）→ 返回空列表（调用
+          方落固定回退文本，逐字节不变）。
+        - 全部源关闭（SEARCH/TWITTER 均关）且 web 关 → 返回空列表且不
+          构造 client（节点在图中不存在的组合由 committee 接线保证；此处
+          为健壮性兜底）。
+        - web 关时亿信失败/空注明照旧保留（现状语义，逐字节不变）。
         """
         search_on = billions_enabled("SEARCH")
         twitter_on = billions_enabled("TWITTER")
-        if not (search_on or twitter_on):
-            return []
-        client = self._get_client()
+        web_on = web_search_enabled()
         sections = []
-        if search_on:
-            for source in _SEARCH_SOURCES:
-                sections.append(self._search_section(client, ticker, source))
-        if twitter_on:
-            sections.append(self._twitter_section(client, ticker))
+        if search_on or twitter_on:
+            client = self._get_client()
+            if search_on:
+                for source in _SEARCH_SOURCES:
+                    sections.append(self._search_section(client, ticker, source))
+            if twitter_on:
+                sections.append(self._twitter_section(client, ticker))
+        found_content = any("检索结果】" in section for section in sections)
+        if not found_content and web_on:
+            web_section = self._web_search_section(ticker)
+            sections.append(web_section)
+            found_content = web_section.startswith("【联网搜索结果】")
+        if not found_content and web_on:
+            # 双失败（亿信无素材 + 联网回退也失败/空）→ 返回空列表，调用
+            # 方落固定回退文本「所有来源均不可用或未启用」（R2，逐字不变）
+            return []
         return sections
 
     def information_analyst(self, state: State):

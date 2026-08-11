@@ -189,11 +189,15 @@ Keep it that way; do not add a second storage abstraction.
   默认 3/2/3，env `BILLIONS_{SEARCH,TWITTER,FETCH}_MAX_CALLS` 覆盖）：
   超限返回占位提示、不再发真实请求——防 15 轮工具循环烧配额。
   未配置 `BILLIONS_API_KEY` 时 tools 与今日逐字节一致。
-- **信息面分析师条件接线（2026-08-08）**：有效条件 =
-  `billions_enabled("ANALYST")` 且（SEARCH 或 TWITTER 至少一者开）——开 →
+- **信息面分析师条件接线（2026-08-08；08-10-web-search-fallback 放宽）**：
+  有效条件 = `billions_cap_switch("ANALYST")` 且（`billions_enabled("SEARCH")`
+  或 `billions_enabled("TWITTER")` 或 `web_search_enabled()`）——ANALYST
+  段无主闸 key 约束（`billions_cap_switch`，utils/billions_config.py），
+  亿信源仍受 key 硬约束，联网路径只受 `WEB_SEARCH_DISABLED` 总闸；开 →
   注册 `information_analyst` 节点 + START 边 + trader 第 4 入边（4 专家
   并行，墙钟 8 串行 → 4 阶段不变）；关 → 完全不注册（图与今日逐字节
-  一致，条件接线非占位节点）。信息面报告经 State key
+  一致，条件接线非占位节点）。无 key + web 开 → 注册且预抓走 DDG 回退
+  （见 agents spec 信息面分析师段）。信息面报告经 State key
   `information_analysis` 插值进 trader/manager 查询（条件段，缺失时
   查询字节级不变——AC1 硬约束，test_query_baselines 钉死）。
 - New agents mean: new node registration here, a new edge, a new `State` key,

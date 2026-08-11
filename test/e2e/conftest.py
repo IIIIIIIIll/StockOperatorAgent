@@ -6,8 +6,10 @@ env 注入 dummy LLM 三键 + dummy BILLIONS_API_KEY）→ 轮询
 用例失败自动截图 logs/e2e/<test_name>.png；teardown terminate + wait。
 
 第二个 session 级 fixture `server_no_billions`（端口 SERVER_PORT+1，**无**
-BILLIONS_API_KEY）——AC1「无 key 现有 UI 零变化」的浏览器级断言（新 Tab
-不渲染）专用，env 其余与主服务器一致。
+BILLIONS_API_KEY）——无 key 服务器（08-10-web-search-fallback 起：联网
+搜索开默认 → 信息面分析师经联网路径注册 → 8 tab 含信息面分析，AC2 浏览器
+级断言专用；无 key + web 关 → 7 tab 与改动前一致，AC3 由单测/集成覆盖），
+env 其余与主服务器一致。
 
 **零 LLM/零网络审计**（pytest_sessionfinish，与用例顺序无关）：读取
 服务器日志验证 mock 自检标记（E2E_MOCK_CALL_COUNT 出现且 ≥1——mock
@@ -49,6 +51,10 @@ HEALTH_TIMEOUT = 60  # streamlit 首次启动（脚本编译）可能较慢
 # 子进程 env 必须显式清除（主服务器注入 dummy BILLIONS_API_KEY → ANALYST
 # 开 → 信息面 Tab 渲染路径被真实覆盖；无 key 服务器不带 key → 关）——
 # 开发者本机残留的 BILLIONS_* 值不得影响 e2e 确定性
+# WEB_SEARCH_DISABLED（08-10-web-search-fallback）：联网总闸已入设置
+# 面板组（_PANEL_ENV_KEYS），此处重复列入是为**语义归属**——分析师启用
+# 谓词新增联网路径后，该开关决定无 key 服务器是否渲染信息面 Tab（无 key
+# + web 开 → 8 tab；web 关 → 7 tab），与亿信开关族同属 Tab 形态决定面
 _BILLIONS_ENV_KEYS = (
     "BILLIONS_DISABLED",
     "BILLIONS_FINDB_DISABLED",
@@ -61,6 +67,7 @@ _BILLIONS_ENV_KEYS = (
     "BILLIONS_TWITTER_MAX_CALLS",
     "BILLIONS_FETCH_MAX_CALLS",
     "BILLIONS_ANALYST_MAX_CALLS",
+    "WEB_SEARCH_DISABLED",
 )
 
 # 设置面板渲染相关 env（08-08-billions-switches-ui，Step 4）：显式清除，
@@ -252,13 +259,15 @@ def server(request, e2e_env_file):
 def server_no_billions(request, e2e_env_file):
     """session 级：无 BILLIONS_API_KEY 的第二个 streamlit mock 服务器。
 
-    AC1 浏览器级断言（08-08-billions-api-integration，Step 5）：未配置
-    BILLIONS_API_KEY → ANALYST 开关关 → report_tabs() 无信息面条目 →
-    「信息面分析」Tab 不渲染（现有 UI 与今日逐字节一致）。env 仅注入
-    dummy LLM 三键（顶层构造 + 门禁），并显式清除全部亿信开关/
-    上限 env——开发者本机残留 key/开关值不得影响"无 key"语义。
-    ENV_FILE_PATH 同样注入（Step 4：本服务器上的面板保存也只写 tmp，
-    真实 .env 零接触）。
+    AC2 浏览器级断言（08-10-web-search-fallback）：未配置
+    BILLIONS_API_KEY + 联网搜索开（默认，WEB_SEARCH_DISABLED 清除）→
+    信息面分析师经联网路径注册 → report_tabs() 含信息面条目 →
+    「信息面分析」Tab 渲染 mock 内容（8 tab；无 key + web 关 → 7 tab
+    与改动前一致，AC3——该形态由单测/集成测试覆盖，浏览器级不重复）。
+    env 仅注入 dummy LLM 三键（顶层构造 + 门禁），并显式清除全部亿信
+    开关/上限 env 与联网总闸——开发者本机残留 key/开关值不得影响
+    "无 key"语义。ENV_FILE_PATH 同样注入（Step 4：本服务器上的面板
+    保存也只写 tmp，真实 .env 零接触）。
     端口 SERVER_PORT+1，日志独立文件（审计同样覆盖零调用）。
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)

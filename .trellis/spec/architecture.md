@@ -79,6 +79,10 @@ Cross-layer rules of thumb:
   _DISABLED` + 工具调用上限 `BILLIONS_{SEARCH,TWITTER,FETCH}_MAX_CALLS`
   （默认 3/2/3）。开关解析集中 `utils/billions_config.py`（跨 core/agents/UI
   共用），读取点 `os.getenv` 调用时判（图装配期判工具绑定与节点接线）。
+  信息面分析师启用谓词 08-10-web-search-fallback 起放宽：无
+  `BILLIONS_API_KEY` 但联网搜索开（`WEB_SEARCH_DISABLED` 未设）→ 分析师
+  注册、预抓走 DDG 免 key 兜底——ANALYST 段经 `billions_cap_switch`（无
+  key 约束的开关判定，亿信源仍受 key 硬约束）。
 - `utils/constants.py` holds the only module-level constants:
   - `default_start = 1997-01-01` — baseline for "no data yet" timestamps
     (`ChinaStock.last_data_update`, `ZODBStorageInstance.root.overview_last_updated`)

@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/agents/index.md", "reason": "信息面分析师确定性预抓契约、启用谓词（ANALYST+SEARCH/TWITTER）——web 回退接入点与谓词放宽依据"}
+{"file": ".trellis/spec/core/index.md", "reason": "role_registry 条件接线（information_analyst_enabled 单点）与亿信开关族语义——谓词改动面"}
+{"file": ".trellis/spec/error-handling.md", "reason": "降级不 raise、占位文本、失败源跳过注明——web 回退路径的失败语义必须对齐"}
+{"file": ".trellis/spec/testing.md", "reason": "注入点测试风格（_searcher/_client）、env 隔离三件套、e2e mock 镜像规则——新增 web 回退用例写法"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "亿信工具骨架（capped_call）与 web_search._summarize_results 单点复用——避免在分析师内复制搜索摘要逻辑"}

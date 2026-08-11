@@ -6,7 +6,8 @@
 
 矩阵覆盖：key 缺失 / 空 key / 总闸 / 五能力闸 / 真值语义（""/"0"/
 "false"/"no" 保留、其余禁用）/ 调用方大小写 / max_calls env 覆盖与
-非法值回退。
+非法值回退 / billions_cap_switch（08-10-web-search-fallback：无 key
+约束的能力开关——覆盖层开/关 + env 真值语义两维度）。
 """
 
 import os
@@ -125,6 +126,71 @@ class TestBillionsEnabled:
             {"BILLIONS_API_KEY": "k", "BILLIONS_FINDB_DISABLED": "1"},
             lambda: billions_config.billions_enabled("findb"),
         ) is False
+
+
+class TestBillionsCapSwitch:
+    """billions_cap_switch（08-10-web-search-fallback）——无主闸 key
+    约束的能力开关：开关部分语义与 billions_enabled 逐字一致，仅剔除
+    BILLIONS_API_KEY 硬约束。
+
+    覆盖层开/关（BILLIONS_{CAP}/BILLIONS_MASTER 覆盖优先于 env）与
+    env 真值语义（""/"0"/"false"/"no" 保留、其余禁用）两个维度；无 key
+    仍按开关判定（与 billions_enabled 无 key 恒 False 对照）。
+    """
+
+    def test_override_layer_on_off(self):
+        # 覆盖层开 → 覆盖 env 能力闸关；覆盖层关 / MASTER=False → 全关
+        runtime_config.set_runtime_overrides({"BILLIONS_ANALYST": True})
+        try:
+            assert _with_env(
+                {"BILLIONS_ANALYST_DISABLED": "1"},
+                lambda: billions_config.billions_cap_switch("ANALYST"),
+            ) is True
+        finally:
+            runtime_config.clear_runtime_overrides()
+        runtime_config.set_runtime_overrides({"BILLIONS_ANALYST": False})
+        try:
+            assert _with_env(
+                {},
+                lambda: billions_config.billions_cap_switch("ANALYST"),
+            ) is False
+        finally:
+            runtime_config.clear_runtime_overrides()
+        runtime_config.set_runtime_overrides({"BILLIONS_MASTER": False})
+        try:
+            assert _with_env(
+                {},
+                lambda: billions_config.billions_cap_switch("ANALYST"),
+            ) is False
+        finally:
+            runtime_config.clear_runtime_overrides()
+
+    def test_env_truthy_semantics_without_key(self):
+        # 无 key：总闸/能力闸真值语义与 billions_enabled 逐字一致——
+        # ""/"0"/"false"/"no" 保留、其余禁用；billions_enabled 同 env 下
+        # 恒 False（key 硬约束仍只作用于原函数）
+        for value in ("1", "true", "yes", "anything"):
+            assert _with_env(
+                {"BILLIONS_ANALYST_DISABLED": value},
+                lambda: billions_config.billions_cap_switch("ANALYST"),
+            ) is False
+        for value in ("", "0", "false", "no"):
+            assert _with_env(
+                {"BILLIONS_ANALYST_DISABLED": value},
+                lambda: billions_config.billions_cap_switch("ANALYST"),
+            ) is True
+        assert _with_env(
+            {"BILLIONS_DISABLED": "1"},
+            lambda: billions_config.billions_cap_switch("ANALYST"),
+        ) is False
+        assert _with_env(
+            {},
+            lambda: billions_config.billions_cap_switch("ANALYST"),
+        ) is True
+        assert _with_env(
+            {},
+            lambda: billions_config.billions_enabled("ANALYST"),
+        ) is False  # 对照：key 硬约束仍只作用于 billions_enabled
 
 
 class TestBillionsMaxCalls:

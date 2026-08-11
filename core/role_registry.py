@@ -24,7 +24,8 @@ from agents.chinese_mainland.information_analyst import BillionsInformationAnaly
 from agents.chinese_mainland.investment_manager import InvestmentManager
 from agents.chinese_mainland.technical_indicator_analyst import TechnicalIndicatorAnalyst
 from agents.chinese_mainland.trend_analysis_expert import TrendAnalysisExpert
-from utils.billions_config import billions_enabled
+from core.llms.tools.web_search import web_search_enabled
+from utils.billions_config import billions_cap_switch, billions_enabled
 
 # 边表字符串标记（纯数据模块不 import langgraph；装配处映射 START/END）
 START_MARKER = "START"
@@ -37,12 +38,19 @@ def _always() -> bool:
 
 def information_analyst_enabled() -> bool:
     """信息面分析师启用谓词（唯一单点，08-08 条件接线语义收敛于此）：
-    ANALYST 开 且（SEARCH 或 TWITTER 至少一者开）。Out of Scope 组合
-    （ANALYST 开但检索源均关）视为分析师不可用不注册——装配与 Tab
-    渲染共用同一谓词，谓词在调用时求值（与 web_search_enabled 图装配
-    时判定同语义）。"""
-    return billions_enabled("ANALYST") and (
-        billions_enabled("SEARCH") or billions_enabled("TWITTER")
+    ANALYST 能力开关开 且（SEARCH 或 TWITTER 至少一者开 或 联网搜索开）。
+
+    ANALYST 段用 `billions_cap_switch`（无主闸 key 约束——08-10-web-
+    search-fallback：无 BILLIONS_API_KEY 但联网搜索开 → 分析师注册，
+    预抓走 DDG 兜底）；亿信路径仍受 key 硬约束（billions_enabled），
+    联网路径只受 WEB_SEARCH_DISABLED 总闸（web_search_enabled）。
+    Out of Scope 组合（ANALYST 开但亿信检索源与联网搜索均关）视为
+    分析师不可用不注册——装配与 Tab 渲染共用同一谓词，谓词在调用时
+    求值（与 web_search_enabled 图装配时判定同语义）。"""
+    return billions_cap_switch("ANALYST") and (
+        billions_enabled("SEARCH")
+        or billions_enabled("TWITTER")
+        or web_search_enabled()
     )
 
 

@@ -9,8 +9,9 @@
    精确一致，集成测试再验真实图）
 3. Tab 顺序：report_roles() 两种形态 == 冻结期望（与 display.report_tabs
    共用同一数据源；display 侧的开关矩阵断言见 test_display.py）
-4. 信息面分析师谓词真值表：三态 env × 组合的期望真值（与 08-08 条件
-   接线语义一致——含 Out of Scope 组合 = 不注册）
+4. 信息面分析师谓词真值表：四态 env × 组合的期望真值（08-10-web-
+   search-fallback 起含联网搜索维度：ANALYST 开 且（亿信源或联网任一
+   开）→ 注册；Out of Scope 组合 = 不注册）
 
 house style：不 mock Streamlit——display.report_tabs() 的渲染契约由
 既有 test_display 开关矩阵覆盖；本文件只测注册表自身与装配导出。
@@ -30,13 +31,16 @@ from core.role_registry import (
     report_roles,
 )
 
-# 亿信 env 三件套（谓词判定只依赖这三个开关 + 主闸 key；对齐
-# test_display._with_billions_env 的先全清再设置语义——跨运行确定性）
+# 谓词判定 env（亿信三开关 + 主闸 key + 联网总闸；对齐
+# test_display._with_billions_env 的先全清再设置语义——跨运行确定性）。
+# WEB_SEARCH_DISABLED（08-10-web-search-fallback）：谓词新增联网路径，
+# 未显式设置的用例默认 web 开（全清语义），钉死旧行为的用例显式设 "1"
 _ENV_KEYS = [
     "BILLIONS_API_KEY",
     "BILLIONS_ANALYST_DISABLED",
     "BILLIONS_SEARCH_DISABLED",
     "BILLIONS_TWITTER_DISABLED",
+    "WEB_SEARCH_DISABLED",
 ]
 
 
@@ -185,11 +189,23 @@ class TestRoleRegistryStateContract:
 class TestRoleRegistryGraphShape:
 
     def test_base_shape_without_billions_key(self):
-        """无 BILLIONS_API_KEY（主闸关）→ 8 节点 16 边，与现状逐边一致。"""
+        """无 BILLIONS_API_KEY + 联网搜索关（WEB_SEARCH_DISABLED=1）→
+        8 节点 16 边，与现状逐边一致（AC3）。"""
         def _assert():
             roles = enabled_roles()
             assert tuple(build_node_names(roles)) == _BASE_NODES
             assert build_edges(roles) == _BASE_EDGES
+        _with_billions_env({
+            "BILLIONS_API_KEY": None, "WEB_SEARCH_DISABLED": "1",
+        }, _assert)
+
+    def test_web_fallback_shape_without_billions_key(self):
+        """无 key + 联网搜索开（默认）→ 9 节点 19 边（分析师经联网路径
+        注册——AC2）。"""
+        def _assert():
+            roles = enabled_roles()
+            assert tuple(build_node_names(roles)) == _ANALYST_NODES
+            assert build_edges(roles) == _ANALYST_EDGES
         _with_billions_env({"BILLIONS_API_KEY": None}, _assert)
 
     def test_analyst_shape_with_key_and_switches_on(self):
@@ -206,8 +222,8 @@ class TestRoleRegistryGraphShape:
         }, _assert)
 
     def test_analyst_off_switches_off_shape(self):
-        """有 key 但 ANALYST 关 → 8 节点 16 边（条件接线不回退到
-        START/边注册——零行为变化，AC1）。"""
+        """有 key 但 ANALYST 关（联网搜索开也不注册）→ 8 节点 16 边
+        （条件接线不回退到 START/边注册——零行为变化，AC1/AC3）。"""
         def _assert():
             roles = enabled_roles()
             assert tuple(build_node_names(roles)) == _BASE_NODES
@@ -221,16 +237,20 @@ class TestRoleRegistryGraphShape:
 class TestInformationAnalystPredicate:
 
     def test_no_key_disables_analyst(self):
-        """主闸 key 缺席 → 谓词恒 False（与开关无关——billions_enabled
-        主闸语义）。"""
+        """主闸 key 缺席 + 联网搜索关（WEB_SEARCH_DISABLED=1）→ 谓词
+        False；无 key + 联网开 → True（AC2，见 test_web_fallback_shape
+        _without_billions_key——注册形态断言）。"""
         def _assert():
             assert information_analyst_enabled() is False
-        _with_billions_env({"BILLIONS_API_KEY": None}, _assert)
+        _with_billions_env({
+            "BILLIONS_API_KEY": None, "WEB_SEARCH_DISABLED": "1",
+        }, _assert)
 
     def test_truth_table(self):
-        """三态组合真值表：ANALYST 开 且（SEARCH 或 TWITTER 至少一者开）
-        → True；ANALYST 关 或 检索源全关（Out of Scope）→ False。"""
-        def _case(analyst_on, search_on, twitter_on, expected):
+        """四维组合真值表（08-10-web-search-fallback 起含联网维度）：
+        ANALYST 开 且（SEARCH 或 TWITTER 至少一者开 或 联网搜索开）→
+        True；ANALYST 关 或 亿信源与联网全关（Out of Scope）→ False。"""
+        def _case(analyst_on, search_on, twitter_on, web_on, expected):
             def _assert():
                 assert information_analyst_enabled() is expected
             pairs = {"BILLIONS_API_KEY": "dummy"}
@@ -240,14 +260,18 @@ class TestInformationAnalystPredicate:
                 pairs["BILLIONS_SEARCH_DISABLED"] = "1"
             if not twitter_on:
                 pairs["BILLIONS_TWITTER_DISABLED"] = "1"
+            if not web_on:
+                pairs["WEB_SEARCH_DISABLED"] = "1"
             _with_billions_env(pairs, _assert)
 
-        _case(True, True, True, True)
-        _case(True, True, False, True)
-        _case(True, False, True, True)
-        _case(True, False, False, False)  # Out of Scope：检索源全关
-        _case(False, True, True, False)
-        _case(False, False, False, False)
+        _case(True, True, True, False, True)
+        _case(True, True, False, False, True)
+        _case(True, False, True, False, True)
+        _case(True, False, False, False, False)  # Out of Scope：亿信源与联网全关
+        _case(True, False, False, True, True)    # 联网回退：无亿信源但联网开
+        _case(False, True, True, False, False)
+        _case(False, True, True, True, False)    # ANALYST 关 + web 开也不注册
+        _case(False, False, False, False, False)
 
     def test_opinion_flags_match_display_contract(self):
         """观点类 key == display.OPINION_REPORT_KEYS（轮次折叠渲染契约）。"""

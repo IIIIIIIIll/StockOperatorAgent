@@ -12,6 +12,10 @@
   不受影响、不 raise（AC4 降级风格）
 - 全部源失败 / 全部源关闭 → 仍产出报告（上下文说明无可用信息），不崩溃
 - 开关全关 → 零 client 调用（空操作；图接线保证该组合节点不入图）
+- 联网搜索回退（08-10-web-search-fallback，R2/AC2）：无 key + web 开 →
+  注入 searcher 预抓（【联网搜索结果】节、固定 1 次 web 模板查询、
+  client 零构造）；亿信全空 + web 开 → 「无返回结果」注明与联网节并存；
+  双失败（亿信全失败 + 联网失败/空）→ 现有固定回退文本逐字保留
 
 house style 无 mock 框架——`_client` 注入（fake 记录调用，断言在测试
 侧）+ _FakeLLM 记录查询（对齐 test_committee_enrichment._FakeLLM 模式）
@@ -27,13 +31,17 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from agents.chinese_mainland.information_analyst import BillionsInformationAnalyst
 from data_source.chinese_mainland.billions.client import BillionsApiError
 
-# 本步涉及的 BILLIONS_* env——每次运行前全部清除/恢复（防开发者本机残留）
+# 本步涉及的 BILLIONS_* env + 联网总闸——每次运行前全部清除/恢复（防
+# 开发者本机残留）。WEB_SEARCH_DISABLED（08-10-web-search-fallback）：
+# 未显式设置的用例默认 web 开——钉死「无 web 回退」旧行为的用例必须
+# 显式设 "1"（否则预抓会触发真实 DDG，离线测试零网络契约）
 _ENV_KEYS = [
     "BILLIONS_API_KEY",
     "BILLIONS_DISABLED",
     "BILLIONS_SEARCH_DISABLED",
     "BILLIONS_TWITTER_DISABLED",
     "BILLIONS_ANALYST_DISABLED",
+    "WEB_SEARCH_DISABLED",
 ]
 
 
@@ -187,7 +195,7 @@ class TestInformationAnalystNode:
     def test_prefetch_calls_all_sources_with_fixed_params(self):
         client = _FakeClient()
         fake_llm = _FakeLLM()
-        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k"})
+        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "WEB_SEARCH_DISABLED": "1"})
         # 确定性预抓：公告/研报/新闻各 1 次 + 推特 1 次（固定成本契约）
         assert [c["source"] for c in client.search_calls] == ["announcement", "report", "web"]
         for call in client.search_calls:
@@ -207,7 +215,7 @@ class TestInformationAnalystNode:
     def test_query_contains_sourced_context(self):
         client = _FakeClient()
         fake_llm = _FakeLLM()
-        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k"})
+        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "WEB_SEARCH_DISABLED": "1"})
         query = self._query_text(fake_llm)
         # 来源分节：公告/研报/新闻/推特
         for marker in ("【公告检索结果】", "【研报检索结果】", "【新闻检索结果】", "【推特检索结果】"):
@@ -227,14 +235,14 @@ class TestInformationAnalystNode:
     def test_search_switch_off_skips_search_sources(self):
         client = _FakeClient()
         fake_llm = _FakeLLM()
-        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "BILLIONS_SEARCH_DISABLED": "1"})
+        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "BILLIONS_SEARCH_DISABLED": "1", "WEB_SEARCH_DISABLED": "1"})
         assert client.search_calls == []  # SEARCH 关 → 零 search
         assert len(client.twitter_calls) == 1  # TWITTER 不受影响
 
     def test_twitter_switch_off_skips_twitter(self):
         client = _FakeClient()
         fake_llm = _FakeLLM()
-        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "BILLIONS_TWITTER_DISABLED": "1"})
+        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "BILLIONS_TWITTER_DISABLED": "1", "WEB_SEARCH_DISABLED": "1"})
         assert len(client.search_calls) == 3
         assert client.twitter_calls == []
 
@@ -244,7 +252,7 @@ class TestInformationAnalystNode:
             "report": BillionsApiError("亿信 API 错误：HTTP 429", code="rate limit", status_code=429),
         })
         fake_llm = _FakeLLM()
-        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k"})
+        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "WEB_SEARCH_DISABLED": "1"})
         assert len(client.search_calls) == 3  # 三源都尝试（失败源也发了请求）
         query = self._query_text(fake_llm)
         assert "【研报检索失败】" in query
@@ -260,8 +268,10 @@ class TestInformationAnalystNode:
             twitter_error=err,
         )
         fake_llm = _FakeLLM()
-        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k"})
+        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "WEB_SEARCH_DISABLED": "1"})
         query = self._query_text(fake_llm)
+        # web 关：亿信失败注明照旧保留（现状语义；web 开 + 回退也失败 →
+        # 固定回退文本，见 test_double_failure_keeps_fixed_fallback_text）
         for marker in ("【公告检索失败】", "【研报检索失败】", "【新闻检索失败】", "【推特检索失败】"):
             assert marker in query
         assert result["information_analysis"] == _REPORT
@@ -273,7 +283,7 @@ class TestInformationAnalystNode:
             twitter_data={"success": True, "result": []},
         )
         fake_llm = _FakeLLM()
-        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k"})
+        _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": "k", "WEB_SEARCH_DISABLED": "1"})
         query = self._query_text(fake_llm)
         for marker in ("【公告无返回结果】", "【研报无返回结果】", "【新闻无返回结果】", "【推特无返回结果】"):
             assert marker in query
@@ -283,8 +293,113 @@ class TestInformationAnalystNode:
         # 报告（该组合不入图由 committee 接线保证，此处为健壮性兜底）
         client = _FakeClient()
         fake_llm = _FakeLLM()
-        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": None})
+        result = _run_analyst(fake_llm, client, {"BILLIONS_API_KEY": None, "WEB_SEARCH_DISABLED": "1"})
         assert client.search_calls == [] and client.twitter_calls == []
         query = self._query_text(fake_llm)
         assert "未检索到任何信息面素材" in query
         assert result["information_analysis"] == _REPORT
+
+    # ---- 联网搜索回退（08-10-web-search-fallback，R2/AC2） -------------
+
+    def test_web_fallback_without_key_injects_searcher(self):
+        # 无 key + 联网搜索开（默认）→ 预抓走注入 searcher（DDG 回退）：
+        # 查询含【联网搜索结果】素材节；亿信 client 零构造（无 key 不
+        # 走亿信路径）；固定 1 次 web 查询（_QUERY_TEMPLATES["web"]）
+        client = _FakeClient()  # 记录调用——断言零调用（client 零构造）
+        fake_llm = _FakeLLM()
+        searcher_calls = []
+
+        def fake_searcher(query):
+            searcher_calls.append(query)
+            return [{
+                "title": "紫金矿业最新动态",
+                "link": "https://example.com/zjky-web",
+                "snippet": "公司发布新公告",
+            }]
+
+        def _run():
+            analyst = BillionsInformationAnalyst(
+                fake_llm, {"configurable": {"thread_id": "1"}},
+                _client=client, _searcher=fake_searcher,
+            )
+            return analyst.information_analyst({
+                "target_stock_ticker": "000001",
+                "stock_information": "dummy stock info",
+            })
+
+        result = _with_env({"BILLIONS_API_KEY": None}, _run)
+        assert client.search_calls == [] and client.twitter_calls == []
+        assert searcher_calls == ["000001 最新新闻"]  # 固定 1 次，web 模板
+        query = self._query_text(fake_llm)
+        assert "【联网搜索结果】" in query
+        assert "标题：紫金矿业最新动态" in query
+        assert "链接：https://example.com/zjky-web" in query
+        assert result["information_analysis"] == _REPORT
+
+    def test_empty_billions_falls_back_to_web_with_both_sections(self):
+        # 亿信全空（client 返回空 content）+ web 开 + web 有结果 → 亿信
+        # 「无返回结果」注明与联网节并存（回退触发点：found_content 判
+        # 「检索结果】」——无返回结果不算真实素材）
+        client = _FakeClient(
+            search_data={"success": True, "result": []},
+            twitter_data={"success": True, "result": []},
+        )
+        fake_llm = _FakeLLM()
+        searcher_calls = []
+
+        def fake_searcher(query):
+            searcher_calls.append(query)
+            return [{
+                "title": "紫金矿业网络新闻",
+                "link": "https://example.com/web-news",
+                "snippet": "最新动态",
+            }]
+
+        def _run():
+            analyst = BillionsInformationAnalyst(
+                fake_llm, {"configurable": {"thread_id": "1"}},
+                _client=client, _searcher=fake_searcher,
+            )
+            return analyst.information_analyst({
+                "target_stock_ticker": "000001",
+                "stock_information": "dummy stock info",
+            })
+
+        result = _with_env({"BILLIONS_API_KEY": "k"}, _run)
+        query = self._query_text(fake_llm)
+        for marker in ("【公告无返回结果】", "【研报无返回结果】",
+                       "【新闻无返回结果】", "【推特无返回结果】"):
+            assert marker in query
+        assert "【联网搜索结果】" in query
+        assert len(searcher_calls) == 1
+        assert result["information_analysis"] == _REPORT
+
+    def test_double_failure_keeps_fixed_fallback_text(self):
+        # 双失败（亿信全失败 + 联网回退也失败/空）→ 预抓返回空列表 →
+        # 现有固定回退文本逐字保留（不 raise，error-handling spec 降级
+        # 风格；R2「回退也失败/空 → 保留现有固定回退文本」）
+        err = BillionsApiError("亿信 API 请求失败：connection refused", status_code=None)
+        client = _FakeClient(
+            search_errors={"announcement": err, "report": err, "web": err},
+            twitter_error=err,
+        )
+        fake_llm = _FakeLLM()
+
+        def boom(query):
+            raise RuntimeError("ddgs 反爬拦截")
+
+        for searcher in (boom, lambda q: []):  # 失败/空结果同样落固定回退文本
+            def _run():
+                analyst = BillionsInformationAnalyst(
+                    fake_llm, {"configurable": {"thread_id": "1"}},
+                    _client=client, _searcher=searcher,
+                )
+                return analyst.information_analyst({
+                    "target_stock_ticker": "000001",
+                    "stock_information": "dummy stock info",
+                })
+
+            result = _with_env({"BILLIONS_API_KEY": "k"}, _run)
+            query = self._query_text(fake_llm)
+            assert "（本次运行未检索到任何信息面素材：所有来源均不可用或未启用）" in query
+            assert result["information_analysis"] == _REPORT

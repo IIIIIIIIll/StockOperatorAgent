@@ -1,11 +1,15 @@
-"""亿信信息面 Tab（08-08-billions-api-integration，Step 5）。
+"""亿信信息面 Tab（08-08-billions-api-integration，Step 5 +
+08-10-web-search-fallback）。
 
 mock 模式双服务器断言：
 - 主服务器（conftest 注入 dummy BILLIONS_API_KEY）→ ANALYST 开关开 →
   「信息面分析」Tab 真实渲染路径被覆盖（mock 报告含亿信来源样式——
   公告/研报/新闻条目）；
-- server_no_billions（无 BILLIONS_API_KEY）→ ANALYST 关 → 无该 Tab
-  （AC1：未配置 key 现有 UI 零行为变化，7 tab 与今日一致）。
+- server_no_billions（无 BILLIONS_API_KEY）→ 联网搜索开（默认）→
+  信息面分析师经联网路径注册 → 8 tab 含「信息面分析」（AC2：无 key
+  也可渲染信息面 Tab，mock 报告经 FakeGraph 全量 State 渲染）；无 key
+  且 web 关（WEB_SEARCH_DISABLED=1）→ 7 tab 与改动前逐字一致（AC3，
+  注册谓词语义由单测/集成测试覆盖）。
 
 零真实亿信调用由 conftest 审计保证（_REAL_FLOW_MARKERS 含
 openapi.billionsintelligence.com / BillionsApiError——真实调用失败必打
@@ -60,18 +64,22 @@ def test_information_analysis_tab_renders_mock_content(page):
     assert page.get_by_text("研报（机构: 某券商）").first.is_visible()
 
 
-def test_no_key_no_information_tab(page_no_billions):
-    """无 BILLIONS_API_KEY（AC1）：7 个 tab（数据 + 6 报告），无信息面 Tab。
+def test_no_key_web_fallback_information_tab(page_no_billions):
+    """无 BILLIONS_API_KEY + 联网搜索开（默认，08-10-web-search-fallback
+    R1/AC2）：信息面分析师经联网路径注册 → 8 个 tab 含「信息面分析」。
 
-    与 server_no_billions 服务器配对——无 key → report_tabs() 与今日
-    逐字节一致（信息面分析是唯一条件 Tab）。
+    与 server_no_billions 服务器配对——无 key → 分析师谓词的联网路径
+    成立（WEB_SEARCH_DISABLED 被 conftest 清除）→ report_tabs() 保留
+    信息面条目，mock 报告（FakeGraph 无条件吐全量 State）渲染进 Tab。
+    无 key 且 web 关（WEB_SEARCH_DISABLED=1）→ 7 tab 与改动前逐字节
+    一致（AC3，注册谓词语义由单测/集成测试覆盖，浏览器级不重复）。
     """
     _submit(page_no_billions)
     _wait_final_tab(page_no_billions)
     tabs = page_no_billions.locator('[role="tab"]')
     labels = [t.inner_text() for t in tabs.all()]
-    assert len(labels) == 7, f"expected 7 tabs without key, got {labels}"
+    assert len(labels) == 8, f"expected 8 tabs without key (web fallback), got {labels}"
     assert labels == ["采集数据", "基本面分析", "趋势分析", "技术指标分析",
-                      "看涨观点", "看跌观点", "最终结论"]
-    assert page_no_billions.locator('[role="tab"]').filter(
-        has_text="信息面分析").count() == 0
+                      "信息面分析", "看涨观点", "看跌观点", "最终结论"]
+    _open_tab(page_no_billions, "信息面分析", "信息面分析（mock）")
+    assert page_no_billions.get_by_text("mock 信息面结论").first.is_visible()

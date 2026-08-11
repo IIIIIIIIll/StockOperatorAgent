@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
-import { ROLES, buildEdges, buildNodeNames, enabledRoles, makeInvestmentCommittee } from '../src/committee.ts';
+import { ROLES, buildEdges, buildNodeNames, enabledRoles, informationAnalystEnabled, makeInvestmentCommittee } from '../src/committee.ts';
 
 // 路由式假 LLM（对齐 Python 集成测试约定：按 system 消息独有短语路由）
 function contentText(content: unknown): string {
@@ -103,7 +103,9 @@ describe('committee graph (AC1/AC2)', () => {
   });
 
   it('full run: experts → drafts → revisions → final decision reads [-1]', async () => {
-    const { final } = await runGraph({});
+    // WEB_SEARCH_DISABLED=1 保持离线（预抓不触发真实 DDG）；谓词不受影响：
+    // SEARCH 未禁用 → 分析师仍注册（9 节点断言不变）
+    const { final } = await runGraph({ WEB_SEARCH_DISABLED: '1' });
     // 专家产出
     expect(final.fundamental_analysis).toBe('FUND_REPORT');
     expect(final.trend_analysis).toBe('TREND_REPORT');
@@ -116,5 +118,50 @@ describe('committee graph (AC1/AC2)', () => {
     expect(bearish.map((m) => m.content)).toEqual(['BEAR_REPORT', 'BEAR_REV_REPORT']);
     // 经理读修订版（[-1]）——终审内容引用修订版
     expect(final.final_decision).toBe('FINAL_REPORT');
+  });
+});
+
+describe('informationAnalystEnabled 谓词（契约公式:ANALYST 且(SEARCH|TWITTER|web)）', () => {
+  // 本 describe 独立 beforeEach 清 5 个 env key（对齐 graph describe 风格）：
+  // 每个用例从全开默认态出发,显式翻转组合,防跨用例残留
+  beforeEach(() => {
+    delete process.env.BILLIONS_ANALYST_DISABLED;
+    delete process.env.BILLIONS_SEARCH_DISABLED;
+    delete process.env.BILLIONS_TWITTER_DISABLED;
+    delete process.env.BILLIONS_DISABLED;
+    delete process.env.WEB_SEARCH_DISABLED;
+  });
+
+  it('全开默认(ANALYST+SEARCH+web) → True', () => {
+    expect(informationAnalystEnabled()).toBe(true);
+  });
+
+  it('ANALYST 关 + web 开 → False(能力开关优先,联网不补注册)', () => {
+    process.env.BILLIONS_ANALYST_DISABLED = '1';
+    expect(informationAnalystEnabled()).toBe(false);
+  });
+
+  it('ANALYST 开 + SEARCH/TWITTER 关 + web 关 → False(亿信与联网路径全关)', () => {
+    process.env.BILLIONS_SEARCH_DISABLED = '1';
+    process.env.BILLIONS_TWITTER_DISABLED = '1';
+    process.env.WEB_SEARCH_DISABLED = '1';
+    expect(informationAnalystEnabled()).toBe(false);
+  });
+
+  it('ANALYST 开 + SEARCH/TWITTER 关 + web 开 → True(联网路径)', () => {
+    process.env.BILLIONS_SEARCH_DISABLED = '1';
+    process.env.BILLIONS_TWITTER_DISABLED = '1';
+    expect(informationAnalystEnabled()).toBe(true);
+  });
+
+  it('ANALYST 开 + SEARCH 开 + web 关 → True(亿信路径不受 web 影响)', () => {
+    process.env.WEB_SEARCH_DISABLED = '1';
+    expect(informationAnalystEnabled()).toBe(true);
+  });
+
+  it('ANALYST 开 + TWITTER 开 + SEARCH 关 + web 关 → True(TWITTER 路径)', () => {
+    process.env.BILLIONS_SEARCH_DISABLED = '1';
+    process.env.WEB_SEARCH_DISABLED = '1';
+    expect(informationAnalystEnabled()).toBe(true);
   });
 });

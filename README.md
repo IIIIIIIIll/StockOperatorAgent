@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 1. **配置 LLM**：在`.env`文件中设置三个必填键（OpenAI 兼容，任意供应商，08-09 起不再绑定 DeepSeek）——`LLM_API_KEY`（API Key）、`LLM_MODEL`（模型名，如 `deepseek-v4-flash`、`gpt-4o`）、`LLM_BASE_URL`（endpoint，如 DeepSeek 官方 `https://api.deepseek.com`、OpenCode Zen 网关 `https://opencode.ai/zen/go/v1`、本地 vLLM/Ollama 网关）。可选 `LLM_REASONING_EFFORT=max` 透传推理档（仅支持的供应商设）。可复制 `.env.example` 为 `.env` 后填入（各键用途与开关语义见文件内注释；**08-09 迁移**：旧 `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` / `DEEPSEEK_BASE_URL` 已移除，分别映射到上述三键；`DASHSCOPE_API_KEY` 已删除）。
    - 可选：设置 `TDX_API_KEY`（通达信 MCP）启用实时市场情报（概念板块/资金流/大盘概况）注入 agent 决策。未配置时应用正常降级运行，仅跳过实时情报；`TDX_MCP_DISABLED` 可显式关闭该能力（不查 MCP、不读写缓存）。
-   - 可选：设置 `BILLIONS_API_KEY`（亿信 Fin 开放平台）启用公告/研报/新闻/推特检索与自然语言金融问数（信息面分析师报告 Tab + agent 工具）。未配置时亿信全部能力关闭、现有流程零变化；`BILLIONS_*_DISABLED` 可独立关闭各能力，`BILLIONS_*_MAX_CALLS` 限制每次分析的调用上限（见 `.env.example`）。
+   - 可选：设置 `BILLIONS_API_KEY`（亿信 Fin 开放平台）启用公告/研报/新闻/推特检索与自然语言金融问数（信息面分析师报告 Tab + agent 工具）。未配置时亿信全部能力关闭、现有流程零变化（信息面分析师自动经免费联网搜索 DuckDuckGo 兜底，见「数据源」节）；`BILLIONS_*_DISABLED` 可独立关闭各能力，`BILLIONS_*_MAX_CALLS` 限制每次分析的调用上限（见 `.env.example`）。
    - 可选：`LANGSMITH_TRACING=true` + `LANGSMITH_API_KEY` + `LANGSMITH_PROJECT` 开启 LangSmith 追踪（每次 LLM 调用上报 token/延迟/prompt/response）。
    - 所有密钥与能力开关也可在网页**侧边栏「设置」面板**修改：保存即写入 `.env` 并立即生效（无需重启），能力开关为会话级即时切换。
 2. 运行主程序：
@@ -49,7 +49,9 @@ pip install -r requirements.txt
 - **亿信 Fin（可选）**：`data_source/chinese_mainland/billions/` REST 薄包装——
   公告/研报/新闻/推特检索（信息面分析师预抓 + agent 的 LLM 工具）+ 自然语言
   金融问数（采集数据的「亿信金融数据库」段）。`BILLIONS_API_KEY` 为主闸，未配置
-  时全部关闭、流程零变化。
+  时全部关闭、流程零变化；信息面分析师自动回退免费联网搜索（DuckDuckGo，免
+  key）预抓素材——亿信优先、联网兜底，双失败才产出「未检索到素材」占位报告
+  （web 端经同源 `/web-search` 代理，2026-08-10）。
 - **字段缺失语义**：pytdx 无数据的字段（量比/5分钟涨跌/动量/毛利率等）输出 NaN，
   不报错；名称索引拉取失败时回退股票代码。
 

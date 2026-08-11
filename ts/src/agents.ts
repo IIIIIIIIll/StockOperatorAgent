@@ -9,6 +9,7 @@ import { getLastBusinessDay } from './gates.ts';
 import { invokeWithRetry } from './retry.ts';
 import { invokeWithTools, type ToolLike } from './toolLoop.ts';
 import { pushReport, safeProgress, type ProgressUpdater } from './progress.ts';
+import { defaultSearcher, summarizeResults, webSearchEnabled, type SearchResult } from './webSearch.ts';
 
 export interface LlmLike {
   invoke(payload: unknown, config?: unknown): Promise<{ content: string }>;
@@ -188,14 +189,31 @@ export class TechnicalIndicatorAnalyst extends AgentNode {
 }
 
 export class BillionsInformationAnalyst extends AgentNode {
-  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null) {
+  constructor(
+    llm: LlmLike,
+    config: unknown,
+    progressUpdater: ProgressUpdater | null = null,
+    private _searcher: (query: string) => Promise<SearchResult[]> = defaultSearcher(),
+  ) {
     super(llm, config, progressUpdater, [], information_analyst_message);
   }
   async information_analyst(state: StateLike) {
     // 对齐 Python information_analyst.py：嵌股票信息 + 素材上下文；
-    // web/Node 无亿信素材 → 固定回退文本（Python 无素材时逐字相同）
+    // 联网搜索回退（08-10-web-search-fallback，R4）：web 开 → 固定 1 次
+    // `{ticker} 最新新闻` 查询（缺省 defaultSearcher：浏览器走 /web-search
+    // 代理、Node/真机直连 DDG）；失败/空 → 固定回退文本（与今日逐字一致，
+    // 不 raise——error-handling spec 降级风格）。web 关 → 不触网直接回退。
+    let context = '（本次运行未检索到任何信息面素材：所有来源均不可用或未启用）';
+    if (webSearchEnabled()) {
+      try {
+        const summary = summarizeResults(await this._searcher(`${target(state)} 最新新闻`));
+        if (summary.startsWith('【联网搜索结果】')) context = summary;
+      } catch {
+        // 降级：保持固定回退文本
+      }
+    }
     return this.completeExpert(
-      `\n        请基于以下已检索到的信息面素材，给出你对股票代码${target(state)}的信息面分析报告\n        股票信息: \n        ${stockInfo(state)}\n        \n        检索到的信息面素材: \n        （本次运行未检索到任何信息面素材：所有来源均不可用或未启用）\n        `,
+      `\n        请基于以下已检索到的信息面素材，给出你对股票代码${target(state)}的信息面分析报告\n        股票信息: \n        ${stockInfo(state)}\n        \n        检索到的信息面素材: \n        ${context}\n        `,
       'information_analysis', {
       startMsg: '信息面分析师开始分析...', doneMsg: '信息面分析师完成分析', logLabel: 'Information Analyst',
     });

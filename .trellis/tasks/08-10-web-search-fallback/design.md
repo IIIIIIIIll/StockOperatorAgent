@@ -13,16 +13,22 @@ _prefetch(ticker)
 └─ 联网搜索也失败/空 → 现有固定回退文本（逐字不变）
 ```
 
-启用谓词（装配与 Tab 共用单点）从「亿信 ANALYST 且 SEARCH/TWITTER」放宽为
-「亿信路径 **或** 联网搜索路径」：
+启用谓词（装配与 Tab 共用单点）放宽为「ANALYST 能力开关 且（亿信检索源
+至少一者开 **或** 联网搜索开）」——ANALYST 段用 `billions_cap_switch`
+（无主闸 key 约束），亿信源仍受 key 硬约束（`billions_enabled`），联网
+路径只受 `WEB_SEARCH_DISABLED` 总闸：
 
 ```python
 def information_analyst_enabled() -> bool:
-    billions_path = billions_enabled("ANALYST") and (
-        billions_enabled("SEARCH") or billions_enabled("TWITTER"))
-    web_path = web_search_enabled()          # DuckDuckGo 免 key
-    return billions_path or web_path
+    return billions_cap_switch("ANALYST") and (
+        billions_enabled("SEARCH") or billions_enabled("TWITTER")
+        or web_search_enabled())
 ```
+
+> 初稿的 `(billions_path) or web_path` 公式在「ANALYST 显式关 + web 开」
+> 时会误注册分析师——按 implement.md 定案修正为 cap_switch 语义（ANALYST
+> 关即不注册），`test_role_registry.test_analyst_off_switches_off_shape`
+> 钉死该组合。
 
 - 有 key + 亿信开 → 走亿信（现状逐字节不变，AC1/AC5）。
 - 无 key + 联网搜索开（默认）→ 注册分析师，预抓走 DDG（AC2）。

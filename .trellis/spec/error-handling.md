@@ -100,6 +100,12 @@ problem becomes a user-facing failure.
 - Test-side `try/except`：已被删除的 `test/core/llms/qwen/test_qwen_api.py`
   曾捕获 API 错误打印 DashScope error-code 文档链接（08-09-llm-provider-
   agnostic 随 QwenApi 死代码删除）。
+- **素材预抓降级（08-10-web-search-fallback）**：信息面分析师 `_prefetch`
+  亿信源失败/空 → 源注明跳过；联网回退（`web_search`，DDG 免 key）失败/空
+  → 固定回退文本「（本次运行未检索到任何信息面素材：所有来源均不可用或
+  未启用）」，逐字不变——两者都**不 raise**（降级收敛在
+  `make_web_search_tool`/`_summarize_results` 单点与 `_prefetch` 判定），
+  图不中断；TS 分析师同语义（`webSearchEnabled()` 关 → 不触网直接回退）。
 
 ## Rules of Thumb
 

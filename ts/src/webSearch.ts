@@ -55,7 +55,30 @@ function tavilySearcher(apiKey: string): (query: string) => Promise<SearchResult
   };
 }
 
-function defaultSearcher(): (query: string) => Promise<SearchResult[]> {
+/** 同源代理 searcher（浏览器分支：fetch /web-search → {results} JSON；
+ * 非 ok / results 缺失或空 → throw，由调用方降级（error-handling spec）。 */
+export function makeProxySearcher(
+  base: string,
+  _fetch: typeof fetch = fetch,
+): (query: string) => Promise<SearchResult[]> {
+  return async (query: string) => {
+    const resp = await _fetch(`${base}/web-search?q=${encodeURIComponent(query)}`);
+    if (!resp.ok) throw new Error(`web-search 代理 HTTP ${resp.status}`);
+    const data = (await resp.json()) as { results?: SearchResult[] };
+    const results = data.results;
+    if (!results?.length) throw new Error('web-search 代理无返回结果');
+    return results;
+  };
+}
+
+// 浏览器全局（ts/ 为 node-only lib 无 DOM 类型；运行时守卫 typeof window）。
+declare const window: { location?: { origin?: string } } | undefined;
+
+/** 缺省 searcher：浏览器 → 同源 /web-search 代理；Node/真机 → Tavily 优先 / DDG。 */
+export function defaultSearcher(): (query: string) => Promise<SearchResult[]> {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return makeProxySearcher(window.location.origin);
+  }
   const key = process.env.TAVILY_API_KEY;
   if (key) return tavilySearcher(key);
   return ddgSearcher;
@@ -112,8 +135,38 @@ export function parseDdgHtml(html: string): SearchResult[] {
   return titles.map((t, i) => ({ ...t, snippet: snippets[i] ?? '' }));
 }
 
-/** DuckDuckGo html 端点查询(免 key;region cn-zh 对齐 Python ddgs)。 */
-async function ddgSearcher(query: string): Promise<SearchResult[]> {
+/** DDG 前端页 vqd 令牌（news.js JSON API 请求头所需；对齐 ddgs _get_vqd）。 */
+async function fetchVqd(query: string, _fetch: typeof fetch = fetch): Promise<string> {
+  const resp = await _fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`);
+  if (!resp.ok) throw new Error(`DuckDuckGo 前端 HTTP ${resp.status}`);
+  const html = await resp.text();
+  const m = /vqd="([^"]+)"/.exec(html);
+  if (!m) throw new Error('DuckDuckGo vqd 令牌获取失败');
+  return m[1];
+}
+
+/** news.js JSON 端点（免 key;region cn-zh 对齐 ddgs news 引擎——html 端点
+ * 被反爬拦截时的回退：vqd + 现代 JSON API，2026-08-11 本机实测无需 TLS
+ * 指纹技巧即可返回结果）。date 为 unix 秒 → YYYY-MM-DD。 */
+async function ddgNewsSearcher(query: string, _fetch: typeof fetch = fetch): Promise<SearchResult[]> {
+  const vqd = await fetchVqd(query, _fetch);
+  const params = new URLSearchParams({ l: 'cn-zh', o: 'json', noamp: '1', q: query, vqd, p: '-1' });
+  const resp = await _fetch(`https://duckduckgo.com/news.js?${params.toString()}`);
+  if (!resp.ok) throw new Error(`DuckDuckGo news HTTP ${resp.status}`);
+  const data = (await resp.json()) as { results?: Array<{ title?: string; url?: string; excerpt?: string; date?: number }> };
+  const results = (data.results ?? []).map((r) => ({
+    title: r.title ?? '',
+    link: r.url ?? '',
+    snippet: r.excerpt ?? '',
+    ...(r.date ? { date: new Date(r.date * 1000).toISOString().slice(0, 10) } : {}),
+  }));
+  if (!results.length) throw new Error('DuckDuckGo 无返回结果');
+  return results;
+}
+
+/** DuckDuckGo 查询(免 key;region cn-zh 对齐 Python ddgs)：html 端点优先，
+ * 被反爬拦截（异常页无 result__a）→ 回退 vqd + news.js JSON API。 */
+export async function ddgSearcher(query: string): Promise<SearchResult[]> {
   const params = new URLSearchParams({ q: query, kl: 'cn-zh' });
   const resp = await fetch('https://html.duckduckgo.com/html/', {
     method: 'POST',
@@ -122,7 +175,7 @@ async function ddgSearcher(query: string): Promise<SearchResult[]> {
   });
   if (!resp.ok) throw new Error(`DuckDuckGo HTTP ${resp.status}`);
   const results = parseDdgHtml(await resp.text());
-  if (!results.length) throw new Error('DuckDuckGo 无返回结果');
+  if (!results.length) return ddgNewsSearcher(query); // 反爬异常页 → news.js 回退
   return results;
 }
 

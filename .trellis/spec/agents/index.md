@@ -37,7 +37,7 @@ All seven agents (`agents/chinese_mainland/`) inherit **`AgentNode`
    - 子类构造签名保持 `(llm, config, progress_updater=None, tools=None)`
      ——注册表 Role.factory 零改动（`super().__init__(llm, config,
      progress_updater, tools, role_message=<角色消息>)`；information_analyst
-     的 `_client=None` 注入由子类 super() 前自存，不进基类）
+     的 `_client=None`/`_searcher=None` 注入由子类 super() 前自存，不进基类）
 2. **`build_chain(role_message, llm=None)`** — 第二条链（trader 的 revise
    链）：复用构造时**已绑定** llm（双链共享同一实例）；revise 角色 system
    消息（含"对抗修订轮的多方/空方交易员"独有短语，与初稿路由短语互斥——
@@ -112,9 +112,11 @@ factory / revise_node_name；图装配（`investment_committee.py` 的
 `make_investment_committee`）与 UI 渲染（`display.report_tabs` /
 `OPINION_REPORT_KEYS`）都从注册表读取。新增 agent = 加一条 Role + 一个
 prompt（外加 State 注解——一致性由 `test/core/test_role_registry.py` 双向
-断言钉死）。信息面分析师的启用谓词（ANALYST 开且 SEARCH/TWITTER 至少一
-者开）在注册表单点定义，装配与 Tab 共用。**不要**在 committee/display 里
-再手写条件接线。
+断言钉死）。信息面分析师的启用谓词（08-10-web-search-fallback 起：ANALYST
+能力开关开 且（SEARCH/TWITTER 至少一者开 或 联网搜索开）——ANALYST 段用
+`billions_cap_switch`（无主闸 key 约束），无 key + web 开同样注册，预抓走
+DDG 兜底）在注册表单点定义，装配与 Tab 共用。**不要**在 committee/display
+里再手写条件接线。
 
 ## Prompt Conventions (`core/llms/prompt.py`)
 
@@ -330,6 +332,19 @@ def bullish_revise(self, state: State):
   `information_analysis`，prompt 唯一路由短语 "精于整合公告、研报、新闻
   与推特等多源信息"（与其余角色互斥）。预抓逻辑保持本文件显式（差异化
   不抽象）。
+- **联网搜索回退（08-10-web-search-fallback，R2）**：`_prefetch` 以
+  「检索结果】」分节标记判真实素材（亿信「…检索结果」/ 联网
+  「【联网搜索结果】」；「检索失败」「无返回结果」注明不算）——亿信路径
+  无真实素材且 `web_search_enabled()` → 固定 1 次 `_QUERY_TEMPLATES["web"]`
+  查询（`{ticker} 最新新闻`）经 `make_web_search_tool(_searcher=…)` 追加
+  「联网搜索结果」节（复用单点摘要实现，不复制 `_summarize_results`；
+  `_searcher` 为测试注入点，构造参数追加在 `_client` 之后）；回退也
+  失败/空（双失败）→ 返回空列表，落固定回退文本
+  `（本次运行未检索到任何信息面素材：所有来源均不可用或未启用）`
+  （逐字不变，不 raise——error-handling spec 降级风格）；web 关时亿信
+  失败/空注明照旧保留（现状语义）。TS 侧同语义：web 开 → `{ticker} 最新新闻`
+  1 次（缺省 `defaultSearcher()`：浏览器经 `/web-search` 同源代理、
+  Node/真机直连 DDG），失败/空 → 同一固定回退文本（`ts/src/agents.ts`）。
 - **info_section 条件插值模式（trader/manager 查询，AC1 硬约束）**：
   `AgentNode.info_section(state)`——`state.get("information_analysis")`
   为空 → 空串，f-string 其余逐字节不变（关闭态查询与改动前完全一致）；

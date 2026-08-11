@@ -123,12 +123,9 @@ export default function App() {
       return;
     }
     applySwitchesToEnv(settings.switches);
-    // 浏览器无可用搜索源(DDG 反爬/Tavily 未配 key)——强制禁用工具绑定,
-    // 避免交易员工具循环反复失败挂起;真机/Node 走面板开关
-    if (Platform.OS === 'web') {
-      process.env.WEB_SEARCH_DISABLED = '1';
-      if (settings.switches.webSearch) warn('web 端联网搜索不可用(浏览器限制),已禁用工具绑定');
-    }
+    // 联网搜索开关由设置面板 applySwitchesToEnv 控制(settings.ts 已写
+    // WEB_SEARCH_DISABLED);浏览器经 /web-search 同源代理有可用搜索源
+    // (defaultSearcher 浏览器分支自动走代理,交易员工具与分析师预抓共用)
     const mode = llmConfigured(settings.keys) ? '真实 LLM' : '演示占位 LLM';
     info(`开始分析 ${code}(模式:${mode})`);
     const t0 = Date.now();

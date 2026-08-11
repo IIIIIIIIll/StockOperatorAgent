@@ -18,6 +18,12 @@ _mcp_disabled() 判定）：存在且值非 ""/"0"/"false"/"no" → 视为禁用
 `BILLIONS_{CAP}`（能力闸）、`BILLIONS_{CAP}_MAX_CALLS`（上限）；
 覆盖层默认空 → 全部走 env → 与既有行为逐字节一致（AC1）。无
 BILLIONS_API_KEY 的硬约束始终优先（主闸，覆盖无效）。
+
+`billions_cap_switch`（08-10-web-search-fallback）：无 key 约束的
+能力开关——开关部分（总闸/能力闸/覆盖层优先级）与 `billions_enabled`
+逐字一致，仅剔除主闸 key 硬约束（信息面分析师联网回退谓词用：无 key
+仍可按开关判定 ANALYST 能力，亿信路径的 key 约束由 `billions_enabled`
+承担）。
 """
 
 from __future__ import annotations
@@ -42,6 +48,31 @@ def billions_enabled(capability: str) -> bool:
     cap = capability.upper()
     if not os.environ.get("BILLIONS_API_KEY"):
         return False
+    if not runtime_bool("BILLIONS_MASTER", True):
+        return False
+    env_enabled = not (
+        env_disabled("BILLIONS_DISABLED") or env_disabled(f"BILLIONS_{cap}_DISABLED")
+    )
+    return runtime_bool(f"BILLIONS_{cap}", env_enabled)
+
+
+def billions_cap_switch(capability: str) -> bool:
+    """能力开关（无主闸 key 约束）——开关部分语义与 `billions_enabled`
+    逐字一致，仅剔除 `BILLIONS_API_KEY` 硬约束。
+
+    :param capability: 能力名（FINDB/SEARCH/TWITTER/FETCH/ANALYST，
+        大小写不敏感——内部 upper，env 名恒为大写）
+    :return: False = 该能力静默关闭，True = 启用
+
+    用途（08-10-web-search-fallback）：信息面分析师启用谓词的 ANALYST
+    段——无 BILLIONS_API_KEY 时仍需按开关判定能力（联网搜索回退路径
+    无 key 约束），亿信路径的 key 硬约束仍由 `billions_enabled` 承担。
+
+    优先级（覆盖层 → env 兜底）：① `BILLIONS_MASTER` 覆盖 False →
+    全关（True=不强制，未覆盖项走 env）；② `BILLIONS_{CAP}` 覆盖
+    存在 → 覆盖值；③ env 总闸/能力闸。
+    """
+    cap = capability.upper()
     if not runtime_bool("BILLIONS_MASTER", True):
         return False
     env_enabled = not (

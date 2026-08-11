@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { TdxClient } from 'node-tdx-market';
 import { collectAll } from '../src/tdx/quoteClient.ts';
 import { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client.ts';
+import { ddgSearcher } from '../src/webSearch.ts';
 
 const PORT = Number(process.env.PORT || 8090);
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -142,6 +143,40 @@ async function tdxCollect(req, res) {
   }
 }
 
+// ─── Web 搜索代理 ────────────────────────────────────────────────────────────
+// 浏览器直连 DDG 有反爬/CORS 限制 → 本 server(Node)执行查询回包 {results}
+// JSON(对齐 Python web_search 工具语义;免 key)。q 校验(非空 + ≤200 字符
+// + 无空白);20s 超时兜底;失败/超时/参数非法 → 5xx {error}。
+const SEARCH_TIMEOUT_MS = 20_000;
+
+async function webSearch(req, res) {
+  const url = new URL(req.url, 'http://x');
+  const q = url.searchParams.get('q') ?? '';
+  if (!q || q.length > 200 || !/^\S+$/.test(q)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `无效 q 参数:${q}(需非空、≤200 字符、无空白)` }));
+    return;
+  }
+  let settled = false;
+  const send = (status, obj) => {
+    if (settled) return;
+    settled = true;
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(obj));
+  };
+  try {
+    const results = await Promise.race([
+      ddgSearcher(q),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(Object.assign(new Error('搜索超时(20s)'), { timedOut: true })), SEARCH_TIMEOUT_MS),
+      ),
+    ]);
+    send(200, { results });
+  } catch (err) {
+    send(err?.timedOut ? 504 : 502, { error: `web 搜索失败:${String(err?.message ?? err)}` });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {
     void llmProxy(req, res);
@@ -151,9 +186,13 @@ const server = http.createServer((req, res) => {
     void tdxCollect(req, res);
     return;
   }
+  if (req.method === 'GET' && req.url.startsWith('/web-search')) {
+    void webSearch(req, res);
+    return;
+  }
   serveStatic(req, res);
 });
 
 server.listen(PORT, () => {
-  console.log(`[soa] web server: http://localhost:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理)`);
+  console.log(`[soa] web server: http://localhost:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理 + /web-search 搜索代理)`);
 });
