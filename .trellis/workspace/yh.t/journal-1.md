@@ -743,3 +743,24 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Next Steps
 
 - 08-11-ts-log-persistence(另一会话任务)未触碰;新增 web 回退 spec 文档(agents/core/error-handling/testing/architecture + README)
+
+
+## Session 23: TS 全流式输出——token 事件流 + UI 打字机
+
+**Date**: 2026-08-12
+**Task**: TS 全流式输出——token 事件流 + UI 打字机
+**Branch**: `master`
+
+### Summary
+
+方案 B agent 级流式:token/roleStatus 事件协议 + streamWithRetry + 工具轮回滚/重试共用 retry 复位通道 + proxies.cjs SSE 透传 + UI 状态条/打字机;vitest 171 全绿 + 真实 LLM 打字机/curl -N SSE 验证;沉淀 .trellis/spec/ts/ 层
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `be106de` | (see git log) |
+
+### Status
+
+[OK] **Completed**

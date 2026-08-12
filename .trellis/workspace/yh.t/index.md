@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
-- **Last Active**: 2026-08-11
+- **Total Sessions**: 23
+- **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~745 | Active |
+| `journal-1.md` | ~766 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-08-12 | TS 全流式输出——token 事件流 + UI 打字机 | `be106de` | `master` |
 | 22 | 2026-08-11 | 信息面分析师联网搜索回退:谓词放宽 + 预抓兜底 + /web-search 代理 | `b57d88f` | `master` |
 | 21 | 2026-08-10 | web 端到端修复:采集代理 + 数据链 + UI 补全 | - | `master` |
 | 20 | 2026-08-10 | TS 全量重写收尾:AC 复核 + 任务归档 | - | `master` |
