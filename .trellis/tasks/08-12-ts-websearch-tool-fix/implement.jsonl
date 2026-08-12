@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "TS 层契约:代理/工具/事件协议——本修复的 ToolLike schema 形态属于该层约定,不破坏既有协议"}
+{"file": ".trellis/spec/agents/index.md", "reason": "工具调用循环/绑定约定(bind_tools 回退语义)——R3 对齐 Python @tool 形状,离线 stub 跳过绑定约束在此"}

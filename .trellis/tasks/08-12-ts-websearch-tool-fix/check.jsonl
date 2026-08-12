@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "AC 复核:工具序列化形状与既有事件协议/代理契约一致"}
+{"file": ".trellis/spec/testing.md", "reason": "测试风格:序列化断言守行为契约(请求体形状),非 tautological"}

@@ -16,6 +16,10 @@ const FINAL_ROUND_INSTRUCTION =
 export interface ToolLike {
   name: string;
   invoke(args: Record<string, unknown>): unknown;
+  /** JSON Schema(OpenAI function parameters 形态;bindTools 序列化用,可选——现有 fake/调用方零改动)。 */
+  schema?: Record<string, unknown>;
+  /** OpenAI function description(bindTools 序列化用,可选)。 */
+  description?: string;
 }
 
 export interface InvokeWithToolsOptions {
@@ -82,7 +86,10 @@ export async function invokeWithTools(
         content = `（未找到工具 ${call.name}）`;
       } else {
         try {
-          content = tool.invoke(call.args);
+          // 工具 invoke 可为 async(如 web_search 的 fetch searcher)——必须 await,
+          // 否则 Promise 未解包直接 String() 成 "[object Promise]";rejection 同样
+          // 在此 catch(异步工具异常 → 占位不 raise,对齐 Python try/except 语义)。
+          content = await tool.invoke(call.args);
           if (Array.isArray(content)) content = content[0]; // content_and_artifact 形态
         } catch (err) {
           content = `（联网搜索失败：${(err as Error).message}）`;

@@ -179,11 +179,28 @@ export async function ddgSearcher(query: string): Promise<SearchResult[]> {
   return results;
 }
 
+/** web_search 工具 OpenAI function description（对齐 Python make_web_search_tool docstring）。 */
+const WEB_SEARCH_DESCRIPTION =
+  '联网搜索(DuckDuckGo 中文财经源,cn-zh),可验证行业与市场的最新论据(如新闻、公告、政策)。查询失败时返回占位文本。';
+
+/** web_search 工具 JSON Schema（OpenAI function parameters 形态）——{name,schema}
+ *  命中 @langchain/core isStructuredToolParams，bindTools 自动转 OpenAI function
+ *  （type:'function' 包装），修复裸 {name,invoke} 透传导致的 400。 */
+const WEB_SEARCH_SCHEMA = {
+  type: 'object',
+  properties: {
+    query: { type: 'string', description: '搜索查询词' },
+  },
+  required: ['query'],
+};
+
 /** 构造 web_search 工具（对齐 Python make_web_search_tool：_searcher 注入点）。 */
 export function makeWebSearchTool(_searcher?: (query: string) => Promise<SearchResult[]>): ToolLike {
   const search = _searcher ?? defaultSearcher();
   return {
     name: 'web_search',
+    description: WEB_SEARCH_DESCRIPTION,
+    schema: WEB_SEARCH_SCHEMA,
     invoke: async (args: Record<string, unknown>) => {
       try {
         return summarizeResults(await search(String(args.query ?? '')));

@@ -69,6 +69,30 @@ describe('tool loop (AC3)', () => {
     expect(String(toolMsg.content)).toBe('（联网搜索失败：boom）');
   });
 
+  it('async 工具 invoke:await 解包结果回流(非 [object Promise]);rejection → 占位不 raise', async () => {
+    const llm = scriptedLlm([
+      () => toolCall('web_search', { query: 'q1' }),
+      () => toolCall('failing_search', {}),
+      () => new AIMessage({ content: '回答' }),
+    ]);
+    const { messages } = await invokeWithTools(llm, 'q', {}, {
+      tools: [
+        {
+          name: 'web_search',
+          invoke: async (args) => `结果:${String(args.query)}`,
+        },
+        {
+          name: 'failing_search',
+          invoke: async () => { throw new Error('async-boom'); },
+        },
+      ],
+    });
+    const toolMsgs = humanMessages(messages).filter((m) => m instanceof ToolMessage) as ToolMessage[];
+    expect(String(toolMsgs[0].content)).toBe('结果:q1'); // Promise 已解包
+    expect(String(toolMsgs[1].content)).toBe('（联网搜索失败：async-boom）'); // async rejection 被 catch
+    expect(String(toolMsgs[0].content)).not.toContain('[object Promise]');
+  });
+
   it('rounds exhausted → final round instruction appended (bounded +1 call)', async () => {
     const llm = scriptedLlm([
       () => toolCall('web_search', {}),

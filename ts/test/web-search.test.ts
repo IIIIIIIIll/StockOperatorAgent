@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { decodeDdgUrl, decodeEntities, makeProxySearcher, parseDdgHtml, stripTags } from '../src/webSearch.ts';
+import { HumanMessage } from '@langchain/core/messages';
+import { ChatOpenAI } from '@langchain/openai';
+import {
+  decodeDdgUrl,
+  decodeEntities,
+  makeProxySearcher,
+  makeWebSearchTool,
+  parseDdgHtml,
+  stripTags,
+} from '../src/webSearch.ts';
+
+const WEB_SEARCH_DESCRIPTION =
+  '联网搜索(DuckDuckGo 中文财经源,cn-zh),可验证行业与市场的最新论据(如新闻、公告、政策)。查询失败时返回占位文本。';
+const WEB_SEARCH_PARAMETERS = {
+  type: 'object',
+  properties: { query: { type: 'string', description: '搜索查询词' } },
+  required: ['query'],
+};
 
 const SAMPLE_HTML = `
 <div class="result results_links results_links_deep web-result ">
@@ -84,5 +101,54 @@ describe('makeProxySearcher（同源 /web-search 代理 searcher）', () => {
     const fakeFetch = async () => ({ ok: true, json: async () => ({ results: [] }) }) as Response;
     const search = makeProxySearcher('http://x', fakeFetch);
     await expect(search('q')).rejects.toThrow(/无返回结果/);
+  });
+});
+
+describe('web_search 工具 schema 序列化（AC1：bindTools 请求体 OpenAI function 形态）', () => {
+  it('makeWebSearchTool 自带 description/schema（离线形状契约）', () => {
+    const tool = makeWebSearchTool();
+    expect(tool.name).toBe('web_search');
+    expect(tool.description).toBe(WEB_SEARCH_DESCRIPTION);
+    expect(tool.schema).toEqual(WEB_SEARCH_PARAMETERS);
+  });
+
+  it('ChatOpenAI.bindTools 请求体 tools[0] = {type:function,...}（不再缺 type 字段）', async () => {
+    let body: unknown = null;
+    const fakeFetch = (async (_url: unknown, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-test',
+          object: 'chat.completion',
+          created: 0,
+          model: 'test-model',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as unknown as typeof fetch;
+
+    const llm = new ChatOpenAI({
+      model: 'test-model',
+      apiKey: 'k',
+      configuration: { baseURL: 'https://llm.test/v1', fetch: fakeFetch },
+    });
+    const bound = llm.bindTools([makeWebSearchTool()]);
+    await bound.invoke([new HumanMessage('hi')]);
+
+    expect(body).not.toBeNull();
+    const tools =
+      body && typeof body === 'object' && 'tools' in body && Array.isArray(body.tools) ? body.tools : undefined;
+    if (!tools) throw new Error('请求体缺少 tools 字段');
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toEqual({
+      type: 'function',
+      function: {
+        name: 'web_search',
+        description: WEB_SEARCH_DESCRIPTION,
+        parameters: WEB_SEARCH_PARAMETERS,
+      },
+    });
   });
 });
