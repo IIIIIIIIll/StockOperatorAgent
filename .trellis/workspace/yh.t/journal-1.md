@@ -785,3 +785,24 @@ ToolLike 补 schema/description 命中 isStructuredToolParams 自动转 OpenAI �
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: 重试/回滚日志可见性
+
+**Date**: 2026-08-12
+**Task**: 重试/回滚日志可见性
+**Branch**: `master`
+
+### Summary
+
+onReset 回滚 warn(工具轮 N + 工具名)+ retry warn 补 HTTP 状态码;『重试中』从此有可追溯日志
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7733488` | (see git log) |
+
+### Status
+
+[OK] **Completed**

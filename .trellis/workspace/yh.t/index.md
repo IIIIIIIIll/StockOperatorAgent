@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-08-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~787 | Active |
+| `journal-1.md` | ~808 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-08-12 | 重试/回滚日志可见性 | `7733488` | `master` |
 | 24 | 2026-08-12 | 修复 web_search 工具 schema 400 + toolLoop await | `6f2b623` | `master` |
 | 23 | 2026-08-12 | TS 全流式输出——token 事件流 + UI 打字机 | `be106de` | `master` |
 | 22 | 2026-08-11 | 信息面分析师联网搜索回退:谓词放宽 + 预抓兜底 + /web-search 代理 | `b57d88f` | `master` |
