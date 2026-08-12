@@ -17,6 +17,7 @@ agents → Streamlit UI).
 | Data source | `data_source/` | [data_source/index.md](./data_source/index.md) | Editing akshare wrappers or DataFrame→dataclass construction |
 | Data structures | `data_structure/` | [data_structure/index.md](./data_structure/index.md) | Adding persistent dataclasses or editing `ChinaStock` |
 | Data storage | `data_storage/`, `database/` | [data_storage/index.md](./data_storage/index.md) | Editing ZODB access or transaction patterns |
+| TS 侧移植 | `ts/` | [ts/index.md](./ts/index.md) | Editing the TS port (web/RN): event protocol, streaming, LLM retry, same-origin proxies |
 
 ## Cross-Cutting
 

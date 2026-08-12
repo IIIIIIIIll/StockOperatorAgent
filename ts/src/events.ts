@@ -1,17 +1,21 @@
 // 事件流 runner —— ProgressUpdater 协议 → 订阅事件(Node 与 App 共用)
 // run(ticker):采集(可注入 client)→ buildStockInformation → 委员会 →
 // 最终报告;progress/report/done/error 事件按序发射。
+// 08-11-ts-streaming-output:新增 token(流式文本增量)/roleStatus(角色生命周期)
+// —— node 为图节点名(区分初稿/修订轮),roleKey 为 stateKey(经 ROLES 查表映射)。
 import { HumanMessage } from '@langchain/core/messages';
 import type { StoreLike } from './store.ts';
 import { buildStockInformation } from './pipeline.ts';
 import { enabledRoles, makeInvestmentCommittee } from './committee.ts';
 import { makeLlm } from './llm.ts';
-import type { ProgressUpdater } from './progress.ts';
+import type { ProgressUpdater, RoleStatus } from './progress.ts';
 import type { PipelineDeps } from './pipeline.ts';
 
 export type PipelineEvent =
   | { type: 'progress'; message: string }
   | { type: 'report'; key: string; tabTitle: string; content: string }
+  | { type: 'token'; roleKey: string; node: string; delta: string }
+  | { type: 'roleStatus'; roleKey: string; node: string; status: RoleStatus }
   | { type: 'done'; report: FinalReport }
   | { type: 'error'; error: string };
 
@@ -70,11 +74,21 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
     }
   }
 
+  // node → roleKey 映射契约:初稿节点查 nodeName,修订节点查 reviseNodeName
+  // (同 stateKey);查不到 → 原样用 node(events 仍可消费)。
   const updater: ProgressUpdater = {
     info: (message) => emit({ type: 'progress', message }),
     pushReport: (key, content) => {
       const role = enabledRoles().find((r) => r.stateKey === key);
       emit({ type: 'report', key, tabTitle: role?.tabTitle ?? key, content });
+    },
+    pushDelta: (node, delta) => {
+      const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
+      emit({ type: 'token', roleKey: role?.stateKey ?? node, node, delta });
+    },
+    pushStatus: (node, status) => {
+      const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
+      emit({ type: 'roleStatus', roleKey: role?.stateKey ?? node, node, status });
     },
   };
 

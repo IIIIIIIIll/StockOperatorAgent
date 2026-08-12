@@ -33,12 +33,24 @@ async function handleLlmProxy(req, res) {
       },
       body: JSON.stringify(payload),
     });
-    const text = await upstream.text();
     res.writeHead(upstream.status, {
       'Content-Type': upstream.headers.get('content-type') || 'application/json',
     });
-    res.end(text);
+    // R4 流式透传:pipe upstream.body 分块转发,不整体缓冲(await text 曾致
+    // 浏览器一次性收到 SSE);upstream 断开 → for-await 抛错,走下方兜底 destroy。
+    if (upstream.body) {
+      for await (const chunk of upstream.body) {
+        res.write(chunk);
+      }
+    }
+    res.end();
   } catch (err) {
+    // writeHead 后抛错(上游流中断/客户端断开)不可再 writeHead——destroy 兜底,
+    // 防客户端挂起(原缓冲实现无此路径);未 writeHead 的错误路径保持 502 JSON。
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
     res.writeHead(502, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: { message: `LLM 代理转发失败:${String(err?.message ?? err)}` } }));
   }

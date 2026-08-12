@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AIMessage } from '@langchain/core/messages';
-import { BillionsInformationAnalyst, BullishTrader, type CompleteOptions } from '../src/agents.ts';
+import { BillionsInformationAnalyst, BullishTrader, FundamentalAnalysisExpert, type CompleteOptions } from '../src/agents.ts';
 import type { SearchResult } from '../src/webSearch.ts';
 
 function stubLlm() {
@@ -113,5 +113,43 @@ describe('bind_tools fallback (AC5)', () => {
     const llm = stubLlm();
     const agent = new BullishTrader(llm as never, {}, null, []);
     expect(agent).toBeTruthy();
+  });
+});
+
+describe('completeExpert 流式状态发射 (D6)', () => {
+  it('running 于调用前、delta 单次全量、done 于 pushReport 后(事件按序)', async () => {
+    const events: Array<{ kind: string; node?: string; status?: string; delta?: string; key?: string }> = [];
+    const updater = {
+      info: () => {},
+      pushReport: (key: string, content: string) => events.push({ kind: 'report', key, delta: content }),
+      pushDelta: (node: string, delta: string) => events.push({ kind: 'delta', node, delta }),
+      pushStatus: (node: string, status: string) => events.push({ kind: 'status', node, status }),
+    };
+    const agent = new FundamentalAnalysisExpert(stubLlm() as never, {}, updater);
+    await agent.completeExpert('q', 'fundamental_analysis', {
+      startMsg: 's', doneMsg: 'd', logLabel: 'l', nodeName: 'fundamental_analysis_expert',
+    });
+    const seq = events.map((e) => [e.kind, e.node ?? e.key ?? '', e.status ?? '', e.delta ?? ''].filter(Boolean).join(':'));
+    expect(seq).toEqual([
+      'status:fundamental_analysis_expert:running',
+      'delta:fundamental_analysis_expert:ok', // stub 单 chunk → 单次全量 delta
+      'report:fundamental_analysis:ok',
+      'status:fundamental_analysis_expert:done',
+    ]);
+  });
+
+  it('spy updater 抛错 → 流式状态降级 no-op(图不中断)', async () => {
+    const throwing = {
+      info: () => { throw new Error('boom'); },
+      pushReport: () => { throw new Error('boom'); },
+      pushDelta: () => { throw new Error('boom'); },
+      pushStatus: () => { throw new Error('boom'); },
+    };
+    // 构造即传入抛错 updater:safePush*/pushReport 全部降级,报告仍产出
+    const agent = new FundamentalAnalysisExpert(stubLlm() as never, {}, throwing);
+    const out = await agent.completeExpert('q', 'fundamental_analysis', {
+      startMsg: 's', doneMsg: 'd', logLabel: 'l', nodeName: 'fundamental_analysis_expert',
+    });
+    expect(out.fundamental_analysis).toBe('ok'); // 报告仍产出
   });
 });

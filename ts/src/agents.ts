@@ -6,13 +6,15 @@ import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts
 import type { RunnableLike } from '@langchain/core/runnables';
 import { system_prompt, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';
 import { getLastBusinessDay } from './gates.ts';
-import { invokeWithRetry } from './retry.ts';
+import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts';
 import { invokeWithTools, type ToolLike } from './toolLoop.ts';
-import { pushReport, safeProgress, type ProgressUpdater } from './progress.ts';
+import { pushReport, safeProgress, safePushDelta, safePushStatus, type ProgressUpdater } from './progress.ts';
 import { defaultSearcher, summarizeResults, webSearchEnabled, type SearchResult } from './webSearch.ts';
 
 export interface LlmLike {
   invoke(payload: unknown, config?: unknown): Promise<{ content: string }>;
+  /** 可选:流式调用(方案 B agent 级流式;缺省回退 invokeWithRetry + 单次全量 delta)。 */
+  stream?(payload: unknown, config?: unknown): Promise<AsyncIterable<unknown>> | AsyncIterable<unknown>;
   bindTools?(tools: ToolLike[]): LlmLike;
 }
 
@@ -33,6 +35,8 @@ export interface CompleteOptions {
   startMsg: string;
   doneMsg: string;
   logLabel: string;
+  /** 图节点名(区分初稿/修订轮;events.ts 经 ROLES nodeName 查表映射 roleKey)。 */
+  nodeName: string;
 }
 
 export class AgentNode {
@@ -83,42 +87,76 @@ export class AgentNode {
     return prompt.pipe((llm ?? this.boundLlm) as unknown as RunnableLike);
   }
 
-  /** 专家骨架：进度 → 直调 invokeWithRetry → push_report → state dict。 */
+  /** 流式调用(有 .stream())或回退直调(无 .stream() → invokeWithRetry +
+   *  单次全量 delta);delta/retry 经 updater 上报(node 维度)。 */
+  protected async streamOrInvoke(
+    llm: unknown,
+    payload: unknown,
+    nodeName: string,
+  ): Promise<{ content: unknown; tool_calls?: unknown }> {
+    const streamable = (llm as { stream?: StreamableLlm['stream'] }).stream;
+    if (typeof streamable === 'function') {
+      return streamWithRetry(llm as StreamableLlm, payload, this.config, {
+        onDelta: (d) => safePushDelta(this.progressUpdater, nodeName, d),
+        onRetry: (_attempt) => safePushStatus(this.progressUpdater, nodeName, 'retry'),
+      });
+    }
+    const response = (await invokeWithRetry(llm as LlmLike, payload, this.config)) as {
+      content: unknown;
+      tool_calls?: unknown;
+    };
+    const text = typeof response.content === 'string' ? response.content : String(response.content);
+    if (text) safePushDelta(this.progressUpdater, nodeName, text);
+    return response;
+  }
+
+  /** 专家骨架：running → 进度 → 流式直调 → 进度 → push_report → done。 */
   async completeExpert(
     queryText: string,
     stateKey: string,
-    { startMsg, doneMsg, logLabel }: CompleteOptions,
+    { startMsg, doneMsg, logLabel, nodeName }: CompleteOptions,
   ): Promise<Record<string, unknown>> {
     const query: Array<[string, string]> = [['human', queryText]];
+    safePushStatus(this.progressUpdater, nodeName, 'running');
     safeProgress(this.progressUpdater, startMsg);
-    const response = (await invokeWithRetry(this.llm as LlmLike, { query }, this.config)) as {
-      content: unknown;
-    };
+    const response = await this.streamOrInvoke(this.llm, { query }, nodeName);
     const content = typeof response.content === 'string' ? response.content : String(response.content);
     safeProgress(this.progressUpdater, doneMsg);
     pushReport(this.progressUpdater, stateKey, content);
+    safePushStatus(this.progressUpdater, nodeName, 'done');
     return { messages: [query[0], response], [stateKey]: content };
   }
 
-  /** 工具角色骨架（trader 初稿/修订 + manager）：工具循环 → push_report。 */
+  /** 工具角色骨架（trader 初稿/修订 + manager）：工具循环(每轮流式) → push_report。
+   *  delta 逐 chunk 透传;轮末 tool_calls 非空经 onReset 回滚该轮文本(同 'retry'
+   *  通道,UI 清 partial);LLM 重试同样 'retry' 复位。 */
   async completeWithTools(
     queryText: string,
     stateKey: string,
-    { chain, maxToolRounds, startMsg, doneMsg, logLabel }: CompleteOptions & {
+    { chain, maxToolRounds, startMsg, doneMsg, logLabel, nodeName }: CompleteOptions & {
       chain?: unknown;
       maxToolRounds?: number;
     },
   ): Promise<Record<string, unknown>> {
+    safePushStatus(this.progressUpdater, nodeName, 'running');
     safeProgress(this.progressUpdater, startMsg);
     const { response, messages } = await invokeWithTools(
       (chain ?? this.llm) as never,
       queryText,
       this.config,
-      { tools: this.tools, maxToolRounds, progressUpdater: this.progressUpdater },
+      {
+        tools: this.tools,
+        maxToolRounds,
+        progressUpdater: this.progressUpdater,
+        onDelta: (d) => safePushDelta(this.progressUpdater, nodeName, d),
+        onRetry: (_attempt) => safePushStatus(this.progressUpdater, nodeName, 'retry'),
+        onReset: () => safePushStatus(this.progressUpdater, nodeName, 'retry'),
+      },
     );
     safeProgress(this.progressUpdater, doneMsg);
     const content = typeof response.content === 'string' ? response.content : String(response.content);
     pushReport(this.progressUpdater, stateKey, content);
+    safePushStatus(this.progressUpdater, nodeName, 'done');
     return { messages, [stateKey]: content };
   }
 
@@ -158,6 +196,7 @@ export class FundamentalAnalysisExpert extends AgentNode {
       `\n        请基于以下真实数据给出你对股票代码${target(state)}的基本面分析\n        ${stockInfo(state)}\n        `,
       'fundamental_analysis', {
       startMsg: '基本面分析师开始分析...', doneMsg: '基本面分析师完成分析', logLabel: 'Fundamental Analysis Expert',
+      nodeName: 'fundamental_analysis_expert',
     });
   }
 }
@@ -171,6 +210,7 @@ export class TrendAnalysisExpert extends AgentNode {
       `\n        请基于以下真实数据给出你对股票代码${target(state)}的趋势分析\n        ${stockInfo(state)}\n        `,
       'trend_analysis', {
       startMsg: '趋势分析师开始分析...', doneMsg: '趋势分析师完成分析', logLabel: 'Trend Analysis Expert',
+      nodeName: 'trend_analysis_expert',
     });
   }
 }
@@ -184,6 +224,7 @@ export class TechnicalIndicatorAnalyst extends AgentNode {
       `\n        请基于以下真实数据给出你对股票代码${target(state)}的技术指标分析\n        ${stockInfo(state)}\n        `,
       'technical_indicator_analysis', {
       startMsg: '技术指标分析师开始分析...', doneMsg: '技术指标分析师完成分析', logLabel: 'Technical Indicator Analyst',
+      nodeName: 'technical_indicator_analyst',
     });
   }
 }
@@ -216,6 +257,7 @@ export class BillionsInformationAnalyst extends AgentNode {
       `\n        请基于以下已检索到的信息面素材，给出你对股票代码${target(state)}的信息面分析报告\n        股票信息: \n        ${stockInfo(state)}\n        \n        检索到的信息面素材: \n        ${context}\n        `,
       'information_analysis', {
       startMsg: '信息面分析师开始分析...', doneMsg: '信息面分析师完成分析', logLabel: 'Information Analyst',
+      nodeName: 'information_analyst',
     });
   }
 }
@@ -231,6 +273,7 @@ export class BullishTrader extends AgentNode {
     const q = `\n        现在请基于以下信息，给出你对股票代码${target(state)}的看法：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n        ${info}`;
     return this.completeWithTools(q, 'bullish_opinions', {
       startMsg: '多头交易员开始分析...', doneMsg: '多头交易员完成分析', logLabel: 'Bullish Trader',
+      nodeName: 'bullish_trader',
     });
   }
   async bullish_revise(state: StateLike) {
@@ -239,7 +282,8 @@ export class BullishTrader extends AgentNode {
     return this.completeWithTools(
       `\n        现在请检视空方交易员对你多头初稿的质疑，给出股票代码${target(state)}的修订版完整多头观点：\n        空方交易员观点: \n        ${opp}\n        \n        你的初稿多头观点: \n        ${own}\n        \n`,
       'bullish_opinions',
-      { chain: this.reviseLlm, maxToolRounds: 3, startMsg: '多方修订开始...', doneMsg: '多方修订完成', logLabel: 'Bullish Revise' },
+      { chain: this.reviseLlm, maxToolRounds: 3, startMsg: '多方修订开始...', doneMsg: '多方修订完成', logLabel: 'Bullish Revise',
+        nodeName: 'bullish_revise' },
     );
   }
 }
@@ -255,6 +299,7 @@ export class BearishTrader extends AgentNode {
     const q = `\n        现在请基于以下信息，给出你对股票代码${target(state)}的看法：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n        ${info}`;
     return this.completeWithTools(q, 'bearish_opinions', {
       startMsg: '空头交易员开始分析...', doneMsg: '空头交易员完成分析', logLabel: 'Bearish Trader',
+      nodeName: 'bearish_trader',
     });
   }
   async bearish_revise(state: StateLike) {
@@ -263,7 +308,8 @@ export class BearishTrader extends AgentNode {
     return this.completeWithTools(
       `\n        现在请检视多方交易员对你空头初稿的质疑，给出股票代码${target(state)}的修订版完整空头观点：\n        多方交易员观点: \n        ${opp}\n        \n        你的初稿空头观点: \n        ${own}\n        \n`,
       'bearish_opinions',
-      { chain: this.reviseLlm, maxToolRounds: 3, startMsg: '空方修订开始...', doneMsg: '空方修订完成', logLabel: 'Bearish Revise' },
+      { chain: this.reviseLlm, maxToolRounds: 3, startMsg: '空方修订开始...', doneMsg: '空方修订完成', logLabel: 'Bearish Revise',
+        nodeName: 'bearish_revise' },
     );
   }
 }
@@ -280,7 +326,8 @@ export class InvestmentManager extends AgentNode {
     return this.completeWithTools(
       `\n        现在请基于以下信息，给出你对股票代码${target(state)}的最终投资建议：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n${info}\n        多头观点: \n        ${bullish}\n        \n        空头观点: \n        ${bearish}\n        \n`,
       'final_decision',
-      { startMsg: '投资经理开始终审...', doneMsg: '投资经理完成终审', logLabel: 'Investment Manager' },
+      { startMsg: '投资经理开始终审...', doneMsg: '投资经理完成终审', logLabel: 'Investment Manager',
+        nodeName: 'investment_manager' },
     );
   }
 }

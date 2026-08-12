@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/agents/index.md", "reason": "AC 复核:agent 管道契约(progress/report 时序、重试约定)在流式改造后是否保持——check 据此核对 agents.ts/events.ts 行为未回归"}
+{"file": ".trellis/spec/testing.md", "reason": "测试风格对齐(行为断言、全量回归):vitest 用例须覆盖流式聚合/重试/轮次回滚的观察行为;Python 全量 pytest 零新增失败验收"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核跨层数据流:token/roleStatus 从 agent 到 UI 的完整链路、report 权威覆盖 partial 的语义在 App/ReportContent 是否正确落地"}

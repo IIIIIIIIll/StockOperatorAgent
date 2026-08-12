@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/agents/index.md", "reason": "Agent 骨架/重试约定(complete_expert/complete_with_tools 管道)、工具调用循环语义——TS agents.ts/toolLoop.ts 移植对齐本 spec,流式改造不得破坏其契约(progress/push_report 时序、InvokeWithRetry 约定)"}
+{"file": ".trellis/spec/error-handling.md", "reason": "降级捕获风格(失败不 raise 图不中断)——token/状态上报缺失与流式失败处理须沿用 safeProgress 降级语义;可恢复/业务错误分类对应 retry.ts isRetryable"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "事件协议跨层(agent → events → UI)数据流契约:新增 token/roleStatus 事件跨越 LLM 调用层与展示层,须核对各层消费方(App/probe/tests)一致性"}

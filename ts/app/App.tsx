@@ -17,7 +17,7 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';import {
   toLlmConfig,
   type SettingsState,
 } from './lib/settings';
-import { reportRoles } from '../src/committee.ts';
+import { enabledRoles, reportRoles } from '../src/committee.ts';
 import { buildStockInformation } from '../src/pipeline.ts';
 import {
   buildLlm,
@@ -29,6 +29,7 @@ import {
   type FinalReport,
 } from './lib/runner';
 import { describeError } from '../src/events.ts';
+import type { RoleStatus } from '../src/progress.ts';
 import { info, warn, error as logError } from './lib/log';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
@@ -46,6 +47,10 @@ export default function App() {
   const [settings, setSettings] = React.useState<SettingsState>(() => loadSettings());
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // 流式缓冲(node → partial 文本)/角色生命周期(node → status):token 追加、
+  // roleStatus 写状态(retry 清 partial)、report 清 partial(最终内容权威)
+  const [partials, setPartials] = React.useState<Record<string, string>>({});
+  const [statuses, setStatuses] = React.useState<Record<string, RoleStatus>>({});
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
   const [showSettings, setShowSettings] = React.useState(false);
   React.useEffect(() => {
@@ -80,8 +85,30 @@ export default function App() {
   React.useEffect(() => {
     const off = runner.subscribe((e) => {
       if (e.type === 'progress') info(e.message);
-      else if (e.type === 'report') info(`报告[${e.tabTitle}] ${e.content.length} 字符`);
-      else if (e.type === 'done') {
+      else if (e.type === 'report') {
+        info(`报告[${e.tabTitle}] ${e.content.length} 字符`);
+        // 最终内容权威:清空该 stateKey 对应节点的流式 partial(opinion 含初稿+修订)
+        // 用事件时刻的 enabledRoles() 而非挂载闭包 roles——设置面板中途启用/禁用
+        // 角色后,报告清除仍按当前注册表生效
+        setPartials((prev) => {
+          const nodes = enabledRoles().filter((r) => r.stateKey === e.key).flatMap((r) =>
+            [r.nodeName, r.reviseNodeName].filter((n): n is string => !!n),
+          );
+          if (!nodes.length) return prev;
+          const next = { ...prev };
+          for (const n of nodes) delete next[n];
+          return next;
+        });
+      } else if (e.type === 'token') {
+        setPartials((prev) => ({ ...prev, [e.node]: (prev[e.node] ?? '') + e.delta }));
+      } else if (e.type === 'roleStatus') {
+        info(`状态[${e.node}] ${e.status}`);
+        setStatuses((prev) => ({ ...prev, [e.node]: e.status }));
+        if (e.status === 'retry') {
+          // retry 复位:清空该节点已流出文本(工具轮回滚与 LLM 重试共用通道)
+          setPartials((prev) => ({ ...prev, [e.node]: '' }));
+        }
+      } else if (e.type === 'done') {
         const report = (e as Extract<PipelineEvent, { type: 'done' }>).report as FinalReport;
         info(`分析完成:${report.opinions.length} 份观点,最终决策 ${report.final_decision.length} 字符`);
         setFinalDecision(report.final_decision);
@@ -112,6 +139,8 @@ export default function App() {
     setFinalDecision('');
     setStockInformation('');
     setError(null);
+    setPartials({});
+    setStatuses({});
     const code = ticker.trim();
     // 对齐 Python:六位数字校验 + BJ 拦截
     if (!/^\d{6}$/.test(code)) {
@@ -208,7 +237,7 @@ export default function App() {
       (window as unknown as Record<string, unknown>).__soa = {
         start: () => void start(),
         switchTab: (id: TabId) => setActiveTab(id),
-        getState: () => ({ finalDecision, eventCount: events.length, running }),
+        getState: () => ({ finalDecision, eventCount: events.length, running, partials, statuses }),
       };
     }
   });
@@ -275,6 +304,23 @@ export default function App() {
             })}
           </ScrollView>
 
+          {/* 角色状态条:每启用角色一 chip(待运行/分析中/完成/重试中);
+              信息面分析师未启用 → 不在 roles 中,自然不渲染 */}
+          <View style={styles.statusBar}>
+            {roles.map((r) => {
+              const st = r.reviseNodeName && statuses[r.reviseNodeName]
+                ? statuses[r.reviseNodeName] // opinion 角色取修订节点(最新阶段)
+                : statuses[r.nodeName];
+              const label = st === 'running' ? '分析中' : st === 'done' ? '完成' : st === 'retry' ? '重试中' : '待运行';
+              const color = st === 'done' ? theme.colors.ok : st === 'retry' ? theme.colors.warn : st === 'running' ? theme.colors.primary : theme.colors.textSecondary;
+              return (
+                <View key={r.nodeName} style={[styles.statusChip, { borderColor: color }]}>
+                  <Text style={[styles.statusChipText, { color }]}>{r.tabTitle} · {label}</Text>
+                </View>
+              );
+            })}
+          </View>
+
           {/* 进度区(所有 Tab 可见;替换语义,对齐 Python updatable_container) */}
           {progress.length > 0 ? (
             <View style={styles.progressBar}>
@@ -297,6 +343,10 @@ export default function App() {
                 tabTitle={activeRole.tabTitle!}
                 reports={activeReports.map((e) => ({ key: e.key, content: e.content }))}
                 finalDecision={finalDecision}
+                partials={partials}
+                statuses={statuses}
+                nodeName={activeRole.nodeName}
+                reviseNodeName={activeRole.reviseNodeName}
               />
             ) : null}
           </View>
@@ -331,6 +381,9 @@ function makeStyles(theme: Theme) {
     main: { flex: 1, flexDirection: 'row' },
     contentColumn: { flex: 1 },
     tabBar: { flexGrow: 0, backgroundColor: theme.colors.background, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    statusBar: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
+    statusChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2 },
+    statusChipText: { fontSize: 11, fontWeight: '600' },
     tab: { paddingHorizontal: 16, paddingVertical: 10 },
     tabActive: { borderBottomWidth: 2, borderBottomColor: theme.colors.primary },
     tabText: { fontSize: 14, color: theme.colors.textSecondary },

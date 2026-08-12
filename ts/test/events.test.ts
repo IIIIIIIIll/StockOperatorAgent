@@ -22,7 +22,8 @@ const PHRASES: Array<[string, string]> = [
   ['精于价值与趋势结合的投资策略', 'FINAL'],
 ];
 
-function stubLlm() {
+function stubLlm(opts: { fundFailOnce?: boolean } = {}) {
+  const fundCalls = { n: 0 };
   const fn = async (payload: unknown) => {
     // AgentNode 经 prompt.pipe 包装：收到 ChatPromptValue({messages}) 或消息数组
     const list = Array.isArray(payload)
@@ -33,6 +34,15 @@ function stubLlm() {
     const text = typeof content === 'string' ? content : JSON.stringify(content ?? '');
     const hit = PHRASES.find(([p]) => text.includes(p));
     const tag = hit ? hit[1] : 'UNROUTED';
+    // retry 注入:基本面专家首次调用抛 429(可恢复)→ streamWithRetry 内部重试
+    if (opts.fundFailOnce && tag === 'FUND') {
+      fundCalls.n++;
+      if (fundCalls.n === 1) {
+        const err = new Error('rate limited') as Error & { status?: number };
+        err.status = 429;
+        throw err;
+      }
+    }
     return new AIMessage({ content: `${tag}_REPORT` });
   };
   (fn as unknown as { invoke: unknown }).invoke = fn;
@@ -68,6 +78,26 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     const reportEvt = events.find((e) => e.type === 'report' && e.key === 'fundamental_analysis');
     expect(reportEvt).toBeTruthy();
     expect((reportEvt as { tabTitle: string }).tabTitle).toBe('基本面分析');
+
+    // 流式事件:每节点 roleStatus running→done + token(单 chunk 全量,roleKey 映射)
+    const fundStatus = events.filter(
+      (e): e is Extract<PipelineEvent, { type: 'roleStatus' }> => e.type === 'roleStatus' && e.node === 'fundamental_analysis_expert',
+    );
+    expect(fundStatus.map((e) => e.status)).toEqual(['running', 'done']);
+    const fundTokens = events.filter(
+      (e): e is Extract<PipelineEvent, { type: 'token' }> => e.type === 'token' && e.node === 'fundamental_analysis_expert',
+    );
+    expect(fundTokens.map((e) => e.delta)).toEqual(['FUND_REPORT']);
+    expect(fundTokens[0].roleKey).toBe('fundamental_analysis');
+    // 修订节点(reviseNodeName)→ 同 stateKey 映射
+    const revTokens = events.filter(
+      (e): e is Extract<PipelineEvent, { type: 'token' }> => e.type === 'token' && e.node === 'bullish_revise',
+    );
+    expect(revTokens.map((e) => e.delta)).toEqual(['BULL_REV_REPORT']);
+    expect(revTokens[0].roleKey).toBe('bullish_opinions');
+    // token 总量 = 9 节点(4 专家 + 2 初稿 + 2 修订 + 经理)各 1 全量 delta
+    expect(events.filter((e) => e.type === 'token')).toHaveLength(9);
+    expect(events.filter((e) => e.type === 'roleStatus')).toHaveLength(18); // 9 节点 × (running+done)
 
     expect(report.final_decision).toBe('FINAL_REPORT');
     // 专家 4(含信息面) + 多空各 2(初稿+修订) = 8;经理不入 opinions
@@ -109,6 +139,30 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     off();
     await runner.run('600036', { today: '2026-08-09', llm: stubLlm() });
     expect(count).toBe(0);
+  });
+
+  it('retry 注入 → roleStatus 序列 running→retry→done,后续 token 全量重来', async () => {
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const events: PipelineEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    await runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-09',
+      llm: stubLlm({ fundFailOnce: true }),
+    });
+
+    const fundStatus = events.filter(
+      (e): e is Extract<PipelineEvent, { type: 'roleStatus' }> => e.type === 'roleStatus' && e.node === 'fundamental_analysis_expert',
+    );
+    expect(fundStatus.map((e) => e.status)).toEqual(['running', 'retry', 'done']);
+    const fundTokens = events.filter(
+      (e): e is Extract<PipelineEvent, { type: 'token' }> => e.type === 'token' && e.node === 'fundamental_analysis_expert',
+    );
+    // 首次尝试在产出 chunk 前失败 → 重试后单次全量 delta(无残留部分文本)
+    expect(fundTokens.map((e) => e.delta)).toEqual(['FUND_REPORT']);
   });
 });
 

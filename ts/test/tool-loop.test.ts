@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { invokeWithTools } from '../src/toolLoop.ts';
 
 // 脚本化 LLM：按调用序返回预置响应（函数形式，Runnable 兼容）
@@ -91,5 +91,68 @@ describe('tool loop (AC3)', () => {
     const { response } = await invokeWithTools(fn, 'q', {}, { tools: [] });
     expect(response.content).toBe('直调');
     expect(calls).toBe(1);
+  });
+
+  it('工具轮文本轮末回滚:首轮 tool_calls → onReset 被调;末轮文本完整流入 onDelta', async () => {
+    const llm = scriptedLlm([
+      () => toolCall('web_search', { query: 'q1' }),
+      () => new AIMessage({ content: '最终回答' }),
+    ]);
+    const deltas: string[] = [];
+    let resets = 0;
+    const { response } = await invokeWithTools(llm, 'q', {}, {
+      tools: [{ name: 'web_search', invoke: () => '搜索结果' }],
+      onDelta: (d) => deltas.push(d),
+      onReset: () => resets++,
+    });
+    expect(resets).toBe(1); // 首轮 tool_calls → 回滚
+    expect(deltas).toEqual(['最终回答']); // 工具轮无文本;末轮完整
+    expect(response.content).toBe('最终回答');
+  });
+
+  it('流式 LLM:逐 chunk 透传 onDelta;轮末 reset 兜底回滚该轮已流出文本', async () => {
+    // 首轮:工具轮(chunk 带 tool_call_chunks,文本为空);次轮:文本分 2 chunk
+    let call = 0;
+    const stream = async function* () {
+      call++;
+      if (call === 1) {
+        yield new AIMessageChunk({
+          content: '',
+          tool_call_chunks: [{ name: 'web_search', args: '{"query":"q1"}', id: 'call_1', index: 0, type: 'tool_call_chunk' }],
+        });
+        yield new AIMessageChunk({ content: '' });
+      } else {
+        yield new AIMessageChunk({ content: '最终' });
+        yield new AIMessageChunk({ content: '回答' });
+      }
+    };
+    const deltas: string[] = [];
+    let resets = 0;
+    const { response } = await invokeWithTools({ stream } as never, 'q', {}, {
+      tools: [{ name: 'web_search', invoke: () => 'r' }],
+      onDelta: (d) => deltas.push(d),
+      onReset: () => resets++,
+    });
+    expect(resets).toBe(1); // 首轮 tool_calls → 回滚(该轮无文本,清空无副作用)
+    expect(deltas).toEqual(['最终', '回答']); // 逐 chunk 透传
+    expect(response.content).toBe('最终回答');
+  });
+
+  it('多轮工具调用:每轮 tool_calls 均触发 onReset;收尾轮文本完整', async () => {
+    const llm = scriptedLlm([
+      () => toolCall('web_search', { query: 'q1' }),
+      () => toolCall('web_search', { query: 'q2' }),
+      () => new AIMessage({ content: '收尾回答' }),
+    ]);
+    const deltas: string[] = [];
+    let resets = 0;
+    const { response } = await invokeWithTools(llm, 'q', {}, {
+      tools: [{ name: 'web_search', invoke: () => 'r' }],
+      onDelta: (d) => deltas.push(d),
+      onReset: () => resets++,
+    });
+    expect(resets).toBe(2);
+    expect(deltas).toEqual(['收尾回答']);
+    expect(response.content).toBe('收尾回答');
   });
 });
