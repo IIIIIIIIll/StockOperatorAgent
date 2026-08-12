@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { invokeWithTools } from '../src/toolLoop.ts';
 
+// 无 mock 框架:临时替换 console.warn 捕获输出,finally 还原(log.ts warn → console.warn)。
+function captureWarn(): { lines: string[]; restore: () => void } {
+  const lines: string[] = [];
+  const orig = console.warn;
+  console.warn = ((...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  }) as typeof console.warn;
+  return { lines, restore: () => { console.warn = orig; } };
+}
+
 // 脚本化 LLM：按调用序返回预置响应（函数形式，Runnable 兼容）
 function scriptedLlm(script: Array<() => AIMessage>) {
   const fn = async (payload: unknown) => {
@@ -178,5 +188,33 @@ describe('tool loop (AC3)', () => {
     expect(resets).toBe(2);
     expect(deltas).toEqual(['收尾回答']);
     expect(response.content).toBe('收尾回答');
+  });
+
+  it('工具轮回滚 warn:首轮 tool_calls → warn 含轮次与全部工具名(AC1)', async () => {
+    const llm = scriptedLlm([
+      () => new AIMessage({
+        content: '',
+        tool_calls: [
+          { name: 'web_search', args: { query: 'q1' }, id: 'call_1', type: 'tool_call' },
+          { name: 'get_stock', args: {}, id: 'call_2', type: 'tool_call' },
+        ],
+      }),
+      () => new AIMessage({ content: '最终回答' }),
+    ]);
+    const cap = captureWarn();
+    try {
+      await invokeWithTools(llm, 'q', {}, {
+        tools: [
+          { name: 'web_search', invoke: () => '搜索结果' },
+          { name: 'get_stock', invoke: () => '股票数据' },
+        ],
+      });
+    } finally {
+      cap.restore();
+    }
+    expect(cap.lines).toHaveLength(1); // 仅 onReset 一条 warn(成功路径零 warn)
+    expect(cap.lines[0]).toContain('工具轮 1'); // 轮次(1-based)
+    expect(cap.lines[0]).toContain('web_search, get_stock'); // 该轮全部工具名,逗号连接
+    expect(cap.lines[0]).toContain('回滚该轮中间文本');
   });
 });

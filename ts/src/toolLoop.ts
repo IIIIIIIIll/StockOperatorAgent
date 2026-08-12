@@ -7,6 +7,7 @@
 import { AIMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts';
 import { safeProgress, type ProgressUpdater } from './progress.ts';
+import { warn } from './log.ts';
 
 export const MAX_TOOL_ROUNDS = 15;
 
@@ -74,7 +75,10 @@ export async function invokeWithTools(
       void finalContent;
       return { response, messages: [...messages, response as BaseMessage] };
     }
-    // 轮末 tool_calls 非空 → 回滚该轮已流出文本(经 roleStatus 'retry' 通道清 partial)
+    // 轮末 tool_calls 非空 → 回滚该轮已流出文本(经 roleStatus 'retry' 通道清 partial);
+    // 先 warn 记录原因(轮次 + 该轮全部工具名,逗号连接),对齐 retry warn 可读性
+    const toolNames = toolCalls.map((c) => c.name).join(', ');
+    warn(`工具轮 ${round + 1}:模型请求工具 ${toolNames},回滚该轮中间文本`);
     onReset?.();
     safeProgress(progressUpdater, '正在联网搜索。。。');
     messages.push(response as BaseMessage);

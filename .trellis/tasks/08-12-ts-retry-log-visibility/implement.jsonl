@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "TS 层约定:streamWithRetry warn 模式/工具轮语义——本任务在其上补日志,不得破坏既有契约"}
+{"file": ".trellis/spec/logging.md", "reason": "日志约定(级别/出口)——warn 语义与 log.ts 统一出口对齐"}

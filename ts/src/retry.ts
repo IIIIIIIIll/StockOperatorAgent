@@ -26,6 +26,24 @@ function isRetryable(exc: unknown): boolean {
   return /connection|connect error|timeout|timed out|network/i.test(msg);
 }
 
+/** 退避前 warn 文案:异常类型 + 可恢复错误的 HTTP status 数字码(OpenAI SDK
+ *  APIError 带 status;无 status → 维持类名格式)。invoke/stream 两路径共用,
+ *  保证文案一致(R2)。 */
+function retryWarnMessage(kind: 'invoke' | 'stream', attempt: number, err: unknown, delay: number): string {
+  // 异常类型探针:任意 throw 值,运行时 shape 不可静态化(非 Error 实例也取 constructor.name)
+  let errType = 'Error';
+  if (err && typeof err === 'object' && 'constructor' in err) {
+    const ctor = err.constructor;
+    if (typeof ctor === 'function' && ctor.name) errType = ctor.name;
+  }
+  let statusSuffix = '';
+  if (err && typeof err === 'object') {
+    const status = (err as { status?: unknown }).status;
+    if (typeof status === 'number') statusSuffix = ` (HTTP ${status})`;
+  }
+  return `LLM ${kind} attempt ${attempt} failed with ${errType}${statusSuffix}; retrying in ${delay}s`;
+}
+
 export type LlmCallable =
   | { invoke(payload: unknown, config?: unknown): Promise<unknown> }
   | ((payload: unknown, config?: unknown) => Promise<unknown>);
@@ -46,13 +64,7 @@ export async function invokeWithRetry(
       lastErr = err;
       if (!isRetryable(err) || attempt === attempts) throw err;
       const delay = Math.min(baseDelay * 2 ** (attempt - 1), MAX_DELAY);
-      // 异常类型探针:任意 throw 值,运行时 shape 不可静态化(非 Error 实例也取 constructor.name)
-      let errType = 'Error';
-      if (err && typeof err === 'object' && 'constructor' in err) {
-        const ctor = err.constructor;
-        if (typeof ctor === 'function' && ctor.name) errType = ctor.name;
-      }
-      warn(`LLM invoke attempt ${attempt} failed with ${errType}; retrying in ${delay}s`);
+      warn(retryWarnMessage('invoke', attempt, err, delay));
       const { promise, resolve } = Promise.withResolvers<void>();
       setTimeout(resolve, delay * 1000);
       await promise;
@@ -131,13 +143,7 @@ export async function streamWithRetry(
       lastErr = err;
       if (!isRetryable(err) || attempt === attempts) throw err;
       const delay = Math.min(baseDelay * 2 ** (attempt - 1), MAX_DELAY);
-      // 异常类型探针:任意 throw 值,运行时 shape 不可静态化(非 Error 实例也取 constructor.name)
-      let errType = 'Error';
-      if (err && typeof err === 'object' && 'constructor' in err) {
-        const ctor = err.constructor;
-        if (typeof ctor === 'function' && ctor.name) errType = ctor.name;
-      }
-      warn(`LLM stream attempt ${attempt} failed with ${errType}; retrying in ${delay}s`);
+      warn(retryWarnMessage('stream', attempt, err, delay));
       opts?.onRetry?.(attempt, err);
       const { promise, resolve } = Promise.withResolvers<void>();
       setTimeout(resolve, delay * 1000);

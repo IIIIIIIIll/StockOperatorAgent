@@ -70,8 +70,25 @@ describe('retry (AC4)', () => {
     }
     expect(calls()).toBe(3); // 1 首 + 2 重试
     expect(cap.lines).toHaveLength(2); // 每次退避前一条
+    expect(cap.lines[0]).toContain('LLM invoke attempt 1 failed with Error (HTTP 429); retrying in 0.001s'); // AC2:状态码追加
+    expect(cap.lines[1]).toContain('LLM invoke attempt 2 failed with Error (HTTP 503); retrying in 0.002s');
+  });
+
+  it('无 status 错误维持类名格式,warn 不含 HTTP(AC2)', async () => {
+    const { llm, calls } = failingLlm([
+      { message: 'connection reset' },
+      { message: 'connection reset' },
+    ]);
+    const cap = captureWarn();
+    try {
+      await invokeWithRetry(llm, {}, {}, { baseDelay: 0.001 });
+    } finally {
+      cap.restore();
+    }
+    expect(calls()).toBe(3);
+    expect(cap.lines).toHaveLength(2);
     expect(cap.lines[0]).toContain('LLM invoke attempt 1 failed with Error; retrying in 0.001s');
-    expect(cap.lines[1]).toContain('LLM invoke attempt 2 failed with Error; retrying in 0.002s');
+    expect(cap.lines[0]).not.toContain('(HTTP');
   });
 
   it('exhausted retries reraise original error', async () => {
@@ -168,8 +185,26 @@ describe('streamWithRetry (R2)', () => {
     }
     expect(calls()).toBe(3);
     expect(cap.lines).toHaveLength(2);
+    expect(cap.lines[0]).toContain('LLM stream attempt 1 failed with Error (HTTP 429); retrying in 0.001s'); // AC2:状态码追加
+    expect(cap.lines[1]).toContain('LLM stream attempt 2 failed with Error (HTTP 503); retrying in 0.002s');
+  });
+
+  it('流式:无 status 错误维持类名格式,warn 不含 HTTP(AC2)', async () => {
+    const { llm, calls } = streamingLlm([
+      { error: { message: 'connection reset' } },
+      { error: { message: 'connection reset' } },
+      { chunks: ['ok'] },
+    ]);
+    const cap = captureWarn();
+    try {
+      await streamWithRetry(llm, {}, {}, { baseDelay: 0.001 });
+    } finally {
+      cap.restore();
+    }
+    expect(calls()).toBe(3);
+    expect(cap.lines).toHaveLength(2);
     expect(cap.lines[0]).toContain('LLM stream attempt 1 failed with Error; retrying in 0.001s');
-    expect(cap.lines[1]).toContain('LLM stream attempt 2 failed with Error; retrying in 0.002s');
+    expect(cap.lines[0]).not.toContain('(HTTP');
   });
 
   it('耗尽重试 reraise 原异常', async () => {

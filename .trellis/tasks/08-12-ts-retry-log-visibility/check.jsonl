@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "AC 复核:onReset warn 与既有 retry warn 对称、事件协议零改动"}
+{"file": ".trellis/spec/testing.md", "reason": "测试风格:日志断言守行为契约(warn 文案/状态码),非 tautological"}
