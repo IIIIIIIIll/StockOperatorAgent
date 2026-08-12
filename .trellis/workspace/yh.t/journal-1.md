@@ -764,3 +764,24 @@ get_market_intel 加 TDX_MCP_DISABLED 环境变量开关（显式假值 "0"/"fal
 ### Status
 
 [OK] **Completed**
+
+
+## Session 24: 修复 web_search 工具 schema 400 + toolLoop await
+
+**Date**: 2026-08-12
+**Task**: 修复 web_search 工具 schema 400 + toolLoop await
+**Branch**: `master`
+
+### Summary
+
+ToolLike 补 schema/description 命中 isStructuredToolParams 自动转 OpenAI 形态;修复 toolLoop 未 await 异步工具调用的既有缺陷([object Promise]);AC1 序列化断言 + 真实 LLM 工具轮冒烟(不再 400,DDG 结果回流)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6f2b623` | (see git log) |
+
+### Status
+
+[OK] **Completed**
