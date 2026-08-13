@@ -10,6 +10,7 @@ import { enabledRoles, makeInvestmentCommittee } from './committee.ts';
 import { makeLlm } from './llm.ts';
 import type { ProgressUpdater, RoleStatus } from './progress.ts';
 import type { PipelineDeps } from './pipeline.ts';
+import type { ToolLike } from './toolLoop.ts';
 
 export type PipelineEvent =
   | { type: 'progress'; message: string }
@@ -35,6 +36,8 @@ export interface FinalReport {
 export interface RunOptions extends Omit<PipelineDeps, 'store' | 'progress'> {
   llm?: unknown; // 注入;缺省 makeLlm()
   config?: unknown;
+  /** 工具注入（亿信三件套 + web_search；App 层组装，web 端 key 在 localStorage）。 */
+  tools?: ToolLike[];
 }
 
 export interface PipelineRunner {
@@ -113,7 +116,7 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         // 2. 委员会(事件经 updater 实时发射)
         const config = opts.config ?? { configurable: { thread_id: '1' } };
         const llm = opts.llm ?? makeLlm();
-        const graph = makeInvestmentCommittee(config, updater, llm as never);
+        const graph = makeInvestmentCommittee(config, updater, llm as never, opts.tools);
         const initial = {
           messages: [new HumanMessage(`请帮我分析一下 ${ticker}`)],
           target_stock_ticker: ticker,

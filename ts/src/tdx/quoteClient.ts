@@ -3,6 +3,8 @@
 // name 经 getStockList 全量拉取(失败回退 null,调用方用 ticker 兜底)。
 import { TdxClient, KlineCategory, addPrefix, inferExchange, Exchange } from 'node-tdx-market';
 import type { DailyBar } from '../store.ts';
+import { qfqAdjust, type Bar, type XdxrEventLike } from '../adjust.ts';
+import { getXdxrInfo, toXdxrEventLike } from './xdxr.ts';
 
 export interface CollectedSnapshot {
   price: number; // 元
@@ -34,7 +36,7 @@ export async function fetchDailyBars(client: TdxClient, ticker: string): Promise
   }
   return all
     .map((b) => ({
-      date: b.time.toISOString().slice(0, 10).replace(/-/g, ''),
+      date: b.time.toISOString().slice(0, 10), // YYYY-MM-DD（store 契约；W9 修复 overview volume/amount 恒 NaN）
       open: b.open / 1000,
       close: b.close / 1000,
       high: b.high / 1000,
@@ -87,16 +89,57 @@ export async function fetchStockName(
   }
 }
 
-/** 完整采集（快照 + 日K + 名称），单次连接内完成。 */
+/** xdxr 事件拉取 → qfqAdjust 输入（market/code 从 ticker 推断：inferExchange
+ *  0=深 1=沪 对齐 pytdx 契约；code 为 6 位裸代码）。失败 → []（qfq 不阻断采集）。 */
+export async function fetchXdxrEvents(client: TdxClient, ticker: string): Promise<XdxrEventLike[]> {
+  try {
+    const events = await getXdxrInfo(client, inferExchange(ticker) as number, ticker);
+    return events.map(toXdxrEventLike);
+  } catch {
+    return [];
+  }
+}
+
+/** 日K + xdxr 事件 → qfq 前复权 bars。接线层负责格式转换：store 契约
+ *  YYYY-MM-DD ↔ qfqAdjust 输入契约 YYYYMMDD（adjust.ts 依赖日期字符串比较，
+ *  两侧必须同格式）。无事件/转换失败 → 原样返回 raw bars。 */
+export function applyQfq(bars: DailyBar[], events: XdxrEventLike[]): DailyBar[] {
+  if (!bars.length || !events.length) return bars.map((b) => ({ ...b }));
+  try {
+    const input: Bar[] = bars.map((b) => ({
+      date: b.date.replace(/-/g, ''),
+      open: b.open,
+      close: b.close,
+      high: b.high,
+      low: b.low,
+      volume: b.volume,
+      amount: b.amount ?? undefined,
+    }));
+    return qfqAdjust(input, events).map((b) => ({
+      date: `${b.date.slice(0, 4)}-${b.date.slice(4, 6)}-${b.date.slice(6, 8)}`,
+      open: b.open,
+      close: b.close,
+      high: b.high,
+      low: b.low,
+      volume: b.volume,
+      amount: b.amount ?? null,
+    }));
+  } catch {
+    return bars.map((b) => ({ ...b }));
+  }
+}
+
+/** 完整采集（快照 + 日K + 名称 + xdxr 复权），单次连接内完成。 */
 export async function collectAll(
   client: TdxClient,
   ticker: string,
   meta: { get: (k: string) => string | null; set: (k: string, v: string) => void },
 ): Promise<CollectedData> {
-  const [snapshot, bars, name] = await Promise.all([
+  const [snapshot, bars, name, xdxr] = await Promise.all([
     fetchSnapshot(client, ticker),
     fetchDailyBars(client, ticker),
     fetchStockName(client, ticker, meta.get, meta.set),
+    fetchXdxrEvents(client, ticker),
   ]);
-  return { ticker, name, bars, snapshot, capital: null };
+  return { ticker, name, bars: applyQfq(bars, xdxr), snapshot, capital: null };
 }

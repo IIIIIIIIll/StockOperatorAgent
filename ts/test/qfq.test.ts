@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { qfqAdjust, type Bar, type XdxrEventLike } from '../src/adjust.ts';
+import { applyQfq, collectAll, fetchDailyBars, fetchXdxrEvents } from '../src/tdx/quoteClient.ts';
+import type { TdxClient } from 'node-tdx-market';
+import type { DailyBar } from '../src/store.ts';
 
 const fixture = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')) as {
   raw: Array<{ date: string; open: number; close: number; high: number; low: number; volume: number | null }>;
@@ -42,5 +45,110 @@ describe('qfq adjust (AC2)', () => {
     const out = qfqAdjust(bars, []);
     expect(out[0].close).toBe(2);
     expect(out[0].volume).toBe(10);
+  });
+});
+
+describe('qfq 生产接线（collectAll → xdxr → qfqAdjust）', () => {
+  /** 合法 Gbbq 响应体：count(u16@9) + market(u8) + code(6) + skip(1)
+   *  + zipday(u32) + category(u8) + 16B 载荷（对齐 parseXdxrResponse 布局）。 */
+  function xdxrResponseBuffer(): Buffer {
+    const buf = Buffer.alloc(11 + 29);
+    buf.writeUInt16LE(1, 9); // 1 条
+    buf[11] = 1; // market: 沪
+    buf.write('600036', 12, 6, 'ascii');
+    buf.writeUInt32LE(20260710, 19); // zipday
+    buf[23] = 1; // category 除权除息
+    buf.writeFloatLE(10.03, 24); // fenhong
+    buf.writeFloatLE(0, 28); // peigujia
+    buf.writeFloatLE(0, 32); // songzhuangu
+    buf.writeFloatLE(0, 36); // peigu
+    return buf;
+  }
+
+  const RAW_BARS: DailyBar[] = [
+    { date: '2026-07-09', open: 20, close: 20, high: 20.5, low: 19.8, volume: 1000, amount: 20000 },
+    { date: '2026-07-10', open: 19.5, close: 19, high: 19.6, low: 18.9, volume: 1200, amount: 22800 },
+    { date: '2026-07-13', open: 18.8, close: 18.5, high: 19, low: 18.4, volume: 900, amount: 16650 },
+  ];
+
+  it('fetchDailyBars 日期契约 YYYY-MM-DD（W9：store 契约，overview 不再恒 NaN）', async () => {
+    let requestedCode = '';
+    const fakeClient = {
+      getKline: async (req: { code: string }) => {
+        requestedCode = req.code;
+        return {
+          bars: [
+            { time: new Date('2026-08-07T00:00:00Z'), open: 1000, close: 1010, high: 1020, low: 990, volume: 1000, amount: 100000 },
+            { time: new Date('2026-08-10T00:00:00Z'), open: 1010, close: 1020, high: 1030, low: 1000, volume: 1100, amount: 110000 },
+          ],
+          count: 2,
+        };
+      },
+    } as unknown as TdxClient;
+    const bars = await fetchDailyBars(fakeClient, '600036');
+    expect(requestedCode).toBe('sh600036'); // addPrefix
+    expect(bars.map((b) => b.date)).toEqual(['2026-08-07', '2026-08-10']);
+    expect(bars[0].close).toBe(1.01); // 分 → 元
+  });
+
+  it('applyQfq：YYYY-MM-DD bars + YYYYMMDD 事件 → 复权 + 日期还原为 YYYY-MM-DD', () => {
+    const out = applyQfq(RAW_BARS, [{ tradeDate: '20260710', fenhong: 10.03 }]);
+    const ratio = (20 - 1.003) / 20; // 事件前收盘复权因子（10.03/10 = 1.003 每股）
+    expect(out.map((b) => b.date)).toEqual(['2026-07-09', '2026-07-10', '2026-07-13']);
+    expect(out[0].close).toBeCloseTo(20 * ratio, 6);
+    expect(out[1].close).toBe(19); // 事件当日及之后不复权
+    expect(out[2].close).toBe(18.5);
+    expect(out[0].amount).toBe(20000); // amount 透传
+  });
+
+  it('applyQfq：无事件 → 原样 raw bars', () => {
+    expect(applyQfq(RAW_BARS, [])).toEqual(RAW_BARS);
+  });
+
+  it('collectAll 全链：xdxr 事件 → bars 前复权，返回形状不变', async () => {
+    const fakeClient = {
+      getQuote: async () => [{ price: 19000, high: 19600, low: 18900, open: 19500, volume: 1200, amount: 22800000 }],
+      getKline: async () => ({
+        bars: [
+          { time: new Date('2026-07-09T00:00:00Z'), open: 20000, close: 20000, high: 20500, low: 19800, volume: 1000, amount: 20000000 },
+          { time: new Date('2026-07-10T00:00:00Z'), open: 19500, close: 19000, high: 19600, low: 18900, volume: 1200, amount: 22800000 },
+        ],
+        count: 2,
+      }),
+      getStockList: async () => [{ code: '600036', name: '招商银行' }],
+      sendCommand: async () => ({ data: xdxrResponseBuffer() }),
+    } as unknown as TdxClient;
+
+    const collected = await collectAll(fakeClient, '600036', { get: () => null, set: () => {} });
+    expect(collected.ticker).toBe('600036');
+    expect(collected.name).toBe('招商银行');
+    expect(collected.snapshot?.price).toBe(19);
+    expect(collected.capital).toBeNull();
+    const ratio = (20 - 1.003) / 20;
+    expect(collected.bars[0].date).toBe('2026-07-09');
+    expect(collected.bars[0].close).toBeCloseTo(20 * ratio, 6);
+    expect(collected.bars[1].close).toBe(19);
+  });
+
+  it('collectAll：xdxr 拉取失败 → 原样 raw bars（不阻断采集）', async () => {
+    const fakeClient = {
+      getQuote: async () => [{ price: 19000, high: 19600, low: 18900, open: 19500, volume: 1200, amount: 22800000 }],
+      getKline: async () => ({
+        bars: [
+          { time: new Date('2026-07-09T00:00:00Z'), open: 20000, close: 20000, high: 20500, low: 19800, volume: 1000, amount: 20000000 },
+          { time: new Date('2026-07-10T00:00:00Z'), open: 19500, close: 19000, high: 19600, low: 18900, volume: 1200, amount: 22800000 },
+        ],
+        count: 2,
+      }),
+      getStockList: async () => [{ code: '600036', name: '招商银行' }],
+      sendCommand: async () => {
+        throw new Error('xdxr 超时');
+      },
+    } as unknown as TdxClient;
+
+    const collected = await collectAll(fakeClient, '600036', { get: () => null, set: () => {} });
+    expect(collected.bars[0].close).toBe(20); // raw
+    expect(collected.bars[0].date).toBe('2026-07-09');
+    expect(await fetchXdxrEvents(fakeClient, '600036')).toEqual([]);
   });
 });

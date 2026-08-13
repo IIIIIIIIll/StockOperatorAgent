@@ -5,6 +5,12 @@ import { InMemoryStore } from '../../src/store-memory.ts';
 import { createPipelineRunner, type PipelineEvent, type FinalReport } from '../../src/events.ts';
 import { createLlm, MissingLlmConfigError, type LlmConfig } from '../../src/llm.ts';
 import { applyCollectedToStore, collectViaProxy, type WebCollectResult } from '../../src/webCollect.ts';
+import { getMarketIntel } from '../../src/mcp.ts';
+import { BillionsClient } from '../../src/billionsClient.ts';
+import { billionsEnabled } from '../../src/committee.ts';
+import { makeBillionsTools } from '../../src/billionsTools.ts';
+import { makeWebSearchTool, webSearchEnabled } from '../../src/webSearch.ts';
+import type { ToolLike } from '../../src/toolLoop.ts';
 import { AIMessage } from '@langchain/core/messages';
 import demo from '../data/demo.json';
 
@@ -115,4 +121,57 @@ export function buildLlm(cfg: LlmConfig | null, proxyBase?: string): unknown {
 export function configError(cfg: LlmConfig | null): string | null {
   if (cfg) return null;
   return '未配置 LLM 三键——将使用演示占位报告。';
+}
+
+// ─── 亿信/mcp 情报段注入（phase out 能力补齐；预查询一次 → 缓存闭包注入，
+//     buildStockInformation 与 runner.run 双算共享同一文本，不重复触发网络）───
+
+/** 亿信 fin-db 段：查询一次 → 同步闭包。开关关/无 key → undefined（该段不出现，
+ *  对齐 Python 空串语义）；查询失败 → 占位文本闭包（不 raise，不污染上下文）。 */
+export async function makeBillionsIntel(
+  ticker: string,
+  apiKey: string | null,
+): Promise<((t: string) => string) | undefined> {
+  if (!billionsEnabled('FINDB') || !apiKey) return undefined;
+  const client = new BillionsClient({ apiKey });
+  let text: string;
+  try {
+    const data = await client.finDb(`查询${ticker}的最新财务数据和近期行情表现，包括营收、净利润、市盈率等关键指标。`);
+    const results = (data?.result ?? []) as Array<{ content?: unknown }>;
+    const parts = results
+      .filter((item) => item && typeof item === 'object' && item.content)
+      .map((item) => String(item.content));
+    text = parts.length
+      ? `【亿信金融数据库】\n${parts.join('\n\n')}`
+      : `（亿信金融数据库无返回结果，跳过${ticker}的财务问数）`;
+  } catch {
+    text = `（亿信金融数据库查询失败，跳过${ticker}的财务问数）`;
+  }
+  return () => text;
+}
+
+/** mcp 实时情报段：查询一次 → 同步闭包。禁用/无 key → undefined（对齐 Python
+ *  占位文本语义由 getMarketIntel 内部处理；undefined 时 pipeline 走 fallback）。 */
+export async function makeMcpIntel(
+  ticker: string,
+  apiKey: string | null,
+): Promise<((t: string) => string) | undefined> {
+  if (!apiKey) return undefined;
+  const text = await getMarketIntel(ticker, { apiKey });
+  return () => text;
+}
+
+/** 委员会工具组装：web_search（开关）+ 亿信三件套（各开关 + 主闸 key）。
+ *  返回 undefined 表示无任何工具启用（committee 内部按 webSearch 开关兜底——
+ *  但 App 层已判定，此处空数组时传 [] 即可，等价）。web 端亿信 key 在
+ *  localStorage（settings.keys.billionsApiKey），经 apiKey 注入。 */
+export function assembleTools(keys: {
+  billionsApiKey?: string;
+  tdxApiKey?: string;
+}): ToolLike[] {
+  const tools: ToolLike[] = [];
+  if (webSearchEnabled()) tools.push(makeWebSearchTool());
+  const billions = makeBillionsTools({ apiKey: keys.billionsApiKey || null });
+  tools.push(...billions);
+  return tools;
 }

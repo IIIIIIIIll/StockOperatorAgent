@@ -10,6 +10,8 @@ import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts
 import { invokeWithTools, type ToolLike } from './toolLoop.ts';
 import { pushReport, safeProgress, safePushDelta, safePushStatus, type ProgressUpdater } from './progress.ts';
 import { defaultSearcher, summarizeResults, webSearchEnabled, type SearchResult } from './webSearch.ts';
+import { BillionsClient } from './billionsClient.ts';
+import { warn } from './log.ts';
 
 export interface LlmLike {
   invoke(payload: unknown, config?: unknown): Promise<{ content: string }>;
@@ -229,32 +231,236 @@ export class TechnicalIndicatorAnalyst extends AgentNode {
   }
 }
 
+// ─── 亿信预抓（08-13-ts-capability-completion R2——对齐 Python
+//     information_analyst.py _prefetch + core/llms/tools/billions_*.py 条目格式）──
+
+const _SEARCH_MODE = 'fast';
+const _COUNT = 10;
+const _TIME_RANGE = 'past 3 months';
+
+/** 固定检索词（确定性预抓：每源固定 1 次，成本可预期）。 */
+const _QUERY_TEMPLATES: Record<string, string> = {
+  announcement: '{} 公告',
+  report: '{} 券商研报',
+  web: '{} 最新新闻',
+  twitter: '{} 最新市场讨论',
+};
+
+/** 确定性预抓的 search 源（顺序即报告分节顺序）。 */
+const _SEARCH_SOURCES = ['announcement', 'report', 'web'];
+
+/** 源中文标签（分节头）。 */
+const _SOURCE_LABELS: Record<string, string> = { announcement: '公告', report: '研报', web: '新闻' };
+
+/** 异常 → 人类可读文本（对齐 Python str(exc)）。 */
+function excMsg(exc: unknown): string {
+  return exc instanceof Error ? exc.message : String(exc);
+}
+
+/** result[].content[] 条目收集（非 dict 脏条目跳过——对齐 Python
+ *  core/llms/tools/_items.collect_content_items；响应契约 research：
+ *  result 允许缺失，status 失败已被 client 归一化）。 */
+function collectContentItems(data: Record<string, unknown>): Array<Record<string, unknown>> {
+  const items: Array<Record<string, unknown>> = [];
+  const result = data['result'];
+  if (!Array.isArray(result)) return items;
+  for (const entry of result) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const content = (entry as Record<string, unknown>)['content'];
+    if (!Array.isArray(content)) continue;
+    for (const item of content) {
+      if (typeof item === 'object' && item !== null) items.push(item as Record<string, unknown>);
+    }
+  }
+  return items;
+}
+
+/** 单条检索结果 → Markdown 行；无有效字段（无标题且无链接）→ null（对齐
+ *  Python billions_search._format_item）。字段契约：title/link/snippet(≤500)/
+ *  date(YYYY-MM-DD 可空)/extra{institution(仅 report)/doc_id(仅 announcement)}；
+ *  字段允许缺失，调用方容错（脏条目跳过）。 */
+function formatSearchItem(item: Record<string, unknown>): string | null {
+  const title = item['title'] === undefined || item['title'] === null ? '' : String(item['title']);
+  const link = item['link'] === undefined || item['link'] === null ? '' : String(item['link']);
+  if (!(title || link)) return null;
+  const extra = typeof item['extra'] === 'object' && item['extra'] !== null
+    ? (item['extra'] as Record<string, unknown>)
+    : {};
+  const parts: string[] = [];
+  if (title && link) parts.push(`[${title}](${link})`);
+  else if (link) parts.push(link);
+  else parts.push(title);
+  if (item['date']) parts.push(String(item['date']));
+  if (extra['institution']) parts.push(String(extra['institution'])); // 研报机构名
+  if (extra['doc_id']) parts.push(`doc_id: ${extra['doc_id']}`); // 公告全文 id
+  let line = parts.join(' — ');
+  if (item['snippet']) line += `(${item['snippet']})`;
+  return `- ${line}`;
+}
+
+/** 单条推文 → Markdown 行；无正文 → null（对齐 Python billions_twitter.
+ *  _format_tweet）。字段契约：title("@user: 前缀")/link(x.com/...)/snippet
+ *  (正文)/date(北京时间)/extra{username/view_count/post_id/...}。 */
+function formatTweetItem(item: Record<string, unknown>): string | null {
+  const snippet = item['snippet'] === undefined || item['snippet'] === null ? '' : String(item['snippet']);
+  if (!snippet) return null;
+  const extra = typeof item['extra'] === 'object' && item['extra'] !== null
+    ? (item['extra'] as Record<string, unknown>)
+    : {};
+  let username = extra['username'] ? String(extra['username']) : '';
+  if (!username) {
+    // title 形如 "@user: 正文预览"——取 @ 前缀兜底
+    const title = item['title'] === undefined || item['title'] === null ? '' : String(item['title']);
+    if (title.startsWith('@')) username = title.split(':', 1)[0];
+  }
+  if (username && !username.startsWith('@')) username = `@${username}`;
+  const parts: string[] = [];
+  if (username) parts.push(username);
+  if (extra['view_count'] !== undefined && extra['view_count'] !== null) parts.push(`${extra['view_count']} 次浏览`);
+  if (item['date']) parts.push(String(item['date']));
+  let line = parts.join(' — ') + ` — ${snippet}`;
+  if (item['link']) line += ` [${item['link']}]`;
+  return `- ${line}`;
+}
+
 export class BillionsInformationAnalyst extends AgentNode {
   constructor(
     llm: LlmLike,
     config: unknown,
     progressUpdater: ProgressUpdater | null = null,
     private _searcher: (query: string) => Promise<SearchResult[]> = defaultSearcher(),
+    private _billionsClient?: BillionsClient,
   ) {
     super(llm, config, progressUpdater, [], information_analyst_message);
   }
-  async information_analyst(state: StateLike) {
-    // 对齐 Python information_analyst.py：嵌股票信息 + 素材上下文；
-    // 联网搜索回退（08-10-web-search-fallback，R4）：web 开 → 固定 1 次
-    // `{ticker} 最新新闻` 查询（缺省 defaultSearcher：浏览器走 /web-search
-    // 代理、Node/真机直连 DDG）；失败/空 → 固定回退文本（与今日逐字一致，
-    // 不 raise——error-handling spec 降级风格）。web 关 → 不触网直接回退。
-    let context = '（本次运行未检索到任何信息面素材：所有来源均不可用或未启用）';
-    if (webSearchEnabled()) {
-      try {
-        const summary = summarizeResults(await this._searcher(`${target(state)} 最新新闻`));
-        if (summary.startsWith('【联网搜索结果】')) context = summary;
-      } catch {
-        // 降级：保持固定回退文本
+
+  private _client: BillionsClient | undefined;
+
+  /** 惰性加载：注入优先；缺省首次预抓时构造（构造零副作用、不触网）。 */
+  private _getClient(): BillionsClient {
+    if (this._client === undefined) {
+      this._client = this._billionsClient ?? new BillionsClient();
+    }
+    return this._client;
+  }
+
+  /** 单次 search 预抓 → 带来源标签的分节；失败/无有效条目 → 注明（不 raise）。 */
+  private async _searchSection(client: BillionsClient, ticker: string, source: string): Promise<string> {
+    try {
+      const data = await client.search(
+        _QUERY_TEMPLATES[source].replace('{}', ticker),
+        { source, searchMode: _SEARCH_MODE, count: _COUNT, timeRange: _TIME_RANGE },
+      );
+      const lines: string[] = [];
+      for (const item of collectContentItems(data)) {
+        const line = formatSearchItem(item);
+        if (line !== null) lines.push(line);
+      }
+      if (!lines.length) {
+        warn(`亿信 ${source} 检索成功但无有效结果: ${ticker}`);
+        return `【${_SOURCE_LABELS[source]}无返回结果】`;
+      }
+      return `【${_SOURCE_LABELS[source]}检索结果】\n${lines.join('\n')}`;
+    } catch (exc) {
+      warn(`亿信 ${source} 检索失败（${ticker}）: ${excMsg(exc)}`);
+      return `【${_SOURCE_LABELS[source]}检索失败】${excMsg(exc)}`;
+    }
+  }
+
+  /** 单次 twitter 预抓 → 带来源标签的分节；失败/无有效条目 → 注明（不 raise）。 */
+  private async _twitterSection(client: BillionsClient, ticker: string): Promise<string> {
+    try {
+      const data = await client.twitterSearch(
+        _QUERY_TEMPLATES['twitter'].replace('{}', ticker),
+        { searchMode: _SEARCH_MODE, count: _COUNT },
+      );
+      const lines: string[] = [];
+      for (const item of collectContentItems(data)) {
+        const line = formatTweetItem(item);
+        if (line !== null) lines.push(line);
+      }
+      if (!lines.length) {
+        warn(`亿信 twitter 检索成功但无有效结果: ${ticker}`);
+        return '【推特无返回结果】';
+      }
+      return `【推特检索结果】\n${lines.join('\n')}`;
+    } catch (exc) {
+      warn(`亿信 twitter 检索失败（${ticker}）: ${excMsg(exc)}`);
+      return `【推特检索失败】${excMsg(exc)}`;
+    }
+  }
+
+  /** 联网搜索回退（08-10-web-search-fallback，R2）：固定 1 次 DDG 查询
+   *  （_QUERY_TEMPLATES["web"]）→ 中文摘要节。失败/空 → 占位文本
+   *  （不 raise，降级语义收敛在 summarizeResults/defaultSearcher 单点）。 */
+  private async _webSearchSection(ticker: string): Promise<string> {
+    try {
+      return summarizeResults(await this._searcher(_QUERY_TEMPLATES['web'].replace('{}', ticker)));
+    } catch (exc) {
+      warn(`联网搜索失败（${ticker}）: ${excMsg(exc)}`);
+      return `（联网搜索失败：${excMsg(exc)}）`;
+    }
+  }
+
+  /** 确定性预抓（固定次数，成本可预期）：按开关过滤源，失败源跳过。
+   *
+   * 真实素材判定：「检索结果】」分节标记（亿信「…检索结果」/ 联网
+   * 「【联网搜索结果】」；「检索失败」「无返回结果」注明不算）。
+   * - 亿信路径无真实素材且联网搜索开（R2）→ 追加 web 回退节（固定 1 次）；
+   *   回退也失败/空（双失败）→ 返回空列表（调用方落固定回退文本）。
+   * - 全部源关闭（SEARCH/TWITTER 均关）且 web 关 → 返回空列表且不构造
+   *   client（图中不存在的组合由 committee 接线保证；此处为健壮性兜底）。
+   * - 无 API key（对齐 Python 主闸）→ 亿信路径静默关闭、不发起请求。
+   * - web 关时亿信失败/空注明照旧保留（现状语义，逐字节不变）。
+   */
+  private async _prefetch(ticker: string): Promise<string[]> {
+    // 动态 import 例外：committee.ts 顶层求值引用本文件的 agent 类（ROLES 数组），
+    // 静态导入会造成 agents↔committee 求值期循环（TDZ）——门控函数只在运行时
+    // 调用，动态导入在模块求值完成后解析（单点实现，不复制门控逻辑）。
+    const { billionsEnabled } = await import('./committee.ts');
+    const searchOn = billionsEnabled('SEARCH');
+    const twitterOn = billionsEnabled('TWITTER');
+    const webOn = webSearchEnabled();
+    const sections: string[] = [];
+    if (searchOn || twitterOn) {
+      const client = this._getClient();
+      const keyOn = client.hasApiKey; // 主闸：无 key 亿信路径静默关闭
+      if (searchOn && keyOn) {
+        for (const source of _SEARCH_SOURCES) {
+          sections.push(await this._searchSection(client, ticker, source));
+        }
+      }
+      if (twitterOn && keyOn) {
+        sections.push(await this._twitterSection(client, ticker));
       }
     }
+    let foundContent = sections.some((s) => s.includes('检索结果】'));
+    if (!foundContent && webOn) {
+      const webSection = await this._webSearchSection(ticker);
+      sections.push(webSection);
+      foundContent = webSection.startsWith('【联网搜索结果】');
+    }
+    if (!foundContent && webOn) {
+      // 双失败（亿信无素材 + 联网回退也失败/空）→ 返回空列表，调用方落
+      // 固定回退文本「所有来源均不可用或未启用」（R2，逐字不变）
+      return [];
+    }
+    return sections;
+  }
+
+  async information_analyst(state: StateLike) {
+    const ticker = target(state);
+    // 对齐 Python information_analyst.py：确定性预抓（亿信三源 + twitter，
+    // 开关门控；失败源注明不 raise）→ 素材上下文；亿信无真实素材且 web 开
+    // → 追加联网回退节（08-10-web-search-fallback，R4）；双失败 → 固定回退
+    // 文本（逐字不变，不 raise——error-handling spec 降级风格）。
+    safeProgress(this.progressUpdater, '开始信息面素材检索。。。');
+    const sections = await this._prefetch(ticker);
+    const context = sections.length
+      ? sections.join('\n\n')
+      : '（本次运行未检索到任何信息面素材：所有来源均不可用或未启用）';
     return this.completeExpert(
-      `\n        请基于以下已检索到的信息面素材，给出你对股票代码${target(state)}的信息面分析报告\n        股票信息: \n        ${stockInfo(state)}\n        \n        检索到的信息面素材: \n        ${context}\n        `,
+      `\n        请基于以下已检索到的信息面素材，给出你对股票代码${ticker}的信息面分析报告\n        股票信息: \n        ${stockInfo(state)}\n        \n        检索到的信息面素材: \n        ${context}\n        `,
       'information_analysis', {
       startMsg: '信息面分析师开始分析...', doneMsg: '信息面分析师完成分析', logLabel: 'Information Analyst',
       nodeName: 'information_analyst',

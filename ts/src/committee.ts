@@ -119,10 +119,14 @@ export function makeInvestmentCommittee(
   config: unknown,
   progressUpdater: ProgressUpdater | null = null,
   _llm: LlmLike | null = null,
+  _tools?: ToolLike[] | null,
 ) {
   if (!_llm) throw new Error('M2: _llm required (makeLlm 接入见 M3)');
   const llm = _llm;
-  const tools: ToolLike[] = webSearchEnabled() ? [makeWebSearchTool()] : [];
+  // 工具注入（08-13-ts-capability-completion）：_tools 提供则使用调用方组装
+  // 的工具列表（web 端亿信 key 在 localStorage，App 层组装 web_search +
+  // 亿信三件套后注入）；缺省走 webSearch 开关（现状行为逐字节不变）。
+  const tools: ToolLike[] = _tools ?? (webSearchEnabled() ? [makeWebSearchTool()] : []);
   const roles = enabledRoles();
   const graph = new StateGraph(StateAnnotation);
   for (const role of roles) {

@@ -7,6 +7,7 @@ declare const logsServer: {
   ): Promise<void>;
   logFilePath(): string;
   formatTs(ts?: unknown): string;
+  sanitizeLine(s: string): string;
   appendLogLine(line: string): void;
   MAX_LOG_BYTES: number;
   MAX_MESSAGE_BYTES: number;

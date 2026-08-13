@@ -30,6 +30,11 @@ function formatTs(ts) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+/** W3:落盘前净化——message/platform 内 \r \n 替换为空格(防伪造行/日志注入)。 */
+function sanitizeLine(s) {
+  return s.replace(/[\r\n]+/g, ' ');
+}
+
 /** append 前 stat:≥5MB → rename .1 再写新文件。 */
 function appendLogLine(line) {
   const file = logFilePath();
@@ -78,8 +83,11 @@ async function handleLogs(req, res) {
       res.end(JSON.stringify({ error: 'platform 需为非空字符串' }));
       return;
     }
-    const truncated = message.length > MAX_MESSAGE_BYTES ? message.slice(0, MAX_MESSAGE_BYTES) : message;
-    appendLogLine(`${formatTs(data?.ts)} | ${level.toUpperCase()} | [soa] ${truncated} (platform:${platform})`);
+    // W3:message/platform 先净化换行(防注入伪造行),再截断 4KB
+    const cleanMessage = sanitizeLine(message);
+    const cleanPlatform = sanitizeLine(platform);
+    const truncated = cleanMessage.length > MAX_MESSAGE_BYTES ? cleanMessage.slice(0, MAX_MESSAGE_BYTES) : cleanMessage;
+    appendLogLine(`${formatTs(data?.ts)} | ${level.toUpperCase()} | [soa] ${truncated} (platform:${cleanPlatform})`);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
   } catch (err) {
@@ -88,4 +96,4 @@ async function handleLogs(req, res) {
   }
 }
 
-module.exports = { handleLogs, logFilePath, formatTs, appendLogLine, MAX_LOG_BYTES, MAX_MESSAGE_BYTES, MAX_BODY_BYTES };
+module.exports = { handleLogs, logFilePath, formatTs, sanitizeLine, appendLogLine, MAX_LOG_BYTES, MAX_MESSAGE_BYTES, MAX_BODY_BYTES };

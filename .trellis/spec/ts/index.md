@@ -98,6 +98,26 @@ res.end();
 > writeHead——必须 `if (res.headersSent) { res.destroy(); return; }` 兜底,
 > 否则客户端永久挂起。未 writeHead 的错误路径保持 502 JSON。
 
+### 代理安全契约(08-13-ts-capability-completion,C1/C2/W2-W4 教训)
+
+- **SSRF 防线(C2)**:`X-LLM-Base` 头/body.base 是浏览器端用户配置(多提供商
+  透传是**设计意图**,见 llm.ts createLlm 注释)——不丢弃机制,转发前校验:
+  ① scheme 仅 http(s);② 拒绝 userinfo;③ host 经 DNS 解析后任一地址落入
+  私网/环回/链路本地/保留段(127.x 10.x 172.16-31.x 192.168.x 169.254.x
+  0.0.0.0 ::1 fe80::/10 fc00::/7 及 ::ffff: 映射)→ 拒发;解析失败保守拒绝。
+  校验失败回 400(格式非法)/403(策略拒绝)。
+- **请求体上限(W2)**:/llm-proxy body 累计 >64KB → 413 终止读取(对齐
+  logs-server MAX_BODY_BYTES 模式)。
+- **日志净化(W3)**:/logs 的 message/platform 落盘前 `replace(/[\r\n]+/g,' ')`
+  净化(防伪造日志行/终端注入)。
+- **采集互斥(W4)**:/tdx-collect 45s 超时仅提前回 504,**锁保持到 doCollect
+  真正 settle 才释放**(Abort 取消不了 node-tdx-market TCP——TdxClient 无
+  AbortSignal 支持),timer 在 finally clearTimeout。
+- **监听地址**:server.mjs `server.listen(PORT, process.env.HOST || '127.0.0.1')`
+  ——默认回环,生产远程访问需显式 HOST=0.0.0.0。
+- **静态服务兜底(C1)**:serveStatic 的 decodeURIComponent 包 try/catch,
+  畸形百分号编码 → 400 不崩进程。
+
 ## 环境与启动约束
 
 - proxies.cjs / logs-server.cjs 用 CJS(metro.config.js 是 CJS,server.mjs 是
@@ -106,6 +126,30 @@ res.end();
   (dev `npm start` 与生产启动命令已带;node ≥23.6 默认开启)。
 - `ts/src/log.ts` 是全端统一日志(web 上报 `/logs` + RN 沙盒 + Node),新增
   日志调用一律经它,不新增第二日志出口。
+
+## 能力接线(08-13-ts-capability-completion;Python phase out 后唯一实现)
+
+TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在但无效果"):
+
+- **亿信(billions)**:`ts/src/billionsClient.ts`(REST 4 端点,对齐 Python
+  client.py:POST + X-API-KEY、BillionsApiError 归一化、不重试、超时档位
+  fin_db 120s / search+twitter 25/70/120 / fetch 90s)+
+  `ts/src/billionsTools.ts`(search/twitter/fetch 三件套 LLM 工具,开关关/
+  无 key → undefined 不绑定,调用硬上限 search 3 / twitter 2 / fetch 3,
+  env `BILLIONS_{CAP}_MAX_CALLS` 可覆盖)+ agents.ts 信息面分析师预抓
+  (三源 announcement/report/web + twitter)。**key 在 web 端 localStorage**:
+  客户端/工具经 `apiKey` 构造注入(不读 process.env——Metro 不内联非
+  EXPO_PUBLIC 变量)。接线:runner.ts `makeBillionsIntel`(pipeline 段)+
+  `assembleTools`(委员会工具)→ App.tsx 传入。
+- **mcp 实时情报**:`ts/src/mcp.ts`(`TdxMcpClient`:JSON-RPC 2.0 + tdx-api-key
+  + Mcp-Session-Id 透传 + SSE 响应解析取首个 result;`getMarketIntel`:
+  TDX_MCP_DISABLED/ENABLED 门控 + 无 key 占位 + 中文摘要 ≤10 行)。**不做
+  缓存**(TS 无 is_trading_time 移植,每次实时查询)。接线:runner.ts
+  `makeMcpIntel` → App.tsx 传入 deps.mcp。
+- **qfq 前复权**:`ts/src/tdx/quoteClient.ts` `collectAll` 内
+  `fetchXdxrEvents` → `applyQfq`(失败降级 raw bars 不阻断)。日期契约
+  **YYYY-MM-DD**(store 契约;qfqAdjust 输入为 YYYYMMDD,接线层双向转换)。
+- **北交所/akshare**:明确不支持(用户决策 08-13),App.tsx 入口拦截报错。
 
 ## 图表(web-only;08-13-ts-all-indicator-charts)
 

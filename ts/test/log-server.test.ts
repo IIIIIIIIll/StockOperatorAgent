@@ -79,6 +79,18 @@ describe('server /logs 端点(logs-server.cjs,注入 tmp SOA_LOG_DIR)', () => {
     expect(content).not.toContain('x'.repeat(MAX_MESSAGE_BYTES + 1));
   });
 
+  it('W3:message/platform 含 \\r\\n → 落盘单行净化(防伪造行)', async () => {
+    const res = fakeRes();
+    await handleLogs(
+      fakeReq(JSON.stringify({ level: 'info', message: 'line1\nline2\r\nline3', platform: 'web\nx' })),
+      res,
+    );
+    expect(res.calls[0].status).toBe(200);
+    const lines = readFileSync(path.join(dir, 'soa-ts.log'), 'utf8').trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| INFO \| \[soa\] line1 line2 line3 \(platform:web x\)$/);
+  });
+
   it('非法输入 → 400 {error}(level / message / platform / 非 JSON)', async () => {
     const cases: string[] = [
       JSON.stringify({ level: 'fatal', message: 'x', platform: 'web' }),

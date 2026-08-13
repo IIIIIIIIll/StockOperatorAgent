@@ -1,5 +1,6 @@
 // xdxr 除权除息命令移植（移植自 pytdx GetXdXrInfo，data 段 + 响应解析）
 import { TdxClient, CommandType } from 'node-tdx-market';
+import type { XdxrEventLike } from '../adjust.ts';
 
 export interface XdxrEvent {
   market: number;
@@ -84,4 +85,17 @@ export async function getXdxrInfo(
     sendCommand(o: { type: number; data: Buffer }): Promise<{ data: Buffer }>;
   }).sendCommand({ type: CommandType.Gbbq, data });
   return parseXdxrResponse(resp.data);
+}
+
+/** XdxrEvent → qfqAdjust 输入事件（tradeDate YYYYMMDD；转换先例
+ *  test/live.integration.test.ts:57-63）。 */
+export function toXdxrEventLike(r: XdxrEvent): XdxrEventLike {
+  return {
+    tradeDate: `${r.year}${String(r.month).padStart(2, '0')}${String(r.day).padStart(2, '0')}`,
+    fenhong: r.fenhong,
+    peigujia: r.peigujia,
+    songzhuangu: r.songzhuangu,
+    peigu: r.peigu,
+    suogu: r.suogu,
+  };
 }

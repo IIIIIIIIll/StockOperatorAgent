@@ -13,19 +13,105 @@ const { TdxClient } = require('node-tdx-market');
 const { collectAll } = require('../../src/tdx/quoteClient.ts');
 const { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } = require('../../src/tdx/f10Client.ts');
 const { ddgSearcher } = require('../../src/webSearch.ts');
+const dns = require('node:dns');
+const net = require('node:net');
+
+// ─── 请求体上限(W2,对齐 logs-server MAX_BODY_BYTES)────────────────────────
+const MAX_BODY_BYTES = 64 * 1024;
+
+// ─── LLM base SSRF 防线(C2)───────────────────────────────────────────────
+// X-LLM-Base 头 / body.base 是浏览器端用户配置(多提供商透传是设计意图,
+// 见 ts/src/llm.ts createLlm 注释)——不丢弃机制;防线改为转发前校验目标:
+// ① scheme 仅 http(s);② 拒绝 userinfo;③ host 经 DNS 解析后任一地址落入
+// 私网/环回/链路本地/保留段(127.x 10.x 172.16-31.x 192.168.x 169.254.x
+// 0.0.0.0 ::1 fe80::/10 fc00::/7 等)→ 拒发;解析失败 → 保守拒绝。
+// 校验失败回 400(格式非法)/403(策略拒绝),双入口(metro dev + 生产)同步生效。
+
+/** 解析并校验 base:http(s) + 无 userinfo + host 非空 → URL;否则 null。 */
+function normalizeBaseUrl(raw) {
+  if (typeof raw !== 'string' || raw === '') return null;
+  let u;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  if (u.username || u.password) return null;
+  if (!u.hostname) return null;
+  return u;
+}
+
+/** IP 是否私网/环回/链路本地/保留段(SSRF 黑名单;IPv4-mapped IPv6 按内嵌 IPv4 判定)。 */
+function isPrivateAddress(ip) {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) ip = mapped[1];
+  if (net.isIPv4(ip)) {
+    const p = ip.split('.').map(Number);
+    if (p[0] === 0 || p[0] === 10 || p[0] === 127) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true; // CGNAT 100.64/10
+    if (p[0] === 169 && p[1] === 254) return true; // 链路本地/云 metadata 169.254.169.254
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 198 && (p[1] === 18 || p[1] === 19)) return true; // benchmark 198.18/15
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const low = ip.toLowerCase();
+    if (low === '::' || low === '::1') return true;
+    if (/^fe[89a-f]/.test(low) || /^f[cd]/.test(low)) return true; // fe80::/10 链路本地 + fc00::/7 ULA
+    return false;
+  }
+  return true; // 无法识别 → 保守拒绝
+}
+
+/** host 解析后任一地址私网 → false(防 hostname 指向内网/DNS 重绑定的 SSRF)。 */
+async function isPublicHost(u) {
+  let addrs;
+  try {
+    addrs = await dns.promises.lookup(u.hostname, { all: true, verbatim: true });
+  } catch {
+    return false; // 解析失败 → 保守拒绝(不发)
+  }
+  return addrs.length > 0 && addrs.every(({ address }) => !isPrivateAddress(address));
+}
 
 // ─── LLM 同源代理(/llm-proxy/*)─────────────────────────────────────────────
-// 网页请求同源代理 → 转发配置的 LLM base → 补 CORS 头(绕开浏览器跨域,
-// 对齐 Streamlit 服务端调用 LLM 的架构)。dev(Metro)与生产(server.mjs)共用。
-// 注意:R4 流式透传改造只改这一处(pipe upstream.body),双入口同步生效。
-async function handleLlmProxy(req, res) {
+// 网页请求同源代理 → 转发浏览器配置的 LLM base(经 C2 SSRF 校验)→ 补 CORS 头
+// (绕开浏览器跨域,对齐 Streamlit 服务端调用 LLM 的架构)。dev(Metro)与生产
+// (server.mjs)共用。注意:R4 流式透传改造只改这一处(pipe upstream.body),
+// 双入口同步生效。
+async function handleLlmProxy(req, res, _fetch = fetch) {
   try {
+    // W2:请求体 ≤64KB,超限 413 并终止读取(对齐 logs-server MAX_BODY_BYTES 模式)
     let body = '';
-    for await (const chunk of req) body += chunk;
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'LLM 代理请求体超过 64KB 限制' }));
+        return;
+      }
+      body += chunk;
+    }
     const { base, ...payload } = JSON.parse(body);
-    const baseUrl = req.headers['x-llm-base'] || base;
-    const target = `${baseUrl}/${req.url.slice('/llm-proxy/'.length)}`;
-    const upstream = await fetch(target, {
+    // C2:base 仅 http(s) + 公网 host;X-LLM-Base 头优先,其次 body.base
+    // (浏览器端用户配置透传是设计意图,保留机制、加 SSRF 防线)
+    const baseUrl = normalizeBaseUrl(req.headers['x-llm-base'] || base);
+    if (!baseUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'LLM 代理目标 base 非法(需 http(s):// 且不含 userinfo)' }));
+      return;
+    }
+    if (!(await isPublicHost(baseUrl))) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'LLM 代理目标被拒:仅允许公网 host(拒绝内网/环回地址)' }));
+      return;
+    }
+    // 尾斜杠归一,避免 base 带 / 时拼出双斜杠
+    const target = `${baseUrl.origin}${baseUrl.pathname.replace(/\/+$/, '')}/${req.url.slice('/llm-proxy/'.length)}`;
+    const upstream = await _fetch(target, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -58,7 +144,8 @@ async function handleLlmProxy(req, res) {
 
 // ─── TDX 采集代理 ────────────────────────────────────────────────────────────
 // 对齐 tools/probe.mts 数据链:F10 财务分析节 + collectAll(快照/全量日K/名称)。
-// 并发互斥(单连接够用);45s 总超时兜底;失败 → 5xx {error},浏览器端中止分析。
+// 并发互斥(单连接够用);45s 超时仅提前回 504,锁保持到真正 settle(W4,防后台
+// 采集并发泄漏);失败 → 5xx {error},浏览器端中止分析。
 const COLLECT_TIMEOUT_MS = 45_000;
 let collecting = false;
 
@@ -91,7 +178,7 @@ async function doCollect(ticker) {
   }
 }
 
-async function handleTdxCollect(req, res) {
+async function handleTdxCollect(req, res, _collect = doCollect) {
   const url = new URL(req.url, 'http://x');
   const ticker = url.searchParams.get('ticker') ?? '';
   if (!/^\d{6}$/.test(ticker)) {
@@ -112,18 +199,21 @@ async function handleTdxCollect(req, res) {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(obj));
   };
+  // W4:超时 timer 仅提前回 504 通知客户端,不打断 doCollect(底层 TdxClient
+  // 无 AbortSignal 支持,取消不了 in-flight TCP,见 node-tdx-market client.d.ts);
+  // 锁保持到 doCollect 真正 settle(下方 await 返回)才释放——杜绝旧实现
+  // "超时回包后 finally 已放锁、后台采集仍在跑"的并发泄漏。timer 在 finally clear。
+  const timer = setTimeout(() => {
+    send(504, { error: `TDX 采集超时(${COLLECT_TIMEOUT_MS / 1000}s),后台任务继续直至结束` });
+  }, COLLECT_TIMEOUT_MS);
   try {
-    const result = await Promise.race([
-      doCollect(ticker),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(Object.assign(new Error('采集超时(45s)'), { timedOut: true })), COLLECT_TIMEOUT_MS),
-      ),
-    ]);
+    const result = await _collect(ticker);
     send(200, result);
   } catch (err) {
-    send(err?.timedOut ? 504 : 502, { error: `TDX 采集失败:${String(err?.message ?? err)}` });
+    send(502, { error: `TDX 采集失败:${String(err?.message ?? err)}` });
   } finally {
-    collecting = false;
+    clearTimeout(timer);
+    collecting = false; // await _collect 已返回 → 真 settle,此刻才放锁
   }
 }
 
@@ -161,4 +251,14 @@ async function handleWebSearch(req, res) {
   }
 }
 
-module.exports = { handleLlmProxy, handleTdxCollect, handleWebSearch };
+module.exports = {
+  handleLlmProxy,
+  handleTdxCollect,
+  handleWebSearch,
+  // 测试/复用导出(新增,不删旧)
+  MAX_BODY_BYTES, // W2 上限
+  COLLECT_TIMEOUT_MS, // W4 超时
+  normalizeBaseUrl, // C2 base 校验
+  isPrivateAddress,
+  isPublicHost,
+};

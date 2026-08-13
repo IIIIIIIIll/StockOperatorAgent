@@ -20,9 +20,12 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';import {
 import { enabledRoles, reportRoles } from '../src/committee.ts';
 import { buildStockInformation } from '../src/pipeline.ts';
 import {
+  assembleTools,
   buildLlm,
   collectForWeb,
   loadDemoData,
+  makeBillionsIntel,
+  makeMcpIntel,
   runner,
   store,
   type PipelineEvent,
@@ -196,6 +199,12 @@ export default function App() {
         f10Text = store.getMeta('demo:f10') ?? undefined;
       }
       setLastRunTicker(code);
+      // 亿信/mcp 情报段（phase out 能力补齐）：预查询一次 → 缓存闭包，供
+      // buildStockInformation 与 runner.run 双算共享（不重复触发 120s 网络）。
+      const [billions, mcp] = await Promise.all([
+        makeBillionsIntel(code, settings.keys.billionsApiKey),
+        makeMcpIntel(code, settings.keys.tdxApiKey),
+      ]);
       // 采集完成立即生成上下文(委员会真 LLM 需数分钟——不等 done 才显示;
       // runner.run 内部同源重算,结果一致,双算成本 ~ms)
       setStockInformation(
@@ -206,9 +215,16 @@ export default function App() {
           name: stockName,
           capital,
           today: new Date().toISOString().slice(0, 10),
+          ...(billions ? { billions } : {}),
+          ...(mcp ? { mcp } : {}),
         }),
       );
-      await runner.run(code, { llm, f10Text, snapshot, name: stockName, capital, today: new Date().toISOString().slice(0, 10) });
+      await runner.run(code, {
+        llm, f10Text, snapshot, name: stockName, capital, today: new Date().toISOString().slice(0, 10),
+        tools: assembleTools(settings.keys),
+        ...(billions ? { billions } : {}),
+        ...(mcp ? { mcp } : {}),
+      });
       info(`分析结束:耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     } catch (err) {
       const detail = describeError(err);

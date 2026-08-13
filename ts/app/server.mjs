@@ -27,8 +27,17 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-function serveStatic(req, res) {
-  const urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+/** C1:畸形 URL(如 /%ZZ)decodeURIComponent 抛 URIError → 400 不崩 server。
+ *  导出供 vitest 单测;本模块 import 侧无副作用(listen 仅主入口执行)。 */
+export function serveStatic(req, res) {
+  let urlPath;
+  try {
+    urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  } catch {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return;
+  }
   let file = path.join(DIST, urlPath === '/' ? 'index.html' : urlPath);
   if (!file.startsWith(DIST)) {
     res.writeHead(403);
@@ -63,6 +72,13 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`[soa] web server: http://localhost:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理 + /web-search 搜索代理 + /logs 日志汇聚)`);
-});
+// 监听默认仅回环 127.0.0.1(HOST env 可覆盖):同源代理/日志端点不暴露到局域网
+// (SSRF/日志注入面收敛);生产远程访问显式设 HOST=0.0.0.0。
+// isMain 守卫:vitest 单测 import 本模块(测 serveStatic)时跳过 listen 副作用。
+const HOST = process.env.HOST || '127.0.0.1';
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  server.listen(PORT, HOST, () => {
+    console.log(`[soa] web server: http://${HOST}:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理 + /web-search 搜索代理 + /logs 日志汇聚)`);
+  });
+}
