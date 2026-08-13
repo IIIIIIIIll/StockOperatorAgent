@@ -869,3 +869,24 @@ TS 能力补齐完成: ①亿信 billsClient.ts(4端点 REST+错误归一化+超
 ### Status
 
 [OK] **Completed**
+
+
+## Session 29: Finish work: review + TS 能力补齐会话收尾
+
+**Date**: 2026-08-13
+**Task**: Finish work: review + TS 能力补齐会话收尾
+**Branch**: `master`
+
+### Summary
+
+会话收尾: ①全量 codebase review(15 分片,3C/33W/66I)→ 用户决策 Python phase out、TS 为唯一修复面;②TS 能力补齐(亿信移植+mcp+qfq+安全 C1/C2/W2-W4,268 tests 全绿)已提交 30adb11;③两 task 已归档。TS 侧遗留: 亿信/mcp 开关已真实生效待配 key 线上验证;Python 删除为独立后续 task。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `30adb11` | (see git log) |
+
+### Status
+
+[OK] **Completed**
