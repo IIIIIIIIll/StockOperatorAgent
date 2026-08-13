@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/ts/index.md", "reason": "TS 分片审查基准——事件协议/流式/代理/图表约定"}
+{"file": ".trellis/spec/agents/index.md", "reason": "agents/llms 分片审查基准"}
+{"file": ".trellis/spec/core/index.md", "reason": "core 分片审查基准"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "data_source 分片审查基准"}
+{"file": ".trellis/spec/data_storage/index.md", "reason": "storage 分片审查基准"}
+{"file": ".trellis/spec/data_structure/index.md", "reason": "structure 分片审查基准"}
+{"file": ".trellis/spec/guides/index.md", "reason": "防假阳性验证规则"}

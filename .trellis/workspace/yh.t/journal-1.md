@@ -827,3 +827,24 @@ onReset 回滚 warn(工具轮 N + 工具名)+ retry warn 补 HTTP 状态码;『�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 27: 08-13-full-codebase-review: 15 分片并行全量审查
+
+**Date**: 2026-08-13
+**Task**: 08-13-full-codebase-review: 15 分片并行全量审查
+**Branch**: `master`
+
+### Summary
+
+TS 6 片+Python 8 片+安全 1 片并行审查 258 文件(0 orphan/0 dupe)。3 CRITICAL(server.mjs 畸形 URL DoS、/llm-proxy 开放 SSRF、acquire_historical_data_tdx 空表 KeyError)全部源码核实;33 WARNING/66 INFO。TS 同源代理层为最大风险面(spec 未覆盖鉴权);TS 数据口径 3 处与 Python 分叉(qfq/日期格式/字段名)。汇总: research/00-review-report.md。修复建议 P0-P3 分组,零代码改动。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eb9adae` | (see git log) |
+
+### Status
+
+[OK] **Completed**
