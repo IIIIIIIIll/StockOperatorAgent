@@ -806,3 +806,24 @@ onReset 回滚 warn(工具轮 N + 工具名)+ retry warn 补 HTTP 状态码;『�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 26: ts 侧全指标多面板图
+
+**Date**: 2026-08-13
+**Task**: ts 侧全指标多面板图
+**Branch**: `master`
+
+### Summary
+
+新增 IndicatorChart 多面板图(主图 MA/EMA/BOLL + 成交量/MACD/KDJ/RSI/MACD-VH/ATR/量比/乖离率);修 v5 setHeight 首帧前调用高度错乱 → setStretchFactor;spec 沉淀图表约定
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `99bb1af` | (see git log) |
+
+### Status
+
+[OK] **Completed**
