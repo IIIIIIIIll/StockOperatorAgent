@@ -4,7 +4,7 @@
 import React from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { store } from '../lib/runner';
-import type { IChartApi } from 'lightweight-charts';
+import IndicatorChart, { type Bar } from '../components/IndicatorChart';
 import { composeOverview } from '../../src/overview.ts';
 import { parseIndicatorSection } from '../../src/f10.ts';
 import { computeAll } from '../../src/indicators.ts';
@@ -19,7 +19,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   void dataVersion; // 父组件数据就绪信号:触发本组件重渲染以读取 store
   const theme = useTheme();
   const styles = makeStyles(theme);
-  const bars = store.getDatas(ticker);
+  const bars = React.useMemo(() => store.getDatas(ticker), [ticker, dataVersion]);
   const stock = store.getStock(ticker);
   const f10Text = store.getMeta(`f10:${ticker}`) ?? (ticker === '600036' ? (store.getMeta('demo:f10') ?? '') : '');
   const profit = f10Text ? parseIndicatorSection(f10Text, '【盈利能力指标】') : [];
@@ -39,11 +39,14 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   });
 
   const tail = bars.slice(-DAILY_TABLE_N);
-  const klineBars = bars.slice(-KLINE_N);
-  // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 600036 正确)
-  const indRows = computeAll(
-    bars.map((b) => ({ open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume })),
+  // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 600036 正确);
+  // 图表与 chips 共用同一份结果,窗口切片保持稳定引用避免流式重渲染时重建图表
+  const indRows = React.useMemo(
+    () => computeAll(bars.map((b) => ({ open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume }))),
+    [bars],
   );
+  const klineBars = React.useMemo<Bar[]>(() => bars.slice(-KLINE_N), [bars]);
+  const chartRows = React.useMemo(() => indRows.slice(-KLINE_N), [indRows]);
   const lastInd = (indRows[indRows.length - 1] ?? {}) as Record<string, number | null>;
   const indicatorKeys = ['MA5', 'MA10', 'MA20', 'MACD', 'RSI6', 'K', 'BOLL_UP', 'ATR', 'VOL_RATIO', 'MACD_VH', 'LIU_BIAS'];
 
@@ -67,11 +70,11 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
         ))}
       </View>
 
-      {/* K线图(web;原生端真机 M4 接 canvas polyfill) */}
+      {/* 技术图(web;原生端真机 M4 接 canvas polyfill) */}
       {Platform.OS === 'web' && klineBars.length > 1 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>K线图(近 {KLINE_N} 根,原始价)</Text>
-          <KLineChart bars={klineBars} theme={theme} />
+          <Text style={styles.sectionTitle}>技术图(近 {KLINE_N} 根,全部指标)</Text>
+          <IndicatorChart bars={klineBars} rows={chartRows} theme={theme} />
         </View>
       )}
 
@@ -160,59 +163,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   );
 }
 
-// ─── K线图(web-only;lightweight-charts 动态 import) ──────────────────────
-
-function KLineChart({ bars, theme }: { bars: Array<{ date: string; open: number; close: number; high: number; low: number; volume: number }>; theme: Theme }) {
-  const ref = React.useRef<View | null>(null);
-
-  React.useEffect(() => {
-    if (Platform.OS !== 'web' || !ref.current) return undefined;
-    const el = ref.current as unknown as HTMLElement;
-    let disposed = false;
-    let chart: IChartApi | null = null;
-    void import('lightweight-charts').then(({ createChart, ColorType, CandlestickSeries, HistogramSeries }) => {
-      if (disposed || !el) return;
-      chart = createChart(el, {
-        height: 320,
-        layout: {
-          background: { type: ColorType.Solid, color: theme.colors.background },
-          textColor: theme.colors.textSecondary,
-        },
-        grid: {
-          vertLines: { color: theme.colors.border },
-          horzLines: { color: theme.colors.border },
-        },
-        timeScale: { borderColor: theme.colors.border },
-        rightPriceScale: { borderColor: theme.colors.border },
-      });
-      const candle = chart.addSeries(CandlestickSeries, {
-        upColor: theme.colors.up,
-        downColor: theme.colors.down,
-        borderVisible: false,
-        wickUpColor: theme.colors.up,
-        wickDownColor: theme.colors.down,
-      });
-      candle.setData(bars.map((b) => ({
-        time: fmtDate(b.date) as never,
-        open: b.open, high: b.high, low: b.low, close: b.close,
-      })));
-      const volume = chart.addSeries(HistogramSeries, {
-        priceScaleId: 'volume',
-        priceFormat: { type: 'volume' },
-      });
-      volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-      volume.setData(bars.map((b) => ({
-        time: fmtDate(b.date) as never,
-        value: b.volume,
-        color: b.close >= b.open ? 'rgba(211,47,47,0.4)' : 'rgba(26,143,61,0.4)',
-      })));
-    });
-    return () => { disposed = true; chart?.remove(); };
-  }, [bars, theme]);
-
-  // web 下 ref 挂到 div(View 渲染为 div)
-  return <View ref={ref as never} style={{ height: 320, width: '100%' }} />;
-}
+// ─── 样式 ─────────────────────────────────────────────────────────────
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({

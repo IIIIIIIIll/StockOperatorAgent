@@ -106,3 +106,27 @@ res.end();
   (dev `npm start` 与生产启动命令已带;node ≥23.6 默认开启)。
 - `ts/src/log.ts` 是全端统一日志(web 上报 `/logs` + RN 沙盒 + Node),新增
   日志调用一律经它,不新增第二日志出口。
+
+## 图表(web-only;08-13-ts-all-indicator-charts)
+
+全指标多面板图在 `ts/app/components/IndicatorChart.tsx`(DataScreen 内嵌)。
+约定:
+
+- **web-only + 动态 import**:lightweight-charts 只走 `import('lightweight-charts')`
+  运行时加载(保持独立 chunk,不拉进 RN 原生 bundle);类型注释放顶层
+  `import type`。**坑**:`LineStyle` 是运行时枚举(值),须从动态 import 解构
+  取值(`LineStyle: LineStyleValue`),不能只 import type。
+- **多 pane 布局**:`addSeries(def, opts, paneIndex)` 建面板,全部 series 建完后
+  `chart.panes()[i].setStretchFactor(n)` 设比例。**禁止用 `setHeight`**:Pane
+  初始 `height=0`,首帧布局前 setHeight 以 totalHeight=0 参与
+  `_internal_changePanesHeight` 重分配 → 面板高度错乱;stretch 是比例布局,
+  与当前高度/调用顺序无关。
+- **数据同源**:图表消费 `computeAll` 结果行(与「最新指标」chips 同一份),
+  不新算第二遍;窗口切片与 K 线一致。DataScreen 用 `useMemo([ticker,
+  dataVersion])` 缓存 bars 与指标行,避免流式重渲染时重建图表
+  (`store.getDatas` 每次返回新数组)。
+- **NaN 处理**:指标 warmup 前导 NaN → 线/柱数据过滤 null(warmup 只出现在
+  序列头部,无中间断档);柱系列用 `base: 0` + 正负着色。
+- **图例与颜色单点定义**:系列色常量 `C` 与 `LEGEND` 数组同源,图例 chips
+  与图上线条不漂移;柱(成交量/MACD/MACD_VH)用 `theme.colors.up/down` 半透明。
+
