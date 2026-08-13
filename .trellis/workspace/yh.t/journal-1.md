@@ -848,3 +848,24 @@ TS 6 片+Python 8 片+安全 1 片并行审查 258 文件(0 orphan/0 dupe)。3 C
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: 08-13-ts-capability-completion: 亿信/mcp/qfq/安全修复
+
+**Date**: 2026-08-13
+**Task**: 08-13-ts-capability-completion: 亿信/mcp/qfq/安全修复
+**Branch**: `master`
+
+### Summary
+
+TS 能力补齐完成: ①亿信 billsClient.ts(4端点 REST+错误归一化+超时档位)+billionsTools.ts(三件套工具,上限/降级/url协议校验)+analyst 预抓+runner/App 接线; ②mcp.ts(TdxMcpClient JSON-RPC+SSE+门控)+接线; ③qfq collectAll 生产接线+日期 YYYY-MM-DD; ④安全 C1(400不崩)/C2(SSRF DNS防线)/W2(64KB 413)/W3(日志净化)/W4(锁保持到settle)+listen 127.0.0.1。268 tests 全绿+tsc 通过。spec ts/index.md 补代理安全契约+能力接线节。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dfb1013` | (see git log) |
+
+### Status
+
+[OK] **Completed**
