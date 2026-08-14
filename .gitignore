@@ -12,3 +12,7 @@ __pycache__
 data
 TODO
 developing-with-streamlit
+# AI platform configs (local only, not in repo)
+.agents
+.claude
+.omp
