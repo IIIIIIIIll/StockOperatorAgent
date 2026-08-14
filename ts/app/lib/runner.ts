@@ -1,7 +1,9 @@
 // 事件桥 runner 绑定 —— App 与业务层(ts/src)的唯一接线点
 // 数据:web 走 server /tdx-collect 代理(collectForWeb);真机留注入点(走 RN TCP)。
 // LLM:三键齐(设置面板)→ 真 LLM;缺 → 演示 stub(图全链跑通)。
-import { InMemoryStore } from '../../src/store-memory.ts';
+import { IdbStore } from '../../src/store-idb.ts';
+import { FileStore } from '../../src/store-file.ts';
+import type { StoreLike } from '../../src/store.ts';
 import { createPipelineRunner, type PipelineEvent, type FinalReport } from '../../src/events.ts';
 import { createLlm, MissingLlmConfigError, type LlmConfig } from '../../src/llm.ts';
 import { applyCollectedToStore, collectViaProxy, type WebCollectResult } from '../../src/webCollect.ts';
@@ -17,10 +19,26 @@ import { AIMessage } from '@langchain/core/messages';
 import demo from '../data/demo.json';
 import type { CapsState } from './settings.ts';
 
-export const store = new InMemoryStore();
+/** 持久化后端共有的异步面(StoreLike 保持同步契约;ready 由 runner 显式转发)。 */
+interface PersistentStore extends StoreLike {
+  ready(): Promise<void>;
+}
+
+// 平台选择:web 走 IndexedDB;RN 走 expo-file-system 文件后端。探针用 typeof
+// location(ts/ 为 node-only lib 无 DOM/RN 类型,不能 import react-native——
+// vitest node 环境解析失败;webSearch.ts 同款探针姿势)。
+const isWeb = typeof location !== 'undefined';
+export const store: StoreLike = isWeb ? new IdbStore() : new FileStore();
+
+/** 持久化后端就绪(IndexedDB 打开 + 内存 hydrate / 文件读回)。App 启动链先 await 再加载。 */
+export function storeReady(): Promise<void> {
+  return (store as PersistentStore).ready();
+}
 
 // 演示数据载入(600036:250 根日K + 指标 + F10;仅预览/未起 server 时的占位视图)
+// 仅空库(getStock/getDatas 全空)时载入——有跨会话持久化数据则跳过
 export function loadDemoData(): void {
+  if (store.getStock(demo.ticker) !== null || store.getDatas(demo.ticker).length > 0) return;
   store.putStock({
     ticker: demo.ticker,
     name: demo.name,

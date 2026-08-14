@@ -29,6 +29,7 @@ import {
   makeMcpIntel,
   runner,
   store,
+  storeReady,
   type PipelineEvent,
   type FinalReport,
 } from './lib/runner';
@@ -69,21 +70,33 @@ export default function App() {
   React.useEffect(() => {
     info(`应用启动:TS 版投资委员会(web)`);
     const t0 = Date.now();
-    loadDemoData();
-    const bars = store.getDatas('600036');
-    info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
-    // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
-    const demoF10 = store.getMeta('demo:f10');
-    setStockInformation(
-      buildStockInformation('600036', { store, f10Text: demoF10, today: new Date().toISOString().slice(0, 10) }),
-    );
-    const loaded = loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
-    setSettings(loaded);
-    const miss = missingLlmKeys(loaded.keys);
-    if (miss.length) warn(`LLM 三键未配置——${describeLlmKeys(loaded.keys)};缺失键请见侧边栏「模型与密钥」或 app/.env 的 EXPO_PUBLIC_LLM_*`);
-    else info(`LLM 已配置:${describeLlmKeys(loaded.keys)}`);
-    info(`联网搜索供应商:${process.env.TAVILY_API_KEY ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
-    setDataVersion(1); // store 为模块级对象:显式触发重渲染
+    (async () => {
+      // 持久化后端就绪(IndexedDB 打开 + 内存 hydrate / 文件读回)后再加载——
+      // freshness 门(同日跳过)需读跨会话 lastDataUpdate/report_date
+      try {
+        await storeReady();
+      } catch (err) {
+        const msg = describeError(err);
+        logError(`存储就绪失败:${msg}`);
+        setError(msg);
+        return;
+      }
+      loadDemoData(); // 仅空库时载入 demo(有跨会话持久化数据则跳过)
+      const bars = store.getDatas('600036');
+      info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
+      // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
+      const demoF10 = store.getMeta('demo:f10');
+      setStockInformation(
+        buildStockInformation('600036', { store, f10Text: demoF10, today: new Date().toISOString().slice(0, 10) }),
+      );
+      const loaded = loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
+      setSettings(loaded);
+      const miss = missingLlmKeys(loaded.keys);
+      if (miss.length) warn(`LLM 三键未配置——${describeLlmKeys(loaded.keys)};缺失键请见侧边栏「模型与密钥」或 app/.env 的 EXPO_PUBLIC_LLM_*`);
+      else info(`LLM 已配置:${describeLlmKeys(loaded.keys)}`);
+      info(`联网搜索供应商:${process.env.TAVILY_API_KEY ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
+      setDataVersion(1); // store 为模块级对象:显式触发重渲染
+    })();
   }, []);
 
   React.useEffect(() => {
