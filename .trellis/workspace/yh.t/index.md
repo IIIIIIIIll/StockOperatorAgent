@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 32
+- **Total Sessions**: 33
 - **Last Active**: 2026-08-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~955 | Active |
+| `journal-1.md` | ~976 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 33 | 2026-08-14 | ts/ 平移到仓库根 | `ee392ba` | `master` |
 | 32 | 2026-08-14 | phaseout 收尾核验——4 scout 零遗漏确认 + 10 REAL 修复 | `0d7e4a12d2351815a4aa5c84a16ce76d6a12a923` | `master` |
 | 31 | 2026-08-14 | TS 本地数据持久化完成（IndexedDB + RN 文件存储） | `89451ec04b1866083dcc249ddc769cd1c7ce4bbd` | `master` |
 | 30 | 2026-08-14 | Python phaseout 完成——差距审计 + A-E 执行 | `b8583a51d607a8ac34b311295a660129d407c8a0` | `master` |

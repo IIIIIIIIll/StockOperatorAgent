@@ -953,3 +953,24 @@ IdbStore(web IndexedDB 内存镜像+写穿透队列) + FileStore(RN expo-file-sy
 ### Status
 
 [OK] **Completed**
+
+
+## Session 33: ts/ 平移到仓库根
+
+**Date**: 2026-08-14
+**Task**: ts/ 平移到仓库根
+**Branch**: `master`
+
+### Summary
+
+ts/ 目录平移到根：103 纯重命名 + .gitignore 合并 + README/.env.example/spec 路径同步；根 npm test 312 通过、typecheck 零错；app tsc 两处 expo-file-system 报错为既有问题（HEAD 复现确认）
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ee392ba` | (see git log) |
+
+### Status
+
+[OK] **Completed**
