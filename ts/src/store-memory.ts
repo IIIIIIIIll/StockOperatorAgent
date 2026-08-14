@@ -41,8 +41,9 @@ export class InMemoryStore implements StoreLike {
     return fresh.length;
   }
 
-  /** 全量替换(web 采集:代理返回 IPO 全量;防 demo 预载合并混入)。 */
+  /** 全量替换(web 采集:代理返回 IPO 全量;防 demo 预载合并混入;空输入早退不清库)。 */
   replaceDatas(ticker: string, bars: DailyBar[]): number {
+    if (!bars.length) return 0;
     this.bars.delete(ticker);
     return this.addDatas(ticker, bars);
   }

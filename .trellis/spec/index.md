@@ -4,20 +4,18 @@ description: Top-level navigation for StockOperatorAgent coding guidelines
 
 # StockOperatorAgent Coding Guidelines
 
-Project-specific guidance for working in this repository: a Streamlit + LangGraph
-multi-agent A-share analysis system (akshare data → ZODB persistence → Qwen LLM
-agents → Streamlit UI).
+Project-specific guidance for working in this repository: a single TypeScript
+implementation — Expo web/RN app + Node server (event protocol, streaming, LLM
+retry, same-origin proxies). The old Python layer specs (agents/core/data_source/
+data_storage/data_structure) are historical archives from the phased-out Python
+implementation.
 
 ## Layers
 
 | Layer | Directory | Guideline | When to read |
 |-------|-----------|-----------|--------------|
-| Agents | `agents/`, `core/llms/` | [agents/index.md](./agents/index.md) | Adding or editing an LLM agent, prompt, or the LangGraph State |
-| Core orchestration | `core/` (except `core/llms/`) | [core/index.md](./core/index.md) | Editing data acquisition, the committee graph, output formatting, or the Streamlit UI |
-| Data source | `data_source/` | [data_source/index.md](./data_source/index.md) | Editing akshare wrappers or DataFrame→dataclass construction |
-| Data structures | `data_structure/` | [data_structure/index.md](./data_structure/index.md) | Adding persistent dataclasses or editing `ChinaStock` |
-| Data storage | `data_storage/`, `database/` | [data_storage/index.md](./data_storage/index.md) | Editing ZODB access or transaction patterns |
-| TS 侧移植 | `ts/` | [ts/index.md](./ts/index.md) | Editing the TS port (web/RN): event protocol, streaming, LLM retry, same-origin proxies |
+| Historical Python layers (archived) | `agents/`, `core/`, `data_source/`, `data_storage/`, `data_structure/` | [agents](./agents/index.md) · [core](./core/index.md) · [data_source](./data_source/index.md) · [data_storage](./data_storage/index.md) · [data_structure](./data_structure/index.md) | Historical only — Python code deleted in phaseout; read for design lineage, not as a live contract |
+| TS implementation | `ts/` | [ts/index.md](./ts/index.md) | Editing the TS implementation (Expo web/RN + Node server): event protocol, streaming, LLM retry, same-origin proxies |
 
 ## Cross-Cutting
 
@@ -33,7 +31,7 @@ agents → Streamlit UI).
 
 Layer specs carry `paths:` frontmatter. Touching a matching file (Read/Edit/Write)
 injects the governing spec into the session — for example, editing
-`agents/chinese_mainland/trend_analysis_expert.py` surfaces `agents/index.md`.
+`ts/src/agents.ts` surfaces `ts/index.md`.
 Read this index first when starting any coding task, then the layer spec for the
 package you are about to touch.
 
@@ -42,5 +40,5 @@ documents the frontmatter routing contract, injection caps, and layer-discovery
 rules so spec edits never silently break injection.
 
 **Language note**: UI strings and LLM prompts are written in Chinese
-(`core/ui/display.py`, `core/llms/prompt.py`, agent query templates); code
-identifiers and comments are English. Specs are written in English.
+(`ts/app/screens/DataScreen.tsx`, `ts/src/prompt.ts`, agent query templates);
+code identifiers and comments are English. Specs are written in English.

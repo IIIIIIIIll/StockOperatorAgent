@@ -13,6 +13,8 @@ paths:
 > `data_structure/`/`utils/` 业务代码（`data_source/.../tdx/vendor/` 冻结保留、
 > `ts/tools/export_fixtures.py` 与 `ts/test/fixtures/` 冻结保留）。Python 侧旧
 > 分层 spec（core/data_source/data_storage/data_structure）作为历史归档保留。
+> 仓库根 `.streamlit/config.toml` 为 Python Streamlit 时代残留（零 TS 消费），
+> 保留待用户决策删/留。
 
 Python 侧分层规范不覆盖 TS 移植。本层沉淀 TS 侧(web 浏览器 + RN app + Node
 server)的跨层契约:事件流协议、流式输出、LLM 重试、同源代理。
@@ -134,6 +136,15 @@ res.end();
   (dev `npm start` 与生产启动命令已带;node ≥23.6 默认开启)。
 - `ts/src/log.ts` 是全端统一日志(web 上报 `/logs` + RN 沙盒 + Node),新增
   日志调用一律经它,不新增第二日志出口。
+- **持久化(08-14-ts-persistence)**:web 生产持久化 = IndexedDB
+  (`ts/src/store-idb.ts`),RN = expo-file-system 文件(`ts/src/store-file.ts`);
+  四族(Store/IdbStore/FileStore/InMemory)共用 StoreLike **同步契约**(业务层只
+  依赖 `store.ts` 接口面)+ 写穿透队列(同步改内存 → 串行 Promise 链落盘,
+  mutator 同步方法内不 await)。**freshness 跨会话生效**:`gates.ts` 的
+  `dailyFresh`/`reportsFresh` 读持久化的 `lastDataUpdate`/最新 `report_date`
+  → 同日跳过日K / 同季跳过 F10 的判定跨重启成立(非仅当次会话)。App 启动链
+  `await storeReady()`(IndexedDB 打开 + hydrate / 文件读回)后
+  `loadDemoData()`(仅空库载入 demo,有跨会话持久化数据则跳过)。
 
 ## 能力接线(08-13-ts-capability-completion;Python phase out 后唯一实现)
 

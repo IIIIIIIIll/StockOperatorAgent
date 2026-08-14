@@ -1,5 +1,12 @@
 # Thinking Guides
 
+> **历史归档（2026-08-14）**：本目录指引写于 Python（Streamlit + LangGraph +
+> akshare + ZODB）时代；Python 业务代码已删除，内容保留作历史，不逐行改写。
+> 当前唯一实现为 **TS**（Expo web/RN + Node server，见
+> [ts/index.md](../ts/index.md)）。**UI 验证指引**已更新：`cd ts && npx vitest run`
+> + `npx tsc --noEmit`（测试/类型门），不再有 pytest/mock 链路。下方
+> pytest/display.py/akshare/ZODB 示例仅作设计溯源参考。
+
 > **Purpose**: Expand your thinking to catch things you might not have considered.
 
 ---
