@@ -54,6 +54,9 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   const tail = bars.slice(-DAILY_TABLE_N);
   // 表列值:涨跌幅/换手率与 tail 同窗切片(index 对齐;首根涨跌幅 NaN → N/A)
   const tailChangePct = changePct.slice(-DAILY_TABLE_N);
+  // 图表涨跌幅窗口切片:memo 保持稳定引用(chartRows/klineBars 同款)——内联
+  // slice 每次渲染新数组会触发 IndicatorChart 全图重建(流式 progress 重渲染时闪烁)
+  const klineChangePct = React.useMemo(() => changePct.slice(-KLINE_N), [changePct]);
   // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 600036 正确);
   // 图表与 chips 共用同一份结果,窗口切片保持稳定引用避免流式重渲染时重建图表
   const indRows = React.useMemo(
@@ -89,7 +92,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
       {Platform.OS === 'web' && klineBars.length > 1 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>技术图(近 {KLINE_N} 根,全部指标)</Text>
-          <IndicatorChart bars={klineBars} rows={chartRows} changePct={changePct.slice(-KLINE_N)} theme={theme} />
+          <IndicatorChart bars={klineBars} rows={chartRows} changePct={klineChangePct} theme={theme} />
         </View>
       )}
 

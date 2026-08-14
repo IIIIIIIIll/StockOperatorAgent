@@ -144,11 +144,18 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
   fin_db 120s / search+twitter 25/70/120 / fetch 90s)+
   `ts/src/billionsTools.ts`(search/twitter/fetch 三件套 LLM 工具,开关关/
   无 key → undefined 不绑定,调用硬上限 search 3 / twitter 2 / fetch 3,
-  env `BILLIONS_{CAP}_MAX_CALLS` 可覆盖)+ agents.ts 信息面分析师预抓
-  (三源 announcement/report/web + twitter)。**key 在 web 端 localStorage**:
-  客户端/工具经 `apiKey` 构造注入(不读 process.env——Metro 不内联非
-  EXPO_PUBLIC 变量)。接线:runner.ts `makeBillionsIntel`(pipeline 段)+
-  `assembleTools`(委员会工具)→ App.tsx 传入。
+  env `BILLIONS_{CAP}_MAX_CALLS` 可覆盖;settings.caps 三值
+  (searchMax/twitterMax/fetchMax)经 `assembleTools` → `maxCallsByCap`
+  注入**优先于 env**,非法值(NaN/<=0/非数字)回退 env/默认)+ agents.ts
+  信息面分析师预抓(三源 announcement/report/web + twitter)。**key 在
+  web 端 localStorage**:客户端/工具经 `apiKey` 构造注入(不读 process.env
+  ——Metro 不内联非 EXPO_PUBLIC 变量)。接线:runner.ts `makeBillionsIntel`
+  (pipeline 段)+ `assembleTools`(委员会工具)→ App.tsx 传入;预抓 client
+  注入(App.tsx 构造带 key 的 `BillionsClient` → `runner.run` 的
+  `billionsClient` → events.ts RunOptions → committee `deps.billionsClient`
+  → 分析师构造第 5 参;缺省 → 无 key client 回退,亿信路径静默关闭、DDG
+  兜底)。**安全**:key 仅存 client 私有字段——不落日志、不经服务端代理
+  (浏览器端直连现状,不新增代理路由)。
 - **mcp 实时情报**:`ts/src/mcp.ts`(`TdxMcpClient`:JSON-RPC 2.0 + tdx-api-key
   + Mcp-Session-Id 透传 + SSE 响应解析取首个 result;`getMarketIntel`:
   TDX_MCP_DISABLED/ENABLED 门控 + 无 key 占位 + 中文摘要 ≤10 行)。**不做
@@ -158,6 +165,16 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
   `fetchXdxrEvents` → `applyQfq`(失败降级 raw bars 不阻断)。日期契约
   **YYYY-MM-DD**(store 契约;qfqAdjust 输入为 YYYYMMDD,接线层双向转换)。
 - **北交所/akshare**:明确不支持(用户决策 08-13),App.tsx 入口拦截报错。
+- **采集 freshness 门(08-14-phaseout-c C8)**:`gates.ts` `dailyFresh`
+  (lastDataUpdate == 北京时间今天 → 同日已采集)与 `reportsFresh`
+  (最新 report_date == 最近已过季度末 → 同季已入库)经 `freshnessGates`
+  判定,依据 store 现有数据(不新增持久化字段);`runner.collectForWeb`
+  按源传 `skipDaily`/`skipF10` → `/tdx-collect` 查询参数(仅 '1' 生效,
+  缺省不带参数 = 全量)→ `proxies.cjs` 按源跳过(仍拉快照/名称/股本结构
+  节)。**部分 fresh 不整体短路**;跳过返回现有数据**不置空**
+  (applyCollectedToStore 保留既有日K/lastDataUpdate,同季跳过 F10 时以
+  缓存 `f10:${ticker}` meta 文本顶替,盈利能力块不降级占位);跨日/跨季
+  首次 → 全量路径不变。
 
 ## 图表(web-only;08-13-ts-all-indicator-charts)
 
