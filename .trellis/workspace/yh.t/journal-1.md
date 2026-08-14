@@ -890,3 +890,24 @@ TS 能力补齐完成: ①亿信 billsClient.ts(4端点 REST+错误归一化+超
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: Python phaseout 完成——差距审计 + A-E 执行
+
+**Date**: 2026-08-14
+**Task**: Python phaseout 完成——差距审计 + A-E 执行
+**Branch**: `master`
+
+### Summary
+
+审计任务 08-14-py-ts-gap-audit：8 分片并行审计 ~300 功能点，0 结构性缺口，4 BLOCKER。用户决策 5 项。phaseout 任务 08-14-py-phaseout（5 children）：A caps 接线、B UI 补齐（日K列+涨跌幅柱+财务趋势图）、C freshness 门接线、D web 亿信预抓注入（安全约束）、E Python 分域删除 124 文件。验证：tsc 0 错误 + vitest 295 passed + probe 冒烟全图 + 浏览器实测。仓库纯 TS。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b8583a51d607a8ac34b311295a660129d407c8a0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
