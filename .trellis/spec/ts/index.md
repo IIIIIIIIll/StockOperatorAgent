@@ -1,17 +1,16 @@
 ---
 description: TS 侧(web/RN)移植约定——事件协议、流式输出、LLM 调用、同源代理
-paths:
-  - ts/**
+paths: [src/**, app/**, test/**, tools/**]
 ---
 
-# TS 侧移植约定(`ts/`)
+# TS 侧移植约定(`src/`/`app/`)
 
 > **状态（2026-08-14）**：Python 业务代码已分域删除完毕（任务
 > `08-14-phaseout-e-py-deletion`，E1 死代码面 → E2 数据源/存储/结构面 → E3
 > 工具/agent 面 → E4 编排/UI 面 → E5 收尾）。本文件是**最终唯一实现契约**；
 > 仓库根已无 `main.py`/`core/`/`agents/`/`data_source/`/`data_storage/`/
 > `data_structure/`/`utils/` 业务代码（`data_source/.../tdx/vendor/` 冻结保留、
-> `ts/tools/export_fixtures.py` 与 `ts/test/fixtures/` 冻结保留）。Python 侧旧
+> `tools/export_fixtures.py` 与 `test/fixtures/` 冻结保留）。Python 侧旧
 > 分层 spec（core/data_source/data_storage/data_structure）作为历史归档保留。
 > 仓库根 `.streamlit/config.toml` 为 Python Streamlit 时代残留（零 TS 消费），
 > 保留待用户决策删/留。
@@ -19,7 +18,7 @@ paths:
 Python 侧分层规范不覆盖 TS 移植。本层沉淀 TS 侧(web 浏览器 + RN app + Node
 server)的跨层契约:事件流协议、流式输出、LLM 重试、同源代理。
 
-## 事件流协议(ts/src/events.ts)
+## 事件流协议(src/events.ts)
 
 `PipelineEvent` 联合类型是 App 与业务层唯一事件契约:
 
@@ -35,7 +34,7 @@ server)的跨层契约:事件流协议、流式输出、LLM 重试、同源代�
 - **node → roleKey 映射**:`enabledRoles().find(r => r.nodeName === node || r.reviseNodeName === node)`;查不到原样用 node。
 - **权威覆盖规则**:UI 收到 `report` 即清空该 role 对应所有 node 的流式 partial——流式文本只是过程视图,报告内容永远以 `report` 事件为准。实现必须用事件时刻的 `enabledRoles()` 而非挂载闭包(设置面板中途开关角色时闭包会陈旧)。
 
-## ProgressUpdater 协议(ts/src/progress.ts)
+## ProgressUpdater 协议(src/progress.ts)
 
 ```ts
 export interface ProgressUpdater {
@@ -61,7 +60,7 @@ no-op,图不中断,对齐 `safeProgress`)。
 - **要点**:`prompt.pipe(llm)` 是 RunnableSequence,`.stream()` 转发末步
   chunk;无 `.stream()` 的 llm(假件)回退 `invokeWithRetry` + 单次全量 delta。
 
-### streamWithRetry(ts/src/retry.ts)
+### streamWithRetry(src/retry.ts)
 
 `invokeWithRetry` 的流式孪生,语义必须对齐:
 
@@ -88,7 +87,7 @@ export async function streamWithRetry(
   UI 收到 'retry' 即清该 node partial(避免额外 reset 事件类型)。
 - 时序:agent `running`(首调前)→ 流式 → `pushReport` → `done`。
 
-## 同源代理(ts/app/lib/proxies.cjs)
+## 同源代理(app/lib/proxies.cjs)
 
 dev(metro 中间件)与生产(server.mjs)共用**单份**实现(收敛防漂移)。路由:
 `/llm-proxy`(LLM 转发)、`/tdx-collect`(采集)、`/web-search`(搜索)、
@@ -134,10 +133,10 @@ res.end();
   ESM,两者都能 require)。
 - proxies.cjs `require('../../src/*.ts')` 依赖 Node `--experimental-strip-types`
   (dev `npm start` 与生产启动命令已带;node ≥23.6 默认开启)。
-- `ts/src/log.ts` 是全端统一日志(web 上报 `/logs` + RN 沙盒 + Node),新增
+- `src/log.ts` 是全端统一日志(web 上报 `/logs` + RN 沙盒 + Node),新增
   日志调用一律经它,不新增第二日志出口。
 - **持久化(08-14-ts-persistence)**:web 生产持久化 = IndexedDB
-  (`ts/src/store-idb.ts`),RN = expo-file-system 文件(`ts/src/store-file.ts`);
+  (`src/store-idb.ts`),RN = expo-file-system 文件(`src/store-file.ts`);
   四族(Store/IdbStore/FileStore/InMemory)共用 StoreLike **同步契约**(业务层只
   依赖 `store.ts` 接口面)+ 写穿透队列(同步改内存 → 串行 Promise 链落盘,
   mutator 同步方法内不 await)。**freshness 跨会话生效**:`gates.ts` 的
@@ -150,10 +149,10 @@ res.end();
 
 TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在但无效果"):
 
-- **亿信(billions)**:`ts/src/billionsClient.ts`(REST 4 端点,对齐 Python
+- **亿信(billions)**:`src/billionsClient.ts`(REST 4 端点,对齐 Python
   client.py:POST + X-API-KEY、BillionsApiError 归一化、不重试、超时档位
   fin_db 120s / search+twitter 25/70/120 / fetch 90s)+
-  `ts/src/billionsTools.ts`(search/twitter/fetch 三件套 LLM 工具,开关关/
+  `src/billionsTools.ts`(search/twitter/fetch 三件套 LLM 工具,开关关/
   无 key → undefined 不绑定,调用硬上限 search 3 / twitter 2 / fetch 3,
   env `BILLIONS_{CAP}_MAX_CALLS` 可覆盖;settings.caps 三值
   (searchMax/twitterMax/fetchMax)经 `assembleTools` → `maxCallsByCap`
@@ -167,12 +166,12 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
   → 分析师构造第 5 参;缺省 → 无 key client 回退,亿信路径静默关闭、DDG
   兜底)。**安全**:key 仅存 client 私有字段——不落日志、不经服务端代理
   (浏览器端直连现状,不新增代理路由)。
-- **mcp 实时情报**:`ts/src/mcp.ts`(`TdxMcpClient`:JSON-RPC 2.0 + tdx-api-key
+- **mcp 实时情报**:`src/mcp.ts`(`TdxMcpClient`:JSON-RPC 2.0 + tdx-api-key
   + Mcp-Session-Id 透传 + SSE 响应解析取首个 result;`getMarketIntel`:
   TDX_MCP_DISABLED/ENABLED 门控 + 无 key 占位 + 中文摘要 ≤10 行)。**不做
   缓存**(TS 无 is_trading_time 移植,每次实时查询)。接线:runner.ts
   `makeMcpIntel` → App.tsx 传入 deps.mcp。
-- **qfq 前复权**:`ts/src/tdx/quoteClient.ts` `collectAll` 内
+- **qfq 前复权**:`src/tdx/quoteClient.ts` `collectAll` 内
   `fetchXdxrEvents` → `applyQfq`(失败降级 raw bars 不阻断)。日期契约
   **YYYY-MM-DD**(store 契约;qfqAdjust 输入为 YYYYMMDD,接线层双向转换)。
 - **北交所/akshare**:明确不支持(用户决策 08-13),App.tsx 入口拦截报错。
@@ -189,7 +188,7 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
 
 ## 图表(web-only;08-13-ts-all-indicator-charts)
 
-全指标多面板图在 `ts/app/components/IndicatorChart.tsx`(DataScreen 内嵌)。
+全指标多面板图在 `app/components/IndicatorChart.tsx`(DataScreen 内嵌)。
 约定:
 
 - **web-only + 动态 import**:lightweight-charts 只走 `import('lightweight-charts')`

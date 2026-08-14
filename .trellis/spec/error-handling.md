@@ -109,15 +109,15 @@ problem becomes a user-facing failure.
 
 ## TS 侧日志（2026-08-11，ts-log-persistence）
 
-统一日志 API 在 `ts/src/log.ts`（web/RN/Node/vitest 全端共用），环境感知
-transport;`ts/app/lib/log.ts` 仅为重导出。落盘拓扑：浏览器无 fs → 上报
+统一日志 API 在 `src/log.ts`（web/RN/Node/vitest 全端共用），环境感知
+transport;`app/lib/log.ts` 仅为重导出。落盘拓扑：浏览器无 fs → 上报
 server 汇聚；RN → expo-file-system 沙盒；server → 原生 fs。
 
 **Signatures**
-- `ts/src/log.ts` 导出 `log/info/warn/error/debug(level, message)`；transport
+- `src/log.ts` 导出 `log/info/warn/error/debug(level, message)`；transport
   工厂 `makeReporter(_fetch, _endpoint)` / `makeRnFileTransport(_fs, _writeDisabled)`
   （注入点，house style 无 mock）；`formatLogLine` 行格式单一来源（RN 沙盒）。
-- `POST /logs`（`ts/app/lib/logs-server.cjs` 共享实现，metro dev + server.mjs
+- `POST /logs`（`app/lib/logs-server.cjs` 共享实现，metro dev + server.mjs
   双入口，CJS 因 metro 无 strip-types）：
   `{ts?, level, message, platform}` → 200 `{ok:true}`。
 
@@ -140,8 +140,8 @@ server 汇聚；RN → expo-file-system 沙盒；server → 原生 fs。
   （`window+document` / `navigator.product==='ReactNative'` / `process.versions.node`）。
 
 **Tests Required**
-- `ts/test/log.test.ts`（环境分支/上报 payload/RN 沙盒注入/`NODE_ENV=test` 不写文件）、
-  `ts/test/log-server.test.ts`（校验矩阵 + 注入 tmp `SOA_LOG_DIR` 落盘/轮转）、
+- `test/log.test.ts`（环境分支/上报 payload/RN 沙盒注入/`NODE_ENV=test` 不写文件）、
+  `test/log-server.test.ts`（校验矩阵 + 注入 tmp `SOA_LOG_DIR` 落盘/轮转）、
   `retry.test.ts`（退避 warn 断言）。
 - 密钥不写日志（settings.ts 已 mask，上报内容与 console 相同）。
 

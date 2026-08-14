@@ -16,3 +16,13 @@ developing-with-streamlit
 .agents
 .claude
 .omp
+
+# TS (RN) app moved to root
+node_modules/
+dist/
+*.db
+*.db-shm
+*.db-wal
+app/dist/
+probe-output/
+app/.expo/

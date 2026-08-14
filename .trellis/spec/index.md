@@ -15,7 +15,7 @@ implementation.
 | Layer | Directory | Guideline | When to read |
 |-------|-----------|-----------|--------------|
 | Historical Python layers (archived) | `agents/`, `core/`, `data_source/`, `data_storage/`, `data_structure/` | [agents](./agents/index.md) · [core](./core/index.md) · [data_source](./data_source/index.md) · [data_storage](./data_storage/index.md) · [data_structure](./data_structure/index.md) | Historical only — Python code deleted in phaseout; read for design lineage, not as a live contract |
-| TS implementation | `ts/` | [ts/index.md](./ts/index.md) | Editing the TS implementation (Expo web/RN + Node server): event protocol, streaming, LLM retry, same-origin proxies |
+| TS implementation | `src/`/`app/`/`test/`/`tools/` | [ts/index.md](./ts/index.md) | Editing the TS implementation (Expo web/RN + Node server): event protocol, streaming, LLM retry, same-origin proxies |
 
 ## Cross-Cutting
 
@@ -31,7 +31,7 @@ implementation.
 
 Layer specs carry `paths:` frontmatter. Touching a matching file (Read/Edit/Write)
 injects the governing spec into the session — for example, editing
-`ts/src/agents.ts` surfaces `ts/index.md`.
+`src/agents.ts` surfaces `ts/index.md`.
 Read this index first when starting any coding task, then the layer spec for the
 package you are about to touch.
 
@@ -40,5 +40,5 @@ documents the frontmatter routing contract, injection caps, and layer-discovery
 rules so spec edits never silently break injection.
 
 **Language note**: UI strings and LLM prompts are written in Chinese
-(`ts/app/screens/DataScreen.tsx`, `ts/src/prompt.ts`, agent query templates);
+(`app/screens/DataScreen.tsx`, `src/prompt.ts`, agent query templates);
 code identifiers and comments are English. Specs are written in English.

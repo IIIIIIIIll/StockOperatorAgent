@@ -108,7 +108,7 @@ invoke_with_tools(llm, query: str, config, *, tools,
   （逐字不变，不 raise——error-handling spec 降级风格）；web 关时亿信
   失败/空注明照旧保留（现状语义）。TS 侧同语义：web 开 → `{ticker} 最新新闻`
   1 次（缺省 `defaultSearcher()`：浏览器经 `/web-search` 同源代理、
-  Node/真机直连 DDG），失败/空 → 同一固定回退文本（`ts/src/agents.ts`）。
+  Node/真机直连 DDG），失败/空 → 同一固定回退文本（`src/agents.ts`）。
 - **info_section 条件插值模式（trader/manager 查询，AC1 硬约束）**：
   `AgentNode.info_section(state)`——`state.get("information_analysis")`
   为空 → 空串，f-string 其余逐字节不变（关闭态查询与改动前完全一致）；

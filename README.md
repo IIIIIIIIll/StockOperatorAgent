@@ -12,7 +12,7 @@
 生产 server 走 `--experimental-strip-types`，Node ≥ 23.6 默认开启）。然后：
 
 ```bash
-cd ts && npm install      # 业务层 + 测试（vitest / tsc / probe）
+npm install      # 业务层 + 测试（vitest / tsc / probe）
 cd app && npm install     # web 应用（Expo / React Native Web）
 ```
 
@@ -36,20 +36,20 @@ cd app && npm install     # web 应用（Expo / React Native Web）
 2. 运行 web 应用（生产，默认 `http://localhost:8090`，仅监听回环）：
 
 ```bash
-cd ts/app && npx expo export --platform web && node server.mjs
+cd app && npx expo export --platform web && node server.mjs
 ```
 
-   开发模式：`cd ts/app && npm start`（Expo dev server）。
-3. Node 探针（真 TDX 直连完成一次全分析 → `ts/probe-output/report.json`）：
+   开发模式：`cd app && npm start`（Expo dev server）。
+3. Node 探针（真 TDX 直连完成一次全分析 → `probe-output/report.json`）：
 
 ```bash
-cd ts && node --experimental-transform-types tools/probe.mts 600036
+node --experimental-transform-types tools/probe.mts 600036
 ```
 
 4. 测试与类型检查：
 
 ```bash
-cd ts && npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
+npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
 ```
 
 ![基础界面](docs/start_page.png)
@@ -63,18 +63,18 @@ cd ts && npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
 
 ## 数据源
 
-- **主链路（纯 TDX）**：`ts/src/tdx/` 直连通达信行情服务器（npm `node-tdx-market`
+- **主链路（纯 TDX）**：`src/tdx/` 直连通达信行情服务器（npm `node-tdx-market`
   / pytdx 协议）。历史行情（前复权 qfq）、**个股概览**（行情/股本/估值与市值
   派生/涨跌幅）、**业绩报告**（F10 财务分析节解析 + 环比自算）与**技术指标**
   全部由 TDX 提供；web 端经同源 `/tdx-collect` 代理采集（Node 探针直连）。
   个股数据**按需单股采集**（分析哪只采集哪只，不做全市场扫描）。
-- **亿信 Fin（可选）**：`ts/src/billionsClient.ts` REST 薄包装——公告/研报/新闻/
+- **亿信 Fin（可选）**：`src/billionsClient.ts` REST 薄包装——公告/研报/新闻/
   推特检索（信息面分析师预抓 + agent 的 LLM 工具）+ 自然语言金融问数（采集数据
   的「亿信金融数据库」段）。`BILLIONS_API_KEY` 为主闸（web 端在设置面板填写），
   未配置时全部关闭；信息面分析师自动回退免费联网搜索（DuckDuckGo，免 key）预抓
   素材——亿信优先、联网兜底，双失败才产出「未检索到素材」占位报告（web 端经
   同源 `/web-search` 代理）。
-- **联网搜索**：`ts/src/webSearch.ts`——Tavily（有 key 时优先）→ DuckDuckGo
+- **联网搜索**：`src/webSearch.ts`——Tavily（有 key 时优先）→ DuckDuckGo
   html/news.js 双端点回退；信息面分析师的 `web_search` 工具与预抓兜底共用。
 - **北交所 / akshare**：明确不支持（用户决策 08-13）。BJ 代码（4/8 前缀）在
   UI 入口明确提示不支持而非静默 NaN。
