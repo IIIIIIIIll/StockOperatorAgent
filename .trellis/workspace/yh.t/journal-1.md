@@ -911,3 +911,24 @@ TS 能力补齐完成: ①亿信 billsClient.ts(4端点 REST+错误归一化+超
 ### Status
 
 [OK] **Completed**
+
+
+## Session 31: TS 本地数据持久化完成（IndexedDB + RN 文件存储）
+
+**Date**: 2026-08-14
+**Task**: TS 本地数据持久化完成（IndexedDB + RN 文件存储）
+**Branch**: `master`
+
+### Summary
+
+IdbStore(web IndexedDB 内存镜像+写穿透队列) + FileStore(RN expo-file-system 双写) + runner 平台接线 + App 启动链 ready() + loadDemoData 空库判定。浏览器实测刷新保留+同日跳过跨会话。trellis-check 补队列错误隔离测试。vitest 311 passed + tsc 0。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `89451ec04b1866083dcc249ddc769cd1c7ce4bbd` | (see git log) |
+
+### Status
+
+[OK] **Completed**
