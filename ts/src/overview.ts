@@ -1,7 +1,10 @@
 // 22 列个股概览 —— 移植自 data_source/chinese_mainland/tdx/overview.py
 // compose_overview 纯函数:由 snapshot/capital/F10/日K 合成;NaN 语义逐项对齐
 // （pytdx 无字段:量比/涨速/5分钟涨跌 → NaN;除零/分母≤0 → NaN）。
-// 字段名用 StockOverview 英文字段（store.overview 契约），值语义与 Python 一致。
+// 字段名说明（C4 决策 2026-08-14）：TS 键为 amount/open_/prev_close/
+// change_percent_60d，对应 Python StockOverview 的 turnover/open/
+// previous_close/change_percent_60days——4 键更名仅为 TS 内部一致性，
+// 消费方全部读 TS 键，键名保持现状；值语义与 Python 逐项一致。
 import type { F10Record } from './f10.ts';
 import type { DailyBar } from './store.ts';
 

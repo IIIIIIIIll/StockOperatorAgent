@@ -1,7 +1,9 @@
 // AgentNode —— 移植自 Python agents/base.py（08-09-agent-base-class）
 // 不变管道：prompt 壳 + bind_tools 回退 + revise 第二条链 + 节点骨架
 // 查询构建为差异化部分——M2 简版（含 info_section 条件段结构），
-// M3 逐字对齐 Python agents/（test_query_baselines 契约）
+// 契约声明（C2 决策 2026-08-14）：TS 为最终实现；10 条系统提示词与
+// Python prompt.py 逐字节一致；9 条查询模板接受空白差异（Python 双换行/
+// 尾部缩进 vs TS 单换行），Python test_query_baselines 基线随 Python 删除。
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import type { RunnableLike } from '@langchain/core/runnables';
 import { system_prompt, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';

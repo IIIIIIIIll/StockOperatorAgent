@@ -6,6 +6,14 @@ paths:
 
 # TS 侧移植约定(`ts/`)
 
+> **状态（2026-08-14）**：Python 业务代码已分域删除完毕（任务
+> `08-14-phaseout-e-py-deletion`，E1 死代码面 → E2 数据源/存储/结构面 → E3
+> 工具/agent 面 → E4 编排/UI 面 → E5 收尾）。本文件是**最终唯一实现契约**；
+> 仓库根已无 `main.py`/`core/`/`agents/`/`data_source/`/`data_storage/`/
+> `data_structure/`/`utils/` 业务代码（`data_source/.../tdx/vendor/` 冻结保留、
+> `ts/tools/export_fixtures.py` 与 `ts/test/fixtures/` 冻结保留）。Python 侧旧
+> 分层 spec（core/data_source/data_storage/data_structure）作为历史归档保留。
+
 Python 侧分层规范不覆盖 TS 移植。本层沉淀 TS 侧(web 浏览器 + RN app + Node
 server)的跨层契约:事件流协议、流式输出、LLM 重试、同源代理。
 
