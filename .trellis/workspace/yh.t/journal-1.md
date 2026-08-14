@@ -932,3 +932,24 @@ IdbStore(web IndexedDB 内存镜像+写穿透队列) + FileStore(RN expo-file-sy
 ### Status
 
 [OK] **Completed**
+
+
+## Session 32: phaseout 收尾核验——4 scout 零遗漏确认 + 10 REAL 修复
+
+**Date**: 2026-08-14
+**Task**: phaseout 收尾核验——4 scout 零遗漏确认 + 10 REAL 修复
+**Branch**: `master`
+
+### Summary
+
+4 只读 scout 并行核验（残留引用/持久化语义/TS 完整/交付物）：无结构性遗漏，10 项 REAL 全修复（spec 顶层归档标注、guides 历史 banner、ts/index.md 持久化契约、env.example 4 处校正、store-memory replaceDatas 空早退）。vitest 312 passed + tsc 0。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0d7e4a12d2351815a4aa5c84a16ce76d6a12a923` | (see git log) |
+
+### Status
+
+[OK] **Completed**
