@@ -1,0 +1,3 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/ts/index.md", "reason": "TS 移植契约：事件协议/流式/代理/图表/能力接线"}
+{"file": ".trellis/tasks/archive/2026-08/08-14-py-ts-gap-audit/research/00-gap-report.md", "reason": "差距审计汇总：BLOCKER/决策/删除清单"}

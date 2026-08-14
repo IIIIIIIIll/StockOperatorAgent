@@ -1,0 +1,32 @@
+{
+  "id": "py-phaseout",
+  "name": "py-phaseout",
+  "title": "Python phaseout 执行（TS 功能完整化 + 分域删除）",
+  "description": "基于 08-14 差距审计：4 个 BLOCKER + 5 项决策的执行任务，含 B1 caps 接线、UI 补齐、freshness 接线、亿信预抓注入、Python 分域删除",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "yh.t",
+  "assignee": "yh.t",
+  "createdAt": "2026-08-14",
+  "completedAt": "2026-08-14",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-14-phaseout-a-bills-caps",
+    "08-14-phaseout-b-ui-gaps",
+    "08-14-phaseout-c-freshness",
+    "08-14-phaseout-d-web-prefetch",
+    "08-14-phaseout-e-py-deletion"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
