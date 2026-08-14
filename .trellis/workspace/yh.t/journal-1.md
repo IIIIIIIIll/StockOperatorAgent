@@ -974,3 +974,24 @@ ts/ 目录平移到根：103 纯重命名 + .gitignore 合并 + README/.env.exam
 ### Status
 
 [OK] **Completed**
+
+
+## Session 34: fix: app tsc expo-file-system 环境声明
+
+**Date**: 2026-08-14
+**Task**: fix: app tsc expo-file-system 环境声明
+**Branch**: `master`
+
+### Summary
+
+app 编译中 ../src/log.ts 与 store-file.ts 的 import('expo-file-system') 报 TS2307：src/ 的 node_modules 向上查找够不到 app/node_modules，真包从未解析（app 自身无文件 import 该模块）。app/tsconfig.json 显式 include ../src/expo-file-system.d.ts（复制默认 include 语义 + 外部声明）。验证：app tsc 0 错误、根 typecheck 0 错误、312 测试通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b065309` | (see git log) |
+
+### Status
+
+[OK] **Completed**
