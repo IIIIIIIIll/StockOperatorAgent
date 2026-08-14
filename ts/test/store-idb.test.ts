@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import 'fake-indexeddb/auto'; // 安装 globalThis.indexedDB/IDBKeyRange(fake-indexeddb 6.2.5)
 import { IDBFactory } from 'fake-indexeddb';
-import { IdbStore } from '../src/store-idb.ts';
+import { IdbStore, type IdbDatabaseLike, type IdbFactoryLike, type IdbObjectStoreLike, type IdbOpenRequestLike, type IdbRequestLike, type IdbTransactionLike } from '../src/store-idb.ts';
 import type { DailyBar } from '../src/store.ts';
 
 function bars(dates: string[]): DailyBar[] {
@@ -121,5 +121,79 @@ describe('IdbStore 跨实例持久化(hydrate)', () => {
     const b = newStore(factory);
     await b.ready();
     expect(b.getDatas('T').map((x) => x.date)).toEqual(['2026-02-01', '2026-02-02']);
+  });
+});
+
+describe('IdbStore 写穿透队列(决策 C:失败仅记录不阻断后续写)', () => {
+  it('单 op 落盘失败(事务 abort)→ 后续 op 继续执行,内存镜像不受影响', async () => {
+    // 手工 stub factory:readonly(hydrate)恒成功;首个 readwrite 事务 abort,之后成功。
+    // put 调用数即「op 确实执行」证据——op1 失败若阻断队列,op2 的 put 不会发生。
+    let failNextTx = true;
+    const puts: unknown[] = [];
+    const stubRequest = <T,>(result: T): IdbRequestLike<T> => {
+      const req: IdbRequestLike<T> = { onsuccess: null, onerror: null, result, error: null };
+      queueMicrotask(() => req.onsuccess?.(null as unknown as Event));
+      return req;
+    };
+    const stubStore = (): IdbObjectStoreLike => ({
+      put(value) {
+        puts.push(value);
+        return stubRequest(null);
+      },
+      delete() {
+        return stubRequest(null);
+      },
+      getAll() {
+        return stubRequest<unknown[]>([]);
+      },
+    });
+    const stubTx = (mode?: string): IdbTransactionLike => {
+      const tx: IdbTransactionLike = {
+        objectStore: () => stubStore(),
+        oncomplete: null,
+        onerror: null,
+        onabort: null,
+        error: null,
+      };
+      // macrotask:须在 txDone 同步赋值 oncomplete/onerror 之后再触发
+      setTimeout(() => {
+        if (mode === 'readwrite' && failNextTx) {
+          failNextTx = false;
+          tx.onerror?.(null as unknown as Event);
+        } else {
+          tx.oncomplete?.(null as unknown as Event);
+        }
+      }, 0);
+      return tx;
+    };
+    const stubDb: IdbDatabaseLike = {
+      objectStoreNames: { contains: () => false },
+      createObjectStore: () => stubStore(),
+      transaction: (_names: string | string[], mode?: string) => stubTx(mode),
+      close() {},
+    };
+    const factory: IdbFactoryLike = {
+      open() {
+        const req: IdbOpenRequestLike = {
+          onsuccess: null,
+          onerror: null,
+          onupgradeneeded: null,
+          result: stubDb,
+          error: null,
+        };
+        queueMicrotask(() => req.onsuccess?.(null as unknown as Event));
+        return req;
+      },
+    };
+
+    const s = new IdbStore(factory, 'soa-queue-fail-test');
+    await s.ready(); // hydrate 走 readonly 事务,恒成功
+    s.addDatas('T', bars(['2026-01-01', '2026-01-02'])); // op1 → readwrite 事务 abort → 落盘失败
+    s.addDatas('T', bars(['2026-01-03', '2026-01-04'])); // op2 → 事务成功
+    await s.flush();
+    // 内存镜像不受落盘失败影响(同步语义,与 InMemoryStore 一致)
+    expect(s.getDatas('T').map((x) => x.date)).toEqual(['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04']);
+    // op1 失败后 op2 仍执行了写入(2+2 次 put)——队列未被阻断
+    expect(puts).toHaveLength(4);
   });
 });

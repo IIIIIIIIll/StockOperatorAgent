@@ -156,3 +156,30 @@ describe('FileStore 落盘/读回(跨实例 hydrate)', () => {
     expect(s2.getMeta('missing')).toBeNull();
   });
 });
+
+describe('FileStore 写队列错误隔离(决策 C:失败仅记录不阻断后续写)', () => {
+  it('单 op 落盘失败 → 后续 op 继续,最终状态完整落盘', async () => {
+    const base = nodeAdapter(baseDir);
+    let failNext = true;
+    const flaky = new FileStore(baseDir, {
+      ...base,
+      async writeFile(path, data) {
+        if (failNext) {
+          failNext = false;
+          throw new Error('disk full');
+        }
+        await base.writeFile(path, data);
+      },
+    });
+    await flaky.ready();
+    flaky.addDatas('T', bars(['2026-01-01'])); // op1 → 写文件失败
+    flaky.addDatas('T', bars(['2026-01-02'])); // op2 → 写文件成功
+    await flaky.flush();
+    // 内存镜像不受落盘失败影响(同步语义,与 InMemoryStore 一致)
+    expect(flaky.getDatas('T').map((x) => x.date)).toEqual(['2026-01-01', '2026-01-02']);
+    // op2 的整文件重写(执行时读内存最新态)把 op1 的数据一并落盘 → 跨实例读回完整
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    expect(s2.getDatas('T').map((x) => x.date)).toEqual(['2026-01-01', '2026-01-02']);
+  });
+});
