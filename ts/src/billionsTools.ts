@@ -136,13 +136,21 @@ async function cappedCall(
   }
 }
 
+/** 亿信能力键（对齐 env BILLIONS_{CAP}_MAX_CALLS 与 settings.caps 三值）。 */
+export type BillionsCapKey = 'SEARCH' | 'TWITTER' | 'FETCH';
+
 interface BillionsToolOpts {
   /** 测试注入点（house style 无 mock 框架）——BillionsClient 形状。 */
   client?: BillionsClient;
   /** 构造注入覆盖 env BILLIONS_API_KEY（web 端 key 在 localStorage）。 */
   apiKey?: string;
-  /** 单次 run 调用硬上限；缺省读 env BILLIONS_{CAP}_MAX_CALLS 或默认值。 */
+  /** 单次 run 调用硬上限；缺省读 env BILLIONS_{CAP}_MAX_CALLS 或默认值。
+   *  单工具工厂等价于对应能力的注入；三件套工厂由 maxCallsByCap 按能力路由。 */
   maxCalls?: number;
+  /** 分能力上限（settings.caps 接线）：search→SEARCH、twitter→TWITTER、
+   *  fetch→FETCH，优先于 maxCalls 与 env/默认；字段缺失或非法值（NaN/<=0/
+   *  非数字）回退 env/默认。 */
+  maxCallsByCap?: Partial<Record<BillionsCapKey, number>>;
   /** fetch 注入（透传 client；仅测试用）。 */
   fetch?: FetchLike;
 }
@@ -156,8 +164,9 @@ function billionsCapEnabled(cap: string, apiKey?: string | null): boolean {
   return !envDisabledBool(`BILLIONS_${cap}_DISABLED`);
 }
 
+/** 上限解析：注入(caps/maxCalls) → env → 默认；注入非法值(NaN/<=0/非数字)回退。 */
 function maxCallsFor(cap: string, injected?: number): number {
-  if (injected !== undefined) return injected;
+  if (injected !== undefined && Number.isFinite(injected) && injected > 0) return injected;
   const env = process.env[`BILLIONS_${cap}_MAX_CALLS`];
   if (env !== undefined && env !== '' && /^\d+$/.test(env)) return Number(env);
   return BILLIONS_DEFAULT_MAX[cap] ?? 3;
@@ -188,7 +197,7 @@ const SEARCH_SCHEMA = {
 /** 构造亿信 search 检索工具；开关关/无 key → undefined（图装配跳过绑定）。 */
 export function makeBillionsSearchTool(opts: BillionsToolOpts = {}): ToolLike | undefined {
   if (!billionsCapEnabled('SEARCH', opts.apiKey)) return undefined;
-  const maxCalls = maxCallsFor('SEARCH', opts.maxCalls);
+  const maxCalls = maxCallsFor('SEARCH', opts.maxCallsByCap?.SEARCH ?? opts.maxCalls);
   const calls = [0];
   return {
     name: 'billions_search',
@@ -230,7 +239,7 @@ const TWITTER_SCHEMA = {
 /** 构造亿信 twitter 检索工具；开关关/无 key → undefined。 */
 export function makeBillionsTwitterTool(opts: BillionsToolOpts = {}): ToolLike | undefined {
   if (!billionsCapEnabled('TWITTER', opts.apiKey)) return undefined;
-  const maxCalls = maxCallsFor('TWITTER', opts.maxCalls);
+  const maxCalls = maxCallsFor('TWITTER', opts.maxCallsByCap?.TWITTER ?? opts.maxCalls);
   const calls = [0];
   return {
     name: 'billions_twitter',
@@ -267,7 +276,7 @@ const FETCH_SCHEMA = {
 /** 构造亿信 fetch 全文抓取工具；开关关/无 key → undefined。 */
 export function makeBillionsFetchTool(opts: BillionsToolOpts = {}): ToolLike | undefined {
   if (!billionsCapEnabled('FETCH', opts.apiKey)) return undefined;
-  const maxCalls = maxCallsFor('FETCH', opts.maxCalls);
+  const maxCalls = maxCallsFor('FETCH', opts.maxCallsByCap?.FETCH ?? opts.maxCalls);
   const calls = [0];
   return {
     name: 'billions_fetch',

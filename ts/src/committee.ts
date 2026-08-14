@@ -12,10 +12,19 @@ import {
   BearishTrader, BillionsInformationAnalyst, BullishTrader,
   FundamentalAnalysisExpert, InvestmentManager, TechnicalIndicatorAnalyst, TrendAnalysisExpert,
 } from './agents.ts';
+import type { BillionsClient } from './billionsClient.ts';
 
 // ─── 角色注册表（对齐 Python Role dataclass） ─────────────────────────────
 
 export type RoleKind = 'expert' | 'trader' | 'manager';
+
+export interface CommitteeDeps {
+  /** 亿信客户端注入（web 端 localStorage key → 信息面分析师预抓三源+twitter）。
+   *  缺省 → 现状：分析师内部回退 new BillionsClient()（无 key，亿信路径静默
+   *  关闭，DDG 兜底）。安全：key 仅存于 client 私有字段——不落日志、不经
+   *  服务端代理，浏览器端直连（billionsClient.ts 契约）。 */
+  billionsClient?: BillionsClient;
+}
 
 export interface Role {
   nodeName: string;
@@ -24,7 +33,7 @@ export interface Role {
   tabTitle?: string;
   opinion?: boolean;
   enabled: () => boolean;
-  factory: (llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null, tools: ToolLike[]) => unknown;
+  factory: AgentFactory;
   reviseNodeName?: string;
 }
 
@@ -46,19 +55,27 @@ export function informationAnalystEnabled(): boolean {
   return billionsEnabled('ANALYST') && (billionsEnabled('SEARCH') || billionsEnabled('TWITTER') || webSearchEnabled());
 }
 
-type AgentFactory = (llm: LlmLike, config: unknown, progress: ProgressUpdater | null, tools: ToolLike[]) => unknown;
+type AgentFactory = (
+  llm: LlmLike, config: unknown, progress: ProgressUpdater | null, tools: ToolLike[], deps?: CommitteeDeps,
+) => unknown;
 
 const expert = (cls: new (llm: LlmLike, config: unknown, progress: ProgressUpdater | null) => unknown): AgentFactory =>
-  (llm, config, progress, _tools) => new cls(llm, config, progress);
+  (llm, config, progress, _tools, _deps) => new cls(llm, config, progress);
 
 const trader = (cls: new (llm: LlmLike, config: unknown, progress: ProgressUpdater | null, tools: ToolLike[]) => unknown): AgentFactory =>
-  (llm, config, progress, tools) => new cls(llm, config, progress, tools);
+  (llm, config, progress, tools, _deps) => new cls(llm, config, progress, tools);
+
+/** 信息面分析师工厂：透传亿信 client 注入（web 端 localStorage key → 预抓
+ *  三源+twitter 生效）。单独工厂而非 expert()：构造器第 5 参 _billionsClient
+ *  仅此类支持；无 deps → 与 expert() 路径一致（无 key client 回退，DDG 兜底）。 */
+const informationAnalyst: AgentFactory = (llm, config, progress, _tools, deps) =>
+  new BillionsInformationAnalyst(llm, config, progress, undefined, deps?.billionsClient);
 
 export const ROLES: Role[] = [
   { nodeName: 'fundamental_analysis_expert', kind: 'expert', stateKey: 'fundamental_analysis', tabTitle: '基本面分析', enabled: () => true, factory: expert(FundamentalAnalysisExpert) },
   { nodeName: 'trend_analysis_expert', kind: 'expert', stateKey: 'trend_analysis', tabTitle: '趋势分析', enabled: () => true, factory: expert(TrendAnalysisExpert) },
   { nodeName: 'technical_indicator_analyst', kind: 'expert', stateKey: 'technical_indicator_analysis', tabTitle: '技术指标分析', enabled: () => true, factory: expert(TechnicalIndicatorAnalyst) },
-  { nodeName: 'information_analyst', kind: 'expert', stateKey: 'information_analysis', tabTitle: '信息面分析', enabled: informationAnalystEnabled, factory: expert(BillionsInformationAnalyst) },
+  { nodeName: 'information_analyst', kind: 'expert', stateKey: 'information_analysis', tabTitle: '信息面分析', enabled: informationAnalystEnabled, factory: informationAnalyst },
   { nodeName: 'bullish_trader', kind: 'trader', stateKey: 'bullish_opinions', tabTitle: '看涨观点', opinion: true, enabled: () => true, factory: trader(BullishTrader), reviseNodeName: 'bullish_revise' },
   { nodeName: 'bearish_trader', kind: 'trader', stateKey: 'bearish_opinions', tabTitle: '看跌观点', opinion: true, enabled: () => true, factory: trader(BearishTrader), reviseNodeName: 'bearish_revise' },
   { nodeName: 'investment_manager', kind: 'manager', stateKey: 'final_decision', tabTitle: '最终结论', enabled: () => true, factory: trader(InvestmentManager) },
@@ -120,17 +137,20 @@ export function makeInvestmentCommittee(
   progressUpdater: ProgressUpdater | null = null,
   _llm: LlmLike | null = null,
   _tools?: ToolLike[] | null,
+  deps?: CommitteeDeps,
 ) {
   if (!_llm) throw new Error('M2: _llm required (makeLlm 接入见 M3)');
   const llm = _llm;
   // 工具注入（08-13-ts-capability-completion）：_tools 提供则使用调用方组装
   // 的工具列表（web 端亿信 key 在 localStorage，App 层组装 web_search +
   // 亿信三件套后注入）；缺省走 webSearch 开关（现状行为逐字节不变）。
+  // deps 注入（phaseout C1）：deps.billionsClient 带 web 端 localStorage key
+  // → 信息面分析师预抓三源+twitter 生效；缺省 → 现状（无 key 回退）。
   const tools: ToolLike[] = _tools ?? (webSearchEnabled() ? [makeWebSearchTool()] : []);
   const roles = enabledRoles();
   const graph = new StateGraph(StateAnnotation);
   for (const role of roles) {
-    const agent = role.factory(llm, config, progressUpdater, tools) as Record<string, (state: unknown) => Promise<Record<string, unknown>>>;
+    const agent = role.factory(llm, config, progressUpdater, tools, deps) as Record<string, (state: unknown) => Promise<Record<string, unknown>>>;
     graph.addNode(role.nodeName, (state: CommitteeState) => agent[role.nodeName](state));
     if (role.reviseNodeName) {
       graph.addNode(role.reviseNodeName, (state: CommitteeState) => agent[role.reviseNodeName!](state));

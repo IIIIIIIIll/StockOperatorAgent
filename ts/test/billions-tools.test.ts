@@ -221,3 +221,175 @@ describe('makeBillionsTools', () => {
     expect(tools.map((t) => t.name)).toEqual(['billions_search', 'billions_twitter', 'billions_fetch']);
   });
 });
+
+// caps 接线（settings.caps → assembleTools → maxCallsByCap）：注入优先于 env、
+// env 优先于默认；非法值（NaN/<=0/非数字）回退；三 cap 独立计数。
+describe('调用上限注入（caps 接线）', () => {
+  const ENV = {
+    SEARCH: 'BILLIONS_SEARCH_MAX_CALLS',
+    TWITTER: 'BILLIONS_TWITTER_MAX_CALLS',
+    FETCH: 'BILLIONS_FETCH_MAX_CALLS',
+  };
+
+  /** 临时覆盖 env（undefined = 删除），返回恢复函数。 */
+  function withEnv(patch: Record<string, string | undefined>): () => void {
+    const prev: Record<string, string | undefined> = {};
+    for (const key of Object.keys(patch)) {
+      prev[key] = process.env[key];
+      if (patch[key] === undefined) delete process.env[key];
+      else process.env[key] = patch[key]!;
+    }
+    return () => {
+      for (const key of Object.keys(prev)) {
+        if (prev[key] === undefined) delete process.env[key];
+        else process.env[key] = prev[key];
+      }
+    };
+  }
+
+  it('caps 注入优先于 env：注入 1 次、env 7 次 → 按 1 次封顶', async () => {
+    const restore = withEnv({ [ENV.SEARCH]: '7' });
+    try {
+      let calls = 0;
+      const client = fakeClient({
+        search: async () => {
+          calls += 1;
+          return { result: [{ content: [{ title: 't', link: 'https://x' }] }] };
+        },
+      });
+      const tool = makeBillionsSearchTool({ apiKey: KEY, client, maxCallsByCap: { SEARCH: 1 } })!;
+      await tool.invoke({ query: 'q1' });
+      const second = await tool.invoke({ query: 'q2' }) as string;
+      expect(calls).toBe(1);
+      expect(second).toContain('已达本次运行检索上限（1 次）');
+    } finally {
+      restore();
+    }
+  });
+
+  it('未注入时 env 覆盖仍生效：env 4 次 → 按 4 次封顶', async () => {
+    const restore = withEnv({ [ENV.SEARCH]: '4' });
+    try {
+      let calls = 0;
+      const client = fakeClient({
+        search: async () => {
+          calls += 1;
+          return { result: [{ content: [{ title: 't', link: 'https://x' }] }] };
+        },
+      });
+      const tool = makeBillionsSearchTool({ apiKey: KEY, client })!;
+      for (let i = 0; i < 4; i += 1) await tool.invoke({ query: `q${i}` });
+      const fifth = await tool.invoke({ query: 'q4' }) as string;
+      expect(calls).toBe(4);
+      expect(fifth).toContain('已达本次运行检索上限（4 次）');
+    } finally {
+      restore();
+    }
+  });
+
+  it('非法值回退：无 env 回默认（0 → 3），有 env 回 env（NaN → 4），负数回默认（-5 → 3）', async () => {
+    // 0 且无 env → 默认 SEARCH=3
+    const restore1 = withEnv({ [ENV.SEARCH]: undefined });
+    try {
+      let calls = 0;
+      const client = fakeClient({
+        search: async () => {
+          calls += 1;
+          return { result: [{ content: [{ title: 't', link: 'https://x' }] }] };
+        },
+      });
+      const tool = makeBillionsSearchTool({ apiKey: KEY, client, maxCallsByCap: { SEARCH: 0 } })!;
+      for (let i = 0; i < 3; i += 1) await tool.invoke({ query: `q${i}` });
+      const fourth = await tool.invoke({ query: 'q3' }) as string;
+      expect(calls).toBe(3);
+      expect(fourth).toContain('已达本次运行检索上限（3 次）');
+    } finally {
+      restore1();
+    }
+
+    // NaN 且有 env=4（默认 TWITTER=2，区分 env 与默认）→ 回退 env 4
+    const restore2 = withEnv({ [ENV.TWITTER]: '4' });
+    try {
+      let calls = 0;
+      const client = fakeClient({
+        twitterSearch: async () => {
+          calls += 1;
+          return { result: [{ content: [{ snippet: 't' }] }] };
+        },
+      });
+      const tool = makeBillionsTwitterTool({ apiKey: KEY, client, maxCallsByCap: { TWITTER: NaN } })!;
+      for (let i = 0; i < 4; i += 1) await tool.invoke({ query: `q${i}` });
+      const fifth = await tool.invoke({ query: 'q4' }) as string;
+      expect(calls).toBe(4);
+      expect(fifth).toContain('已达本次运行推特检索上限（4 次）');
+    } finally {
+      restore2();
+    }
+
+    // -5 且无 env → 默认 FETCH=3
+    const restore3 = withEnv({ [ENV.FETCH]: undefined });
+    try {
+      let calls = 0;
+      const client = fakeClient({
+        fetchDoc: async () => {
+          calls += 1;
+          return { title: 'T', content: 'x' };
+        },
+      });
+      const tool = makeBillionsFetchTool({ apiKey: KEY, client, maxCallsByCap: { FETCH: -5 } })!;
+      for (let i = 0; i < 3; i += 1) await tool.invoke({ doc_id: `d${i}` });
+      const fourth = await tool.invoke({ doc_id: 'd3' }) as string;
+      expect(calls).toBe(3);
+      expect(fourth).toContain('已达本次运行全文抓取上限（3 次）');
+    } finally {
+      restore3();
+    }
+  });
+
+  it('三 cap 各自生效：makeBillionsTools 注入 1/2/3，独立计数互不干扰', async () => {
+    const restore = withEnv({ [ENV.SEARCH]: undefined, [ENV.TWITTER]: undefined, [ENV.FETCH]: undefined });
+    try {
+      let searchCalls = 0;
+      let twitterCalls = 0;
+      let fetchCalls = 0;
+      const client = fakeClient({
+        search: async () => {
+          searchCalls += 1;
+          return { result: [{ content: [{ title: 't', link: 'https://x' }] }] };
+        },
+        twitterSearch: async () => {
+          twitterCalls += 1;
+          return { result: [{ content: [{ snippet: 't' }] }] };
+        },
+        fetchDoc: async () => {
+          fetchCalls += 1;
+          return { title: 'T', content: 'x' };
+        },
+      });
+      const tools = makeBillionsTools({
+        apiKey: KEY,
+        client,
+        maxCallsByCap: { SEARCH: 1, TWITTER: 2, FETCH: 3 },
+      });
+      const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+      // search：第 2 次即封顶（上限 1）
+      await byName.billions_search.invoke({ query: 'q' });
+      const search2 = await byName.billions_search.invoke({ query: 'q' }) as string;
+      expect(searchCalls).toBe(1);
+      expect(search2).toContain('已达本次运行检索上限（1 次）');
+      // twitter：search 封顶后仍独立计数，第 3 次封顶（上限 2）
+      await byName.billions_twitter.invoke({ query: 'q' });
+      await byName.billions_twitter.invoke({ query: 'q' });
+      const twitter3 = await byName.billions_twitter.invoke({ query: 'q' }) as string;
+      expect(twitterCalls).toBe(2);
+      expect(twitter3).toContain('已达本次运行推特检索上限（2 次）');
+      // fetch：3 次内正常，第 4 次封顶（上限 3）
+      for (let i = 0; i < 3; i += 1) await byName.billions_fetch.invoke({ doc_id: `d${i}` });
+      const fetch4 = await byName.billions_fetch.invoke({ doc_id: 'd3' }) as string;
+      expect(fetchCalls).toBe(3);
+      expect(fetch4).toContain('已达本次运行全文抓取上限（3 次）');
+    } finally {
+      restore();
+    }
+  });
+});

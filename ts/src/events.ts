@@ -8,6 +8,7 @@ import type { StoreLike } from './store.ts';
 import { buildStockInformation } from './pipeline.ts';
 import { enabledRoles, makeInvestmentCommittee } from './committee.ts';
 import { makeLlm } from './llm.ts';
+import type { BillionsClient } from './billionsClient.ts';
 import type { ProgressUpdater, RoleStatus } from './progress.ts';
 import type { PipelineDeps } from './pipeline.ts';
 import type { ToolLike } from './toolLoop.ts';
@@ -38,6 +39,9 @@ export interface RunOptions extends Omit<PipelineDeps, 'store' | 'progress'> {
   config?: unknown;
   /** 工具注入（亿信三件套 + web_search；App 层组装，web 端 key 在 localStorage）。 */
   tools?: ToolLike[];
+  /** 亿信客户端注入（web 端 localStorage key → 信息面分析师预抓三源+twitter；
+   *  缺省 → 现状：分析师内部回退无 key client，亿信路径静默关闭、DDG 兜底）。 */
+  billionsClient?: BillionsClient;
 }
 
 export interface PipelineRunner {
@@ -116,7 +120,7 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         // 2. 委员会(事件经 updater 实时发射)
         const config = opts.config ?? { configurable: { thread_id: '1' } };
         const llm = opts.llm ?? makeLlm();
-        const graph = makeInvestmentCommittee(config, updater, llm as never, opts.tools);
+        const graph = makeInvestmentCommittee(config, updater, llm as never, opts.tools, { billionsClient: opts.billionsClient });
         const initial = {
           messages: [new HumanMessage(`请帮我分析一下 ${ticker}`)],
           target_stock_ticker: ticker,

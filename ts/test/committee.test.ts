@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
-import { ROLES, buildEdges, buildNodeNames, enabledRoles, informationAnalystEnabled, makeInvestmentCommittee } from '../src/committee.ts';
+import { ROLES, buildEdges, buildNodeNames, enabledRoles, informationAnalystEnabled, makeInvestmentCommittee, type CommitteeDeps } from '../src/committee.ts';
+import type { BillionsClient, SearchOptions } from '../src/billionsClient.ts';
 
 // 路由式假 LLM（对齐 Python 集成测试约定：按 system 消息独有短语路由）
 function contentText(content: unknown): string {
@@ -48,7 +49,7 @@ function makeRouter(): (text: string) => string {
   };
 }
 
-async function runGraph(env: Record<string, string | undefined>) {
+async function runGraph(env: Record<string, string | undefined>, deps?: CommitteeDeps) {
   const saved: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(env)) {
     saved[k] = process.env[k];
@@ -56,7 +57,7 @@ async function runGraph(env: Record<string, string | undefined>) {
     else process.env[k] = v;
   }
   try {
-    const graph = makeInvestmentCommittee({ configurable: { thread_id: '1' } }, null, makeRoutingLlm(makeRouter()) as never);
+    const graph = makeInvestmentCommittee({ configurable: { thread_id: '1' } }, null, makeRoutingLlm(makeRouter()) as never, undefined, deps);
     const chunks: Record<string, unknown>[] = [];
     const stream = await graph.stream({
       messages: [],
@@ -163,5 +164,81 @@ describe('informationAnalystEnabled 谓词（契约公式:ANALYST 且(SEARCH|TWI
     process.env.BILLIONS_SEARCH_DISABLED = '1';
     process.env.WEB_SEARCH_DISABLED = '1';
     expect(informationAnalystEnabled()).toBe(true);
+  });
+});
+
+// ─── C1 key 注入接线（phaseout D）：committee deps.billionsClient →
+//     informationAnalyst 工厂 → 分析师预抓三源+twitter ─────────────────────
+
+/** 亿信 fake client（house style 无 mock 框架，agents.test.ts 同款）：记录
+ *  调用；hasApiKey 可配（false → 主闸关，模拟无 key 现状）。 */
+function makeFakeBillionsClient(
+  handlers: {
+    search?: (query: string, opts?: SearchOptions) => Promise<Record<string, unknown>>;
+    twitterSearch?: (query: string, opts?: SearchOptions) => Promise<Record<string, unknown>>;
+  },
+  hasApiKey = true,
+): {
+  client: BillionsClient;
+  calls: Array<{ method: 'search' | 'twitterSearch'; query: string }>;
+} {
+  const calls: Array<{ method: 'search' | 'twitterSearch'; query: string }> = [];
+  const client = {
+    hasApiKey,
+    search: async (query: string, opts?: SearchOptions) => {
+      calls.push({ method: 'search', query });
+      if (handlers.search) return handlers.search(query, opts);
+      return { result: [] };
+    },
+    twitterSearch: async (query: string, opts?: SearchOptions) => {
+      calls.push({ method: 'twitterSearch', query });
+      if (handlers.twitterSearch) return handlers.twitterSearch(query, opts);
+      return { result: [] };
+    },
+  } as unknown as BillionsClient;
+  return { client, calls };
+}
+
+describe('亿信 client 注入接线（C1:committee deps → 分析师预抓）', () => {
+  beforeEach(() => {
+    delete process.env.BILLIONS_ANALYST_DISABLED;
+    delete process.env.BILLIONS_SEARCH_DISABLED;
+    delete process.env.BILLIONS_TWITTER_DISABLED;
+    delete process.env.BILLIONS_DISABLED;
+    delete process.env.WEB_SEARCH_DISABLED;
+  });
+
+  it('deps.billionsClient 注入 → 分析师预抓三源+twitter 命中 fake client（web 端 key 生效）', async () => {
+    const { client, calls } = makeFakeBillionsClient({
+      search: async (query, opts) => ({
+        result: [{ content: [{ title: `结果-${opts?.source}`, link: `https://e.example/${opts?.source}`, snippet: '摘要', date: '2026-08-01' }] }],
+      }),
+      twitterSearch: async () => ({
+        result: [{ content: [{ title: '@trader: 讨论', link: 'https://x.com/trader/1', snippet: '市场情绪转暖', date: '2026-08-02', extra: { username: 'trader', view_count: 128 } }] }],
+      }),
+    });
+    const { final } = await runGraph(
+      { WEB_SEARCH_DISABLED: '1', BILLIONS_API_KEY: undefined },
+      { billionsClient: client },
+    );
+    // 注入的 client 经工厂装配进分析师：预抓顺序三源 → twitter（agent 级素材
+    // 断言见 agents.test.ts；此处证明委员会接线把 client 送达预抓调用点）
+    expect(calls.map((c) => [c.method, c.query])).toEqual([
+      ['search', '600036 公告'],
+      ['search', '600036 券商研报'],
+      ['search', '600036 最新新闻'],
+      ['twitterSearch', '600036 最新市场讨论'],
+    ]);
+    expect(final.information_analysis).toBe('INFO_REPORT');
+  });
+
+  it('注入无 key client（主闸关）→ 亿信零请求,报告照常（无 key 行为与现状一致）', async () => {
+    const { client, calls } = makeFakeBillionsClient({}, false);
+    const { final } = await runGraph(
+      { WEB_SEARCH_DISABLED: '1', BILLIONS_API_KEY: undefined },
+      { billionsClient: client },
+    );
+    expect(calls).toEqual([]); // 亿信路径静默关闭（对齐 Python 主闸），不触网
+    expect(final.information_analysis).toBe('INFO_REPORT'); // 固定回退文本路径照常
   });
 });

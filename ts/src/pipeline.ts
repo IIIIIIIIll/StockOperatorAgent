@@ -35,7 +35,7 @@ export function changePercentSeries(bars: DailyBar[]): number[] {
 }
 
 /** 换手率%:成交量(手)×100 股 ×100% / 流通股本(股) = 量×10⁴/股本;缺股本 → NaN。 */
-function turnoverPct(b: DailyBar, capital: { liutongguben: number } | null): number {
+export function turnoverPct(b: DailyBar, capital: { liutongguben: number } | null): number {
   if (!capital || !capital.liutongguben) return NaN;
   return (b.volume * 10_000) / capital.liutongguben;
 }

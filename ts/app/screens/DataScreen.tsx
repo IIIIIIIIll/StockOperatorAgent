@@ -5,10 +5,12 @@ import React from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { store } from '../lib/runner';
 import IndicatorChart, { type Bar } from '../components/IndicatorChart';
+import FinancialTrendChart from '../components/FinancialTrendChart';
 import { composeOverview } from '../../src/overview.ts';
-import { parseIndicatorSection } from '../../src/f10.ts';
+import { parseIndicatorSection, parseCapitalStructure } from '../../src/f10.ts';
 import { computeAll } from '../../src/indicators.ts';
-import { fmtNumber } from '../../src/pipeline.ts';
+import { changePercentSeries, fmtNumber, turnoverPct } from '../../src/pipeline.ts';
+import { financialTrendSeries, salesGrossMargin } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
 import { useTheme, type Theme } from '../theme';
 
@@ -26,6 +28,17 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   const periods = [...new Set(profit.map((r) => r.period))].sort();
   const latest = periods[periods.length - 1] ?? '';
   const reports = store.getPerformanceReports(ticker);
+  // 股本结构:web 采集经 webCollect 持久化 meta 'capital:${ticker}'(股本结构节文本);
+  // demo/未采集 → null(换手率列显示 N/A,与 Python 缺股本语义一致)
+  const capital = React.useMemo(() => {
+    const text = store.getMeta(`capital:${ticker}`);
+    return text ? parseCapitalStructure(text) : null;
+  }, [ticker]);
+  // 涨跌幅:由 bars 现算(复用 pipeline changePercentSeries 公式;首根 NaN → N/A)
+  const changePct = React.useMemo(() => changePercentSeries(bars), [bars]);
+  // 财务跨期趋势:净利润/每股收益取自 performance_reports,销售毛利率取自
+  // F10 盈利能力节(financialTrendSeries 内 N/A 期跳过;全空 → [] → 图不渲染)
+  const financialSeriesData = React.useMemo(() => financialTrendSeries(reports, profit), [reports, profit]);
 
   // 概览:snapshot 缺失 → 价格回退日K末根(与 compose_overview 语义一致)
   const overview = composeOverview({
@@ -39,6 +52,8 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   });
 
   const tail = bars.slice(-DAILY_TABLE_N);
+  // 表列值:涨跌幅/换手率与 tail 同窗切片(index 对齐;首根涨跌幅 NaN → N/A)
+  const tailChangePct = changePct.slice(-DAILY_TABLE_N);
   // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 600036 正确);
   // 图表与 chips 共用同一份结果,窗口切片保持稳定引用避免流式重渲染时重建图表
   const indRows = React.useMemo(
@@ -74,7 +89,15 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
       {Platform.OS === 'web' && klineBars.length > 1 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>技术图(近 {KLINE_N} 根,全部指标)</Text>
-          <IndicatorChart bars={klineBars} rows={chartRows} theme={theme} />
+          <IndicatorChart bars={klineBars} rows={chartRows} changePct={changePct.slice(-KLINE_N)} theme={theme} />
+        </View>
+      )}
+
+      {/* 财务跨期趋势(web;报告期为季度稀疏轴,独立成图——净利润/毛利率/EPS) */}
+      {Platform.OS === 'web' && financialSeriesData.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>财务趋势(跨期)</Text>
+          <FinancialTrendChart series={financialSeriesData} theme={theme} />
         </View>
       )}
 
@@ -88,18 +111,28 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
             <Text style={styles.cell}>收</Text>
             <Text style={styles.cell}>高</Text>
             <Text style={styles.cell}>低</Text>
+            <Text style={styles.cell}>涨跌幅</Text>
             <Text style={styles.cell}>量(手)</Text>
+            <Text style={styles.cell}>换手率</Text>
           </View>
-          {tail.map((b, i) => (
-            <View key={i} style={styles.row}>
-              <Text style={[styles.cell, styles.dateCell]}>{fmtDate(b.date)}</Text>
-              <Text style={styles.cell}>{b.open.toFixed(2)}</Text>
-              <Text style={[styles.cell, { color: b.close >= b.open ? theme.colors.up : theme.colors.down }]}>{b.close.toFixed(2)}</Text>
-              <Text style={styles.cell}>{b.high.toFixed(2)}</Text>
-              <Text style={styles.cell}>{b.low.toFixed(2)}</Text>
-              <Text style={styles.cell}>{(b.volume / 10000).toFixed(1)}万</Text>
-            </View>
-          ))}
+          {tail.map((b, i) => {
+            const pct = tailChangePct[i];
+            const turnover = turnoverPct(b, capital);
+            return (
+              <View key={i} style={styles.row}>
+                <Text style={[styles.cell, styles.dateCell]}>{fmtDate(b.date)}</Text>
+                <Text style={styles.cell}>{b.open.toFixed(2)}</Text>
+                <Text style={[styles.cell, { color: b.close >= b.open ? theme.colors.up : theme.colors.down }]}>{b.close.toFixed(2)}</Text>
+                <Text style={styles.cell}>{b.high.toFixed(2)}</Text>
+                <Text style={styles.cell}>{b.low.toFixed(2)}</Text>
+                <Text style={[styles.cell, { color: Number.isNaN(pct) ? undefined : pct >= 0 ? theme.colors.up : theme.colors.down }]}>
+                  {Number.isNaN(pct) ? 'N/A' : `${fmtNumber(pct, 2)}%`}
+                </Text>
+                <Text style={styles.cell}>{(b.volume / 10000).toFixed(1)}万</Text>
+                <Text style={styles.cell}>{Number.isNaN(turnover) ? 'N/A' : `${fmtNumber(turnover, 2)}%`}</Text>
+              </View>
+            );
+          })}
         </View>
       </View>
 
@@ -129,7 +162,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
             return (
               <View key={i} style={styles.opinionCard}>
                 <Text style={styles.opinionBody}>
-                  {r.report_date} — EPS {fmtNumber(f.eps as number, 2)} | 净利润 {fmtNumber(f.net_profit as number, 0)} | YoY {fmtNumber(f.net_profit_YoY_rate as number, 2)}% | QoQ {fmtNumber(f.net_profit_QoQ_rate as number, 2)}% | ROE {fmtNumber(f.net_worth_return_rate as number, 2)}% | 每股净资产 {fmtNumber(f.net_worth_per_share as number, 2)} | 每股现金流 {fmtNumber(f.cash_flow_per_share as number, 2)}
+                  {r.report_date} — EPS {fmtNumber(f.eps as number, 2)} | 净利润 {fmtNumber(f.net_profit as number, 0)} | YoY {fmtNumber(f.net_profit_YoY_rate as number, 2)}% | QoQ {fmtNumber(f.net_profit_QoQ_rate as number, 2)}% | 销售毛利率 {fmtNumber(salesGrossMargin(profit, r.report_date), 2)}% | ROE {fmtNumber(f.net_worth_return_rate as number, 2)}% | 每股净资产 {fmtNumber(f.net_worth_per_share as number, 2)} | 每股现金流 {fmtNumber(f.cash_flow_per_share as number, 2)}
                 </Text>
               </View>
             );

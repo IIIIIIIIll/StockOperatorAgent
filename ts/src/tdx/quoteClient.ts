@@ -129,17 +129,21 @@ export function applyQfq(bars: DailyBar[], events: XdxrEventLike[]): DailyBar[] 
   }
 }
 
-/** 完整采集（快照 + 日K + 名称 + xdxr 复权），单次连接内完成。 */
+/** 完整采集（快照 + 日K + 名称 + xdxr 复权），单次连接内完成。
+ *  opts.skipDaily（C8 freshness 接线）：同日已采集 → 跳过日K/xdxr 拉取，
+ *  仍拉快照与名称（部分 fresh 不整体短路）；bars 返回 [] 由调用方保留既有数据。 */
 export async function collectAll(
   client: TdxClient,
   ticker: string,
   meta: { get: (k: string) => string | null; set: (k: string, v: string) => void },
+  opts?: { skipDaily?: boolean },
 ): Promise<CollectedData> {
+  const skipDaily = opts?.skipDaily === true;
   const [snapshot, bars, name, xdxr] = await Promise.all([
     fetchSnapshot(client, ticker),
-    fetchDailyBars(client, ticker),
+    skipDaily ? Promise.resolve([]) : fetchDailyBars(client, ticker),
     fetchStockName(client, ticker, meta.get, meta.set),
-    fetchXdxrEvents(client, ticker),
+    skipDaily ? Promise.resolve([]) : fetchXdxrEvents(client, ticker),
   ]);
-  return { ticker, name, bars: applyQfq(bars, xdxr), snapshot, capital: null };
+  return { ticker, name, bars: skipDaily ? [] : applyQfq(bars, xdxr), snapshot, capital: null };
 }

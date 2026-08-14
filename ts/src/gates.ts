@@ -46,6 +46,32 @@ export function reportsFresh(latestReportDate: string | null, today: string): bo
   return latestReportDate === latestPastQuarterEnd(today);
 }
 
+/** 日K 门：lastDataUpdate == 北京时间今天 → 同日已采集，跳过重拉（对齐 Python
+ *  acquire_historical_data_tdx `last_data_update == asia_today()` 跳过语义）。 */
+export function dailyFresh(lastDataUpdate: string | null, today: string): boolean {
+  return lastDataUpdate !== null && lastDataUpdate === today;
+}
+
+/** 采集跳过判定（C8 接线点，供 runner.collectForWeb 消费）：依据 store 现有数据
+ *  （stock.lastDataUpdate / performance_reports 最新 report_date）判定本次各源
+ *  是否可跳过——dailyFresh 同日跳过日K；f10Fresh 同季跳过 F10 财务分析节。
+ *  部分 fresh 不整体短路：各源独立判定，调用方按源传递跳过标记。 */
+export interface FreshnessGates {
+  dailyFresh: boolean;
+  f10Fresh: boolean;
+}
+
+export function freshnessGates(
+  lastDataUpdate: string | null,
+  latestReportDate: string | null,
+  today: string,
+): FreshnessGates {
+  return {
+    dailyFresh: dailyFresh(lastDataUpdate, today),
+    f10Fresh: reportsFresh(latestReportDate, today),
+  };
+}
+
 /** FetchScope：单遍拉取去重——复用判定按**请求尺寸**（cached_bars ≥ 请求）
  *  而非实际行数（短历史股票 250 拉取返回 <250 行是完整数据，按 len 判定
  *  会错误重拉——对齐 Python spec）。 */

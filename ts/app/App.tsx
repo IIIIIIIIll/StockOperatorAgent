@@ -19,6 +19,7 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';import {
 } from './lib/settings';
 import { enabledRoles, reportRoles } from '../src/committee.ts';
 import { buildStockInformation } from '../src/pipeline.ts';
+import { BillionsClient } from '../src/billionsClient.ts';
 import {
   assembleTools,
   buildLlm,
@@ -205,6 +206,13 @@ export default function App() {
         makeBillionsIntel(code, settings.keys.billionsApiKey),
         makeMcpIntel(code, settings.keys.tdxApiKey),
       ]);
+      // 亿信预抓 client 注入（phaseout C1）：web 端 key 在 localStorage ——
+      // 带 key → 分析师预抓三源+twitter 生效；无 key → undefined（现状 DDG
+      // 回退不变）。安全：key 仅进 client 私有字段——不打印/不落日志/不经
+      // 服务端代理（浏览器端直连现状）。
+      const billionsClient = settings.keys.billionsApiKey
+        ? new BillionsClient({ apiKey: settings.keys.billionsApiKey })
+        : undefined;
       // 采集完成立即生成上下文(委员会真 LLM 需数分钟——不等 done 才显示;
       // runner.run 内部同源重算,结果一致,双算成本 ~ms)
       setStockInformation(
@@ -221,9 +229,10 @@ export default function App() {
       );
       await runner.run(code, {
         llm, f10Text, snapshot, name: stockName, capital, today: new Date().toISOString().slice(0, 10),
-        tools: assembleTools(settings.keys),
+        tools: assembleTools(settings.keys, settings.caps),
         ...(billions ? { billions } : {}),
         ...(mcp ? { mcp } : {}),
+        ...(billionsClient ? { billionsClient } : {}),
       });
       info(`分析结束:耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     } catch (err) {

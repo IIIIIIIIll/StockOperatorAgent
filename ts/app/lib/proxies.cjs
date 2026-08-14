@@ -156,15 +156,22 @@ async function fetchF10Section(client, ticker, cats, namePart) {
   return getCompanyInfoContent(client, market, ticker, section.filename, section.start, section.length);
 }
 
-async function doCollect(ticker) {
+async function doCollect(ticker, opts = {}) {
   const client = new TdxClient({ connectTimeout: 8000, requestTimeout: 12000 });
   client.on('error', () => {});
   await client.connect();
   try {
     const cats = await getCompanyInfoCategory(client, f10MarketFor(ticker), ticker);
-    const f10Text = await fetchF10Section(client, ticker, cats, '财务分析');
+    // C8 freshness:同季业绩已入库 → 跳过财务分析节(股本结构节仍拉,capital 不缺失)
+    const f10Text = opts.skipF10 ? '' : await fetchF10Section(client, ticker, cats, '财务分析');
     const capitalText = await fetchF10Section(client, ticker, cats, '股本结构');
-    const collected = await collectAll(client, ticker, { get: () => null, set: () => {} });
+    // C8 freshness:同日已采集 → 跳过日K+xdxr(collectAll 仍拉快照/名称,部分 fresh 不整体短路)
+    const collected = await collectAll(
+      client,
+      ticker,
+      { get: () => null, set: () => {} },
+      { skipDaily: opts.skipDaily === true },
+    );
     return {
       ticker,
       name: collected.name,
@@ -172,6 +179,7 @@ async function doCollect(ticker) {
       snapshot: collected.snapshot,
       f10Text,
       capitalText, // 股本结构文本(万股),浏览器 parseCapitalStructure 解析
+      skipDaily: opts.skipDaily === true, // 浏览器据此保留既有日K/lastDataUpdate
     };
   } finally {
     client.disconnect();
@@ -181,6 +189,9 @@ async function doCollect(ticker) {
 async function handleTdxCollect(req, res, _collect = doCollect) {
   const url = new URL(req.url, 'http://x');
   const ticker = url.searchParams.get('ticker') ?? '';
+  // C8 freshness:浏览器按 store 现有数据判定后传跳过标记(仅 '1' 生效,其余按全量)
+  const skipDaily = url.searchParams.get('skipDaily') === '1';
+  const skipF10 = url.searchParams.get('skipF10') === '1';
   if (!/^\d{6}$/.test(ticker)) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `无效 ticker:${ticker}(需 6 位数字)` }));
@@ -207,7 +218,7 @@ async function handleTdxCollect(req, res, _collect = doCollect) {
     send(504, { error: `TDX 采集超时(${COLLECT_TIMEOUT_MS / 1000}s),后台任务继续直至结束` });
   }, COLLECT_TIMEOUT_MS);
   try {
-    const result = await _collect(ticker);
+    const result = await _collect(ticker, { skipDaily, skipF10 });
     send(200, result);
   } catch (err) {
     send(502, { error: `TDX 采集失败:${String(err?.message ?? err)}` });

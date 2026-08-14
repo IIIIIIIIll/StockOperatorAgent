@@ -177,6 +177,39 @@ describe('proxies.cjs /tdx-collect(W4 互斥)', () => {
     expect(res.calls[0].status).toBe(400);
   });
 
+  it('C8 freshness:skipDaily/skipF10 查询参数透传 _collect(缺省全量)', async () => {
+    const okResult = { ticker: '600036', name: '招商银行', bars: [], snapshot: null, f10Text: '', capitalText: '' };
+    // 全量(无跳过参数)
+    const res1 = fakeRes();
+    let args1: unknown;
+    await handleTdxCollect({ url: '/tdx-collect?ticker=600036' }, res1, async (...a: unknown[]) => {
+      args1 = a;
+      return okResult;
+    });
+    expect(res1.calls[0].status).toBe(200);
+    expect(args1).toEqual(['600036', { skipDaily: false, skipF10: false }]);
+    // 同日/同季跳过 → 标记透传;非 '1' 值不生效
+    const res2 = fakeRes();
+    let args2: unknown;
+    await handleTdxCollect(
+      { url: '/tdx-collect?ticker=600036&skipDaily=1&skipF10=1' },
+      res2,
+      async (...a: unknown[]) => {
+        args2 = a;
+        return okResult;
+      },
+    );
+    expect(res2.calls[0].status).toBe(200);
+    expect(args2).toEqual(['600036', { skipDaily: true, skipF10: true }]);
+    const res3 = fakeRes();
+    let args3: unknown;
+    await handleTdxCollect({ url: '/tdx-collect?ticker=600036&skipDaily=yes&skipF10=0' }, res3, async (...a: unknown[]) => {
+      args3 = a;
+      return okResult;
+    });
+    expect(args3).toEqual(['600036', { skipDaily: false, skipF10: false }]);
+  });
+
   it('超时回包后锁保持,后台真正 settle 才释放(不泄漏并发采集)', async () => {
     vi.useFakeTimers();
     try {

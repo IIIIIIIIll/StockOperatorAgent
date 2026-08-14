@@ -6,6 +6,7 @@ import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import type { IChartApi, LineStyle } from 'lightweight-charts';
 import type { IndicatorRow } from '../../src/indicators.ts';
+import { changePctHistData } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
 import type { Theme } from '../theme';
 
@@ -40,6 +41,7 @@ const LEGEND: Array<{ title: string; series: LegendSeries[] }> = [
     { label: 'BOLL', color: C.green },
   ] },
   { title: '成交量', series: [{ label: 'VOL_MA5', color: C.sky }] },
+  { title: '涨跌幅', series: [{ label: '涨跌幅', color: C.green }] },
   { title: 'MACD', series: [
     { label: 'DIF', color: C.amber }, { label: 'DEA', color: C.sky }, { label: 'MACD 柱', color: C.amber },
   ] },
@@ -57,10 +59,10 @@ const LEGEND: Array<{ title: string; series: LegendSeries[] }> = [
   { title: '乖离率', series: [{ label: 'LIU_BIAS', color: C.purple }] },
 ];
 
-// 面板比例(主图 + 成交量 + 4 振荡器 + 3 单线):stretch 比例布局,与图高解耦。
+// 面板比例(主图 + 成交量 + 涨跌幅 + 4 振荡器 + 3 单线):stretch 比例布局,与图高解耦。
 // 用 setStretchFactor 而非 setHeight——Pane 初始 height=0,首帧布局前 setHeight
 // 会以 totalHeight=0 计算导致高度错乱(v5 源码 _internal_changePanesHeight)。
-const PANE_STRETCH = [300, 90, 90, 90, 90, 90, 70, 70, 70];
+const PANE_STRETCH = [300, 90, 70, 90, 90, 90, 90, 70, 70, 70];
 const CHART_HEIGHT = PANE_STRETCH.reduce((a, b) => a + b, 0);
 
 /** 线数据:过滤 null/NaN(warmup 前导 NaN 只出现在序列头部,无中间断档) */
@@ -94,7 +96,7 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
-export default function IndicatorChart({ bars, rows, theme }: { bars: Bar[]; rows: IndicatorRow[]; theme: Theme }) {
+export default function IndicatorChart({ bars, rows, changePct, theme }: { bars: Bar[]; rows: IndicatorRow[]; changePct: number[]; theme: Theme }) {
   const ref = React.useRef<View | null>(null);
   const styles = makeStyles(theme);
 
@@ -154,38 +156,42 @@ export default function IndicatorChart({ bars, rows, theme }: { bars: Bar[]; row
       })));
       line('VOL_MA5', C.sky, undefined, 1);
 
-      // pane 2 MACD:DIF/DEA 线 + MACD 柱(0 轴上下着色)
-      line('DIF', C.amber, undefined, 2);
-      line('DEA', C.sky, undefined, 2);
-      const macd = chart.addSeries(HistogramSeries, { base: 0 }, 2);
+      // pane 2 涨跌幅柱:正红负绿、base 0(对齐 Python change_percent_chart)
+      const changePctHist = chart.addSeries(HistogramSeries, { base: 0 }, 2);
+      changePctHist.setData(changePctHistData(changePct, dates, upA, downA));
+
+      // pane 3 MACD:DIF/DEA 线 + MACD 柱(0 轴上下着色)
+      line('DIF', C.amber, undefined, 3);
+      line('DEA', C.sky, undefined, 3);
+      const macd = chart.addSeries(HistogramSeries, { base: 0 }, 3);
       macd.setData(histData(rows, dates, 'MACD', upA, downA));
 
-      // pane 3 KDJ
-      line('K', C.amber, undefined, 3);
-      line('D', C.sky, undefined, 3);
-      line('J', C.purple, undefined, 3);
+      // pane 4 KDJ
+      line('K', C.amber, undefined, 4);
+      line('D', C.sky, undefined, 4);
+      line('J', C.purple, undefined, 4);
 
-      // pane 4 RSI
-      line('RSI6', C.amber, undefined, 4);
-      line('RSI12', C.sky, undefined, 4);
-      line('RSI24', C.purple, undefined, 4);
+      // pane 5 RSI
+      line('RSI6', C.amber, undefined, 5);
+      line('RSI12', C.sky, undefined, 5);
+      line('RSI24', C.purple, undefined, 5);
 
-      // pane 5 MACD-VH:MACD_V/SIGNAL 线 + VH 柱
-      line('MACD_V', C.amber, undefined, 5);
-      line('SIGNAL', C.sky, undefined, 5);
-      const vh = chart.addSeries(HistogramSeries, { base: 0 }, 5);
+      // pane 6 MACD-VH:MACD_V/SIGNAL 线 + VH 柱
+      line('MACD_V', C.amber, undefined, 6);
+      line('SIGNAL', C.sky, undefined, 6);
+      const vh = chart.addSeries(HistogramSeries, { base: 0 }, 6);
       vh.setData(histData(rows, dates, 'MACD_VH', upA, downA));
 
-      // pane 6-8 单线:ATR / 量比 / 乖离率
-      line('ATR', C.yellow, undefined, 6);
-      line('VOL_RATIO', C.sky, undefined, 7);
-      line('LIU_BIAS', C.purple, undefined, 8);
+      // pane 7-9 单线:ATR / 量比 / 乖离率
+      line('ATR', C.yellow, undefined, 7);
+      line('VOL_RATIO', C.sky, undefined, 8);
+      line('LIU_BIAS', C.purple, undefined, 9);
 
       // 面板比例:全部 series 建完后设置 stretch(比例布局,与当前高度无关)
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 70));
     });
     return () => { disposed = true; chart?.remove(); };
-  }, [bars, rows, theme]);
+  }, [bars, rows, changePct, theme]);
 
   return (
     <View>

@@ -5,6 +5,8 @@ import { InMemoryStore } from '../../src/store-memory.ts';
 import { createPipelineRunner, type PipelineEvent, type FinalReport } from '../../src/events.ts';
 import { createLlm, MissingLlmConfigError, type LlmConfig } from '../../src/llm.ts';
 import { applyCollectedToStore, collectViaProxy, type WebCollectResult } from '../../src/webCollect.ts';
+import { asiaToday, freshnessGates } from '../../src/gates.ts';
+import { info } from '../../src/log.ts';
 import { getMarketIntel } from '../../src/mcp.ts';
 import { BillionsClient } from '../../src/billionsClient.ts';
 import { billionsEnabled } from '../../src/committee.ts';
@@ -13,6 +15,7 @@ import { makeWebSearchTool, webSearchEnabled } from '../../src/webSearch.ts';
 import type { ToolLike } from '../../src/toolLoop.ts';
 import { AIMessage } from '@langchain/core/messages';
 import demo from '../data/demo.json';
+import type { CapsState } from './settings.ts';
 
 export const store = new InMemoryStore();
 
@@ -31,10 +34,44 @@ export function loadDemoData(): void {
 
 export const runner = createPipelineRunner(store);
 
+// 浏览器全局（ts/ 为 node-only lib 无 DOM 类型；运行时守卫 typeof location，
+// webSearch.ts 同款探针姿势）。
+declare const location: { origin?: string } | undefined;
+
+/** 采集跳过选项:缺省(undefined)按 store 现有数据自动判定(freshnessGates);
+ *  显式布尔值覆盖自动判定(测试/调试用)。向后兼容——旧调用无第二参,恒全量判定。 */
+export interface CollectForWebOpts {
+  skipDaily?: boolean;
+  skipF10?: boolean;
+}
+
 /** web 采集(server /tdx-collect 代理)→ 写 InMemoryStore;返回本次采集结果
- *  (f10Text/snapshot/name 供 runner.run opts)。失败抛错 → 调用方中止分析。 */
-export async function collectForWeb(ticker: string): Promise<WebCollectResult> {
-  const payload = await collectViaProxy(ticker, globalThis.location.origin);
+ *  (f10Text/snapshot/name 供 runner.run opts)。失败抛错 → 调用方中止分析。
+ *  C8 freshness 接线:依据 store 现有数据(stock.lastDataUpdate /
+ *  performance_reports 最新 report_date)判定同日跳过日K、同季跳过 F10,
+ *  跳过源不拉网络、沿用既有数据(不置空);部分 fresh 不整体短路。
+ *  同季跳过 F10 时用上次入库的缓存文本(f10:ticker meta)顶替,盈利能力块不降级占位。 */
+export async function collectForWeb(ticker: string, opts?: CollectForWebOpts): Promise<WebCollectResult> {
+  const today = asiaToday();
+  const stock = store.getStock(ticker);
+  const reports = store.getPerformanceReports(ticker);
+  const latestReportDate = reports.reduce((m, r) => (r.report_date > m ? r.report_date : m), '') || null;
+  const gates = freshnessGates(stock?.lastDataUpdate ?? null, latestReportDate, today);
+  const skipDaily = opts?.skipDaily ?? gates.dailyFresh;
+  const skipF10 = opts?.skipF10 ?? gates.f10Fresh;
+  const skipped: string[] = [];
+  if (skipDaily) skipped.push('日K(同日已采集)');
+  if (skipF10) skipped.push('F10财务分析(同季已入库)');
+  if (skipped.length) info(`跳过采集:${skipped.join('、')},沿用既有数据`);
+  // web 端 location 全局(ts/ 为 node-only lib 无 DOM 类型;运行时守卫 typeof,
+  // webSearch.ts 同款探针姿势)。Node/RN 无 location → '' 相对 URL——本函数仅
+  // web 路径调用(App 已按 Platform.OS 门控)。
+  const origin = typeof location !== 'undefined' ? location.origin ?? '' : '';
+  const payload = await collectViaProxy(ticker, origin, { skipDaily, skipF10 });
+  // 同季跳过 F10:代理未拉文本 → 缓存文本顶替(applyCollectedToStore 幂等重写)
+  if (skipF10 && !payload.f10Text) {
+    payload.f10Text = store.getMeta(`f10:${ticker}`) ?? '';
+  }
   return applyCollectedToStore(store, payload);
 }
 
@@ -164,14 +201,19 @@ export async function makeMcpIntel(
 /** 委员会工具组装：web_search（开关）+ 亿信三件套（各开关 + 主闸 key）。
  *  返回 undefined 表示无任何工具启用（committee 内部按 webSearch 开关兜底——
  *  但 App 层已判定，此处空数组时传 [] 即可，等价）。web 端亿信 key 在
- *  localStorage（settings.keys.billionsApiKey），经 apiKey 注入。 */
-export function assembleTools(keys: {
-  billionsApiKey?: string;
-  tdxApiKey?: string;
-}): ToolLike[] {
+ *  localStorage（settings.keys.billionsApiKey），经 apiKey 注入。
+ *  caps（settings.caps）可选：注入亿信三件套各自调用上限（优先于 env
+ *  BILLIONS_{CAP}_MAX_CALLS 与默认）；未传/字段缺失/非法值 → 回退 env/默认。 */
+export function assembleTools(
+  keys: { billionsApiKey?: string; tdxApiKey?: string },
+  caps?: Partial<CapsState>,
+): ToolLike[] {
   const tools: ToolLike[] = [];
   if (webSearchEnabled()) tools.push(makeWebSearchTool());
-  const billions = makeBillionsTools({ apiKey: keys.billionsApiKey || null });
+  const billions = makeBillionsTools({
+    apiKey: keys.billionsApiKey || undefined,
+    ...(caps ? { maxCallsByCap: { SEARCH: caps.searchMax, TWITTER: caps.twitterMax, FETCH: caps.fetchMax } } : {}),
+  });
   tools.push(...billions);
   return tools;
 }
