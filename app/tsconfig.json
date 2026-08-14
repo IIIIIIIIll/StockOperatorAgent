@@ -5,5 +5,11 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "resolveJsonModule": true
-  }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.d.ts",
+    "../src/expo-file-system.d.ts"
+  ]
 }
