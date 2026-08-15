@@ -12,19 +12,17 @@ export const CHART_HTML: string = `<!DOCTYPE html>
   body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
   #legend { padding: 8px 8px 0; display: flex; flex-direction: column; }
   .lg-row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
-  .lg-title { font-size: 11px; font-weight: 600; min-width: 56px; }
-  .lg-chip { display: inline-flex; align-items: center; margin-right: 10px; }
-  .lg-dot { width: 8px; height: 8px; border-radius: 4px; margin-right: 3px; }
-  .lg-label { font-size: 10px; }
   #chart { width: 100%; }
   #pane-labels { position: absolute; left: 0; top: 0; right: 0; pointer-events: none; z-index: 10; }
-  .pane-label { position: absolute; left: 8px; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 85%; opacity: .92; }
-  .pane-label .pl-series { font-weight: 400; opacity: .8; margin-left: 8px; }
+  .pane-label { position: absolute; left: 8px; display: flex; align-items: center; gap: 10px; max-width: 92%; white-space: nowrap; overflow: hidden; opacity: .95; font-size: 11px; }
+  .pane-label .pl-title { font-weight: 700; }
+  .pane-label .pl-chip { display: inline-flex; align-items: center; gap: 4px; }
+  .pane-label .pl-dot { width: 8px; height: 8px; border-radius: 4px; }
+  .pane-label .pl-label { font-weight: 400; opacity: .85; }
   #empty { display: none; padding: 16px 8px; font-size: 12px; }
 </style>
 </head>
 <body>
-<div id="legend"></div>
 <div id="chart-wrap" style="position:relative">
   <div id="chart"></div>
   <div id="pane-labels"></div>
@@ -55,38 +53,6 @@ export const CHART_HTML: string = `<!DOCTYPE html>
     return LWC.LineSeries;
   }
 
-  function renderLegend(data) {
-    var legendEl = document.getElementById('legend');
-    legendEl.innerHTML = '';
-    var groups = (data && data.legend) || [];
-    for (var gi = 0; gi < groups.length; gi++) {
-      var g = groups[gi];
-      var row = document.createElement('div');
-      row.className = 'lg-row';
-      if (g.title) {
-        var t = document.createElement('span');
-        t.className = 'lg-title';
-        t.textContent = g.title;
-        row.appendChild(t);
-      }
-      var items = g.series || [];
-      for (var si = 0; si < items.length; si++) {
-        var chip = document.createElement('span');
-        chip.className = 'lg-chip';
-        var dot = document.createElement('span');
-        dot.className = 'lg-dot';
-        dot.style.backgroundColor = items[si].color;
-        var lab = document.createElement('span');
-        lab.className = 'lg-label';
-        lab.textContent = items[si].label;
-        chip.appendChild(dot);
-        chip.appendChild(lab);
-        row.appendChild(chip);
-      }
-      legendEl.appendChild(row);
-    }
-  }
-
   function renderChart() {
     // 重渲染安全:先清空 pane 标题叠加(与 #chart 平级,不受 chartEl.innerHTML='' 影响)
     var labelsEl = document.getElementById('pane-labels');
@@ -97,11 +63,10 @@ export const CHART_HTML: string = `<!DOCTYPE html>
       document.getElementById('chart').style.display = 'none';
       return;
     }
-    // 主题文字色同步给页内图例/占位文本(继承)
+    // 主题文字色同步给页内文本(继承);图例随各 pane(见下方 pane 覆盖层)
     var layout = data.layout || {};
     var textColor = layout.text || '#6b7280';
     document.body.style.color = textColor;
-    renderLegend(data);
 
     var chartEl = document.getElementById('chart');
     var emptyEl = document.getElementById('empty');
@@ -206,30 +171,38 @@ export const CHART_HTML: string = `<!DOCTYPE html>
       var sers3 = panes[pi3].series || [];
       var stitle = sers3.length ? (sers3[0].title || '') : '';
       var paneTitle = (g2 && g2.title) || stitle;
-      if (!paneTitle) continue;
-      // 系列标签:图例组有标题 → 用图例组 label(镜像 web 分支);
-      // 否则用该 pane 系列 title(财务图单系列 label==title 被过滤 → 无冗余副标签)
-      var src = [];
+      // 图例 chips:组有标题(K线图)→ 用组 series(色点+label);无标题(财务图)→
+      // 用 pane series,过滤 label==paneTitle 避免与标题重复
+      var chips = [];
       if (g2 && g2.title) {
-        src = (g2.series || []).map(function (s) { return s.label; });
+        chips = (g2.series || []).map(function (s) { return { color: s.color, label: s.label }; });
       } else {
-        src = sers3.map(function (s) { return s.title; });
+        chips = sers3
+          .filter(function (s) { return s.title && s.title !== paneTitle; })
+          .map(function (s) { return { color: s.color, label: s.title }; });
       }
-      var subs = [];
-      for (var li = 0; li < src.length; li++) {
-        if (src[li] && src[li] !== paneTitle) subs.push(src[li]);
-      }
+      if (!paneTitle && !chips.length) continue;
       var lab = document.createElement('div');
       lab.className = 'pane-label';
       lab.style.top = tops[pi3] + 'px';
-      var tt = document.createElement('span');
-      tt.textContent = paneTitle;
-      lab.appendChild(tt);
-      if (subs.length >= 2) {
-        var ss = document.createElement('span');
-        ss.className = 'pl-series';
-        ss.textContent = subs.join(' ');
-        lab.appendChild(ss);
+      if (paneTitle) {
+        var tt = document.createElement('span');
+        tt.className = 'pl-title';
+        tt.textContent = paneTitle;
+        lab.appendChild(tt);
+      }
+      for (var ci = 0; ci < chips.length; ci++) {
+        var chip = document.createElement('span');
+        chip.className = 'pl-chip';
+        var dot = document.createElement('span');
+        dot.className = 'pl-dot';
+        dot.style.backgroundColor = chips[ci].color;
+        var l2 = document.createElement('span');
+        l2.className = 'pl-label';
+        l2.textContent = chips[ci].label;
+        chip.appendChild(dot);
+        chip.appendChild(l2);
+        lab.appendChild(chip);
       }
       labelsEl.appendChild(lab);
     }

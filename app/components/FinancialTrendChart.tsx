@@ -120,16 +120,8 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
 
   return (
     <View>
-      {/* 图例:系列标签与图上线条同源(series 单点定义 label/color) */}
-      <View style={styles.legendRow}>
-        {series.map((s) => (
-          <View key={s.label} style={styles.legendChip}>
-            <View style={[styles.legendDot, { backgroundColor: s.color }]} />
-            <Text style={styles.legendLabel}>{s.label}</Text>
-          </View>
-        ))}
-      </View>
-      {/* web 下 ref 挂到 div(View 渲染为 div);浮层标题叠加在各 pane 顶部 */}
+      {/* 图例随各 pane(浮层叠加在各自 pane 顶部,见下方 paneLabels)——
+         不再集中渲染顶部大图例块(用户 2026-08-15 反馈:图例应跟随各自图) */}
       <View style={{ position: 'relative', width: '100%' }}>
         <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
         {paneTops.map((top, i) => (series[i] ? (
@@ -144,10 +136,6 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
-    legendRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 2 },
-    legendChip: { flexDirection: 'row', alignItems: 'center', marginRight: 10, marginBottom: 2 },
-    legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 3 },
-    legendLabel: { fontSize: 10, color: theme.colors.textSecondary },
     // 浮层标题:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
     paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 10, maxWidth: '85%' },
     paneLabelTitle: { fontWeight: '700', fontSize: 11, color: theme.colors.textSecondary },

@@ -328,27 +328,19 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
   return (
     <View>
-      {/* 图例:每面板一行,标题 + 系列 chips(与图上颜色同源) */}
-      <View style={styles.legendCol}>
-        {LEGEND.map((p) => (
-          <View key={p.title} style={styles.legendRow}>
-            <Text style={styles.legendTitle}>{p.title}</Text>
-            {p.series.map((s) => (
-              <View key={s.label} style={styles.legendChip}>
-                <View style={[styles.legendDot, { backgroundColor: s.color }]} />
-                <Text style={styles.legendLabel}>{s.label}</Text>
-              </View>
-            ))}
-          </View>
-        ))}
-      </View>
-      {/* web 下 ref 挂到 div(View 渲染为 div);浮层标题叠加在各 pane 顶部 */}
+      {/* 图例随各 pane(浮层叠加在各自 pane 顶部,见下方 paneLabels)——
+         不再集中渲染顶部大图例块(用户 2026-08-15 反馈:图例应跟随各自图) */}
       <View style={{ position: 'relative', width: '100%' }}>
         <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
         {paneTops.map((top, i) => (LEGEND[i] ? (
           <View key={i} pointerEvents="none" style={[styles.paneLabel, { top }]}>
             <Text style={styles.paneLabelTitle}>{LEGEND[i].title}</Text>
-            <Text numberOfLines={1} style={styles.paneLabelSeries}>{LEGEND[i].series.map((s) => s.label).join(' ')}</Text>
+            {LEGEND[i].series.map((s) => (
+              <View key={s.label} style={styles.paneLabelChip}>
+                <View style={[styles.paneLabelDot, { backgroundColor: s.color }]} />
+                <Text style={styles.paneLabelText}>{s.label}</Text>
+              </View>
+            ))}
           </View>
         ) : null))}
       </View>
@@ -358,15 +350,11 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
-    legendCol: { marginBottom: theme.spacing.sm },
-    legendRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 2 },
-    legendTitle: { fontSize: 11, fontWeight: '600', color: theme.colors.textSecondary, minWidth: 56 },
-    legendChip: { flexDirection: 'row', alignItems: 'center', marginRight: 10, marginBottom: 2 },
-    legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 3 },
-    legendLabel: { fontSize: 10, color: theme.colors.textSecondary },
-    // 浮层标题:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
-    paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 10, maxWidth: '85%' },
+    // 浮层图例:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
+    paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 10, maxWidth: '92%' },
     paneLabelTitle: { fontWeight: '700', fontSize: 11, color: theme.colors.textSecondary },
-    paneLabelSeries: { fontSize: 11, opacity: 0.8, color: theme.colors.textSecondary, flexShrink: 1 },
+    paneLabelChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    paneLabelDot: { width: 8, height: 8, borderRadius: 4 },
+    paneLabelText: { fontSize: 10, opacity: 0.85, color: theme.colors.textSecondary },
   });
 }
