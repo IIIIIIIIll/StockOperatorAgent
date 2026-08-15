@@ -73,13 +73,13 @@ describe('financialTrendSeries (财务跨期折线)', () => {
       { report_date: '20260630', fields: { eps: 2.9, net_profit: 31000000000, sales_gross_margin: NaN } },
     ];
     const out = financialTrendSeries(reports, []);
-    expect(out.map((s) => s.label)).toEqual(['净利润', '每股收益']);
-    const np = out.find((s) => s.label === '净利润')!;
+    expect(out.map((s) => s.label)).toEqual(['净利润 (亿元)', '每股收益 (元)']);
+    const np = out.find((s) => s.label === '净利润 (亿元)')!;
     expect(np.points).toEqual([
-      { time: '2026-03-31', value: 15200000000 },
-      { time: '2026-06-30', value: 31000000000 },
+      { time: '2026-03-31', value: 152 },
+      { time: '2026-06-30', value: 310 },
     ]);
-    const eps = out.find((s) => s.label === '每股收益')!;
+    const eps = out.find((s) => s.label === '每股收益 (元)')!;
     expect(eps.points[1]).toEqual({ time: '2026-06-30', value: 2.9 });
   });
 
@@ -90,7 +90,7 @@ describe('financialTrendSeries (财务跨期折线)', () => {
       { metric: '销售净利率', period: '2026-06-30', value_raw: '30.0', value_num: 30.0 },
     ];
     const out = financialTrendSeries([], profit);
-    expect(out.map((s) => s.label)).toEqual(['销售毛利率']);
+    expect(out.map((s) => s.label)).toEqual(['销售毛利率 (%)']);
     expect(out[0].points).toEqual([
       { time: '2026-03-31', value: 44.8 },
       { time: '2026-06-30', value: 45.2 },
@@ -108,7 +108,7 @@ describe('financialTrendSeries (财务跨期折线)', () => {
       { metric: '销售毛利率', period: '2026-03-31', value_raw: '---', value_num: NaN },
     ];
     const out = financialTrendSeries(reports, profit);
-    expect(out.map((s) => s.label)).toEqual(['净资产收益率']);
+    expect(out.map((s) => s.label)).toEqual(['净资产收益率 (%)']);
     expect(out[0].color).toBe(FINANCIAL_COLORS.grossMargin);
     expect(out[0].points).toEqual([
       { time: '2025-12-31', value: 9.1 },
@@ -123,7 +123,7 @@ describe('financialTrendSeries (财务跨期折线)', () => {
       { report_date: '20260630', fields: { net_profit: 200, eps: 1.0, net_worth_return_rate: NaN, sales_gross_margin: NaN } },
     ];
     const out = financialTrendSeries(reports, []);
-    expect(out.map((s) => s.label)).toEqual(['净利润', '每股收益']);
+    expect(out.map((s) => s.label)).toEqual(['净利润 (亿元)', '每股收益 (元)']);
     expect(out.some((s) => s.label === '净资产收益率')).toBe(false);
   });
 
@@ -133,7 +133,7 @@ describe('financialTrendSeries (财务跨期折线)', () => {
       { report_date: '20260630', fields: { eps: 2.9, net_profit: NaN, sales_gross_margin: NaN } },
     ];
     const out = financialTrendSeries(reports, []);
-    expect(out.map((s) => s.label)).toEqual(['每股收益']);
+    expect(out.map((s) => s.label)).toEqual(['每股收益 (元)']);
     expect(out[0].points).toEqual([{ time: '2026-06-30', value: 2.9 }]);
   });
 

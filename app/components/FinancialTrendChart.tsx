@@ -19,7 +19,7 @@ interface NativeTrendData {
   legend: Array<{ series: Array<{ label: string; color: string }> }>;
   panes: Array<{
     stretch: number;
-    series: Array<{ type: 'line'; title: string; color: string; lineStyle: 0; data: Array<{ time: string; value: number }> }>;
+    series: Array<{ type: 'line' | 'histogram'; title: string; color: string; lineStyle?: 0; data: Array<{ time: string; value: number }> }>;
   }>;
 }
 
@@ -38,7 +38,7 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
     const el = ref.current as unknown as HTMLElement;
     let disposed = false;
     let chart: IChartApi | null = null;
-    void import('lightweight-charts').then(({ createChart, ColorType, LineSeries }) => {
+    void import('lightweight-charts').then(({ createChart, ColorType, HistogramSeries }) => {
       if (disposed || !el) return;
       chart = createChart(el, {
         height: CHART_HEIGHT,
@@ -53,10 +53,11 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
         timeScale: { borderColor: theme.colors.border },
         rightPriceScale: { borderColor: theme.colors.border },
       });
-      // 每指标一 pane(独立价格轴,单位不混);series 顺序即 pane 顺序
+      // 每指标一 pane(独立价格轴,单位不混);series 顺序即 pane 顺序。
+      // 柱状图(用户 2026-08-15 反馈:折线 9 期太短奇怪,改柱状,base=0 便于比高低)
       series.forEach((s, i) => {
-        const line = chart!.addSeries(LineSeries, { color: s.color, lineWidth: 2 }, i);
-        line.setData(s.points);
+        const bar = chart!.addSeries(HistogramSeries, { color: s.color }, i);
+        bar.setData(s.points);
       });
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
       // 面板顶位置:纯比例计算(见 IndicatorChart 同注释——pane.getHeight() 在
@@ -82,7 +83,7 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
       legend: [{ series: series.map((s) => ({ label: s.label, color: s.color })) }],
       panes: series.map((s, i) => ({
         stretch: PANE_STRETCH[i] ?? 100,
-        series: [{ type: 'line', title: s.label, color: s.color, lineStyle: 0, data: s.points }],
+        series: [{ type: 'histogram', title: s.label, color: s.color, data: s.points }],
       })),
     };
   }, [series, theme]);

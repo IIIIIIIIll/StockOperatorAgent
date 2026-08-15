@@ -58,7 +58,9 @@ export const FINANCIAL_COLORS = {
  *  在 F10 盈利能力节,审计 py-ui P14);毛利率全 N/A 时回退净资产收益率
  *  (reports[].fields.net_worth_return_rate,如银行股 reports 毛利率恒 NaN 但 ROE 有值)。
  *  N/A 期跳过;某指标全 N/A → 该线省略;两源全空 → 第三条线省略;全空 → []。
- *  time 升序(报告期稀疏季度轴,与日K 共享 time scale 会拉平——独立成图)。 */
+ *  time 升序(报告期稀疏季度轴,与日K 共享 time scale 会拉平——独立成图)。
+ *  单位:net_profit 字段为元(见 reports.ts METRIC_COLUMNS),÷1e8 显示亿元;
+ *  eps 元;ROE/毛利率 %(label 内嵌单位,2026-08-15 用户反馈:图无单位很怪)。 */
 export function financialTrendSeries(reports: PerformanceReport[], profit: F10Record[]): FinancialSeries[] {
   const series: FinancialSeries[] = [];
 
@@ -68,7 +70,7 @@ export function financialTrendSeries(reports: PerformanceReport[], profit: F10Re
     const time = fmtDate(r.report_date); // '%Y%m%d' → 'YYYY-MM-DD'
     const np = r.fields.net_profit;
     const e = r.fields.eps;
-    if (typeof np === 'number' && Number.isFinite(np)) netProfit.push({ time, value: np });
+    if (typeof np === 'number' && Number.isFinite(np)) netProfit.push({ time, value: np / 1e8 });
     if (typeof e === 'number' && Number.isFinite(e)) eps.push({ time, value: e });
   }
 
@@ -87,10 +89,10 @@ export function financialTrendSeries(reports: PerformanceReport[], profit: F10Re
   }
   netWorthReturn.sort((a, b) => a.time.localeCompare(b.time)); // 防御性升序(与毛利率一致)
 
-  if (netProfit.length) series.push({ label: '净利润', color: FINANCIAL_COLORS.netProfit, points: netProfit });
-  if (grossMargin.length) series.push({ label: '销售毛利率', color: FINANCIAL_COLORS.grossMargin, points: grossMargin });
-  else if (netWorthReturn.length) series.push({ label: '净资产收益率', color: FINANCIAL_COLORS.grossMargin, points: netWorthReturn });
-  if (eps.length) series.push({ label: '每股收益', color: FINANCIAL_COLORS.eps, points: eps });
+  if (netProfit.length) series.push({ label: '净利润 (亿元)', color: FINANCIAL_COLORS.netProfit, points: netProfit });
+  if (grossMargin.length) series.push({ label: '销售毛利率 (%)', color: FINANCIAL_COLORS.grossMargin, points: grossMargin });
+  else if (netWorthReturn.length) series.push({ label: '净资产收益率 (%)', color: FINANCIAL_COLORS.grossMargin, points: netWorthReturn });
+  if (eps.length) series.push({ label: '每股收益 (元)', color: FINANCIAL_COLORS.eps, points: eps });
   return series;
 }
 
