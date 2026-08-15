@@ -35,6 +35,7 @@ import {
 } from './lib/runner';
 import { describeError } from '../src/events.ts';
 import { collectForDevice, setDeviceStore } from '../src/tdx/deviceCollect.ts';
+import { startAnalysisKeepAlive, stopAnalysisKeepAlive } from './modules/soa-keepalive';
 import type { RoleStatus } from '../src/progress.ts';
 import { info, warn, error as logError } from './lib/log';
 
@@ -178,6 +179,10 @@ export default function App() {
     info(`开始分析 ${code}(模式:${mode})`);
     const t0 = Date.now();
     setRunning(true);
+    // 前台服务保活:分析分钟级,切后台/锁屏时保持进程前台(豁免 Doze 冻结与
+    // 内存回收),JS 分析链继续执行;结束在 finally 停止(soa-keepalive 模块,
+    // Android 前台服务 + 常驻通知)
+    startAnalysisKeepAlive(`正在分析 ${code}`, 'AI 分析进行中,可切到后台等待完成');
     try {
       // web 走同源代理(绕开 CORS;绝对 URL——SDK 的 new URL 不接受相对路径);
       // Node/真机直连
@@ -269,6 +274,7 @@ export default function App() {
       logError(`分析失败:${detail}`);
       setError(detail);
     } finally {
+      stopAnalysisKeepAlive();
       setRunning(false);
     }
   }

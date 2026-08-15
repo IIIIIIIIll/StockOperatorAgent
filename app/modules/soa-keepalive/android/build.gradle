@@ -1,0 +1,21 @@
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+group = 'expo.modules.soakeepalive'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.soakeepalive'
+  compileSdkVersion 35
+  defaultConfig {
+    minSdkVersion 24
+    targetSdkVersion 35
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+}
