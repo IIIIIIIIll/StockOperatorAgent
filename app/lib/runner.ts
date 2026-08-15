@@ -93,7 +93,7 @@ export async function collectForWeb(ticker: string, opts?: CollectForWebOpts): P
   return applyCollectedToStore(store, payload);
 }
 
-// ─── 设置持久化(web:localStorage;RN 真机后续接 AsyncStorage) ──────────────
+// ─── 设置持久化(web 遗留;RN 真机不用这三函数——App.tsx 走 settings.ts/settingsStore) ─
 
 const CFG_KEY = 'soa:llm-config';
 

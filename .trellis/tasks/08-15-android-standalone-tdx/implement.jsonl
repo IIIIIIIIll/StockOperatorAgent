@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "TS 契约：StoreLike 同步面/写穿透、RN 持久化先例(log.ts/store-file.ts)、freshness 门、事件协议"}
+{"file": ".trellis/spec/data_source/tdx.md", "reason": "TDX 源契约：quoteClient/f10Client/xdxr/adjust 复用面与单位对齐"}
+{"file": ".trellis/spec/guides/index.md", "reason": "共享指南：跨层数据流核对(采集→store→pipeline→UI)、验证门(vitest+tsc)"}

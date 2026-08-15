@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "防假阳性：RN 采集接线/持久化必须对齐 web 既有契约(不喂空数据、freshness、密钥不落日志)"}
+{"file": ".trellis/spec/guides/index.md", "reason": "跨层思考：shim 层改动不影响 web 打包；验证以 release 断 metro 为独立运行判据"}

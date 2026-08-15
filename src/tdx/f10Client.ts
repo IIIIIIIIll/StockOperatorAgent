@@ -2,6 +2,7 @@
 // node-tdx-market 已内置 CommandType.CompanyCategory(719) / CompanyContent(720)
 // 协议布局见 research/m0-d4-f10.md
 import { CommandType, TdxClient, inferExchange } from 'node-tdx-market';
+import iconv from 'iconv-lite';
 
 /** F10 market 参数(pytdx 契约:0=深 1=沪);inferExchange SZ=0/SH=1 直接对齐。
  *  探针早期硬编码 1(沪)只对 6xxxxx 正确,深市 002027/300xxx 需 0。 */
@@ -19,7 +20,7 @@ export interface F10Category {
 function stripGbk(buf: Uint8Array): string {
   const z = buf.indexOf(0);
   const s = z === -1 ? buf : buf.subarray(0, z);
-  return new TextDecoder('gbk').decode(s);
+  return iconv.decode(s, 'gbk');
 }
 
 export function parseCategoryResponse(body: Buffer): F10Category[] {
@@ -40,7 +41,7 @@ export function parseCategoryResponse(body: Buffer): F10Category[] {
 
 export function parseContentResponse(body: Buffer): string {
   const length = body.readUInt16LE(10);
-  return new TextDecoder('gbk').decode(body.subarray(12, 12 + length));
+  return iconv.decode(body.subarray(12, 12 + length), 'gbk');
 }
 
 export async function getCompanyInfoCategory(

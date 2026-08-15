@@ -4,10 +4,12 @@
 // get_trend_indicators 分组:主图(MA/EMA/BOLL 叠加)+ 成交量 + 全部振荡器。
 import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import type { IChartApi, LineStyle } from 'lightweight-charts';
 import type { IndicatorRow } from '../../src/indicators.ts';
 import { changePctHistData } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
+import { CHART_HTML } from '../lib/chartHtml';
 import type { Theme } from '../theme';
 
 export interface Bar {
@@ -64,6 +66,24 @@ const LEGEND: Array<{ title: string; series: LegendSeries[] }> = [
 // 会以 totalHeight=0 计算导致高度错乱(v5 源码 _internal_changePanesHeight)。
 const PANE_STRETCH = [300, 90, 70, 90, 90, 90, 90, 70, 70, 70];
 const CHART_HEIGHT = PANE_STRETCH.reduce((a, b) => a + b, 0);
+
+// ─── 原生分支(WebView)JSON 数据契约 ──────────────────────────────────────
+// 形状与 tools/build-chart-view.mts 头部文档一致:通用多面板渲染器,
+// candles 主图 + 各 pane 线/柱系列 + 图例;stretch 比例与 web 分支同源。
+interface CandlePoint { time: string; open: number; high: number; low: number; close: number; volume: number }
+interface ValuePoint { time: string; value: number }
+interface HistPoint { time: string; value: number; color: string }
+type NativeSeriesDef =
+  | { type: 'candles'; title: string; upColor: string; downColor: string; data: CandlePoint[] }
+  | { type: 'line'; title: string; color: string; lineStyle: 0 | 1 | 2; data: ValuePoint[] }
+  | { type: 'histogram'; title: string; color: string; base: number; priceFormat?: 'volume'; data: HistPoint[] };
+interface NativePaneDef { stretch: number; series: NativeSeriesDef[] }
+interface NativeChartData {
+  height: number;
+  layout: { background: string; text: string; border: string };
+  legend: typeof LEGEND;
+  panes: NativePaneDef[];
+}
 
 /** 线数据:过滤 null/NaN(warmup 前导 NaN 只出现在序列头部,无中间断档) */
 function lineData(rows: IndicatorRow[], dates: string[], key: string): Array<{ time: string; value: number }> {
@@ -192,6 +212,106 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
     });
     return () => { disposed = true; chart?.remove(); };
   }, [bars, rows, changePct, theme]);
+
+  // ─── 原生分支:WebView 渲染同一数据(HTML 由 tools/build-chart-view.mts 生成)──
+  // 序列化 web 分支同款数据(bars + lineData/histData 结果 + 颜色)→ JSON;
+  // useMemo 稳定 JSON 引用,流式重渲染不重建 WebView(仅重注入数据)。
+  const nativeData = React.useMemo<NativeChartData | null>(() => {
+    if (Platform.OS === 'web') return null;
+    const dates = bars.map((b) => fmtDate(b.date));
+    const upA = hexToRgba(theme.colors.up, 0.4);
+    const downA = hexToRgba(theme.colors.down, 0.4);
+    const lineDef = (key: string, color: string, lineStyle: 0 | 1 | 2 = 0): NativeSeriesDef => ({
+      type: 'line',
+      title: key,
+      color,
+      lineStyle,
+      data: lineData(rows, dates, key),
+    });
+    const histDef = (key: string, title: string): NativeSeriesDef => ({
+      type: 'histogram',
+      title,
+      color: upA,
+      base: 0,
+      data: histData(rows, dates, key, upA, downA),
+    });
+    const panes: NativePaneDef[] = [
+      // pane 0 主图:蜡烛 + MA(实线) + EMA(虚线) + BOLL(点线)
+      {
+        stretch: PANE_STRETCH[0],
+        series: [
+          {
+            type: 'candles', title: 'K线', upColor: theme.colors.up, downColor: theme.colors.down,
+            data: bars.map((b) => ({ time: fmtDate(b.date), open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume })),
+          },
+          ...[['MA5', C.amber], ['MA10', C.sky], ['MA20', C.purple], ['MA60', C.gray]].map(([k, c]) => lineDef(k, c)),
+          ...[['EMA5', C.amber], ['EMA10', C.sky], ['EMA20', C.purple], ['EMA60', C.gray]].map(([k, c]) => lineDef(k, c, 2)),
+          ...[['BOLL_UP', C.green], ['BOLL_MB', C.green], ['BOLL_DN', C.green]].map(([k, c]) => lineDef(k, c, 1)),
+        ],
+      },
+      // pane 1 成交量:量柱(涨跌着色) + VOL_MA5
+      {
+        stretch: PANE_STRETCH[1],
+        series: [
+          {
+            type: 'histogram', title: '成交量', color: upA, base: 0, priceFormat: 'volume',
+            data: bars.map((b) => ({ time: fmtDate(b.date), value: b.volume, color: b.close >= b.open ? upA : downA })),
+          },
+          lineDef('VOL_MA5', C.sky),
+        ],
+      },
+      // pane 2 涨跌幅柱:正红负绿、base 0(对齐 Python change_percent_chart)
+      { stretch: PANE_STRETCH[2], series: [{ type: 'histogram', title: '涨跌幅', color: upA, base: 0, data: changePctHistData(changePct, dates, upA, downA) }] },
+      // pane 3 MACD:DIF/DEA 线 + MACD 柱(0 轴上下着色)
+      { stretch: PANE_STRETCH[3], series: [lineDef('DIF', C.amber), lineDef('DEA', C.sky), histDef('MACD', 'MACD 柱')] },
+      // pane 4 KDJ
+      { stretch: PANE_STRETCH[4], series: [lineDef('K', C.amber), lineDef('D', C.sky), lineDef('J', C.purple)] },
+      // pane 5 RSI
+      { stretch: PANE_STRETCH[5], series: [lineDef('RSI6', C.amber), lineDef('RSI12', C.sky), lineDef('RSI24', C.purple)] },
+      // pane 6 MACD-VH:MACD_V/SIGNAL 线 + VH 柱
+      { stretch: PANE_STRETCH[6], series: [lineDef('MACD_V', C.amber), lineDef('SIGNAL', C.sky), histDef('MACD_VH', 'VH 柱')] },
+      // pane 7-9 单线:ATR / 量比 / 乖离率
+      { stretch: PANE_STRETCH[7], series: [lineDef('ATR', C.yellow)] },
+      { stretch: PANE_STRETCH[8], series: [lineDef('VOL_RATIO', C.sky)] },
+      { stretch: PANE_STRETCH[9], series: [lineDef('LIU_BIAS', C.purple)] },
+    ];
+    return {
+      height: CHART_HEIGHT,
+      layout: { background: theme.colors.background, text: theme.colors.textSecondary, border: theme.colors.border },
+      legend: LEGEND,
+      panes,
+    };
+  }, [bars, rows, changePct, theme]);
+
+  const webviewRef = React.useRef<WebView | null>(null);
+  const loadedRef = React.useRef(false);
+  const nativeJson = React.useMemo(
+    () => (Platform.OS === 'web' ? '' : JSON.stringify(nativeData)),
+    [nativeData],
+  );
+  const injectData = React.useCallback(() => {
+    if (!nativeJson) return;
+    webviewRef.current?.injectJavaScript(`window.__SOA_CHART_DATA__=${nativeJson};window.renderChart&&window.renderChart();`);
+  }, [nativeJson]);
+  React.useEffect(() => {
+    if (Platform.OS !== 'web' && loadedRef.current) injectData();
+  }, [injectData]);
+
+  if (Platform.OS !== 'web') {
+    // 原生:WebView 渲染生成的 chart-view.html(图例在页内由数据构建)
+    return (
+      <View style={{ backgroundColor: theme.colors.background }}>
+        <WebView
+          ref={webviewRef}
+          source={{ html: CHART_HTML }}
+          onLoadEnd={() => { loadedRef.current = true; injectData(); }}
+          style={{ height: CHART_HEIGHT, width: '100%', backgroundColor: theme.colors.background }}
+          javaScriptEnabled
+          domStorageEnabled
+        />
+      </View>
+    );
+  }
 
   return (
     <View>

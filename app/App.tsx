@@ -2,7 +2,7 @@
 // 标题 → ticker 表单(首页最显眼)→ 主 Tab 条([采集数据] + 角色报告)
 // → 内容区;设置四节放侧边栏(宽屏固定 / 窄屏按钮切换)。
 import React from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, ScrollView, StatusBar as RNStatusBar, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import ReportContent from './components/ReportContent';
 import DataScreen from './screens/DataScreen';
@@ -34,6 +34,7 @@ import {
   type FinalReport,
 } from './lib/runner';
 import { describeError } from '../src/events.ts';
+import { collectForDevice, setDeviceStore } from '../src/tdx/deviceCollect.ts';
 import type { RoleStatus } from '../src/progress.ts';
 import { info, warn, error as logError } from './lib/log';
 
@@ -81,6 +82,7 @@ export default function App() {
         setError(msg);
         return;
       }
+      setDeviceStore(store); // RN 真机采集注入;web 不使用
       loadDemoData(); // 仅空库时载入 demo(有跨会话持久化数据则跳过)
       const bars = store.getDatas('600036');
       info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
@@ -209,8 +211,22 @@ export default function App() {
           return;
         }
       } else {
-        // 真机:采集注入点预留(走 RN TCP);当前沿用演示数据
-        f10Text = store.getMeta('demo:f10') ?? undefined;
+        // 真机:TDX TCP 直连(node-tdx-market 经 RN TCP shim)
+        info(`正在采集 ${code} 的真实行情(TDX 直连)...`);
+        try {
+          const collected = await collectForDevice(code);
+          f10Text = collected.f10Text ?? undefined;
+          snapshot = collected.snapshot;
+          stockName = collected.name;
+          capital = collected.capital;
+          info(`采集完成:${store.getDatas(code).length} 根日K + F10`);
+          setDataVersion((v) => v + 1); // 采集数据 Tab 立即刷新
+        } catch (err) {
+          const detail = describeError(err);
+          logError(`采集失败:${detail}`);
+          setError(`行情采集失败:${detail}`);
+          return;
+        }
       }
       setLastRunTicker(code);
       // 亿信/mcp 情报段（phase out 能力补齐）：预查询一次 → 缓存闭包，供
@@ -398,7 +414,7 @@ export default function App() {
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: theme.colors.background },
-    header: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    header: { paddingHorizontal: theme.spacing.lg, paddingTop: (RNStatusBar.currentHeight ?? 0) + theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     headerRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
     hamburger: { paddingVertical: 2, paddingRight: 2 },
     hamburgerIcon: { fontSize: 22, color: theme.colors.text, lineHeight: 24 },

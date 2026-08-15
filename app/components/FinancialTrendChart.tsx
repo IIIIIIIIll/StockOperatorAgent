@@ -5,9 +5,23 @@
 // N/A 期已跳过)。空 series → 不渲染(空数据不崩)。
 import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import type { IChartApi } from 'lightweight-charts';
 import type { FinancialSeries } from '../../src/chartData.ts';
+import { CHART_HTML } from '../lib/chartHtml';
 import type { Theme } from '../theme';
+
+// 原生分支(WebView)JSON 数据契约:与 tools/build-chart-view.mts 头部文档一致
+// (财务 3 pane 折线,stretch 等比例;图例单行 chips)。
+interface NativeTrendData {
+  height: number;
+  layout: { background: string; text: string; border: string };
+  legend: Array<{ series: Array<{ label: string; color: string }> }>;
+  panes: Array<{
+    stretch: number;
+    series: Array<{ type: 'line'; title: string; color: string; lineStyle: 0; data: Array<{ time: string; value: number }> }>;
+  }>;
+}
 
 // 每 pane 等比例;stretch 布局(禁 setHeight,与 IndicatorChart 同约定)
 const PANE_STRETCH = [100, 100, 100];
@@ -47,7 +61,50 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
     return () => { disposed = true; chart?.remove(); };
   }, [series, theme]);
 
+  // ─── 原生分支:WebView 渲染同一数据(web 分支保持原样)─────────────────────
+  const nativeData = React.useMemo<NativeTrendData | null>(() => {
+    if (Platform.OS === 'web') return null;
+    return {
+      height: CHART_HEIGHT,
+      layout: { background: theme.colors.background, text: theme.colors.textSecondary, border: theme.colors.border },
+      legend: [{ series: series.map((s) => ({ label: s.label, color: s.color })) }],
+      panes: series.map((s, i) => ({
+        stretch: PANE_STRETCH[i] ?? 100,
+        series: [{ type: 'line', title: s.label, color: s.color, lineStyle: 0, data: s.points }],
+      })),
+    };
+  }, [series, theme]);
+  const webviewRef = React.useRef<WebView | null>(null);
+  const loadedRef = React.useRef(false);
+  const nativeJson = React.useMemo(
+    () => (Platform.OS === 'web' ? '' : JSON.stringify(nativeData)),
+    [nativeData],
+  );
+  const injectData = React.useCallback(() => {
+    if (!nativeJson) return;
+    webviewRef.current?.injectJavaScript(`window.__SOA_CHART_DATA__=${nativeJson};window.renderChart&&window.renderChart();`);
+  }, [nativeJson]);
+  React.useEffect(() => {
+    if (Platform.OS !== 'web' && loadedRef.current) injectData();
+  }, [injectData]);
+
   if (series.length === 0) return null;
+
+  if (Platform.OS !== 'web') {
+    // 原生:WebView 渲染生成的 chart-view.html(财务 3 pane,图例在页内)
+    return (
+      <View style={{ backgroundColor: theme.colors.background }}>
+        <WebView
+          ref={webviewRef}
+          source={{ html: CHART_HTML }}
+          onLoadEnd={() => { loadedRef.current = true; injectData(); }}
+          style={{ height: CHART_HEIGHT, width: '100%', backgroundColor: theme.colors.background }}
+          javaScriptEnabled
+          domStorageEnabled
+        />
+      </View>
+    );
+  }
 
   return (
     <View>

@@ -27,7 +27,11 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     const cjs = moduleName.replace(/^\.\//, '').replace(/\.js$/, '.cjs');
     const resolved = path.join(path.dirname(origin), cjs);
     if (fs.existsSync(resolved)) {
-      return { type: 'sourceFile', filePath: resolved };
+      // langsmith 的 package.json browser 字段会把 fs.js → fs.browser.js、
+      // worker_threads.js → worker_threads.browser.js;Metro 不认 browser 字段,
+      // 这里等价实现:目标有 .browser. 孪生文件则用孪生(浏览器桩,无 node:fs)。
+      const browserTwin = resolved.replace(/\.cjs$/, '.browser.cjs').replace(/\.js$/, '.browser.js');
+      return { type: 'sourceFile', filePath: fs.existsSync(browserTwin) ? browserTwin : resolved };
     }
   }
   if (moduleName === 'langsmith') {
@@ -36,6 +40,31 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName.startsWith('langsmith/')) {
     const sub = moduleName.slice('langsmith/'.length).replace(/\.js$/, '');
     return { type: 'sourceFile', filePath: langsmithCjs(sub) };
+  }
+  // node: 内建重定向 —— Hermes 无 Node 内建,node-tdx-market 的 dist 产物用到的
+  // node:net / node:events / node:zlib 分别映射到 lib 下的适配层与实现。
+  if (moduleName === 'node:net') {
+    return { type: 'sourceFile', filePath: path.resolve(__dirname, 'lib', 'net-shim.ts') };
+  }
+  if (moduleName === 'node:events') {
+    // 不能 require.resolve('events'):在 Node 里会命中内建模块;必须显式指到 npm 包文件
+    return { type: 'sourceFile', filePath: require.resolve('events/events.js') };
+  }
+  if (moduleName === 'node:zlib') {
+    return { type: 'sourceFile', filePath: path.resolve(__dirname, 'lib', 'zlib-shim.cjs') };
+  }
+  if (moduleName === 'node:async_hooks') {
+    return { type: 'sourceFile', filePath: path.resolve(__dirname, 'lib', 'async-hooks-shim.ts') };
+  }
+  // markdown-it@10 normalizeLink 用 punycode.toASCII/toUnicode(IDNA),Metro 无此内建
+  if (moduleName === 'punycode') {
+    return { type: 'sourceFile', filePath: path.resolve(__dirname, 'lib', 'punycode-shim.ts') };
+  }
+  // langgraph:原生平台跟随包声明的 browser 条件(web 平台即此构建)——避免
+  // dist/index.js → node.js 里模块顶层 new AsyncLocalStorage() 的 node: 依赖。
+  if (moduleName === '@langchain/langgraph') {
+    const lgDir = path.dirname(require.resolve('@langchain/langgraph/package.json'));
+    return { type: 'sourceFile', filePath: path.join(lgDir, 'dist', 'web.js') };
   }
   return context.resolveRequest(context, moduleName, platform);
 };

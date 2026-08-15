@@ -1,15 +1,17 @@
 {
   "expo": {
-    "name": "HelloWorld",
-    "slug": "expo-template-blank-typescript",
+    "name": "StockOperatorAgent",
+    "slug": "stock-operator-agent",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.stockoperatoragent.app"
     },
     "android": {
+      "package": "com.stockoperatoragent.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

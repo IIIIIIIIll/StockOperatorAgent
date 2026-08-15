@@ -1,7 +1,9 @@
 // 设置状态 —— 对齐 Python display.py 四节(模型密钥/LangSmith/能力开关/调用上限)
-// 持久化 localStorage;开关在分析前应用到 process.env(DISABLED 语义,
+// 持久化 settingsStore(web:localStorage;RN:expo-file-system 沙盒文件);
+// 开关在分析前应用到 process.env(DISABLED 语义,
 // 消费点 committee.envDisabledBool / webSearchEnabled 同判定)。
 import { createLlm, type LlmConfig } from '../../src/llm.ts';
+import * as settingsStore from './settingsStore.ts';
 import { info, warn, error as logError } from './log.ts';
 
 export interface SwitchState {
@@ -55,13 +57,11 @@ export function defaultSettings(): SettingsState {
   return { switches: { ...DEFAULT_SWITCHES }, caps: { ...DEFAULT_CAPS }, keys: { ...DEFAULT_KEYS } };
 }
 
-const KEY = 'soa:settings';
-
 export function loadSettings(): SettingsState {
   const d = defaultSettings();
   let loaded = d;
   try {
-    const raw = globalThis.localStorage?.getItem(KEY);
+    const raw = settingsStore.load();
     if (raw) {
       const p = JSON.parse(raw) as Partial<SettingsState>;
       loaded = {
@@ -74,12 +74,14 @@ export function loadSettings(): SettingsState {
     /* 损坏的存储 → 默认值 */
   }
   // 环境变量兜底:EXPO_PUBLIC_LLM_* 由 Expo 注入(浏览器/构建时),
-  // 面板未保存的键从 env 补齐——对齐 Python 读 .env 的配置语义
-  const env = process.env as Record<string, string | undefined>;
+  // 面板未保存的键从 env 补齐——对齐 Python 读 .env 的配置语义。
+  // 注意:必须**直接** process.env.EXPO_PUBLIC_LLM_* 成员访问——babel-preset-expo
+  // 只在 release 构建时静态内联直接访问,别名读取(如 const env = process.env)
+  // 逃逸内联,release 运行时 process.env 无该键 → 三键缺失(2026-08-15 实测)。
   const k = loaded.keys;
-  if (!k.llmApiKey && env.EXPO_PUBLIC_LLM_API_KEY) k.llmApiKey = env.EXPO_PUBLIC_LLM_API_KEY;
-  if (!k.llmModel && env.EXPO_PUBLIC_LLM_MODEL) k.llmModel = env.EXPO_PUBLIC_LLM_MODEL;
-  if (!k.llmBaseUrl && env.EXPO_PUBLIC_LLM_BASE_URL) k.llmBaseUrl = env.EXPO_PUBLIC_LLM_BASE_URL;
+  if (!k.llmApiKey && process.env.EXPO_PUBLIC_LLM_API_KEY) k.llmApiKey = process.env.EXPO_PUBLIC_LLM_API_KEY;
+  if (!k.llmModel && process.env.EXPO_PUBLIC_LLM_MODEL) k.llmModel = process.env.EXPO_PUBLIC_LLM_MODEL;
+  if (!k.llmBaseUrl && process.env.EXPO_PUBLIC_LLM_BASE_URL) k.llmBaseUrl = process.env.EXPO_PUBLIC_LLM_BASE_URL;
   return loaded;
 }
 
@@ -95,11 +97,7 @@ export function describeLlmKeys(keys: KeysState): string {
 }
 
 export function saveSettings(s: SettingsState): void {
-  try {
-    globalThis.localStorage?.setItem(KEY, JSON.stringify(s));
-  } catch {
-    /* 非 web */
-  }
+  settingsStore.save(JSON.stringify(s));
 }
 
 /** DISABLED 语义应用:开 → 值 '0'(不禁用),关 → '1'。消费点 committee.ts。 */

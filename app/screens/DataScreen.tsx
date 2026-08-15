@@ -2,7 +2,7 @@
 // 概览单行 + 日K 表 + K线图(web)+ 盈利能力表 + 业绩表 + 指标。
 // 数据来自 store(demo 载入)与 F10 文本解析,与 build_stock_information 同源。
 import React from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { store } from '../lib/runner';
 import IndicatorChart, { type Bar } from '../components/IndicatorChart';
 import FinancialTrendChart from '../components/FinancialTrendChart';
@@ -88,16 +88,16 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
         ))}
       </View>
 
-      {/* 技术图(web;原生端真机 M4 接 canvas polyfill) */}
-      {Platform.OS === 'web' && klineBars.length > 1 && (
+      {/* 技术图(web 直渲 lightweight-charts;原生 WebView 渲染 chart-view.html) */}
+      {klineBars.length > 1 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>技术图(近 {KLINE_N} 根,全部指标)</Text>
           <IndicatorChart bars={klineBars} rows={chartRows} changePct={klineChangePct} theme={theme} />
         </View>
       )}
 
-      {/* 财务跨期趋势(web;报告期为季度稀疏轴,独立成图——净利润/毛利率/EPS) */}
-      {Platform.OS === 'web' && financialSeriesData.length > 0 && (
+      {/* 财务跨期趋势(报告期为季度稀疏轴,独立成图——净利润/毛利率/EPS) */}
+      {financialSeriesData.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>财务趋势(跨期)</Text>
           <FinancialTrendChart series={financialSeriesData} theme={theme} />
