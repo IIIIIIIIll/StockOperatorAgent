@@ -59,12 +59,14 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
         line.setData(s.points);
       });
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
-      // 面板顶位置:stretch 后取各 pane 实际高度累积(pane 数 == series 数)
+      // 面板顶位置:纯比例计算(见 IndicatorChart 同注释——pane.getHeight() 在
+      // createChart 后立即读取返回未布局值,2026-08-15 实测)
+      const sumStretch = PANE_STRETCH.reduce((a, b) => a + b, 0);
       let acc = 0;
       const tops: number[] = [];
-      for (const p of chart.panes()) {
+      for (const st of PANE_STRETCH) {
         tops.push(acc);
-        acc += p.getHeight();
+        acc += (CHART_HEIGHT * st) / sumStretch;
       }
       setPaneTops(tops);
     });

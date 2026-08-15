@@ -211,12 +211,15 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
       // 面板比例:全部 series 建完后设置 stretch(比例布局,与当前高度无关)
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 70));
-      // 面板顶位置:stretch 后取各 pane 实际高度累积(pane 数 == LEGEND 数)
+      // 面板顶位置:纯比例计算(stretch/总和 × 总高)——不用 pane.getHeight():
+      // 真实 lightweight-charts v5.2 createChart 后立即读取返回未布局值(≈全高,
+      // 2026-08-15 真机/Chromium 实测),会导致附图标签全部堆到图表底部。
+      const sumStretch = PANE_STRETCH.reduce((a, b) => a + b, 0);
       let acc = 0;
       const tops: number[] = [];
-      for (const p of chart.panes()) {
+      for (const st of PANE_STRETCH) {
         tops.push(acc);
-        acc += p.getHeight();
+        acc += (CHART_HEIGHT * st) / sumStretch;
       }
       setPaneTops(tops);
     });

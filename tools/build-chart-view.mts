@@ -260,17 +260,25 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       paneApis[k].setStretchFactor(typeof panes[k].stretch === 'number' ? panes[k].stretch : 70);
     }
 
-    // 面板标题叠加:每 pane 顶部左上角(标题 + 系列名);top 用 getHeight 累计
-    // (禁 setHeight 后 getHeight 是唯一可靠高度源;v5.2 paneApis[k].getHeight() 存在)
+    // 面板标题叠加:每 pane 顶部左上角(标题 + 系列名);top 用**纯比例**定位
+    // (stretch/总和 × 总高,与 setStretchFactor 布局语义一致)。不用
+    // paneApis[k].getHeight()——真实 lightweight-charts v5.2 在 createChart 后
+    // 立即读取返回未布局值(≈全高,2026-08-15 真机/Chromium 实测),导致附图
+    // 标签全部堆到图表底部不可见。
+    var sumStretch = 0;
+    for (var k3 = 0; k3 < panes.length; k3++) {
+      sumStretch += typeof panes[k3].stretch === 'number' ? panes[k3].stretch : 70;
+    }
     var acc = 0;
     var tops = [];
-    for (var k2 = 0; k2 < paneApis.length; k2++) {
+    for (var k2 = 0; k2 < panes.length; k2++) {
       tops.push(acc);
-      acc += paneApis[k2].getHeight();
+      var st2 = typeof panes[k2].stretch === 'number' ? panes[k2].stretch : 70;
+      acc += (height * st2) / sumStretch;
     }
     labelsEl.innerHTML = '';
     for (var pi3 = 0; pi3 < panes.length; pi3++) {
-      if (pi3 >= tops.length) continue; // pane 全空时 paneApis 短于 panes(与 stretch 循环同假设)
+      if (pi3 >= tops.length) continue; // 防御:pane 数据缺失(理论不触发,stretch 循环同假设)
       var g2 = data.legend && data.legend[pi3];
       var sers3 = panes[pi3].series || [];
       var stitle = sers3.length ? (sers3[0].title || '') : '';
