@@ -29,6 +29,8 @@ const CHART_HEIGHT = PANE_STRETCH.reduce((a, b) => a + b, 0);
 
 export default function FinancialTrendChart({ series, theme }: { series: FinancialSeries[]; theme: Theme }) {
   const ref = React.useRef<View | null>(null);
+  // 各 pane 顶 y 坐标(web 分支浮层标题定位;stretch 后按实际高度累积)
+  const [paneTops, setPaneTops] = React.useState<number[]>([]);
   const styles = makeStyles(theme);
 
   React.useEffect(() => {
@@ -57,6 +59,14 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
         line.setData(s.points);
       });
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
+      // 面板顶位置:stretch 后取各 pane 实际高度累积(pane 数 == series 数)
+      let acc = 0;
+      const tops: number[] = [];
+      for (const p of chart.panes()) {
+        tops.push(acc);
+        acc += p.getHeight();
+      }
+      setPaneTops(tops);
     });
     return () => { disposed = true; chart?.remove(); };
   }, [series, theme]);
@@ -117,7 +127,15 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
           </View>
         ))}
       </View>
-      <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
+      {/* web 下 ref 挂到 div(View 渲染为 div);浮层标题叠加在各 pane 顶部 */}
+      <View style={{ position: 'relative', width: '100%' }}>
+        <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
+        {paneTops.map((top, i) => (series[i] ? (
+          <View key={series[i].label} pointerEvents="none" style={[styles.paneLabel, { top }]}>
+            <Text style={styles.paneLabelTitle}>{series[i].label}</Text>
+          </View>
+        ) : null))}
+      </View>
     </View>
   );
 }
@@ -128,5 +146,8 @@ function makeStyles(theme: Theme) {
     legendChip: { flexDirection: 'row', alignItems: 'center', marginRight: 10, marginBottom: 2 },
     legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 3 },
     legendLabel: { fontSize: 10, color: theme.colors.textSecondary },
+    // 浮层标题:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
+    paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 10, maxWidth: '85%' },
+    paneLabelTitle: { fontWeight: '700', fontSize: 11, color: theme.colors.textSecondary },
   });
 }

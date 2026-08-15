@@ -17,12 +17,18 @@ export const CHART_HTML: string = `<!DOCTYPE html>
   .lg-dot { width: 8px; height: 8px; border-radius: 4px; margin-right: 3px; }
   .lg-label { font-size: 10px; }
   #chart { width: 100%; }
+  #pane-labels { position: absolute; left: 0; top: 0; right: 0; pointer-events: none; z-index: 10; }
+  .pane-label { position: absolute; left: 8px; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 85%; opacity: .92; }
+  .pane-label .pl-series { font-weight: 400; opacity: .8; margin-left: 8px; }
   #empty { display: none; padding: 16px 8px; font-size: 12px; }
 </style>
 </head>
 <body>
 <div id="legend"></div>
-<div id="chart"></div>
+<div id="chart-wrap" style="position:relative">
+  <div id="chart"></div>
+  <div id="pane-labels"></div>
+</div>
 <div id="empty">暂无图表数据</div>
 <script>/*!
  * @license
@@ -82,6 +88,9 @@ export const CHART_HTML: string = `<!DOCTYPE html>
   }
 
   function renderChart() {
+    // 重渲染安全:先清空 pane 标题叠加(与 #chart 平级,不受 chartEl.innerHTML='' 影响)
+    var labelsEl = document.getElementById('pane-labels');
+    labelsEl.innerHTML = '';
     var data = window.__SOA_CHART_DATA__;
     if (!data) {
       document.getElementById('empty').style.display = 'block';
@@ -172,6 +181,49 @@ export const CHART_HTML: string = `<!DOCTYPE html>
     var paneApis = chart.panes();
     for (var k = 0; k < paneApis.length; k++) {
       paneApis[k].setStretchFactor(typeof panes[k].stretch === 'number' ? panes[k].stretch : 70);
+    }
+
+    // 面板标题叠加:每 pane 顶部左上角(标题 + 系列名);top 用 getHeight 累计
+    // (禁 setHeight 后 getHeight 是唯一可靠高度源;v5.2 paneApis[k].getHeight() 存在)
+    var acc = 0;
+    var tops = [];
+    for (var k2 = 0; k2 < paneApis.length; k2++) {
+      tops.push(acc);
+      acc += paneApis[k2].getHeight();
+    }
+    labelsEl.innerHTML = '';
+    for (var pi3 = 0; pi3 < panes.length; pi3++) {
+      if (pi3 >= tops.length) continue; // pane 全空时 paneApis 短于 panes(与 stretch 循环同假设)
+      var g2 = data.legend && data.legend[pi3];
+      var sers3 = panes[pi3].series || [];
+      var stitle = sers3.length ? (sers3[0].title || '') : '';
+      var paneTitle = (g2 && g2.title) || stitle;
+      if (!paneTitle) continue;
+      // 系列标签:图例组有标题 → 用图例组 label(镜像 web 分支);
+      // 否则用该 pane 系列 title(财务图单系列 label==title 被过滤 → 无冗余副标签)
+      var src = [];
+      if (g2 && g2.title) {
+        src = (g2.series || []).map(function (s) { return s.label; });
+      } else {
+        src = sers3.map(function (s) { return s.title; });
+      }
+      var subs = [];
+      for (var li = 0; li < src.length; li++) {
+        if (src[li] && src[li] !== paneTitle) subs.push(src[li]);
+      }
+      var lab = document.createElement('div');
+      lab.className = 'pane-label';
+      lab.style.top = tops[pi3] + 'px';
+      var tt = document.createElement('span');
+      tt.textContent = paneTitle;
+      lab.appendChild(tt);
+      if (subs.length >= 2) {
+        var ss = document.createElement('span');
+        ss.className = 'pl-series';
+        ss.textContent = subs.join(' ');
+        lab.appendChild(ss);
+      }
+      labelsEl.appendChild(lab);
     }
   }
 

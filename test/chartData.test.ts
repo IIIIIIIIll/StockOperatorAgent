@@ -2,7 +2,7 @@
 // 财务趋势图数据(N/A 跳过 + 空态)、业绩卡片销售毛利率。
 import { describe, expect, it } from 'vitest';
 import { changePercentSeries, turnoverPct } from '../src/pipeline.ts';
-import { changePctHistData, financialTrendSeries, salesGrossMargin } from '../src/chartData.ts';
+import { changePctHistData, FINANCIAL_COLORS, financialTrendSeries, salesGrossMargin } from '../src/chartData.ts';
 import type { DailyBar } from '../src/store.ts';
 import type { F10Record } from '../src/f10.ts';
 
@@ -95,6 +95,36 @@ describe('financialTrendSeries (财务跨期折线)', () => {
       { time: '2026-03-31', value: 44.8 },
       { time: '2026-06-30', value: 45.2 },
     ]);
+  });
+
+  it('毛利率全 N/A → 回退净资产收益率(reports.fields.net_worth_return_rate),乱序 reports 仍升序成线', () => {
+    const reports = [
+      { report_date: '20260331', fields: { net_profit: NaN, eps: NaN, net_worth_return_rate: 8.5, sales_gross_margin: NaN } },
+      { report_date: '20251231', fields: { net_profit: NaN, eps: NaN, net_worth_return_rate: 9.1, sales_gross_margin: NaN } },
+      { report_date: '20260630', fields: { net_profit: NaN, eps: NaN, net_worth_return_rate: 9.8, sales_gross_margin: NaN } },
+    ];
+    const profit: F10Record[] = [
+      { metric: '销售毛利率', period: '2026-06-30', value_raw: '---', value_num: NaN },
+      { metric: '销售毛利率', period: '2026-03-31', value_raw: '---', value_num: NaN },
+    ];
+    const out = financialTrendSeries(reports, profit);
+    expect(out.map((s) => s.label)).toEqual(['净资产收益率']);
+    expect(out[0].color).toBe(FINANCIAL_COLORS.grossMargin);
+    expect(out[0].points).toEqual([
+      { time: '2025-12-31', value: 9.1 },
+      { time: '2026-03-31', value: 8.5 },
+      { time: '2026-06-30', value: 9.8 },
+    ]);
+  });
+
+  it('毛利率与净资产收益率均无 → 仅净利润/每股收益两条线', () => {
+    const reports = [
+      { report_date: '20260331', fields: { net_profit: 100, eps: 0.5, net_worth_return_rate: NaN, sales_gross_margin: NaN } },
+      { report_date: '20260630', fields: { net_profit: 200, eps: 1.0, net_worth_return_rate: NaN, sales_gross_margin: NaN } },
+    ];
+    const out = financialTrendSeries(reports, []);
+    expect(out.map((s) => s.label)).toEqual(['净利润', '每股收益']);
+    expect(out.some((s) => s.label === '净资产收益率')).toBe(false);
   });
 
   it('N/A 期跳过(非数值字段/NaN);某指标全 N/A → 该线省略', () => {

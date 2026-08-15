@@ -118,6 +118,8 @@ function hexToRgba(hex: string, alpha: number): string {
 
 export default function IndicatorChart({ bars, rows, changePct, theme }: { bars: Bar[]; rows: IndicatorRow[]; changePct: number[]; theme: Theme }) {
   const ref = React.useRef<View | null>(null);
+  // 各 pane 顶 y 坐标(web 分支浮层标题定位;stretch 后按实际高度累积)
+  const [paneTops, setPaneTops] = React.useState<number[]>([]);
   const styles = makeStyles(theme);
 
   React.useEffect(() => {
@@ -209,6 +211,14 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
       // 面板比例:全部 series 建完后设置 stretch(比例布局,与当前高度无关)
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 70));
+      // 面板顶位置:stretch 后取各 pane 实际高度累积(pane 数 == LEGEND 数)
+      let acc = 0;
+      const tops: number[] = [];
+      for (const p of chart.panes()) {
+        tops.push(acc);
+        acc += p.getHeight();
+      }
+      setPaneTops(tops);
     });
     return () => { disposed = true; chart?.remove(); };
   }, [bars, rows, changePct, theme]);
@@ -329,8 +339,16 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
           </View>
         ))}
       </View>
-      {/* web 下 ref 挂到 div(View 渲染为 div) */}
-      <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
+      {/* web 下 ref 挂到 div(View 渲染为 div);浮层标题叠加在各 pane 顶部 */}
+      <View style={{ position: 'relative', width: '100%' }}>
+        <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
+        {paneTops.map((top, i) => (LEGEND[i] ? (
+          <View key={i} pointerEvents="none" style={[styles.paneLabel, { top }]}>
+            <Text style={styles.paneLabelTitle}>{LEGEND[i].title}</Text>
+            <Text numberOfLines={1} style={styles.paneLabelSeries}>{LEGEND[i].series.map((s) => s.label).join(' ')}</Text>
+          </View>
+        ) : null))}
+      </View>
     </View>
   );
 }
@@ -343,5 +361,9 @@ function makeStyles(theme: Theme) {
     legendChip: { flexDirection: 'row', alignItems: 'center', marginRight: 10, marginBottom: 2 },
     legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 3 },
     legendLabel: { fontSize: 10, color: theme.colors.textSecondary },
+    // 浮层标题:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
+    paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 10, maxWidth: '85%' },
+    paneLabelTitle: { fontWeight: '700', fontSize: 11, color: theme.colors.textSecondary },
+    paneLabelSeries: { fontSize: 11, opacity: 0.8, color: theme.colors.textSecondary, flexShrink: 1 },
   });
 }
