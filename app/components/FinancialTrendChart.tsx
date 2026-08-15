@@ -59,6 +59,8 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
         const bar = chart!.addSeries(HistogramSeries, { color: s.color }, i);
         bar.setData(s.points);
       });
+      // 稀疏季度轴(9 期):fitContent 铺满,避免柱群挤在时间轴一侧(2026-08-15)
+      chart.timeScale().fitContent();
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
       // 面板顶位置:纯比例计算(见 IndicatorChart 同注释——pane.getHeight() 在
       // createChart 后立即读取返回未布局值,2026-08-15 实测)

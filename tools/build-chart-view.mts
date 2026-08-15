@@ -192,6 +192,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
     currentChart = chart;
 
+    var totalPoints = 0;
     for (var pi2 = 0; pi2 < panes.length; pi2++) {
       var pane = panes[pi2];
       var sers2 = pane.series || [];
@@ -199,6 +200,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         var def = sers2[si2];
         var pts = def.data || [];
         if (!pts.length) continue; // 空序列跳过(不建 series)
+        totalPoints += pts.length;
         var opts = {};
         if (def.type === 'candles') {
           opts = {
@@ -217,6 +219,14 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         var s = chart.addSeries(seriesCtor(def.type), opts, pi2);
         s.setData(pts);
       }
+    }
+
+    // 数据点少(稀疏季度轴,如财务趋势 9 期):lightweight-charts 默认按固定
+    // barSpacing 布局,不会自动铺满 —— 少量点会挤在时间轴一侧留大片空白
+    // (用户 2026-08-15 反馈)。显式 fitContent 铺满;K线(数千点)不触发,
+    // 保持滚动窗口默认行为。
+    if (totalPoints > 0 && totalPoints <= 200) {
+      chart.timeScale().fitContent();
     }
 
     // 面板比例:全部 series 建完后设置 stretch(比例布局,与 web 分支同序;禁 setHeight)
