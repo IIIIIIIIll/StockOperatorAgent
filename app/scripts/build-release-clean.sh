@@ -55,3 +55,9 @@ print('OK: APK bundle contains none of the .env values')
 PY
 
 echo "release APK: android/app/build/outputs/apk/release/app-release.apk"
+
+# 分发副本:友好文件名(带版本号),放 dist/(gitignored)
+VERSION=$(python3 -c "import json; print(json.load(open('app.json'))['expo']['version'])")
+mkdir -p dist
+cp android/app/build/outputs/apk/release/app-release.apk "dist/做个好人AI股票分析系统-v${VERSION}.apk"
+echo "dist APK:    dist/做个好人AI股票分析系统-v${VERSION}.apk"
