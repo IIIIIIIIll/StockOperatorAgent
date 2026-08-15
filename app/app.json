@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "StockOperatorAgent",
+    "name": "做个好人AI股票分析系统",
     "slug": "stock-operator-agent",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
     "android": {
       "package": "com.stockoperatoragent.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#D32F2F",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
