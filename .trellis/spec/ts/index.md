@@ -209,3 +209,26 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
 - **图例与颜色单点定义**:系列色常量 `C` 与 `LEGEND` 数组同源,图例 chips
   与图上线条不漂移;柱(成交量/MACD/MACD_VH)用 `theme.colors.up/down` 半透明。
 
+
+## RN/Hermes 运行时兼容面(08-15-android-standalone-tdx)
+
+真机跑通 node-tdx-market + LangChain 所需的 Hermes 缺口(全部在
+`app/lib/polyfill.ts` / `app/lib/*-shim.*`,metro resolveRequest 重定向):
+
+- **Buffer#subarray 必须返回 Buffer 视图**(部分 Buffer 实现返回裸 Uint8Array →
+  readUInt32BE undefined);polyfill 包一层 `Buffer.from(view.buffer, offset, len)`。
+- **timer 句柄补 unref/ref no-op**(Hermes 返回数字;RN timer 不阻塞进程,no-op
+  语义正确);clearTimeout/clearInterval 自动解包。
+- **crypto**:randomUUID + getRandomValues(Math.random 熵,仅 id 用途)。
+- **navigator.userAgent**(langchain isJsDom 读它)→ 补空串。
+- **AbortSignal.throwIfAborted**(LangGraph stream config 挂 signal,包装器调用)。
+- **node:zlib**:node-tdx-market 每帧 inflateSync——手写 RFC1950/1951 inflate
+  (zlib-shim.ts);同步 require 经 **CJS 跳板**(zlib-shim.cjs)取导出。
+- **GBK 解码用 iconv-lite**(Hermes TextDecoder 不支持 gbk),不走 TextDecoder。
+- **lazy 模式下跨目录相对动态 import 运行时解析失效**(agents.ts `import
+  './committee.ts'`)→ 改静态 import(agents↔committee 循环在 Metro CJS 语义
+  下安全,运行时访问 live binding)。
+- **EXPO_PUBLIC_* 必须直接 process.env.X 成员访问**——babel-preset-expo 只
+  静态内联直接访问,`const env = process.env` 别名逃逸 → release 运行时缺失。
+- **edge-to-edge 顶部 inset**:header 需 `(RNStatusBar.currentHeight ?? 0)` 上
+  移,否则 Android 15+ 状态栏盖住 ☰ 等顶部控件。
