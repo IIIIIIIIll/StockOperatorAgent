@@ -307,7 +307,6 @@ export default function App() {
           </Pressable>
           <Text style={styles.heading}>{THEME_HEADING}</Text>
         </View>
-        <Text style={styles.subtitle}>TS 版投资委员会 · 数据链/编排层/UI 全 TS 移植</Text>
       </View>
 
       {/* ticker 表单(首页最显眼,对齐 Python 主区表单) */}
@@ -419,7 +418,6 @@ function makeStyles(theme: Theme) {
     hamburger: { paddingVertical: 2, paddingRight: 2 },
     hamburgerIcon: { fontSize: 22, color: theme.colors.text, lineHeight: 24 },
     heading: { fontSize: 24, fontWeight: '800', color: theme.colors.primary, letterSpacing: 0.5 },
-    subtitle: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
     form: { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
     formLabel: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing.sm },
     formRow: { flexDirection: 'row', gap: theme.spacing.sm },

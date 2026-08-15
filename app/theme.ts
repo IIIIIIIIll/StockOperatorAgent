@@ -64,4 +64,4 @@ export function useTheme(): Theme {
   return scheme === 'dark' ? dark : light;
 }
 
-export const THEME_HEADING = '超绝AI股票分析系统 📈';
+export const THEME_HEADING = '好人AI股票分析系统 📈';
