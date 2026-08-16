@@ -1083,3 +1083,24 @@ MarketCollector+桥动态import(web去死链)/死代码4类/常量单源/探针�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 39: 归一化收尾:桌面后端+配置显式化+约定强制
+
+**Date**: 2026-08-16
+**Task**: 归一化收尾:桌面后端+配置显式化+约定强制
+**Branch**: `master`
+
+### Summary
+
+process.env 零写入;switches 显式注入;store-node+setStore 桌面后端;architecture 9 断言;vitest 405+模拟器真实分析1650.6s
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3ce5072` | (see git log) |
+
+### Status
+
+[OK] **Completed**

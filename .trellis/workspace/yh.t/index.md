@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 38
+- **Total Sessions**: 39
 - **Last Active**: 2026-08-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1085 | Active |
+| `journal-1.md` | ~1106 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 39 | 2026-08-16 | 归一化收尾:桌面后端+配置显式化+约定强制 | `3ce5072` | `master` |
 | 38 | 2026-08-16 | 审计整改 7 子任务实施 | `c23cf88` | `master` |
 | 37 | 2026-08-16 | 模块化与跨平台就绪度审计(4 scout) | - | `master` |
 | 36 | 2026-08-16 | App.tsx 抽取 useAnalysis hook 重构 | `ef1cdb5` | `master` |
