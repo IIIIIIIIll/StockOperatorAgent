@@ -153,6 +153,13 @@ res.end();
   经理报告只进 `final_decision` 字段不在 opinions);未命中/损坏 JSON → 静默
   降级 demo 路径。恢复内容带时间+模式标记("已显示上次分析结果"),防误当实时
   新分析;四平台共用同一 meta 面。
+- **UI 层结构(08-16-app-analysis-hook)**:分析编排(状态/启动链/`runner`
+  订阅/`start` 编排/设置保存)在 `app/hooks/useAnalysis.ts`,App.tsx 是纯渲染
+  层(UI 状态 activeTab/ticker/showSettings + 派生 + `__soa` 调试钩子 +
+  样式)。约束:`start(ticker)` 参数化(ticker 输入框在 App);hook 内订阅 effect
+  保持空依赖数组——闭包只碰稳定引用(`modeRef`)+ 模块级 `enabledRoles()`,
+  新增状态读取若来自 settings 必须经 ref 同步(防陈旧闭包);后续 UI 逻辑
+  (新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx。
 
 ## 能力接线(08-13-ts-capability-completion;Python phase out 后唯一实现)
 
