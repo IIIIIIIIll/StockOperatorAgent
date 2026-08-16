@@ -12,6 +12,7 @@ import { computeAll } from '../../src/indicators.ts';
 import { changePercentSeries, fmtNumber, turnoverPct } from '../../src/pipeline.ts';
 import { financialTrendSeries, salesGrossMargin } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
+import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key } from '../../src/metaKeys.ts';
 import { useTheme, type Theme } from '../theme';
 
 const DAILY_TABLE_N = 20;
@@ -23,15 +24,15 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   const styles = makeStyles(theme);
   const bars = React.useMemo(() => store.getDatas(ticker), [ticker, dataVersion]);
   const stock = store.getStock(ticker);
-  const f10Text = store.getMeta(`f10:${ticker}`) ?? (ticker === '600036' ? (store.getMeta('demo:f10') ?? '') : '');
+  const f10Text = store.getMeta(f10Key(ticker)) ?? (ticker === DEMO_TICKER ? (store.getMeta(DEMO_F10_KEY) ?? '') : '');
   const profit = f10Text ? parseIndicatorSection(f10Text, '【盈利能力指标】') : [];
   const periods = [...new Set(profit.map((r) => r.period))].sort();
   const latest = periods[periods.length - 1] ?? '';
   const reports = store.getPerformanceReports(ticker);
-  // 股本结构:web 采集经 webCollect 持久化 meta 'capital:${ticker}'(股本结构节文本);
+  // 股本结构:web 采集经 webCollect 持久化 meta capitalKey(ticker)(股本结构节文本);
   // demo/未采集 → null(换手率列显示 N/A,与 Python 缺股本语义一致)
   const capital = React.useMemo(() => {
-    const text = store.getMeta(`capital:${ticker}`);
+    const text = store.getMeta(capitalKey(ticker));
     return text ? parseCapitalStructure(text) : null;
   }, [ticker]);
   // 涨跌幅:由 bars 现算(复用 pipeline changePercentSeries 公式;首根 NaN → N/A)
@@ -57,7 +58,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   // 图表涨跌幅窗口切片:memo 保持稳定引用(chartRows/klineBars 同款)——内联
   // slice 每次渲染新数组会触发 IndicatorChart 全图重建(流式 progress 重渲染时闪烁)
   const klineChangePct = React.useMemo(() => changePct.slice(-KLINE_N), [changePct]);
-  // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 600036 正确);
+  // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 DEMO_TICKER 正确);
   // 图表与 chips 共用同一份结果,窗口切片保持稳定引用避免流式重渲染时重建图表
   const indRows = React.useMemo(
     () => computeAll(bars.map((b) => ({ open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume }))),

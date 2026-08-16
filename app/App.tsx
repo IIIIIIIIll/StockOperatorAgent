@@ -4,25 +4,36 @@
 // 分析编排(状态/启动链/订阅/start)在 app/hooks/useAnalysis.ts(08-16 重构),
 // 本组件只保留 UI 状态(activeTab/ticker/showSettings)、派生与渲染。
 import React from 'react';
-import { Pressable, ScrollView, StatusBar as RNStatusBar, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import ReportContent from './components/ReportContent';
 import DataScreen from './screens/DataScreen';
 import SettingsPanel from './screens/SettingsPanel';
 import { THEME_HEADING, useTheme, type Theme } from './theme';
 import { missingLlmKeys } from './lib/settings';
 import { reportRoles } from '../src/committee.ts';
+import { DEMO_TICKER } from '../src/metaKeys.ts';
 import { useAnalysis } from './hooks/useAnalysis';
 import type { PipelineEvent } from './lib/runner';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
   const theme = useTheme();
-  const styles = makeStyles(theme);
+  const insets = useSafeAreaInsets();
+  const styles = makeStyles(theme, insets);
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = React.useState<TabId>('data');
-  const [ticker, setTicker] = React.useState('600036');
+  const [ticker, setTicker] = React.useState(DEMO_TICKER);
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
   const [showSettings, setShowSettings] = React.useState(false);
   React.useEffect(() => {
@@ -81,7 +92,7 @@ export default function App() {
             style={styles.tickerInput}
             value={ticker}
             onChangeText={setTicker}
-            placeholder="600036"
+            placeholder={DEMO_TICKER}
             maxLength={6}
             autoCapitalize="none"
             keyboardType="number-pad"
@@ -179,10 +190,10 @@ export default function App() {
   );
 }
 
-function makeStyles(theme: Theme) {
+function makeStyles(theme: Theme, insets: EdgeInsets) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: theme.colors.background },
-    header: { paddingHorizontal: theme.spacing.lg, paddingTop: (RNStatusBar.currentHeight ?? 0) + theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    header: { paddingHorizontal: theme.spacing.lg, paddingTop: insets.top + theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     headerRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
     hamburger: { paddingVertical: 2, paddingRight: 2 },
     hamburgerIcon: { fontSize: 22, color: theme.colors.text, lineHeight: 24 },

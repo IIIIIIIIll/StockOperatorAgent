@@ -8,6 +8,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { IChartApi } from 'lightweight-charts';
 import type { FinancialSeries } from '../../src/chartData.ts';
+import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { CHART_HTML } from '../lib/chartHtml';
 import type { Theme } from '../theme';
 
@@ -62,16 +63,10 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
       // 稀疏季度轴(9 期):fitContent 铺满,避免柱群挤在时间轴一侧(2026-08-15)
       chart.timeScale().fitContent();
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
-      // 面板顶位置:纯比例计算(见 IndicatorChart 同注释——pane.getHeight() 在
-      // createChart 后立即读取返回未布局值,2026-08-15 实测)
-      const sumStretch = PANE_STRETCH.reduce((a, b) => a + b, 0);
-      let acc = 0;
-      const tops: number[] = [];
-      for (const st of PANE_STRETCH) {
-        tops.push(acc);
-        acc += (CHART_HEIGHT * st) / sumStretch;
-      }
-      setPaneTops(tops);
+      // 面板顶位置:纯比例计算(实现与 IndicatorChart 共用 src/chartLayout.ts
+      // paneTops——pane.getHeight() 在 createChart 后立即读取返回未布局值,
+      // 2026-08-15 实测)
+      setPaneTops(computePaneTops(PANE_STRETCH.map((stretchFactor) => ({ height: CHART_HEIGHT, stretchFactor }))));
     });
     return () => { disposed = true; chart?.remove(); };
   }, [series, theme]);

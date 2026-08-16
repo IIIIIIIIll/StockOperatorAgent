@@ -5,6 +5,7 @@ import type { DailyBar, StoreLike } from './store.ts';
 import type { CollectedSnapshot } from './tdx/quoteClient.ts';
 import { parseCapitalStructure, parseFinanceIndicatorsAllTables } from './f10.ts';
 import { composeReports } from './reports.ts';
+import { capitalKey, f10Key } from './metaKeys.ts';
 
 export interface CollectedPayload {
   ticker: string;
@@ -45,14 +46,14 @@ export function applyCollectedToStore(store: StoreLike, payload: CollectedPayloa
     // 同日跳过:保留既有 lastDataUpdate(维持下次跳过判定);否则清空由 replaceDatas 重写
     lastDataUpdate: payload.skipDaily ? (prev?.lastDataUpdate ?? null) : null,
   });
-  // 全量替换(代理返回 IPO 全量;防 demo 预载 600036 与真实数据合并混入)。
+  // 全量替换(代理返回 IPO 全量;防 demo 预载数据与真实数据合并混入)。
   // 同日跳过 → bars 为空:guard 免误清(InMemory replaceDatas 先删后加,空数组会清空既有日K)
   if (payload.bars.length) {
     store.replaceDatas(payload.ticker, payload.bars);
   }
-  // per-ticker F10(修复旧全局 demo:f10 串票)+ 业绩报告入库(修复业绩报告(0))
+  // per-ticker F10(修复旧全局 DEMO_F10_KEY 串票)+ 业绩报告入库(修复业绩报告(0))
   if (payload.f10Text) {
-    store.setMeta(`f10:${payload.ticker}`, payload.f10Text);
+    store.setMeta(f10Key(payload.ticker), payload.f10Text);
     const reports = composeReports(
       payload.ticker,
       payload.name ?? payload.ticker,
@@ -62,7 +63,7 @@ export function applyCollectedToStore(store: StoreLike, payload: CollectedPayloa
   }
   // 股本结构文本持久化(DataScreen 换手率列消费;缺省不写,读 null → N/A)
   if (payload.capitalText) {
-    store.setMeta(`capital:${payload.ticker}`, payload.capitalText);
+    store.setMeta(capitalKey(payload.ticker), payload.capitalText);
   }
   return {
     f10Text: payload.f10Text || null,

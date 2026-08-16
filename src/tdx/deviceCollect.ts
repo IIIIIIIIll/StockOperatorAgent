@@ -8,10 +8,11 @@ import { TdxClient } from 'node-tdx-market';
 import type { StoreLike } from '../store.ts';
 import type { CollectSkipOpts, CollectedPayload, WebCollectResult } from '../webCollect.ts';
 import { applyCollectedToStore } from '../webCollect.ts';
-import { asiaToday, freshnessGates } from '../gates.ts';
-import { info, warn } from '../log.ts';
+import { resolveSkipGates } from '../collector.ts';
+import { warn } from '../log.ts';
 import { collectAll } from './quoteClient.ts';
 import { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent, type F10Category } from './f10Client.ts';
+import { f10Key } from '../metaKeys.ts';
 
 // ─── store 注入 ──────────────────────────────────────────────────────────────
 // collectForDevice 签名固定(ticker+opts,对齐 collectForWeb 输入形),store 由
@@ -26,7 +27,7 @@ export function setDeviceStore(store: StoreLike): void {
 // 实测可达节点(2026-08-15 WSL2 网络 5/5 连通;真机移动网络同网段预期可达)。
 // 顺序尝试 + TDX_HOST env 覆盖(服务器漂移兜底)。
 export const DEVICE_TDX_HOSTS: string[] = [
-  process.env.TDX_HOST ?? '150.158.160.2',
+  process.env.EXPO_PUBLIC_TDX_HOST ?? process.env.TDX_HOST ?? '150.158.160.2',
   '124.71.187.122',
   '101.35.121.35',
   '122.51.120.217',
@@ -58,17 +59,9 @@ export async function collectForDevice(
     throw new Error('真机采集未就绪:store 未注入(需先调 setDeviceStore)');
   }
   const store = deviceStore;
-  const today = asiaToday();
-  const stock = store.getStock(ticker);
-  const reports = store.getPerformanceReports(ticker);
-  const latestReportDate = reports.reduce((m, r) => (r.report_date > m ? r.report_date : m), '') || null;
-  const gates = freshnessGates(stock?.lastDataUpdate ?? null, latestReportDate, today);
-  const skipDaily = opts?.skipDaily ?? gates.dailyFresh;
-  const skipF10 = opts?.skipF10 ?? gates.f10Fresh;
-  const skipped: string[] = [];
-  if (skipDaily) skipped.push('日K(同日已采集)');
-  if (skipF10) skipped.push('F10财务分析(同季已入库)');
-  if (skipped.length) info(`跳过采集:${skipped.join('、')},沿用既有数据`);
+  // skip 判定共用 resolveSkipGates(store 现状自动判定,opts 显式布尔覆盖;
+  // 原 freshnessGates 逐行逻辑已抽共享,见 src/collector.ts)
+  const { skipDaily, skipF10 } = resolveSkipGates(store, ticker, opts);
 
   // host 顺序尝试(设计决策:真机冷启动不做 getFastestHost 并发测速——省
   // 连接与延迟;列表为实测可达节点,TDX_HOST env 可覆盖)。每 host 一次完整
@@ -102,7 +95,7 @@ export async function collectForDevice(
       };
       // 同季跳过 F10:未拉文本 → 缓存文本顶替(applyCollectedToStore 幂等重写)
       if (skipF10 && !payload.f10Text) {
-        payload.f10Text = store.getMeta(`f10:${ticker}`) ?? '';
+        payload.f10Text = store.getMeta(f10Key(ticker)) ?? '';
       }
       return applyCollectedToStore(store, payload);
     } catch (err) {

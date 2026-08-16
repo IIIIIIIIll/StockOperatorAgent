@@ -142,7 +142,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
     // 主题文字色同步给页内文本(继承);图例随各 pane(见下方 pane 覆盖层)
     var layout = data.layout || {};
-    var textColor = layout.text || '#6b7280';
+    var textColor = layout.text || '#6b7280'; // 与 theme.ts light 对齐(theme.ts:31,28,32)
     document.body.style.color = textColor;
 
     var chartEl = document.getElementById('chart');
@@ -174,15 +174,15 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       chart = LWC.createChart(chartEl, {
         height: height,
         layout: {
-          background: { type: LWC.ColorType.Solid, color: layout.background || '#FFFFFF' },
+          background: { type: LWC.ColorType.Solid, color: layout.background || '#FFFFFF' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
           textColor: textColor,
         },
         grid: {
-          vertLines: { color: layout.border || '#e5e7eb' },
-          horzLines: { color: layout.border || '#e5e7eb' },
+          vertLines: { color: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
+          horzLines: { color: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
         },
-        timeScale: { borderColor: layout.border || '#e5e7eb' },
-        rightPriceScale: { borderColor: layout.border || '#e5e7eb' },
+        timeScale: { borderColor: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
+        rightPriceScale: { borderColor: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
         crosshair: { mode: LWC.CrosshairMode.Normal }, // 默认即开启;显式声明(缩放/平移不关闭)
       });
     } catch (err) {

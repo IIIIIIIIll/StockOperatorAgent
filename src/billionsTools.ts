@@ -14,7 +14,7 @@ import { warn } from './log.ts';
 import { BillionsClient, type FetchLike } from './billionsClient.ts';
 import { envDisabledBool } from './committee.ts';
 
-export const BILLIONS_DEFAULT_MAX: Record<string, number> = {
+export const BILLIONS_DEFAULT_MAX: Record<BillionsCapKey, number> = {
   SEARCH: 3,
   TWITTER: 2,
   FETCH: 3,
@@ -164,12 +164,13 @@ function billionsCapEnabled(cap: string, apiKey?: string | null): boolean {
   return !envDisabledBool(`BILLIONS_${cap}_DISABLED`);
 }
 
-/** 上限解析：注入(caps/maxCalls) → env → 默认；注入非法值(NaN/<=0/非数字)回退。 */
-function maxCallsFor(cap: string, injected?: number): number {
+/** 上限解析：注入(caps/maxCalls) → env → 默认；注入非法值(NaN/<=0/非数字)回退。
+ *  默认面单一来源 = BILLIONS_DEFAULT_MAX（cap 已收窄为 BillionsCapKey，索引必然命中）。 */
+function maxCallsFor(cap: BillionsCapKey, injected?: number): number {
   if (injected !== undefined && Number.isFinite(injected) && injected > 0) return injected;
   const env = process.env[`BILLIONS_${cap}_MAX_CALLS`];
   if (env !== undefined && env !== '' && /^\d+$/.test(env)) return Number(env);
-  return BILLIONS_DEFAULT_MAX[cap] ?? 3;
+  return BILLIONS_DEFAULT_MAX[cap];
 }
 
 function makeClient(opts: BillionsToolOpts): BillionsClient {

@@ -160,6 +160,30 @@ res.end();
   保持空依赖数组——闭包只碰稳定引用(`modeRef`)+ 模块级 `enabledRoles()`,
   新增状态读取若来自 settings 必须经 ref 同步(防陈旧闭包);后续 UI 逻辑
   (新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx。
+- **采集抽象与 metro 动态 import 边界(08-16-audit-remediation)**:采集
+  统一 `MarketCollector` 可调用契约(`(ticker, opts?) => Promise<WebCollectResult>`,
+  src/collector.ts);freshness 门共享实现 `resolveSkipGates`(web/device 双实现
+  不再逐行重复)。**跨根动态 import 陷阱(实证)**:metro 把跨项目根(app/)的
+  相对动态 import specifier 在运行时重写为根相对路径 → Android 解析失败;
+  动态 import 目标必须位于 metro 项目根内 —— 真机模块经 `app/lib/
+  deviceBridge.ts` 桥(静态 re-export src/tdx/deviceCollect),平台选择在
+  `app/lib/collectorSelection.ts`(src 不反向依赖 app)。web bundle 只含惰性
+  chunk 引用,不含 node-tdx-market/TCP 链(生产 export grep 实证)。
+- **常量/键名单源(08-16-audit-remediation)**:meta 键与模板集中在
+  `src/metaKeys.ts`(`DEMO_F10_KEY`/`f10Key`/`capitalKey`/`DEMO_TICKER`;
+  LAST_RUN_KEY 仍属 lastRun.ts 单点,不重复导出);亿信能力默认上限单源
+  `billionsTools.BILLIONS_DEFAULT_MAX`(settings.DEFAULT_CAPS import 同源,
+  内部兜底不再魔法数字)。禁止裸字面量 meta 键与 '600036' 硬编码。
+- **平台探针单面(08-16-audit-remediation)**:平台判定统一经
+  `src/log.ts` `detectPlatform()`(web→rn→node);`typeof location` 仅剩
+  App.tsx __soa 钩子豁免。origin 等数据读取用 `location?.origin ?? ''`
+  (不经平台门——测试 stub location 环境仍需读取)。
+- **iOS 安全区(08-16-audit-remediation)**:头部 inset 用
+  `react-native-safe-area-context` `useSafeAreaInsets()`(SafeAreaProvider 包
+  根);`RNStatusBar.currentHeight` 是 android-only,禁止用于顶部布局。
+- **图表布局公共函数(08-16-audit-remediation)**:pane 顶比例计算在
+  `src/chartLayout.ts` `paneTops`(web 两组件共用);HTML 侧(WebView 内嵌 JS)
+  保持镜像注释;`npm run chart:build` 生成、`npm run chart:check` 校验一致性。
 
 ## 能力接线(08-13-ts-capability-completion;Python phase out 后唯一实现)
 

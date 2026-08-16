@@ -4,7 +4,8 @@
 // 消费点 committee.envDisabledBool / webSearchEnabled 同判定)。
 import { createLlm, type LlmConfig } from '../../src/llm.ts';
 import * as settingsStore from './settingsStore.ts';
-import { info, warn, error as logError } from './log.ts';
+import { info, warn, error as logError } from '../../src/log.ts';
+import { BILLIONS_DEFAULT_MAX } from '../../src/billionsTools.ts';
 
 export interface SwitchState {
   tdxMcp: boolean; // TDX MCP(实时市场情报)
@@ -45,7 +46,13 @@ const DEFAULT_SWITCHES: SwitchState = {
   findb: true, search: true, twitter: true, fetch: true, analyst: true,
 };
 
-const DEFAULT_CAPS: CapsState = { searchMax: 3, twitterMax: 2, fetchMax: 3 };
+// caps 默认值单一来源 = billionsTools.BILLIONS_DEFAULT_MAX（UI 面板默认与
+// env/内部兜底同一份；换默认只改 src/billionsTools.ts 一处）。
+const DEFAULT_CAPS: CapsState = {
+  searchMax: BILLIONS_DEFAULT_MAX.SEARCH,
+  twitterMax: BILLIONS_DEFAULT_MAX.TWITTER,
+  fetchMax: BILLIONS_DEFAULT_MAX.FETCH,
+};
 
 const DEFAULT_KEYS: KeysState = {
   llmApiKey: '', llmModel: '', llmBaseUrl: '',

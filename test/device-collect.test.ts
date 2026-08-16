@@ -24,6 +24,7 @@ vi.mock('../src/tdx/f10Client.ts', () => ({
 import { collectForDevice, setDeviceStore, DEVICE_TDX_HOSTS } from '../src/tdx/deviceCollect.ts';
 import { InMemoryStore } from '../src/store-memory.ts';
 import { asiaToday, latestPastQuarterEnd } from '../src/gates.ts';
+import { capitalKey, f10Key } from '../src/metaKeys.ts';
 
 const TICKER = '600036';
 
@@ -109,8 +110,8 @@ describe('collectForDevice', () => {
     // applyCollectedToStore 写 store:bars/名称/per-ticker f10/capital meta
     expect(store.getStock(TICKER)?.name).toBe('招商银行');
     expect(store.getDatas(TICKER)).toEqual(collected.bars);
-    expect(store.getMeta(`f10:${TICKER}`)).toContain('主要财务指标');
-    expect(store.getMeta(`capital:${TICKER}`)).toBe('股本结构文本');
+    expect(store.getMeta(f10Key(TICKER))).toContain('主要财务指标');
+    expect(store.getMeta(capitalKey(TICKER))).toBe('股本结构文本');
 
     // 返回 WebCollectResult(f10Text/snapshot/name;capital 由股本结构文本解析)
     expect(result).toEqual({
@@ -160,12 +161,12 @@ describe('collectForDevice', () => {
   });
 
   it('skipF10 且存在缓存 f10 meta → 缓存文本顶替(不降级占位)', async () => {
-    store.setMeta(`f10:${TICKER}`, '【主要财务指标】\n净资产收益率: 18.8');
+    store.setMeta(f10Key(TICKER), '【主要财务指标】\n净资产收益率: 18.8');
     const result = await collectForDevice(TICKER, { skipF10: true });
 
     expect(result.f10Text).toBe('【主要财务指标】\n净资产收益率: 18.8');
     expect(mocks.getCompanyInfoContent).toHaveBeenCalledTimes(1); // 财务分析节未拉
-    expect(store.getMeta(`f10:${TICKER}`)).toBe('【主要财务指标】\n净资产收益率: 18.8'); // 幂等重写
+    expect(store.getMeta(f10Key(TICKER))).toBe('【主要财务指标】\n净资产收益率: 18.8'); // 幂等重写
   });
 
   it('collectAll 失败 → 全部 host 尝试后 reject 可读中文错误,每个都 disconnect', async () => {

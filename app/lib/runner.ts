@@ -7,12 +7,13 @@ import type { StoreLike } from '../../src/store.ts';
 import { createPipelineRunner, type PipelineEvent, type FinalReport } from '../../src/events.ts';
 import { createLlm, MissingLlmConfigError, type LlmConfig } from '../../src/llm.ts';
 import { applyCollectedToStore, collectViaProxy, type WebCollectResult } from '../../src/webCollect.ts';
-import { asiaToday, freshnessGates } from '../../src/gates.ts';
-import { info } from '../../src/log.ts';
+import { resolveSkipGates } from '../../src/collector.ts';
+import { detectPlatform } from '../../src/log.ts';
 import { getMarketIntel } from '../../src/mcp.ts';
 import { BillionsClient } from '../../src/billionsClient.ts';
 import { billionsEnabled } from '../../src/committee.ts';
 import { makeBillionsTools } from '../../src/billionsTools.ts';
+import { DEMO_F10_KEY, f10Key } from '../../src/metaKeys.ts';
 import { makeWebSearchTool, webSearchEnabled } from '../../src/webSearch.ts';
 import type { ToolLike } from '../../src/toolLoop.ts';
 import { AIMessage } from '@langchain/core/messages';
@@ -24,18 +25,16 @@ interface PersistentStore extends StoreLike {
   ready(): Promise<void>;
 }
 
-// 平台选择:web 走 IndexedDB;RN 走 expo-file-system 文件后端。探针用 typeof
-// location(ts/ 为 node-only lib 无 DOM/RN 类型,不能 import react-native——
-// vitest node 环境解析失败;webSearch.ts 同款探针姿势)。
-const isWeb = typeof location !== 'undefined';
-export const store: StoreLike = isWeb ? new IdbStore() : new FileStore();
+// 平台选择:web 走 IndexedDB;RN 走 expo-file-system 文件后端。判定统一走
+// detectPlatform(log.ts 单面探针,web→rn→node,跨子契约 4)。
+export const store: StoreLike = detectPlatform() === 'web' ? new IdbStore() : new FileStore();
 
 /** 持久化后端就绪(IndexedDB 打开 + 内存 hydrate / 文件读回)。App 启动链先 await 再加载。 */
 export function storeReady(): Promise<void> {
   return (store as PersistentStore).ready();
 }
 
-// 演示数据载入(600036:250 根日K + 指标 + F10;仅预览/未起 server 时的占位视图)
+// 演示数据载入(demo.ticker:250 根日K + 指标 + F10;仅预览/未起 server 时的占位视图)
 // 仅空库(getStock/getDatas 全空)时载入——有跨会话持久化数据则跳过
 export function loadDemoData(): void {
   if (store.getStock(demo.ticker) !== null || store.getDatas(demo.ticker).length > 0) return;
@@ -47,16 +46,16 @@ export function loadDemoData(): void {
     lastDataUpdate: demo.bars[demo.bars.length - 1].date,
   });
   store.addDatas(demo.ticker, demo.bars as never);
-  store.setMeta('demo:f10', demo.f10_text);
+  store.setMeta(DEMO_F10_KEY, demo.f10_text);
 }
 
 export const runner = createPipelineRunner(store);
 
-// 浏览器全局（ts/ 为 node-only lib 无 DOM 类型；运行时守卫 typeof location，
-// webSearch.ts 同款探针姿势）。
+// 浏览器全局(ts/ 为 node-only lib 无 DOM 类型;运行时守卫统一走
+// detectPlatform 单面探针,见 collectForWeb 内 origin 计算)。
 declare const location: { origin?: string } | undefined;
 
-/** 采集跳过选项:缺省(undefined)按 store 现有数据自动判定(freshnessGates);
+/** 采集跳过选项:缺省(undefined)按 store 现有数据自动判定(resolveSkipGates);
  *  显式布尔值覆盖自动判定(测试/调试用)。向后兼容——旧调用无第二参,恒全量判定。 */
 export interface CollectForWebOpts {
   skipDaily?: boolean;
@@ -70,59 +69,20 @@ export interface CollectForWebOpts {
  *  跳过源不拉网络、沿用既有数据(不置空);部分 fresh 不整体短路。
  *  同季跳过 F10 时用上次入库的缓存文本(f10:ticker meta)顶替,盈利能力块不降级占位。 */
 export async function collectForWeb(ticker: string, opts?: CollectForWebOpts): Promise<WebCollectResult> {
-  const today = asiaToday();
-  const stock = store.getStock(ticker);
-  const reports = store.getPerformanceReports(ticker);
-  const latestReportDate = reports.reduce((m, r) => (r.report_date > m ? r.report_date : m), '') || null;
-  const gates = freshnessGates(stock?.lastDataUpdate ?? null, latestReportDate, today);
-  const skipDaily = opts?.skipDaily ?? gates.dailyFresh;
-  const skipF10 = opts?.skipF10 ?? gates.f10Fresh;
-  const skipped: string[] = [];
-  if (skipDaily) skipped.push('日K(同日已采集)');
-  if (skipF10) skipped.push('F10财务分析(同季已入库)');
-  if (skipped.length) info(`跳过采集:${skipped.join('、')},沿用既有数据`);
-  // web 端 location 全局(ts/ 为 node-only lib 无 DOM 类型;运行时守卫 typeof,
-  // webSearch.ts 同款探针姿势)。Node/RN 无 location → '' 相对 URL——本函数仅
-  // web 路径调用(App 已按 Platform.OS 门控)。
-  const origin = typeof location !== 'undefined' ? location.origin ?? '' : '';
+  // skip 判定共用 resolveSkipGates(store 现状自动判定,opts 显式布尔覆盖;
+  // 原 freshnessGates 逐行逻辑已抽共享,见 src/collector.ts)
+  const { skipDaily, skipF10 } = resolveSkipGates(store, ticker, opts);
+  // web 端 location 全局(ts/ 为 node-only lib 无 DOM 类型)。origin 是数据
+  // 读取而非平台选择:任何存在 location 的环境(web/测试 stub)取其 origin,
+  // 不存在(Node/RN)→ '' 相对 URL——等价旧 typeof location 守卫。本函数仅
+  // web 路径调用(App 已按 Platform.OS 门控),守卫仅为非 web 误调兜底。
+  const origin = location?.origin ?? '';
   const payload = await collectViaProxy(ticker, origin, { skipDaily, skipF10 });
   // 同季跳过 F10:代理未拉文本 → 缓存文本顶替(applyCollectedToStore 幂等重写)
   if (skipF10 && !payload.f10Text) {
-    payload.f10Text = store.getMeta(`f10:${ticker}`) ?? '';
+    payload.f10Text = store.getMeta(f10Key(ticker)) ?? '';
   }
   return applyCollectedToStore(store, payload);
-}
-
-// ─── 设置持久化(web 遗留;RN 真机不用这三函数——App.tsx 走 settings.ts/settingsStore) ─
-
-const CFG_KEY = 'soa:llm-config';
-
-export function readSavedConfig(): LlmConfig | null {
-  try {
-    const raw = globalThis.localStorage?.getItem(CFG_KEY);
-    if (!raw) return null;
-    const cfg = JSON.parse(raw) as LlmConfig;
-    if (cfg.apiKey && cfg.model && cfg.baseUrl) return cfg;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveConfig(cfg: LlmConfig): void {
-  try {
-    globalThis.localStorage?.setItem(CFG_KEY, JSON.stringify(cfg));
-  } catch {
-    /* web 外无 localStorage */
-  }
-}
-
-export function clearConfig(): void {
-  try {
-    globalThis.localStorage?.removeItem(CFG_KEY);
-  } catch {
-    /* noop */
-  }
 }
 
 // ─── 演示 stub LLM(无三键时;按 system 消息路由角色) ─────────────────────

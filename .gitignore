@@ -24,5 +24,7 @@ dist/
 *.db-shm
 *.db-wal
 app/dist/
+# 生成产物(tools/build-chart-view.mts 产出;勿手改)
+app/assets/chart-view.html
 probe-output/
 app/.expo/

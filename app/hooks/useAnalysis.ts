@@ -33,11 +33,12 @@ import {
   type FinalReport,
 } from '../lib/runner';
 import { describeError } from '../../src/events.ts';
-import { collectForDevice, setDeviceStore } from '../../src/tdx/deviceCollect.ts';
+import { selectCollector } from '../lib/collectorSelection';
 import { startAnalysisKeepAlive, stopAnalysisKeepAlive } from '../modules/soa-keepalive';
 import type { RoleStatus } from '../../src/progress.ts';
 import { loadLastRun, saveLastRun } from '../../src/lastRun.ts';
-import { info, warn, error as logError } from '../lib/log';
+import { DEMO_F10_KEY, DEMO_TICKER } from '../../src/metaKeys.ts';
+import { info, warn, error as logError } from '../../src/log.ts';
 
 export interface UseAnalysis {
   events: PipelineEvent[];
@@ -68,7 +69,7 @@ export function useAnalysis(): UseAnalysis {
   const [statuses, setStatuses] = React.useState<Record<string, RoleStatus>>({});
   const [dataVersion, setDataVersion] = React.useState(0);
   // 最近一次成功分析/采集的 ticker(采集数据 Tab 的数据源;默认 demo 票)
-  const [lastRunTicker, setLastRunTicker] = React.useState('600036');
+  const [lastRunTicker, setLastRunTicker] = React.useState(DEMO_TICKER);
   // 上次分析运行模式(real|demo):subscribe effect 闭包持初始 settings 会陈旧,
   // 用 ref 在 start() 计算 mode 处同步,写缓存与标记时以 start() 时刻为准
   const modeRef = React.useRef<'real' | 'demo'>('demo');
@@ -89,9 +90,15 @@ export function useAnalysis(): UseAnalysis {
         setError(msg);
         return;
       }
-      setDeviceStore(store); // RN 真机采集注入;web 不使用
+      // RN 真机采集注入(动态 import——web bundle 不含 node-tdx-market 死链);
+      // web 不使用。设备上注入先于任何采集(保持原时序:setDeviceStore 在
+      // start() 采集前完成)。
+      if (Platform.OS !== 'web') {
+        const { setDeviceStore } = await import('../lib/deviceBridge');
+        setDeviceStore(store);
+      }
       loadDemoData(); // 仅空库时载入 demo(有跨会话持久化数据则跳过)
-      const bars = store.getDatas('600036');
+      const bars = store.getDatas(DEMO_TICKER);
       info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
       // 上次分析缓存恢复:有缓存 → 恢复展示(报告 Tab/最终决策/采集数据/状态
       // chips),不再展示 demo 占位;无缓存 → 现状 demo 上下文(loadDemoData
@@ -119,9 +126,9 @@ export function useAnalysis(): UseAnalysis {
         setLastRunAt({ at: last.at, mode: last.mode });
       } else {
         // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
-        const demoF10 = store.getMeta('demo:f10');
+        const demoF10 = store.getMeta(DEMO_F10_KEY);
         setStockInformation(
-          buildStockInformation('600036', { store, f10Text: demoF10, today: new Date().toISOString().slice(0, 10) }),
+          buildStockInformation(DEMO_TICKER, { store, f10Text: demoF10, today: new Date().toISOString().slice(0, 10) }),
         );
       }
       const loaded = loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
@@ -232,39 +239,28 @@ export function useAnalysis(): UseAnalysis {
       let snapshot: { price: number; high: number; low: number; open: number } | null = null;
       let stockName: string | null = null;
       let capital: { zongguben: number; liutongguben: number } | null = null;
-      if (Platform.OS === 'web') {
-        info(`正在采集 ${code} 的真实行情(TDX 代理)...`);
-        try {
-          const collected = await collectForWeb(code);
-          f10Text = collected.f10Text ?? undefined;
-          snapshot = collected.snapshot;
-          stockName = collected.name;
-          capital = collected.capital;
-          info(`采集完成:${store.getDatas(code).length} 根日K + F10`);
-          setDataVersion((v) => v + 1); // 采集数据 Tab 立即刷新
-        } catch (err) {
-          const detail = describeError(err);
-          logError(`采集失败:${detail}`);
-          setError(`行情采集失败:${detail}`);
-          return;
-        }
-      } else {
-        // 真机:TDX TCP 直连(node-tdx-market 经 RN TCP shim)
-        info(`正在采集 ${code} 的真实行情(TDX 直连)...`);
-        try {
-          const collected = await collectForDevice(code);
-          f10Text = collected.f10Text ?? undefined;
-          snapshot = collected.snapshot;
-          stockName = collected.name;
-          capital = collected.capital;
-          info(`采集完成:${store.getDatas(code).length} 根日K + F10`);
-          setDataVersion((v) => v + 1); // 采集数据 Tab 立即刷新
-        } catch (err) {
-          const detail = describeError(err);
-          logError(`采集失败:${detail}`);
-          setError(`行情采集失败:${detail}`);
-          return;
-        }
+      // 采集:web 走同源代理(collectForWeb 静态绑定);真机 TDX 直连
+      // (collectForDevice 经 selectCollector 动态 import——仅非 web 求值,
+      // web bundle 不含 node-tdx-market 死链)。两实现同一 MarketCollector
+      // 接口,skip 判定共用 resolveSkipGates(store 现状自动判定,见 src/collector.ts)
+      info(`正在采集 ${code} 的真实行情(${Platform.OS === 'web' ? 'TDX 代理' : 'TDX 直连'})...`);
+      try {
+        const collect = await selectCollector(
+          Platform.OS === 'web' ? 'web' : 'rn',
+          collectForWeb,
+        );
+        const collected = await collect(code);
+        f10Text = collected.f10Text ?? undefined;
+        snapshot = collected.snapshot;
+        stockName = collected.name;
+        capital = collected.capital;
+        info(`采集完成:${store.getDatas(code).length} 根日K + F10`);
+        setDataVersion((v) => v + 1); // 采集数据 Tab 立即刷新
+      } catch (err) {
+        const detail = describeError(err);
+        logError(`采集失败:${detail}`);
+        setError(`行情采集失败:${detail}`);
+        return;
       }
       setLastRunTicker(code);
       // 亿信/mcp 情报段（phase out 能力补齐）：预查询一次 → 缓存闭包，供

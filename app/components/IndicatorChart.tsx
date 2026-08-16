@@ -8,6 +8,7 @@ import { WebView } from 'react-native-webview';
 import type { IChartApi, LineStyle } from 'lightweight-charts';
 import type { IndicatorRow } from '../../src/indicators.ts';
 import { changePctHistData } from '../../src/chartData.ts';
+import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { fmtDate } from '../../src/format.ts';
 import { CHART_HTML } from '../lib/chartHtml';
 import type { Theme } from '../theme';
@@ -211,17 +212,11 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
       // 面板比例:全部 series 建完后设置 stretch(比例布局,与当前高度无关)
       chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 70));
-      // 面板顶位置:纯比例计算(stretch/总和 × 总高)——不用 pane.getHeight():
-      // 真实 lightweight-charts v5.2 createChart 后立即读取返回未布局值(≈全高,
-      // 2026-08-15 真机/Chromium 实测),会导致附图标签全部堆到图表底部。
-      const sumStretch = PANE_STRETCH.reduce((a, b) => a + b, 0);
-      let acc = 0;
-      const tops: number[] = [];
-      for (const st of PANE_STRETCH) {
-        tops.push(acc);
-        acc += (CHART_HEIGHT * st) / sumStretch;
-      }
-      setPaneTops(tops);
+      // 面板顶位置:纯比例计算(stretch/总和 × 总高,实现抽到 src/chartLayout.ts
+      // paneTops 公共函数)——不用 pane.getHeight():真实 lightweight-charts v5.2
+      // createChart 后立即读取返回未布局值(≈全高,2026-08-15 真机/Chromium 实测),
+      // 会导致附图标签全部堆到图表底部。
+      setPaneTops(computePaneTops(PANE_STRETCH.map((stretchFactor) => ({ height: CHART_HEIGHT, stretchFactor }))));
     });
     return () => { disposed = true; chart?.remove(); };
   }, [bars, rows, changePct, theme]);

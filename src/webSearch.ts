@@ -2,6 +2,7 @@
 // 供应商：TAVILY_API_KEY 配置 → Tavily（可选主选）；未配置 → DuckDuckGo
 // html 端点（免 key，region cn-zh，对齐 Python ddgs 语义）。降级语义：
 // 查询失败/空结果 → 占位文本不 raise，图不中断。
+import { detectPlatform } from './log.ts';
 import type { ToolLike } from './toolLoop.ts';
 
 export interface SearchResult {
@@ -71,15 +72,17 @@ export function makeProxySearcher(
   };
 }
 
-// 浏览器全局（ts/ 为 node-only lib 无 DOM 类型；运行时守卫 typeof window）。
+// 浏览器全局（ts/ 为 node-only lib 无 DOM 类型；仅 detectPlatform()==='web'
+// 分支访问——平台判定收敛到 log.ts isWebEnv,此处不再自写 typeof 守卫）。
 declare const window: { location?: { origin?: string } } | undefined;
 
 /** 缺省 searcher：浏览器 → 同源 /web-search 代理；Node/真机 → Tavily 优先 / DDG。 */
 export function defaultSearcher(): (query: string) => Promise<SearchResult[]> {
-  if (typeof window !== 'undefined' && window.location?.origin) {
+  if (detectPlatform() === 'web' && window?.location?.origin) {
     return makeProxySearcher(window.location.origin);
   }
-  const key = process.env.TAVILY_API_KEY;
+  // EXPO_PUBLIC_ 前缀真机可达(Metro 内联);未配时回退 TAVILY_API_KEY(Node/server 路径现状)。
+  const key = process.env.EXPO_PUBLIC_TAVILY_API_KEY ?? process.env.TAVILY_API_KEY;
   if (key) return tavilySearcher(key);
   return ddgSearcher;
 }
