@@ -1062,3 +1062,24 @@ done事件结果持久化到 store meta 'soa:last-run',App 启动恢复展示报
 ### Status
 
 [OK] **Completed**
+
+
+## Session 38: 审计整改 7 子任务实施
+
+**Date**: 2026-08-16
+**Task**: 审计整改 7 子任务实施
+**Branch**: `master`
+
+### Summary
+
+MarketCollector+桥动态import(web去死链)/死代码4类/常量单源/探针单面/安全区/env键位;vitest 362+模拟器真实分析1141.5s回归通过
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c23cf88` | (see git log) |
+
+### Status
+
+[OK] **Completed**
