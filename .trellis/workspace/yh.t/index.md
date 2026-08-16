@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 35
+- **Total Sessions**: 36
 - **Last Active**: 2026-08-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1024 | Active |
+| `journal-1.md` | ~1045 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 36 | 2026-08-16 | App.tsx 抽取 useAnalysis hook 重构 | `ef1cdb5` | `master` |
 | 35 | 2026-08-16 | 上次分析结果缓存与启动恢复 | `c004cd5` | `master` |
 | 34 | 2026-08-14 | fix: app tsc expo-file-system 环境声明 | `b065309` | `master` |
 | 33 | 2026-08-14 | ts/ 平移到仓库根 | `ee392ba` | `master` |

@@ -1022,3 +1022,24 @@ done事件结果持久化到 store meta 'soa:last-run',App 启动恢复展示报
 ### Status
 
 [OK] **Completed**
+
+
+## Session 36: App.tsx 抽取 useAnalysis hook 重构
+
+**Date**: 2026-08-16
+**Task**: App.tsx 抽取 useAnalysis hook 重构
+**Branch**: `master`
+
+### Summary
+
+分析编排整体搬入 app/hooks/useAnalysis.ts,App.tsx 503→223 行纯渲染层;模拟器真实分析 685.9s 验证 start() 全链路+缓存覆盖+重启恢复
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ef1cdb5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
