@@ -202,6 +202,27 @@ res.end();
   架构约定(node:/react-native import 禁令、better-sqlite3 仅 type、declare
   global DOM 名禁令、meta 键裸字面量禁令、process.env 零写入、lib/log 回潮
   禁令)。新增 src 模块若违反白名单面 → 测试红。
+- **桌面 Electron 壳(08-16-desktop-app)**:`desktop/`(main.mjs/preload.cjs/
+  child.mjs,独立 package,electron devDep)。架构:main 进程**全 JS 零 TS 依赖**,
+  Node 后端跑在自 spawn child(`ELECTRON_RUN_AS_NODE=1` + argv 带
+  `--experimental-strip-types`,路径经 argv 不写 env)→ child 持
+  `createAppServer()`(app/server.mjs 提取的导出)+ `createNodeFileStore` +
+  `nodeSettingsFileSystem` + `setLogDir`;随机回环端口。renderer 桥
+  `window.__soaDesktop`(preload contextBridge,sandbox+contextIsolation):
+  store 走**快照镜像 + 写穿串行队列**(`storeInit` 全量快照一次 hydrate,12 个
+  StoreLike 同步方法读本地镜像,mutator 本地应用后按序 invoke `store-op`;
+  `FileStore.listStocks()/listMetaKeys()` 具体类方法供快照枚举)。bundle 钩子
+  仅 `app/lib/desktopBridge.ts` + runner/settingsStore 两处,`isDesktopBridge()`
+  运行时门控,web/Android 零行为变化。**sendSync 禁令(实证教训)**:renderer
+  事件处理路径内 sendSync 会间歇性死锁(同步 Mojo cond_wait 挂起主线程,
+  点击开关 3/5 复现、直接调用 0/2;gdb 证实 pthread_cond_wait);settings 保存
+  走 invoke 异步(main 缓存 + 转发 child 落盘),仅 settings-load 冷路径
+  (模块挂载/分析启动)保留 sendSync。**代理契约更新**:/llm-proxy body 上限
+  64KB→1MB(终审上下文 6 报告+修订+搜索 >64KB,真实全链 413 实证);
+  /web-search q 校验禁空白→禁控制字符(分析师查询模板 `{} 最新新闻` 含空格,
+  旧校验致 DDG 回退恒 400,web/桌面同路径)。桌面数据目录 userData/store|
+  settings|logs;退出流程 main 发 shutdown → child flush+close → 无残留。
+
 
 ## 能力接线(08-13-ts-capability-completion;Python phase out 后唯一实现)
 

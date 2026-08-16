@@ -6,6 +6,7 @@ declare const logsServer: {
     res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
   ): Promise<void>;
   logFilePath(): string;
+  setLogDir(dir: string): void;
   formatTs(ts?: unknown): string;
   sanitizeLine(s: string): string;
   appendLogLine(line: string): void;

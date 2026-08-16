@@ -17,7 +17,10 @@ const dns = require('node:dns');
 const net = require('node:net');
 
 // ─── 请求体上限(W2,对齐 logs-server MAX_BODY_BYTES)────────────────────────
-const MAX_BODY_BYTES = 64 * 1024;
+// 64KB → 1MB(2026-08-16 desktop-app 实证:投资经理终审上下文 = 6 份报告 +
+// 修订轮 + 联网搜索结果,真实全链 >64KB 撞 413;1MB 仍挡滥用,文本 JSON 无
+// 上传面,LLM API 上下文远超此量)。
+const MAX_BODY_BYTES = 1024 * 1024;
 
 // ─── LLM base SSRF 防线(C2)───────────────────────────────────────────────
 // X-LLM-Base 头 / body.base 是浏览器端用户配置(多提供商透传是设计意图,
@@ -83,14 +86,14 @@ async function isPublicHost(u) {
 // 双入口同步生效。
 async function handleLlmProxy(req, res, _fetch = fetch) {
   try {
-    // W2:请求体 ≤64KB,超限 413 并终止读取(对齐 logs-server MAX_BODY_BYTES 模式)
+    // W2:请求体超 MAX_BODY_BYTES,413 并终止读取(对齐 logs-server MAX_BODY_BYTES 模式)
     let body = '';
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
         res.writeHead(413, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'LLM 代理请求体超过 64KB 限制' }));
+        res.end(JSON.stringify({ error: 'LLM 代理请求体超过 1MB 限制' }));
         return;
       }
       body += chunk;
@@ -231,15 +234,18 @@ async function handleTdxCollect(req, res, _collect = doCollect) {
 // ─── Web 搜索代理 ────────────────────────────────────────────────────────────
 // 浏览器直连 DDG 有反爬/CORS 限制 → 本 server(Node)执行查询回包 {results}
 // JSON(对齐 Python web_search 工具语义;免 key)。q 校验(非空 + ≤200 字符
-// + 无空白);20s 超时兜底;失败/超时/参数非法 → 5xx {error}。
+// + 无控制字符);20s 超时兜底;失败/超时/参数非法 → 5xx {error}。
 const SEARCH_TIMEOUT_MS = 20_000;
 
-async function handleWebSearch(req, res) {
+async function handleWebSearch(req, res, _ddg = ddgSearcher) {
   const url = new URL(req.url, 'http://x');
   const q = url.searchParams.get('q') ?? '';
-  if (!q || q.length > 200 || !/^\S+$/.test(q)) {
+  // q 校验:非空 + ≤200 字符 + 无控制字符。禁空白是错的——分析师自身查询
+  // 模板含空格("600036 最新新闻",src/agents.ts _QUERY_TEMPLATES),曾致
+  // DDG 回退恒 400(08-16-desktop-app 实证:web/桌面同路径)。
+  if (!q || q.length > 200 || /[\x00-\x1f\x7f]/.test(q)) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: `无效 q 参数:${q}(需非空、≤200 字符、无空白)` }));
+    res.end(JSON.stringify({ error: `无效 q 参数:${q}(需非空、≤200 字符、无控制字符)` }));
     return;
   }
   let settled = false;
@@ -251,7 +257,7 @@ async function handleWebSearch(req, res) {
   };
   try {
     const results = await Promise.race([
-      ddgSearcher(q),
+      _ddg(q),
       new Promise((_, reject) =>
         setTimeout(() => reject(Object.assign(new Error('搜索超时(20s)'), { timedOut: true })), SEARCH_TIMEOUT_MS),
       ),

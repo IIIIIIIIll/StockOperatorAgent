@@ -28,3 +28,5 @@ app/dist/
 app/assets/chart-view.html
 probe-output/
 app/.expo/
+# Electron desktop shell
+desktop/node_modules/

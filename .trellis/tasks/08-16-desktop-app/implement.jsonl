@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/ts/index.md", "reason": "桌面接线唯一契约:setStore 注入面/平台探针/env 零写入/store-node 豁免"}
+{"file": ".trellis/tasks/archive/2026-08/08-16-desktop-node-backend/prd.md", "reason": "桌面 Node 后端已交付面(store-node/settingsStore node 分支契约)"}
+{"file": "tools/desktop-probe.mts", "reason": "接线示范与验收探针基线"}

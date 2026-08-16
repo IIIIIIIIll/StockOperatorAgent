@@ -22,6 +22,7 @@ import { AIMessage } from '@langchain/core/messages';
 // ERR_IMPORT_ATTRIBUTE_MISSING)
 import demo from '../data/demo.json' with { type: 'json' };
 import type { CapsState } from './settings.ts';
+import { DesktopStore, getBridge, isDesktopBridge } from './desktopBridge.ts';
 
 /** 持久化后端共有的异步面(StoreLike 保持同步契约;ready 由 runner 显式转发)。 */
 interface PersistentStore extends StoreLike {
@@ -37,6 +38,14 @@ export let store: StoreLike = detectPlatform() === 'web' ? new IdbStore() : new 
  *  ESM live binding:export let 使已 import 方(useAnalysis/DataScreen)同步看到新值。 */
 export function setStore(s: StoreLike): void {
   store = s;
+}
+
+// 桌面壳桥注入:renderer 内 window.__soaDesktop 存在时,用 DesktopStore
+// (镜像 + 写穿队列)替换默认后端。live binding:消费方零改动。web/RN 无桥
+// → 探针 false,惰性零行为变化。
+if (isDesktopBridge()) {
+  const b = getBridge();
+  if (b) setStore(new DesktopStore(b));
 }
 
 /** 持久化后端就绪(IndexedDB 打开 + 内存 hydrate / 文件读回)。App 启动链先 await 再加载。 */

@@ -11,6 +11,7 @@
 // 壳只能经 _fs 注入 src/store-node.ts 的 nodeSettingsFileSystem()(expo File 面
 // ↔ node fs 面的薄包装)。任何读写失败均不抛出。
 import { isRnEnv, isWebEnv } from '../../src/log.ts';
+import { bridgeStorage, isDesktopBridge } from './desktopBridge.ts';
 
 export interface SettingsStore {
   load(): string | null;
@@ -140,7 +141,10 @@ export function createSettingsStore(
   };
 }
 
-const singleton = createSettingsStore();
+// 桌面壳桥接:window.__soaDesktop 存在 → bridgeStorage 注入 web 分支
+// (getItem/setItem 映射桥的 settingsLoad/settingsSave,单键语义,零 fs 适配);
+// 否则按原 isWebEnv 分发(web/RN 零行为变化)。
+const singleton = isDesktopBridge() ? createSettingsStore(bridgeStorage(), null) : createSettingsStore();
 
 export function load(): string | null {
   return singleton.load();

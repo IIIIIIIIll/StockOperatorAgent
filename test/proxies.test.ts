@@ -55,7 +55,7 @@ function fakeUpstream(status = 200) {
 }
 
 describe('proxies.cjs /llm-proxy(W2 body 上限)', () => {
-  it('body > 64KB → 413,不转发', async () => {
+  it('body > 1MB → 413,不转发', async () => {
     const res = fakeRes();
     let called = false;
     await handleLlmProxy(fakeReq('x'.repeat(MAX_BODY_BYTES + 1)), res, async () => {
@@ -67,7 +67,7 @@ describe('proxies.cjs /llm-proxy(W2 body 上限)', () => {
     expect(called).toBe(false);
   });
 
-  it('body 恰好 64KB → 不 413(纯 x 非法 JSON → 502 解析失败路径)', async () => {
+  it('body 恰好 1MB → 不 413(纯 x 非法 JSON → 502 解析失败路径)', async () => {
     const res = fakeRes();
     await handleLlmProxy(fakeReq('x'.repeat(MAX_BODY_BYTES)), res, async () => fakeUpstream());
     expect(res.calls[0].status).toBe(502);
@@ -289,5 +289,33 @@ describe('proxies.cjs C2 校验工具', () => {
   it('isPublicHost:localhost → false;公网 IP 字面 → true(不触网)', async () => {
     expect(await isPublicHost(new URL('http://localhost/v1'))).toBe(false);
     expect(await isPublicHost(new URL('https://8.8.8.8/v1'))).toBe(true);
+  });
+});
+
+describe('handleWebSearch q 校验(08-16-desktop-app:多词查询须放行)', () => {
+  function req(url: string): { url: string } {
+    return { url };
+  }
+  async function statusFor(url: string): Promise<number> {
+    const res = fakeRes();
+    await proxies.handleWebSearch(req(url), res, async () => ({ results: [] }));
+    return res.calls[0]?.status ?? 200;
+  }
+
+  it('多词查询(含空格,分析师模板 "600036 最新新闻") → 放行到 searcher', async () => {
+    expect(await statusFor('/web-search?q=' + encodeURIComponent('600036 最新新闻'))).toBe(200);
+  });
+
+  it('空 q → 400,不触 searcher', async () => {
+    expect(await statusFor('/web-search?q=')).toBe(400);
+    expect(await statusFor('/web-search')).toBe(400);
+  });
+
+  it('>200 字符 → 400', async () => {
+    expect(await statusFor('/web-search?q=' + 'a'.repeat(201))).toBe(400);
+  });
+
+  it('控制字符 → 400', async () => {
+    expect(await statusFor('/web-search?q=' + encodeURIComponent('abc\ndef'))).toBe(400);
   });
 });

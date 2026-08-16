@@ -4,4 +4,5 @@ declare function serveStatic(
   req: { url: string },
   res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
 ): void;
-export { serveStatic };
+declare function createAppServer(): import('node:http').Server;
+export { serveStatic, createAppServer };

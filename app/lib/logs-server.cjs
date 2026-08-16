@@ -16,9 +16,19 @@ const MAX_BODY_BYTES = 64 * 1024; // 请求体 ≤64KB,超限 413
 const MAX_MESSAGE_BYTES = 4 * 1024; // message 截断 4KB
 const MAX_LOG_BYTES = 5 * 1024 * 1024; // 文件 ≥5MB → rename .1
 
-/** 日志文件路径:SOA_LOG_DIR 覆盖,默认 <repo>/logs/soa-ts.log(server cwd=ts/app)。 */
+/** 显式注入的日志目录(桌面 child 以 userData/logs 调用;R5 不写 process.env)。
+ *  未注入 → SOA_LOG_DIR 兜底 → 默认 <repo>/logs。 */
+let logDir = null;
+
+/** 注入日志目录;覆盖 SOA_LOG_DIR 与默认路径(桌面端显式注入面)。 */
+function setLogDir(dir) {
+  logDir = dir;
+}
+
+/** 日志文件路径:setLogDir 注入优先,SOA_LOG_DIR 覆盖,默认
+ *  <repo>/logs/soa-ts.log(server cwd=ts/app)。 */
 function logFilePath() {
-  const dir = process.env.SOA_LOG_DIR || path.join(process.cwd(), '..', 'logs');
+  const dir = logDir || process.env.SOA_LOG_DIR || path.join(process.cwd(), '..', 'logs');
   return path.join(dir, 'soa-ts.log');
 }
 
@@ -96,4 +106,4 @@ async function handleLogs(req, res) {
   }
 }
 
-module.exports = { handleLogs, logFilePath, formatTs, sanitizeLine, appendLogLine, MAX_LOG_BYTES, MAX_MESSAGE_BYTES, MAX_BODY_BYTES };
+module.exports = { handleLogs, setLogDir, logFilePath, formatTs, sanitizeLine, appendLogLine, MAX_LOG_BYTES, MAX_MESSAGE_BYTES, MAX_BODY_BYTES };

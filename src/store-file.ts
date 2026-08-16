@@ -245,4 +245,16 @@ export class FileStore implements StoreLike {
     this.meta.set(key, value);
     this.enqueuePersistMeta();
   }
+
+  /** 已 putStock 的全部 ticker(桌面桥 StoreSnapshot 枚举用;具体类方法,
+   *  不进 StoreLike 接口 —— 仅桌面 Node 后端消费)。 */
+  listStocks(): string[] {
+    return [...this.stocks.keys()];
+  }
+
+  /** 已 setMeta 的全部键(桌面桥 StoreSnapshot 枚举用;具体类方法,
+   *  不进 StoreLike 接口 —— 仅桌面 Node 后端消费)。 */
+  listMetaKeys(): string[] {
+    return [...this.meta.keys()];
+  }
 }
