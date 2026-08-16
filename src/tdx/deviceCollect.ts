@@ -10,6 +10,7 @@ import type { CollectSkipOpts, CollectedPayload, WebCollectResult } from '../web
 import { applyCollectedToStore } from '../webCollect.ts';
 import { resolveSkipGates } from '../collector.ts';
 import { warn } from '../log.ts';
+import { envValue } from '../env.ts';
 import { collectAll } from './quoteClient.ts';
 import { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent, type F10Category } from './f10Client.ts';
 import { f10Key } from '../metaKeys.ts';
@@ -26,8 +27,11 @@ export function setDeviceStore(store: StoreLike): void {
 
 // 实测可达节点(2026-08-15 WSL2 网络 5/5 连通;真机移动网络同网段预期可达)。
 // 顺序尝试 + TDX_HOST env 覆盖(服务器漂移兜底)。
+// EXPO_PUBLIC_TDX_HOST 必须直接成员访问(真机 release 经 babel-preset-expo 静态
+// 内联——architecture 契约 6 豁免);TDX_HOST(Node/server 路径)经 envValue 单点。
+// 本模块仅真机/Node 路径动态加载(web 不评估,见 collectorSelection),process 恒存在。
 export const DEVICE_TDX_HOSTS: string[] = [
-  process.env.EXPO_PUBLIC_TDX_HOST ?? process.env.TDX_HOST ?? '150.158.160.2',
+  process.env.EXPO_PUBLIC_TDX_HOST ?? envValue('TDX_HOST') ?? '150.158.160.2',
   '124.71.187.122',
   '101.35.121.35',
   '122.51.120.217',

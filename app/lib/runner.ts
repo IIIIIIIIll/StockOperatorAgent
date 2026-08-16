@@ -17,7 +17,10 @@ import { DEMO_F10_KEY, f10Key } from '../../src/metaKeys.ts';
 import { makeWebSearchTool, webSearchEnabled } from '../../src/webSearch.ts';
 import type { ToolLike } from '../../src/toolLoop.ts';
 import { AIMessage } from '@langchain/core/messages';
-import demo from '../data/demo.json';
+// with { type: 'json' }:标准 JSON 导入属性(vite/metro/babel 均支持;缺省时
+// 裸 node --experimental-transform-types 加载本模块(desktop-probe)会报
+// ERR_IMPORT_ATTRIBUTE_MISSING)
+import demo from '../data/demo.json' with { type: 'json' };
 import type { CapsState } from './settings.ts';
 
 /** 持久化后端共有的异步面(StoreLike 保持同步契约;ready 由 runner 显式转发)。 */
@@ -25,9 +28,16 @@ interface PersistentStore extends StoreLike {
   ready(): Promise<void>;
 }
 
-// 平台选择:web 走 IndexedDB;RN 走 expo-file-system 文件后端。判定统一走
-// detectPlatform(log.ts 单面探针,web→rn→node,跨子契约 4)。
-export const store: StoreLike = detectPlatform() === 'web' ? new IdbStore() : new FileStore();
+// 平台选择:web 走 IndexedDB;RN 走 expo-file-system 文件后端;Node 桌面壳
+// 经 setStore 注入(见 src/store-node.ts)。判定统一走 detectPlatform(log.ts
+// 单面探针,web→rn→node,跨子契约 4)。
+export let store: StoreLike = detectPlatform() === 'web' ? new IdbStore() : new FileStore();
+
+/** Node 桌面壳注入(Node 侧创建含 node fs 适配器的 FileStore 或 SQLite Store)。
+ *  ESM live binding:export let 使已 import 方(useAnalysis/DataScreen)同步看到新值。 */
+export function setStore(s: StoreLike): void {
+  store = s;
+}
 
 /** 持久化后端就绪(IndexedDB 打开 + 内存 hydrate / 文件读回)。App 启动链先 await 再加载。 */
 export function storeReady(): Promise<void> {

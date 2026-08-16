@@ -1,12 +1,15 @@
-// 设置持久化 —— 平台分发的 JSON 字符串 KV(web:localStorage;RN:沙盒文件)
+// 设置持久化 —— 平台分发的 JSON 字符串 KV(web:localStorage;RN:沙盒文件;
+// Node 桌面:node fs 适配器经 _fs 注入)
 // 对接 settings.ts 的 loadSettings/saveSettings(JSON parse/merge 仍在其内);
 // 本模块只有 load/save 字符串面,存储层不解析 JSON。RN 用 expo-file-system
 // 同步 API(textSync/write)——loadSettings 是 React useState 初始化器的同步
 // 调用,不能依赖 storeReady() 异步生命周期。
-// 平台安全:不静态 import react-native / expo-file-system——web 判定走
+// 平台安全:不静态 import react-native / expo-file-system / node:fs——web 判定走
 // src/log.ts 探针;expo-file-system 仅 RN 分支动态 import(模块级惰性解析一次,
 // 失败静默降级 → load null / save no-op,不打断业务,同 log.ts/store-file.ts
-// 先例)。任何读写失败均不抛出。
+// 先例)。**node:fs 禁令**:本文件在 metro 图内,禁止 import node:fs,Node 桌面
+// 壳只能经 _fs 注入 src/store-node.ts 的 nodeSettingsFileSystem()(expo File 面
+// ↔ node fs 面的薄包装)。任何读写失败均不抛出。
 import { isRnEnv, isWebEnv } from '../../src/log.ts';
 
 export interface SettingsStore {
@@ -74,8 +77,12 @@ function webStorage(): SettingsStorageLike | undefined {
 }
 
 /**
- * settingsStore 工厂。_localStorage/_fs 注入点(测试):显式 _localStorage → 恒走
- * web 分支;显式 _fs → 恒走 RN 分支;生产(都不传)→ 按 isWebEnv 探针分发。
+ * settingsStore 工厂。_localStorage/_fs 注入点(测试/桌面壳):
+ *  - 显式 _localStorage → 恒走 web 分支(localStorage);
+ *  - 显式 _fs → 恒走文件分支 —— RN 传 expo-file-system,Node 桌面壳传
+ *    src/store-node.ts 的 nodeSettingsFileSystem()(node:fs 薄包装;本文件
+ *    在 metro 图内禁止 import node:fs,只接受注入);
+ *  - 生产(都不传)→ 按 isWebEnv 探针分发(RN 惰性解析 expo-file-system)。
  */
 export function createSettingsStore(
   _localStorage?: SettingsStorageLike | null,

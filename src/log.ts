@@ -8,6 +8,8 @@
 // 用全局探针;expo-file-system 仅 RN 分支动态 import(模块级惰性初始化一次,
 // 失败静默降级 console,不打断业务——error-handling 降级风格)。
 // 密钥不写日志(settings.ts 已 mask,上报内容与 console 相同)。
+import { envValue } from './env.ts';
+
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 export type Platform = 'web' | 'rn' | 'node';
 
@@ -62,12 +64,6 @@ export interface ReportPayload {
   level: LogLevel;
   message: string;
   platform: Platform;
-}
-
-/** 进程环境读取(web 无 process;RN 为 Metro polyfill)。 */
-function envValue(name: string): string | undefined {
-  if (typeof process === 'undefined') return undefined;
-  return process.env[name];
 }
 
 /** web → 同源 /logs;RN → EXPO_PUBLIC_LOG_ENDPOINT(空/未设 → '' 不上报)。 */

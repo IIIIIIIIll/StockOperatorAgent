@@ -2,6 +2,13 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { ROLES, buildEdges, buildNodeNames, enabledRoles, informationAnalystEnabled, makeInvestmentCommittee, type CommitteeDeps } from '../src/committee.ts';
 import type { BillionsClient, SearchOptions } from '../src/billionsClient.ts';
+import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
+
+// env DISABLED 键修改后同步配置面(getCapabilitySwitches 未注入时从 env 反推;
+// 显式注入优先——本文件用例走 env 驱动语义,与旧行为等价)。
+function syncSwitches(): void {
+  setCapabilitySwitches(fromEnv());
+}
 
 // 路由式假 LLM（对齐 Python 集成测试约定：按 system 消息独有短语路由）
 function contentText(content: unknown): string {
@@ -56,6 +63,7 @@ async function runGraph(env: Record<string, string | undefined>, deps?: Committe
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
+  syncSwitches(); // env 修改后配置面反推同步
   try {
     const graph = makeInvestmentCommittee({ configurable: { thread_id: '1' } }, null, makeRoutingLlm(makeRouter()) as never, undefined, deps);
     const chunks: Record<string, unknown>[] = [];
@@ -83,6 +91,7 @@ describe('committee graph (AC1/AC2)', () => {
     delete process.env.BILLIONS_TWITTER_DISABLED;
     delete process.env.BILLIONS_DISABLED;
     delete process.env.WEB_SEARCH_DISABLED;
+    syncSwitches(); // 全开默认态同步
   });
 
   it('buildNodeNames/buildEdges: 9 nodes 19 edges with information analyst', () => {
@@ -96,6 +105,7 @@ describe('committee graph (AC1/AC2)', () => {
 
   it('information analyst disabled → 8 nodes 16 edges (conditional wiring)', async () => {
     process.env.BILLIONS_ANALYST_DISABLED = '1';
+    syncSwitches();
     const roles = enabledRoles();
     expect(roles.some((r) => r.nodeName === 'information_analyst')).toBe(false);
     expect(buildNodeNames(roles)).toHaveLength(8);
@@ -131,6 +141,7 @@ describe('informationAnalystEnabled 谓词（契约公式:ANALYST 且(SEARCH|TWI
     delete process.env.BILLIONS_TWITTER_DISABLED;
     delete process.env.BILLIONS_DISABLED;
     delete process.env.WEB_SEARCH_DISABLED;
+    syncSwitches(); // 全开默认态同步
   });
 
   it('全开默认(ANALYST+SEARCH+web) → True', () => {
@@ -139,6 +150,7 @@ describe('informationAnalystEnabled 谓词（契约公式:ANALYST 且(SEARCH|TWI
 
   it('ANALYST 关 + web 开 → False(能力开关优先,联网不补注册)', () => {
     process.env.BILLIONS_ANALYST_DISABLED = '1';
+    syncSwitches();
     expect(informationAnalystEnabled()).toBe(false);
   });
 
@@ -146,23 +158,27 @@ describe('informationAnalystEnabled 谓词（契约公式:ANALYST 且(SEARCH|TWI
     process.env.BILLIONS_SEARCH_DISABLED = '1';
     process.env.BILLIONS_TWITTER_DISABLED = '1';
     process.env.WEB_SEARCH_DISABLED = '1';
+    syncSwitches();
     expect(informationAnalystEnabled()).toBe(false);
   });
 
   it('ANALYST 开 + SEARCH/TWITTER 关 + web 开 → True(联网路径)', () => {
     process.env.BILLIONS_SEARCH_DISABLED = '1';
     process.env.BILLIONS_TWITTER_DISABLED = '1';
+    syncSwitches();
     expect(informationAnalystEnabled()).toBe(true);
   });
 
   it('ANALYST 开 + SEARCH 开 + web 关 → True(亿信路径不受 web 影响)', () => {
     process.env.WEB_SEARCH_DISABLED = '1';
+    syncSwitches();
     expect(informationAnalystEnabled()).toBe(true);
   });
 
   it('ANALYST 开 + TWITTER 开 + SEARCH 关 + web 关 → True(TWITTER 路径)', () => {
     process.env.BILLIONS_SEARCH_DISABLED = '1';
     process.env.WEB_SEARCH_DISABLED = '1';
+    syncSwitches();
     expect(informationAnalystEnabled()).toBe(true);
   });
 });
@@ -206,6 +222,7 @@ describe('亿信 client 注入接线（C1:committee deps → 分析师预抓）'
     delete process.env.BILLIONS_TWITTER_DISABLED;
     delete process.env.BILLIONS_DISABLED;
     delete process.env.WEB_SEARCH_DISABLED;
+    syncSwitches(); // 全开默认态同步
   });
 
   it('deps.billionsClient 注入 → 分析师预抓三源+twitter 命中 fake client（web 端 key 生效）', async () => {

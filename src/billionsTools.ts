@@ -12,7 +12,8 @@
 import type { ToolLike } from './toolLoop.ts';
 import { warn } from './log.ts';
 import { BillionsClient, type FetchLike } from './billionsClient.ts';
-import { envDisabledBool } from './committee.ts';
+import { billionsEnabled } from './committee.ts';
+import { envValue } from './env.ts';
 
 export const BILLIONS_DEFAULT_MAX: Record<BillionsCapKey, number> = {
   SEARCH: 3,
@@ -156,19 +157,19 @@ interface BillionsToolOpts {
 }
 
 /** 能力开关 + 主闸 key 判定（对齐 Python billions_enabled：主闸 key 存在 且
- *  总闸开 且 能力闸开）。committee.ts 的 billionsEnabled 无 key 约束（现状），
- *  key 判定在此单点承担。 */
+ *  总闸开 且 能力闸开）。开关面读 config（committee.billionsEnabled：总闸
+ *  billions + 能力闸 cap 字段；未注入时 fromEnv 反推 BILLIONS_{CAP}_DISABLED）；
+ *  key 判定在此单点承担（apiKey 构造注入 > env BILLIONS_API_KEY）。 */
 function billionsCapEnabled(cap: string, apiKey?: string | null): boolean {
-  if (!apiKey && !process.env.BILLIONS_API_KEY) return false;
-  if (envDisabledBool('BILLIONS_DISABLED')) return false;
-  return !envDisabledBool(`BILLIONS_${cap}_DISABLED`);
+  if (!apiKey && !envValue('BILLIONS_API_KEY')) return false;
+  return billionsEnabled(cap);
 }
 
 /** 上限解析：注入(caps/maxCalls) → env → 默认；注入非法值(NaN/<=0/非数字)回退。
  *  默认面单一来源 = BILLIONS_DEFAULT_MAX（cap 已收窄为 BillionsCapKey，索引必然命中）。 */
 function maxCallsFor(cap: BillionsCapKey, injected?: number): number {
   if (injected !== undefined && Number.isFinite(injected) && injected > 0) return injected;
-  const env = process.env[`BILLIONS_${cap}_MAX_CALLS`];
+  const env = envValue(`BILLIONS_${cap}_MAX_CALLS`);
   if (env !== undefined && env !== '' && /^\d+$/.test(env)) return Number(env);
   return BILLIONS_DEFAULT_MAX[cap];
 }

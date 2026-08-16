@@ -2,8 +2,18 @@
 // 三键必填强校验（缺任一构造即抛错）+ base_url http(s) 前缀校验；
 // 可选 LLM_REASONING_EFFORT。seed 对齐 Python 114514。
 import { ChatOpenAI } from '@langchain/openai';
+import { envValue } from './env.ts';
 
 const REQUIRED = ['LLM_API_KEY', 'LLM_MODEL', 'LLM_BASE_URL'] as const;
+const LLM_ENV_KEYS = ['LLM_API_KEY', 'LLM_MODEL', 'LLM_BASE_URL', 'LLM_REASONING_EFFORT'] as const;
+
+/** 缺省 env 来源（envValue 逐键读取,typeof process 守卫单点）——优先级:
+ *  构造注入 env > envValue > 默认。 */
+function defaultLlmEnv(): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const k of LLM_ENV_KEYS) out[k] = envValue(k);
+  return out;
+}
 
 export class MissingLlmConfigError extends Error {
   constructor(message: string) {
@@ -19,24 +29,26 @@ export interface LlmConfig {
   reasoningEffort?: string;
 }
 
-/** 读环境变量 → 配置；缺键/坏 base_url → MissingLlmConfigError（消息点名缺失键）。 */
-export function readLlmEnv(env: Record<string, string | undefined> = process.env): LlmConfig {
-  const missing = REQUIRED.filter((name) => !(env[name] ?? '').trim());
+/** 读环境变量 → 配置；缺键/坏 base_url → MissingLlmConfigError（消息点名缺失键）。
+ *  env 注入优先（测试）；缺省 → envValue 逐键读取（env.ts 单点）。 */
+export function readLlmEnv(env?: Record<string, string | undefined>): LlmConfig {
+  const e = env ?? defaultLlmEnv();
+  const missing = REQUIRED.filter((name) => !(e[name] ?? '').trim());
   if (missing.length) {
     throw new MissingLlmConfigError(
       `缺少 LLM 配置：${missing.join(' / ')}（详见 .env.example）`,
     );
   }
-  const baseUrl = (env.LLM_BASE_URL as string).trim();
+  const baseUrl = (e.LLM_BASE_URL as string).trim();
   if (!/^https?:\/\//.test(baseUrl)) {
     throw new MissingLlmConfigError('LLM_BASE_URL 必须以 http:// 或 https:// 开头');
   }
   const cfg: LlmConfig = {
-    apiKey: (env.LLM_API_KEY as string).trim(),
-    model: (env.LLM_MODEL as string).trim(),
+    apiKey: (e.LLM_API_KEY as string).trim(),
+    model: (e.LLM_MODEL as string).trim(),
     baseUrl,
   };
-  const effort = (env.LLM_REASONING_EFFORT ?? '').trim();
+  const effort = (e.LLM_REASONING_EFFORT ?? '').trim();
   if (effort) cfg.reasoningEffort = effort;
   return cfg;
 }
@@ -62,7 +74,7 @@ export function createLlm(cfg: LlmConfig, opts?: { proxyBase?: string }): ChatOp
   });
 }
 
-/** make_llm 等价：读 env → createLlm。 */
-export function makeLlm(env: Record<string, string | undefined> = process.env): ChatOpenAI {
+/** make_llm 等价：读 env → createLlm。env 注入优先；缺省 → envValue 逐键。 */
+export function makeLlm(env?: Record<string, string | undefined>): ChatOpenAI {
   return createLlm(readLlmEnv(env));
 }

@@ -7,7 +7,7 @@
 import React from 'react';
 import { Platform } from 'react-native';
 import {
-  applySwitchesToEnv,
+  switchesToCapabilities,
   llmConfigured,
   loadSettings,
   missingLlmKeys,
@@ -16,6 +16,8 @@ import {
   toLlmConfig,
   type SettingsState,
 } from '../lib/settings';
+import { setCapabilitySwitches } from '../../src/switches.ts';
+import { envValue } from '../../src/env.ts';
 import { enabledRoles } from '../../src/committee.ts';
 import { buildStockInformation } from '../../src/pipeline.ts';
 import { BillionsClient } from '../../src/billionsClient.ts';
@@ -136,7 +138,7 @@ export function useAnalysis(): UseAnalysis {
       const miss = missingLlmKeys(loaded.keys);
       if (miss.length) warn(`LLM 三键未配置——${describeLlmKeys(loaded.keys)};缺失键请见侧边栏「模型与密钥」或 app/.env 的 EXPO_PUBLIC_LLM_*`);
       else info(`LLM 已配置:${describeLlmKeys(loaded.keys)}`);
-      info(`联网搜索供应商:${process.env.TAVILY_API_KEY ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
+      info(`联网搜索供应商:${envValue('TAVILY_API_KEY') ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
       setDataVersion(1); // store 为模块级对象:显式触发重渲染
     })();
   }, []);
@@ -188,7 +190,7 @@ export function useAnalysis(): UseAnalysis {
   function onSettingsChange(next: SettingsState): void {
     setSettings(next);
     saveSettings(next);
-    applySwitchesToEnv(next.switches);
+    setCapabilitySwitches(switchesToCapabilities(next.switches));
     setError(null);
   }
 
@@ -210,10 +212,11 @@ export function useAnalysis(): UseAnalysis {
       setError('北交所(BJ)股票暂不支持分析:TDX 数据源不覆盖 BJ 证券,请使用沪深 A 股代码');
       return;
     }
-    applySwitchesToEnv(settings.switches);
-    // 联网搜索开关由设置面板 applySwitchesToEnv 控制(settings.ts 已写
-    // WEB_SEARCH_DISABLED);浏览器经 /web-search 同源代理有可用搜索源
-    // (defaultSearcher 浏览器分支自动走代理,交易员工具与分析师预抓共用)
+    setCapabilitySwitches(switchesToCapabilities(settings.switches));
+    // 能力开关经 setCapabilitySwitches 显式注入(settings 面板语义 enabled →
+    // 直映;消费点惰性读 config——committee/webSearch/mcp/billionsTools)。
+    // 浏览器经 /web-search 同源代理有可用搜索源(defaultSearcher 浏览器分支
+    // 自动走代理,交易员工具与分析师预抓共用)
     const mode = llmConfigured(settings.keys) ? '真实 LLM' : '演示占位 LLM';
     modeRef.current = llmConfigured(settings.keys) ? 'real' : 'demo'; // 缓存/标记以 start() 时刻模式为准
     info(`开始分析 ${code}(模式:${mode})`);

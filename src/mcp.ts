@@ -5,7 +5,8 @@
 // 缓存简化决策（design.md）：TS 无 is_trading_time 完整移植 → 不做缓存，
 // 每次实时查询（与 Python 交易时段行为一致；mcp_intel_cache.py 不移植）。
 // 密钥纪律：apiKey 只进请求头，任何路径不 log 密钥值。
-import { envDisabled } from './webSearch.ts';
+import { envValue } from './env.ts';
+import { getCapabilitySwitches } from './switches.ts';
 
 export const MCP_URL = 'https://mcp.tdx.com.cn:3001/mcp';
 export const DEFAULT_TIMEOUT_MS = 30_000;
@@ -189,14 +190,15 @@ export class TdxMcpClient {
 export const MCP_DISABLED_TEXT = '（TDX MCP 已禁用，跳过实时市场情报）';
 export const MCP_NO_KEY_TEXT = '（未配置 TDX_API_KEY，跳过实时市场情报）';
 
-/** TDX_MCP_DISABLED（存在且非 ""/"0"/"false"/"no" → 禁用）判定的取反；
- *  TDX_MCP_ENABLED 覆盖层优先（True=开、False=关，对齐 Python runtime_bool 假值元组）。 */
+/** 优先级:TDX_MCP_ENABLED env 覆盖 > config.tdxMcp > env 默认(TDX_MCP_DISABLED
+ *  经 fromEnv 反推,与旧 envDisabled 判定逐位等价)。覆盖层对齐 Python
+ *  runtime_bool 假值元组(''/0/false/no → 关)。消费点惰性读 config。 */
 export function mcpDisabled(): boolean {
-  const override = process.env.TDX_MCP_ENABLED;
+  const override = envValue('TDX_MCP_ENABLED');
   if (override !== undefined) {
     return ['', '0', 'false', 'no'].includes(override.toLowerCase());
   }
-  return envDisabled('TDX_MCP_DISABLED');
+  return !getCapabilitySwitches().tdxMcp;
 }
 
 /** 一行数据 → `字段: 值` 文本（过滤 null/空值；对齐 Python row_to_text）。 */
@@ -229,7 +231,7 @@ export async function queryMarketIntel(
 
 /** 按目标股票查询实时情报，返回中文摘要文本；禁用/无 key/失败 → 占位（不 raise）。
  *  apiKey 显式传入覆盖 env（web 端 key 存 localStorage 而非 process.env）；
- *  缺省读 process.env.TDX_API_KEY。接线：async —— 调用方 await 后注入
+ *  缺省经 envValue 读 TDX_API_KEY。接线：async —— 调用方 await 后注入
  *  pipeline deps.mcp 的同步闭包（design.md makeMcpIntel；deps.mcp 契约
  *  (ticker) => string）。 */
 export async function getMarketIntel(
@@ -237,7 +239,7 @@ export async function getMarketIntel(
   opts?: { fetch?: FetchLike; apiKey?: string },
 ): Promise<string> {
   if (mcpDisabled()) return MCP_DISABLED_TEXT;
-  const apiKey = opts?.apiKey ?? process.env.TDX_API_KEY ?? '';
+  const apiKey = opts?.apiKey ?? envValue('TDX_API_KEY') ?? '';
   if (!apiKey) return MCP_NO_KEY_TEXT;
   return queryMarketIntel(ticker, apiKey, opts);
 }

@@ -10,6 +10,13 @@ import {
   mcpDisabled,
   rowToText,
 } from '../src/mcp.ts';
+import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
+
+// env DISABLED 键修改后同步配置面(mcpDisabled 无 TDX_MCP_ENABLED 覆盖时读
+// config.tdxMcp,未注入时 fromEnv 反推 TDX_MCP_DISABLED——与旧语义等价)。
+function syncSwitches(): void {
+  setCapabilitySwitches(fromEnv());
+}
 
 // ─── env 快照（TDX_MCP_DISABLED/TDX_MCP_ENABLED/TDX_API_KEY） ──────────────
 
@@ -27,6 +34,7 @@ afterAll(() => {
 });
 beforeEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
+  syncSwitches(); // 全开默认态同步(env 清理后反推)
 });
 
 // ─── fake fetch 基建 ────────────────────────────────────────────────────────
@@ -240,11 +248,13 @@ describe('mcpDisabled 门控（对齐 Python runtime_config 假值元组）', ()
 
   it.each(['', '0', 'false', 'no'])('TDX_MCP_DISABLED=%j → 开（显式假值）', (v) => {
     process.env.TDX_MCP_DISABLED = v;
+    syncSwitches();
     expect(mcpDisabled()).toBe(false);
   });
 
   it.each(['1', 'true', 'yes', 'TRUE'])('TDX_MCP_DISABLED=%j → 禁用', (v) => {
     process.env.TDX_MCP_DISABLED = v;
+    syncSwitches();
     expect(mcpDisabled()).toBe(true);
   });
 
@@ -266,6 +276,7 @@ describe('getMarketIntel（门控/key/查询/摘要）', () => {
   it('禁用 → 占位文本，不发起查询', async () => {
     process.env.TDX_MCP_DISABLED = '1';
     process.env.TDX_API_KEY = 'k';
+    syncSwitches();
     let called = false;
     const text = await getMarketIntel('600036', {
       fetch: (async () => {

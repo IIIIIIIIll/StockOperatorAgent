@@ -1,7 +1,7 @@
 // 亿信工具三件套测试 —— bills_search / bills_twitter / bills_fetch
 // 离线 fake client 注入（house style 无 mock 框架），钉死：
 // 开关关/无 key → undefined、调用上限、格式化、失败降级、url 协议校验。
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   collectContentItems,
   formatFetch,
@@ -15,6 +15,16 @@ import {
   summarizeTweets,
 } from '../src/billionsTools.ts';
 import type { BillionsClient } from '../src/billionsClient.ts';
+import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
+
+// 能力开关面读 config(getCapabilitySwitches,未注入时 fromEnv 反推 DISABLED
+// 键)。用例修改 env 后须同步;beforeEach 从干净 env 反推全开默认态。
+function syncSwitches(): void {
+  setCapabilitySwitches(fromEnv());
+}
+beforeEach(() => {
+  syncSwitches(); // 全开默认态基线(避免显式注入跨用例残留)
+});
 
 const KEY = 'test-billions-key';
 
@@ -120,6 +130,7 @@ describe('makeBillionsSearchTool', () => {
   it('开关关（BILLIONS_DISABLED=1）→ undefined', () => {
     const prev = process.env.BILLIONS_DISABLED;
     process.env.BILLIONS_DISABLED = '1';
+    syncSwitches();
     try {
       expect(makeBillionsSearchTool({ apiKey: KEY })).toBeUndefined();
     } finally {

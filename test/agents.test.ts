@@ -3,6 +3,13 @@ import { AIMessage } from '@langchain/core/messages';
 import { BillionsInformationAnalyst, BullishTrader, FundamentalAnalysisExpert, type CompleteOptions } from '../src/agents.ts';
 import { BillionsApiError, BillionsClient, type SearchOptions } from '../src/billionsClient.ts';
 import type { SearchResult } from '../src/webSearch.ts';
+import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
+
+// env DISABLED 键修改后同步配置面(消费点惰性读 getCapabilitySwitches,未注入
+// 时从 env 反推——与旧 envDisabledBool 语义等价)。
+function syncSwitches(): void {
+  setCapabilitySwitches(fromEnv());
+}
 
 function stubLlm() {
   const fn = async () => new AIMessage({ content: 'ok' });
@@ -42,6 +49,7 @@ async function runAnalyst(
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
+  syncSwitches(); // env 修改后配置面反推同步
   try {
     const calls: string[] = [];
     const fake = async (q: string) => {

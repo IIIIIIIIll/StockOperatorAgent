@@ -13,6 +13,8 @@ import {
   FundamentalAnalysisExpert, InvestmentManager, TechnicalIndicatorAnalyst, TrendAnalysisExpert,
 } from './agents.ts';
 import type { BillionsClient } from './billionsClient.ts';
+import { envValue } from './env.ts';
+import { getCapabilitySwitches, type CapabilitySwitches } from './switches.ts';
 
 // ─── 角色注册表（对齐 Python Role dataclass） ─────────────────────────────
 
@@ -37,21 +39,36 @@ export interface Role {
   reviseNodeName?: string;
 }
 
+/** env-only 兜底判定(存在且非 ""/"0"/"false"/"no" → 禁用):Node 直配 env
+ *  场景(无 app 层注入)仍工作;消费面已改走 config(getCapabilitySwitches)。 */
 export function envDisabledBool(name: string): boolean {
-  const v = process.env[name];
+  const v = envValue(name);
   if (v === undefined || v === '') return false;
   return !['0', 'false', 'no'].includes(v.toLowerCase());
 }
 
+/** 亿信能力开关 → config(语义 enabled):主闸(billions) 且 能力闸(cap 小写
+ *  字段);未注入时 fromEnv 从 BILLIONS_{CAP}_DISABLED 反推。cap: FINDB/
+ *  SEARCH/TWITTER/FETCH/ANALYST。无 key 约束(现状)——key 判定在
+ *  billionsTools.billionsCapEnabled 单点承担。 */
+const BILLIONS_CAP_FIELD: Record<string, keyof CapabilitySwitches> = {
+  FINDB: 'findb',
+  SEARCH: 'search',
+  TWITTER: 'twitter',
+  FETCH: 'fetch',
+  ANALYST: 'analyst',
+};
+
 export function billionsEnabled(cap: string): boolean {
-  if (envDisabledBool('BILLIONS_DISABLED')) return false;
-  return !envDisabledBool(`BILLIONS_${cap}_DISABLED`);
+  const s = getCapabilitySwitches();
+  const field = BILLIONS_CAP_FIELD[cap];
+  return s.billions && (field ? s[field] : false);
 }
 
+/** 契约公式（implement.md Step 8）：亿信路径（ANALYST 且 SEARCH/TWITTER 至少一者）
+ * 或联网路径（webSearchEnabled）——三谓词均读 config(面板/注入;Node 直配 env
+ * 由 fromEnv 反推),web 开时经 /web-search/DDG 兜底预抓。 */
 export function informationAnalystEnabled(): boolean {
-  // 契约公式（implement.md Step 8）：亿信路径（ANALYST 且 SEARCH/TWITTER 至少一者）
-  // 或联网路径（webSearchEnabled）——TS billionsEnabled 无 key 约束（committee.ts
-  // line 37-40 现状），分析师默认 env 恒注册，web 开时经 /web-search/DDG 兜底预抓。
   return billionsEnabled('ANALYST') && (billionsEnabled('SEARCH') || billionsEnabled('TWITTER') || webSearchEnabled());
 }
 

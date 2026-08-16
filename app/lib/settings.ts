@@ -1,11 +1,12 @@
 // 设置状态 —— 对齐 Python display.py 四节(模型密钥/LangSmith/能力开关/调用上限)
 // 持久化 settingsStore(web:localStorage;RN:expo-file-system 沙盒文件);
-// 开关在分析前应用到 process.env(DISABLED 语义,
-// 消费点 committee.envDisabledBool / webSearchEnabled 同判定)。
+// 开关经 switchesToCapabilities → setCapabilitySwitches 显式注入
+// (src/switches.ts,语义 enabled;消费点惰性读 config——process.env 零写入)。
 import { createLlm, type LlmConfig } from '../../src/llm.ts';
 import * as settingsStore from './settingsStore.ts';
 import { info, warn, error as logError } from '../../src/log.ts';
 import { BILLIONS_DEFAULT_MAX } from '../../src/billionsTools.ts';
+import type { CapabilitySwitches } from '../../src/switches.ts';
 
 export interface SwitchState {
   tdxMcp: boolean; // TDX MCP(实时市场情报)
@@ -107,20 +108,19 @@ export function saveSettings(s: SettingsState): void {
   settingsStore.save(JSON.stringify(s));
 }
 
-/** DISABLED 语义应用:开 → 值 '0'(不禁用),关 → '1'。消费点 committee.ts。 */
-export function applySwitchesToEnv(switches: SwitchState): void {
-  const set = (name: string, enabled: boolean): void => {
-    if (enabled) delete process.env[name];
-    else process.env[name] = '1';
+/** 面板开关(语义 enabled) → 能力开关直映(与旧 DISABLED 语义取反映射等价)。
+ *  消费点:App start()/onSettingsChange 调 setCapabilitySwitches(switchesToCapabilities(s))。 */
+export function switchesToCapabilities(switches: SwitchState): CapabilitySwitches {
+  return {
+    tdxMcp: switches.tdxMcp,
+    webSearch: switches.webSearch,
+    billions: switches.billionsMaster,
+    findb: switches.findb,
+    search: switches.search,
+    twitter: switches.twitter,
+    fetch: switches.fetch,
+    analyst: switches.analyst,
   };
-  set('TDX_MCP_DISABLED', switches.tdxMcp);
-  set('WEB_SEARCH_DISABLED', switches.webSearch);
-  set('BILLIONS_DISABLED', switches.billionsMaster);
-  set('BILLIONS_FINDB_DISABLED', switches.findb);
-  set('BILLIONS_SEARCH_DISABLED', switches.search);
-  set('BILLIONS_TWITTER_DISABLED', switches.twitter);
-  set('BILLIONS_FETCH_DISABLED', switches.fetch);
-  set('BILLIONS_ANALYST_DISABLED', switches.analyst);
 }
 
 /** LLM 三键齐 → 真 LLM;缺 → 演示 stub(门控对齐 Python _llm_configured)。 */

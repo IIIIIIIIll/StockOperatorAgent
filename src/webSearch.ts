@@ -3,6 +3,8 @@
 // html 端点（免 key，region cn-zh，对齐 Python ddgs 语义）。降级语义：
 // 查询失败/空结果 → 占位文本不 raise，图不中断。
 import { detectPlatform } from './log.ts';
+import { envValue } from './env.ts';
+import { getCapabilitySwitches } from './switches.ts';
 import type { ToolLike } from './toolLoop.ts';
 
 export interface SearchResult {
@@ -13,15 +15,10 @@ export interface SearchResult {
   url?: string; // Tavily 原生字段（归一化时映射到 link）
 }
 
-/** env 判定：存在且值非 ""/"0"/"false"/"no" → 禁用（对齐 Python env_disabled）。 */
-export function envDisabled(name: string): boolean {
-  const v = process.env[name];
-  if (v === undefined || v === '') return false;
-  return !['0', 'false', 'no'].includes(v.toLowerCase());
-}
-
+/** web 搜索能力开关(语义 enabled):config.webSearch(面板/注入;Node 直配 env
+ *  由 fromEnv 反推 WEB_SEARCH_DISABLED)。消费点惰性读——禁止模块级求值。 */
 export function webSearchEnabled(): boolean {
-  return !envDisabled('WEB_SEARCH_DISABLED');
+  return getCapabilitySwitches().webSearch;
 }
 
 /** 结果 dict 列表 → 中文摘要文本；无有效条目 → 占位（对齐 Python _summarize_results）。 */
@@ -76,13 +73,16 @@ export function makeProxySearcher(
 // 分支访问——平台判定收敛到 log.ts isWebEnv,此处不再自写 typeof 守卫）。
 declare const window: { location?: { origin?: string } } | undefined;
 
-/** 缺省 searcher：浏览器 → 同源 /web-search 代理；Node/真机 → Tavily 优先 / DDG。 */
+/** 缺省 searcher：浏览器 → 同源 /web-search 代理；Node/真机 → Tavily 优先 / DDG。
+ *  惰性：函数体每次调用重读 env（非模块级单例）。EXPO_PUBLIC_TAVILY_API_KEY
+ *  必须直接成员访问（真机 release 经 babel-preset-expo 静态内联——architecture
+ *  契约 6 豁免）；TAVILY_API_KEY(Node/server 路径)经 envValue 单点。 */
 export function defaultSearcher(): (query: string) => Promise<SearchResult[]> {
   if (detectPlatform() === 'web' && window?.location?.origin) {
     return makeProxySearcher(window.location.origin);
   }
   // EXPO_PUBLIC_ 前缀真机可达(Metro 内联);未配时回退 TAVILY_API_KEY(Node/server 路径现状)。
-  const key = process.env.EXPO_PUBLIC_TAVILY_API_KEY ?? process.env.TAVILY_API_KEY;
+  const key = process.env.EXPO_PUBLIC_TAVILY_API_KEY ?? envValue('TAVILY_API_KEY');
   if (key) return tavilySearcher(key);
   return ddgSearcher;
 }

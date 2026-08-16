@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { HumanMessage } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
 import {
+  ddgSearcher,
   decodeDdgUrl,
   decodeEntities,
+  defaultSearcher,
   makeProxySearcher,
   makeWebSearchTool,
   parseDdgHtml,
@@ -101,6 +103,34 @@ describe('makeProxySearcher（同源 /web-search 代理 searcher）', () => {
     const fakeFetch = async () => ({ ok: true, json: async () => ({ results: [] }) }) as Response;
     const search = makeProxySearcher('http://x', fakeFetch);
     await expect(search('q')).rejects.toThrow(/无返回结果/);
+  });
+});
+
+describe('defaultSearcher 惰性(调用时重读 env,非模块级单例)', () => {
+  it('env 在两次调用间变化 → 每次调用重读;无 key → ddgSearcher,有 key → 新 Tavily 闭包', () => {
+    const saved = {
+      EXPO_PUBLIC_TAVILY_API_KEY: process.env.EXPO_PUBLIC_TAVILY_API_KEY,
+      TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+    };
+    try {
+      delete process.env.EXPO_PUBLIC_TAVILY_API_KEY;
+      delete process.env.TAVILY_API_KEY;
+      const ddg = defaultSearcher();
+      expect(ddg).toBe(ddgSearcher); // 无 key → 免 key 兜底(模块函数恒等)
+
+      process.env.TAVILY_API_KEY = 'k1';
+      const tavily1 = defaultSearcher();
+      expect(tavily1).not.toBe(ddg); // 有 key → Tavily 路径
+
+      process.env.TAVILY_API_KEY = 'k2';
+      const tavily2 = defaultSearcher();
+      expect(tavily2).not.toBe(tavily1); // 每次调用重新构造闭包(惰性,无模块级缓存)
+    } finally {
+      if (saved.EXPO_PUBLIC_TAVILY_API_KEY === undefined) delete process.env.EXPO_PUBLIC_TAVILY_API_KEY;
+      else process.env.EXPO_PUBLIC_TAVILY_API_KEY = saved.EXPO_PUBLIC_TAVILY_API_KEY;
+      if (saved.TAVILY_API_KEY === undefined) delete process.env.TAVILY_API_KEY;
+      else process.env.TAVILY_API_KEY = saved.TAVILY_API_KEY;
+    }
   });
 });
 

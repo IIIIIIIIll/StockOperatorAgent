@@ -184,6 +184,24 @@ res.end();
 - **图表布局公共函数(08-16-audit-remediation)**:pane 顶比例计算在
   `src/chartLayout.ts` `paneTops`(web 两组件共用);HTML 侧(WebView 内嵌 JS)
   保持镜像注释;`npm run chart:build` 生成、`npm run chart:check` 校验一致性。
+- **显式开关配置(08-16-normalization-final)**:**process.env 零写入**。
+  能力开关经 `src/switches.ts` `setCapabilitySwitches`(语义 enabled)显式注入,
+  消费点(committee/webSearch/mcp/billionsTools/agents)惰性读
+  `getCapabilitySwitches()`(未注入 → `fromEnv()` 从 DISABLED 键反推,与旧
+  envDisabledBool 逐位等价;TDX_MCP_ENABLED 覆盖层 > config > env 默认)。
+  面板开关映射 `switchesToCapabilities`(settings.ts);App start/onSettingsChange
+  注入。env 兜底读取统一 `src/env.ts` `envValue`(typeof process 守卫单点);
+  优先级:构造注入 > envValue > 默认。EXPO_PUBLIC_* 直接成员访问豁免
+  (babel-preset-expo 静态内联必需)。
+- **桌面 Node 后端(08-16-normalization-final)**:`src/store-node.ts`(唯一
+  node:fs 豁免——**凡进 metro 图的文件禁 node:fs**,静态/动态都禁;适配器经
+  注入传入)。`runner.setStore()` 注入点(`export let store` ESM live binding);
+  settingsStore node 分支经 `_fs` 注入(nodeSettingsFileSystem)。接线示范
+  `tools/desktop-probe.mts`。
+- **架构断言(08-16-normalization-final)**:`test/architecture.test.ts` 强制
+  架构约定(node:/react-native import 禁令、better-sqlite3 仅 type、declare
+  global DOM 名禁令、meta 键裸字面量禁令、process.env 零写入、lib/log 回潮
+  禁令)。新增 src 模块若违反白名单面 → 测试红。
 
 ## 能力接线(08-13-ts-capability-completion;Python phase out 后唯一实现)
 

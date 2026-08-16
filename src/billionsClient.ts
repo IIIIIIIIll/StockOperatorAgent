@@ -12,6 +12,7 @@
 //   expert 120（未知档位回退 fast）；fetch 90s；AbortSignal.timeout 实现
 // - 密钥：构造 opts.apiKey 覆盖 env `BILLIONS_API_KEY`；**不写日志**
 // - fetch 注入点（house style 无 mock 框架，对齐 Python `_http`）
+import { envValue } from './env.ts';
 
 /** 亿信 API 调用失败（归一化错误，client 内唯一异常）。
  *
@@ -91,7 +92,7 @@ export class BillionsClient {
 
   constructor(opts: BillionsClientOptions = {}) {
     this._fetch = opts.fetch ?? globalThis.fetch;
-    this._apiKey = opts.apiKey ?? process.env.BILLIONS_API_KEY;
+    this._apiKey = opts.apiKey ?? envValue('BILLIONS_API_KEY');
     this._baseUrl = opts.baseUrl ?? BILLIONS_BASE;
   }
 
