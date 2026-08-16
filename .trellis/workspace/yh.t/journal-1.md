@@ -1125,3 +1125,24 @@ Electron 壳(main 全 JS + child 自 spawn strip-types)+ renderer 桥(快照镜�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 41: 技术债清理:tsc 归零+残留删除+优雅退出
+
+**Date**: 2026-08-16
+**Task**: 技术债清理:tsc 归零+残留删除+优雅退出
+**Branch**: `master`
+
+### Summary
+
+根 tsc 3 诊断归零(DOM lib 单源,TS7 原生 AbortSignal 形状错位实证;proxies.d.cts 伴随声明);删除 tdx/vendor 56 文件;desktop SIGTERM/SIGINT 优雅退出(exit 1→0);424 测试全绿
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f88ede1` | (see git log) |
+
+### Status
+
+[OK] **Completed**
