@@ -180,6 +180,11 @@ async function main() {
 
   // Parent gone (normal quit race or crash) -> graceful exit, no orphan.
   process.on('disconnect', gracefulShutdown);
+  // Defensive: a process-tree kill may signal the child directly before main
+  // can send 'shutdown'; flush + close + exit on signals too (idempotent via
+  // shuttingDown flag).
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
 }
 
 main().catch((err) => {

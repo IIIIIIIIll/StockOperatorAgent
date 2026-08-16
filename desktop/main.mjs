@@ -308,3 +308,10 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   shutdownChild();
 });
+
+// Termination signals: route into the same graceful path (flush + close +
+// exit) so kill -TERM / Ctrl+C never loses writes and exits cleanly (0).
+// Without this, a process-tree kill takes the child down mid-write and the
+// wrapper reports a non-zero exit.
+process.on('SIGTERM', () => shutdownChild());
+process.on('SIGINT', () => shutdownChild());

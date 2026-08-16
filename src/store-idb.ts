@@ -52,7 +52,8 @@ export interface IdbFactoryLike {
   open(name: string, version?: number): IdbOpenRequestLike;
 }
 
-// ts/ 为 node-only lib(无 DOM 类型),app/ 又带 DOM lib——不 declare global
+// ts/ 为 node-only lib(根 tsconfig lib=ES2024+DOM,见 src/log.ts 注释;app/ 亦
+// 带 DOM lib)——不 declare global
 // (双 tsconfig 冲突),运行时经 globalThis 探针取浏览器/fake-indexeddb 全局
 // (同 runner.ts `location` 探针、log.ts 环境全局先例)。
 interface IdbKeyRangeCtorLike {

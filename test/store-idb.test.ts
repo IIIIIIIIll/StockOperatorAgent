@@ -13,8 +13,14 @@ function bars(dates: string[]): DailyBar[] {
 
 const dbName = 'soa-store-test';
 
-/** 每用例独立 factory(互不串库);同 factory 同库名 = 跨实例共享同一落盘。 */
-function newStore(factory = new IDBFactory()): IdbStore {
+/** 每用例独立 factory(互不串库);同 factory 同库名 = 跨实例共享同一落盘。
+ *  根 tsconfig 带 DOM lib 后 fake-indexeddb 的 IDBFactory 不再结构匹配
+ *  手写 IdbFactoryLike(仅测试面差异,运行时不变),统一经此适配。 */
+function makeIdbFactory(): IdbFactoryLike {
+  return new (IDBFactory as unknown as new () => IdbFactoryLike)();
+}
+
+function newStore(factory: IdbFactoryLike = makeIdbFactory()): IdbStore {
   return new IdbStore(factory, dbName);
 }
 
@@ -85,7 +91,7 @@ describe('IdbStore 内存镜像语义(对齐 InMemoryStore/Store)', () => {
 
 describe('IdbStore 跨实例持久化(hydrate)', () => {
   it('flush 后新实例(同 factory/库名)hydrate 同数据', async () => {
-    const factory = new IDBFactory();
+    const factory = makeIdbFactory();
     const a = newStore(factory);
     await a.ready();
     a.putStock({
@@ -111,7 +117,7 @@ describe('IdbStore 跨实例持久化(hydrate)', () => {
   });
 
   it('replaceDatas 持久化:旧行落盘清除,新实例只看到替换后数据', async () => {
-    const factory = new IDBFactory();
+    const factory = makeIdbFactory();
     const a = newStore(factory);
     await a.ready();
     a.addDatas('T', bars(['2026-01-01']));

@@ -6,6 +6,7 @@
   "type": "module",
   "main": "main.mjs",
   "scripts": {
+    "build": "cd ../app && npx expo export --platform web",
     "start": "electron ."
   },
   "devDependencies": {

@@ -13,8 +13,11 @@ import { envValue } from './env.ts';
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 export type Platform = 'web' | 'rn' | 'node';
 
-// ts/ 为 node-only lib(tsconfig 无 DOM/RN 类型):声明全局,运行时 typeof 守卫
-// (webSearch.ts 同款先例)。process 由 @types/node 提供,RN 端为 Metro polyfill。
+// ts/ 为 node-only lib(tsconfig lib=ES2024+DOM:fetch/AbortSignal 等 web 平台
+// 类型取 DOM lib 单源,与 @types/node 26.2 web-globals 的 AbortSignal 形状错位
+// 冲突——08-16-tech-debt-cleanup 实证;RN 端类型由 app/ tsconfig 另行覆盖):
+// 声明模块级守卫,运行时 typeof 守卫 (webSearch.ts 同款先例)。process 由
+// @types/node 提供,RN 端为 Metro polyfill。
 declare const window: { location?: { origin?: string } } | undefined;
 declare const document: unknown;
 declare const navigator: { product?: string } | undefined;

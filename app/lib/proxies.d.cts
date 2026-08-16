@@ -1,48 +1,28 @@
-// 供 vitest(ts/test/proxies.test.ts)类型引用;运行时由 Node 直接加载 .cjs
-// (实现见 proxies.cjs,metro dev 与生产 server.mjs 共用单份,C2/W2/W4 同源)。
-interface ProxyReqBase {
-  url: string;
-}
-interface ProxyLlmReq extends ProxyReqBase {
-  headers?: Record<string, string | string[] | undefined>;
-  [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
-}
-interface ProxyRes {
-  headersSent?: boolean;
-  writeHead(status: number, headers?: Record<string, string>): void;
-  end(body?: unknown): void;
-}
-interface FetchLike {
-  (
-    url: string,
-    init?: unknown,
-  ): Promise<{
-    status: number;
-    headers: { get(name: string): string | null };
-    body: unknown;
-  }>;
-}
+// 供 vitest(test/proxies.test.ts)类型引用;运行时由 Node 直接加载 .cjs
+// (实现见 proxies.cjs,metro dev 中间件与生产 server.mjs 共享单份)。
+// 声明面与 logs-server.d.cts 同款伴随惯例。cjs 实现无类型,参数刻意宽松
+// (any):本声明的职责是暴露导出面与注入点 arity(测试传假 req/fetch/collect/
+// ddg 件,类型上兼容真件即可),不重新发明签名。
 declare const proxies: {
   handleLlmProxy(
-    req: ProxyLlmReq,
-    res: ProxyRes,
-    _fetch?: FetchLike,
+    req: unknown,
+    res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
+    _fetch?: (input: any, init?: any) => Promise<any>,
   ): Promise<void>;
   handleTdxCollect(
-    req: ProxyReqBase,
-    res: ProxyRes,
-    _collect?: (ticker: string) => Promise<unknown>,
+    req: unknown,
+    res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
+    _collect?: (ticker: any, opts?: any) => Promise<any>,
   ): Promise<void>;
-  handleWebSearch(req: ProxyReqBase, res: ProxyRes): Promise<void>;
-  /** W2 请求体上限(64KB)。 */
+  handleWebSearch(
+    req: { url: string },
+    res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
+    _ddg?: (q: any) => Promise<any>,
+  ): Promise<void>;
   MAX_BODY_BYTES: number;
-  /** W4 /tdx-collect 超时(45s)。 */
   COLLECT_TIMEOUT_MS: number;
-  /** C2 base 校验:http(s) + 无 userinfo + host 非空 → URL,否则 null。 */
-  normalizeBaseUrl(raw: unknown): URL | null;
-  /** C2 SSRF 黑名单:私网/环回/链路本地/保留段 → true。 */
+  normalizeBaseUrl(raw: string): string;
   isPrivateAddress(ip: string): boolean;
-  /** C2 host DNS 解析后全公网 → true;含私网或解析失败 → false。 */
   isPublicHost(u: URL): Promise<boolean>;
 };
 export = proxies;

@@ -9,11 +9,15 @@ paths: [src/**, app/**, test/**, tools/**]
 > `08-14-phaseout-e-py-deletion`，E1 死代码面 → E2 数据源/存储/结构面 → E3
 > 工具/agent 面 → E4 编排/UI 面 → E5 收尾）。本文件是**最终唯一实现契约**；
 > 仓库根已无 `main.py`/`core/`/`agents/`/`data_source/`/`data_storage/`/
-> `data_structure/`/`utils/` 业务代码（`data_source/.../tdx/vendor/` 冻结保留、
-> `tools/export_fixtures.py` 与 `test/fixtures/` 冻结保留）。Python 侧旧
-> 分层 spec（core/data_source/data_storage/data_structure）作为历史归档保留。
-> 仓库根 `.streamlit/config.toml` 为 Python Streamlit 时代残留（零 TS 消费），
-> 保留待用户决策删/留。
+> `data_structure/`/`utils/` 业务代码。`test/fixtures/` 为 TS 测试活跃数据
+> (9+ 测试文件消费)。Python 残留已于 08-16-tech-debt-cleanup 全清:
+> `data_source/.../tdx/vendor/`(56 文件零消费)删除、`tools/export_fixtures.py`
+> 已不在仓库、`.streamlit/` 已于 d2ddd5a 删除。Python 侧旧分层 spec
+> (core/data_source/data_storage/data_structure)作为历史归档保留。
+> 根 tsconfig `lib=["ES2024","DOM"]`(fetch/AbortSignal 等 web 平台类型取
+> DOM 单源;@types/node 26.2 web-globals AbortSignal 形状错位触发 TS7 原生
+> 编译器误报——08-16-tech-debt-cleanup 实证;模块级守卫声明不受影响)。
+
 
 Python 侧分层规范不覆盖 TS 移植。本层沉淀 TS 侧(web 浏览器 + RN app + Node
 server)的跨层契约:事件流协议、流式输出、LLM 重试、同源代理。
