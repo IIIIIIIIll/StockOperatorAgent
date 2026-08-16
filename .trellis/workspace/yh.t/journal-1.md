@@ -1043,3 +1043,22 @@ done事件结果持久化到 store meta 'soa:last-run',App 启动恢复展示报
 ### Status
 
 [OK] **Completed**
+
+
+## Session 37: 模块化与跨平台就绪度审计(4 scout)
+
+**Date**: 2026-08-16
+**Task**: 模块化与跨平台就绪度审计(4 scout)
+**Branch**: `master`
+
+### Summary
+
+4 并行 scout 审计:0 critical;P1 web bundle 死链(node-tdx-market 静态链入)为唯一 major 结构缺陷;死代码 4 类;跨平台接线点 6 项;综合报告 research/00-summary.md
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
