@@ -144,6 +144,15 @@ res.end();
   → 同日跳过日K / 同季跳过 F10 的判定跨重启成立(非仅当次会话)。App 启动链
   `await storeReady()`(IndexedDB 打开 + hydrate / 文件读回)后
   `loadDemoData()`(仅空库载入 demo,有跨会话持久化数据则跳过)。
+- **上次分析缓存(08-16-cache-last-run)**:`src/lastRun.ts` 纯函数
+  (`saveLastRun`/`loadLastRun`)把最近一次成功分析的 `FinalReport`(done 事件
+  完整结果 + ISO 完成时间 + `real|demo` 运行模式)写入 meta 键 `soa:last-run`
+  (JSON 串,对齐 `soa:llm-config` 前缀惯例;仅 done 写,error 不写 → 旧缓存
+  保留)。App 启动链 `loadLastRun` 命中 → 播种各报告 Tab/最终决策/采集数据
+  ticker 与股票信息/角色 chips(经理角色按非空 `final_decision` 置 done——
+  经理报告只进 `final_decision` 字段不在 opinions);未命中/损坏 JSON → 静默
+  降级 demo 路径。恢复内容带时间+模式标记("已显示上次分析结果"),防误当实时
+  新分析;四平台共用同一 meta 面。
 
 ## 能力接线(08-13-ts-capability-completion;Python phase out 后唯一实现)
 

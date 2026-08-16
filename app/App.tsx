@@ -37,6 +37,7 @@ import { describeError } from '../src/events.ts';
 import { collectForDevice, setDeviceStore } from '../src/tdx/deviceCollect.ts';
 import { startAnalysisKeepAlive, stopAnalysisKeepAlive } from './modules/soa-keepalive';
 import type { RoleStatus } from '../src/progress.ts';
+import { loadLastRun, saveLastRun } from '../src/lastRun.ts';
 import { info, warn, error as logError } from './lib/log';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
@@ -66,6 +67,11 @@ export default function App() {
   const [dataVersion, setDataVersion] = React.useState(0);
   // 最近一次成功分析/采集的 ticker(采集数据 Tab 的数据源;默认 demo 票)
   const [lastRunTicker, setLastRunTicker] = React.useState('600036');
+  // 上次分析运行模式(real|demo):subscribe effect 闭包持初始 settings 会陈旧,
+  // 用 ref 在 start() 计算 mode 处同步,写缓存与标记时以 start() 时刻为准
+  const modeRef = React.useRef<'real' | 'demo'>('demo');
+  // 上次分析结果标记(完成时间 + 运行模式;start() 清除,分析中不显示)
+  const [lastRunAt, setLastRunAt] = React.useState<{ at: string; mode: 'real' | 'demo' } | null>(null);
 
   const roles = reportRoles(); // (stateKey, tabTitle) —— report_tabs() 契约
 
@@ -87,11 +93,37 @@ export default function App() {
       loadDemoData(); // 仅空库时载入 demo(有跨会话持久化数据则跳过)
       const bars = store.getDatas('600036');
       info(`演示数据载入:${bars.length} 根日K + F10,耗时 ${Date.now() - t0}ms`);
-      // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
-      const demoF10 = store.getMeta('demo:f10');
-      setStockInformation(
-        buildStockInformation('600036', { store, f10Text: demoF10, today: new Date().toISOString().slice(0, 10) }),
-      );
+      // 上次分析缓存恢复:有缓存 → 恢复展示(报告 Tab/最终决策/采集数据/状态
+      // chips),不再展示 demo 占位;无缓存 → 现状 demo 上下文(loadDemoData
+      // 已无条件调用,空库守卫不变)
+      const last = loadLastRun(store);
+      if (last) {
+        setLastRunTicker(last.ticker);
+        setStockInformation(last.stock_information);
+        setFinalDecision(last.final_decision);
+        setEvents(last.opinions.map((o) => ({ type: 'report', key: o.key, tabTitle: o.tabTitle, content: o.content })));
+        // 状态 chips:缓存命中角色置"完成"(reviseNodeName 存在取修订节点,
+        // 与现渲染逻辑一致);缓存未覆盖的启用角色保持"待运行"
+        const st: Record<string, RoleStatus> = {};
+        for (const o of last.opinions) {
+          const r = enabledRoles().find((x) => x.stateKey === o.key);
+          if (!r) continue;
+          if (r.reviseNodeName) st[r.reviseNodeName] = 'done';
+          st[r.nodeName] = 'done';
+        }
+        // 经理报告只进 final_decision 字段(不在 opinions)——非空即视为已完成,
+        // 与活运行 roleStatus 置 done 的 chips 语义一致
+        const manager = enabledRoles().find((r) => r.kind === 'manager');
+        if (manager && last.final_decision.trim()) st[manager.nodeName] = 'done';
+        setStatuses(st);
+        setLastRunAt({ at: last.at, mode: last.mode });
+      } else {
+        // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
+        const demoF10 = store.getMeta('demo:f10');
+        setStockInformation(
+          buildStockInformation('600036', { store, f10Text: demoF10, today: new Date().toISOString().slice(0, 10) }),
+        );
+      }
       const loaded = loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
       setSettings(loaded);
       const miss = missingLlmKeys(loaded.keys);
@@ -133,6 +165,10 @@ export default function App() {
         info(`分析完成:${report.opinions.length} 份观点,最终决策 ${report.final_decision.length} 字符`);
         setFinalDecision(report.final_decision);
         setStockInformation(report.stock_information);
+        // 上次分析缓存:仅 done(成功)写;error 不写 → 旧缓存保留(R4)
+        const at = new Date().toISOString();
+        saveLastRun(store, report, modeRef.current, at);
+        setLastRunAt({ at, mode: modeRef.current });
       } else if (e.type === 'error') {
         logError(e.error);
         setError(e.error);
@@ -161,6 +197,7 @@ export default function App() {
     setError(null);
     setPartials({});
     setStatuses({});
+    setLastRunAt(null); // 新分析开始:清除上次结果标记(R4)
     const code = ticker.trim();
     // 对齐 Python:六位数字校验 + BJ 拦截
     if (!/^\d{6}$/.test(code)) {
@@ -176,6 +213,7 @@ export default function App() {
     // WEB_SEARCH_DISABLED);浏览器经 /web-search 同源代理有可用搜索源
     // (defaultSearcher 浏览器分支自动走代理,交易员工具与分析师预抓共用)
     const mode = llmConfigured(settings.keys) ? '真实 LLM' : '演示占位 LLM';
+    modeRef.current = llmConfigured(settings.keys) ? 'real' : 'demo'; // 缓存/标记以 start() 时刻模式为准
     info(`开始分析 ${code}(模式:${mode})`);
     const t0 = Date.now();
     setRunning(true);
@@ -333,6 +371,11 @@ export default function App() {
           </Pressable>
         </View>
         {gateNotice ? <Text style={styles.warn}>⚠ {gateNotice}</Text> : null}
+        {lastRunAt && !running ? (
+          <Text style={styles.info}>
+            已显示上次分析结果 · {new Date(lastRunAt.at).toLocaleString()} · {lastRunAt.mode === 'real' ? '真实 LLM' : '演示模式'}
+          </Text>
+        ) : null}
         {error ? <Text style={styles.error}>✗ {error}</Text> : null}
 
       </View>
@@ -432,6 +475,7 @@ function makeStyles(theme: Theme) {
     startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },
     warn: { color: theme.colors.warn, fontSize: 12, marginTop: theme.spacing.sm },
+    info: { color: theme.colors.textSecondary, fontSize: 12, marginTop: theme.spacing.sm },
     error: { color: theme.colors.error, fontSize: 12, marginTop: theme.spacing.sm },
     sidebarTab: { width: 44, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },
     sidebarTabIcon: { fontSize: 18, color: theme.colors.primary },
