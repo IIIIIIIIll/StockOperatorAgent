@@ -1001,3 +1001,24 @@ app 编译中 ../src/log.ts 与 store-file.ts 的 import('expo-file-system') 报
 - 全链打通并 release 验证:真机 TDX TCP 直连采集(5840 根日K+F10)+ 真 LLM 委员会 8 份观点 + 最终决策,断 metro 独立运行 455s。
 - 关键缺口(逐层排查):Hermes 无 Buffer.subarray 视图/timer.unref/crypto/navigator.userAgent/AbortSignal.throwIfAborted;iconv GBK;lazy 模式动态 import 运行时解析;EXPO_PUBLIC 别名逃逸静态内联;edge-to-edge 顶部 inset。
 - 决策:数据源 B(TDX TCP,react-native-tcp-socket shim 不 fork 包);图表 WebView 内联 lightweight-charts;host 顺序尝试。
+
+
+## Session 35: 上次分析结果缓存与启动恢复
+
+**Date**: 2026-08-16
+**Task**: 上次分析结果缓存与启动恢复
+**Branch**: `master`
+
+### Summary
+
+done事件结果持久化到 store meta 'soa:last-run',App 启动恢复展示报告/决策/采集数据并带时间模式标记;模拟器真实分析+重启恢复验证通过
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c004cd5` | (see git log) |
+
+### Status
+
+[OK] **Completed**
