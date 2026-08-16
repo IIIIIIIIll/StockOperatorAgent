@@ -1104,3 +1104,24 @@ process.env 零写入;switches 显式注入;store-node+setStore 桌面后端;arc
 ### Status
 
 [OK] **Completed**
+
+
+## Session 40: 桌面端开发:Electron 壳全链打通
+
+**Date**: 2026-08-16
+**Task**: 桌面端开发:Electron 壳全链打通
+**Branch**: `master`
+
+### Summary
+
+Electron 壳(main 全 JS + child 自 spawn strip-types)+ renderer 桥(快照镜像+写穿队列)+ settings 异步保存(修 sendSync 事件路径死锁)+ 代理契约修复(1MB 上限/web-search 空白禁令);WSLg 真机全链:真采集 5840 根 + 真 LLM 8 观点 + 最终决策 903s;AC1-AC4 验证通过,424 测试全绿
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e11a4a8` | (see git log) |
+
+### Status
+
+[OK] **Completed**
