@@ -119,16 +119,29 @@ jobs:
           GRADLE_OPTS: "-Xmx3g"
         run: ./gradlew :app:assembleRelease --no-daemon -x lint
 
+      - name: Build release AAB (Google Play)
+        working-directory: app/android
+        env:
+          GRADLE_OPTS: "-Xmx3g"
+        run: ./gradlew :app:bundleRelease --no-daemon -x lint
+
       - name: Rename APK to soa-<version>.apk
         run: |
           version="${GITHUB_REF_NAME#v}"
           cp "app/android/app/build/outputs/apk/release/app-release.apk" "soa-${version}.apk"
 
-      - name: Upload APK to GitHub Release (tag push)
+      - name: Rename AAB to soa-<version>.aab
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cp "app/android/app/build/outputs/bundle/release/app-release.aab" "soa-${version}.aab"
+
+      - name: Upload APK/AAB to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: soa-*.apk
+          files: |
+            soa-*.apk
+            soa-*.aab
           body: |
             本 Release 由 tag `${{ github.ref_name }}` 自动构建，挂载桌面安装包与 Android APK。
 
@@ -137,13 +150,15 @@ jobs:
             - **Windows**：`StockOperatorAgent-Setup-<version>.exe`（NSIS 安装包）。产物未签名，SmartScreen 可能提示“未知发布者”，选择“更多信息 → 仍要运行”即可。
             - **macOS**：`StockOperatorAgent-<version>-<arch>.dmg`。产物未签名/未公证，首次打开会触发 Gatekeeper“无法验证开发者”，需在“系统设置 → 隐私与安全性”中手动允许。
             - **Linux**：`StockOperatorAgent-<version>-<arch>.AppImage`（`chmod +x` 后运行）与 `.deb`（`sudo dpkg -i` 安装）。
-            - **Android**：`soa-<version>.apk` 可直接安装；未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
+            - **Android**：`soa-<version>.apk` 可直接安装；`soa-<version>.aab` 为 Google Play 提交包（Play App Signing 会以同一上传密钥自动签名分发，上传 Play 时使用）。未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
 
             完整发版步骤、产物清单与签名配置见仓库 README「发布」章节。
 
-      - name: Upload APK artifact (manual dispatch)
+      - name: Upload APK/AAB artifact (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: soa-apk
-          path: soa-*.apk
+          name: soa-android
+          path: |
+            soa-*.apk
+            soa-*.aab

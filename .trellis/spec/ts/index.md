@@ -348,10 +348,13 @@ resources/app/app/ 的布局都会打破这三处解析**(设计稿最初的错�
   0 `*.node`。
 - **版本契约**:`desktop/package.json` version ↔ tag `v<version>`;产物名自动带
   version(Win `-Setup-${version}.exe`;Linux/mac `${productName}-${version}-${arch}.{AppImage,deb,dmg}`);
-  APK 重命名 `soa-${version}.apk`(version 取 `${GITHUB_REF_NAME#v}`,dispatch
-  分支 → `soa-<分支名>.apk`,仅自测)。
-- **上传**:tag → softprops/action-gh-release@v2(files 四类 glob);dispatch →
-  actions/upload-artifact@v4。Release body 须含安装/签名提示(AC 要求)。
+  APK 重命名 `soa-${version}.apk`、AAB 重命名 `soa-${version}.aab`(version 取
+  `${GITHUB_REF_NAME#v}`,dispatch 分支 → `soa-<分支名>.{apk,aab}`,仅自测)。
+  AAB 由 `:app:bundleRelease` 产出(**同签名配置**——signingConfigs.release 挂
+  上传密钥,Play App Signing 用同一密钥;APK 供旁载,AAB 供 Google Play 提交)。
+- **上传**:tag → softprops/action-gh-release@v2(files 四类 glob + `soa-*.{apk,aab}`);
+  dispatch → actions/upload-artifact@v4(name `soa-android`)。Release body 须含
+  安装/签名提示(AC 要求)。
 - **CI 顺序(desktop job)**:根 `npm ci --omit=dev`(生产依赖 staging)→
   `app: npm ci && npx expo export --platform web` → `desktop: npm ci &&
   npx electron-builder --publish never`。矩阵三 OS 统一 `shell: bash`。
