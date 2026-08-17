@@ -86,3 +86,73 @@ npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
   （跨浏览器不共享）；Node 探针从环境变量读取。
 - 首次分析某只股票时需从 TDX 拉取全量历史日K（约 1-2 秒/只），请耐心等待。
 - 本项目仅供学习和研究使用，不构成任何投资建议。
+
+## 发布（GitHub Actions 自动构建）
+
+打 `v*` tag 即触发 CI 构建桌面安装包（Windows NSIS / Linux AppImage+deb / macOS
+dmg）与 Android APK，产物自动挂到 GitHub Release；手动触发（无 tag）时产物改传
+Actions artifact 供自测。
+
+### 发版步骤
+
+1. 更新 `desktop/package.json` 的 `version`（如 `1.1.0`）。
+2. 打 tag 并推送（tag 必须为 `v<version>`，与 `desktop/package.json` 的 version 对齐）：
+
+```bash
+git tag v1.1.0
+git push origin master --tags
+```
+
+3. 打开仓库 **Actions** 页确认 `release` 工作流（`desktop` + `android` 两个 job）
+   全绿；tag 推送会自动在 **Releases** 页创建 Release 并挂载产物（私有仓库的
+   Release 资产需登录 GitHub 后下载）。
+
+### 产物清单
+
+| 平台 | 产物 | 说明 |
+|---|---|---|
+| Windows | `StockOperatorAgent-Setup-<version>.exe` | NSIS 安装包 |
+| Linux | `StockOperatorAgent-<version>-<arch>.AppImage`、`StockOperatorAgent-<version>-<arch>.deb` | 便携 / 安装包 |
+| macOS | `StockOperatorAgent-<version>-<arch>.dmg` | 磁盘映像 |
+| Android | `soa-<version>.apk` | 可直接安装 |
+
+### 手动触发（CI 自测）
+
+仓库 **Actions** → `release` → **Run workflow**（无需打 tag）。此时产物不上
+Release，改为上传到 Actions artifact（桌面产物按 OS 分目录、APK 为
+`soa-<分支名>.apk`），下载即可自测。
+
+### 签名限制
+
+- **Windows / macOS 产物未签名**：Windows SmartScreen 可能提示"未知发布者"；
+  macOS 打开时会触发 Gatekeeper"无法验证开发者"提示，需在"系统设置 → 隐私与
+  安全性"中手动允许。正式签名需购买证书（代码签名证书 / Apple Developer
+  Program），属后续工作。
+- **Android 默认 debug 签名**：未配置签名 Secrets 时 APK 使用 expo prebuild
+  默认的 debug keystore 签名（可安装、可用于自测）；正式发布请配置正式签名（见下）。
+
+### Android 正式签名配置（可选）
+
+1. 生成 keystore（JDK 自带 keytool；`<...>` 按实际替换）：
+
+```bash
+keytool -genkeypair -v -keystore release.keystore -alias <alias> \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass <store-password> -keypass <key-password> \
+  -dname "CN=StockOperatorAgent, OU=Dev, O=StockOperatorAgent, C=CN"
+```
+
+2. 仓库 **Settings → Secrets and variables → Actions** 配置 4 个 Secrets：
+
+| Secret | 值 |
+|---|---|
+| `ANDROID_KEYSTORE_B64` | keystore 文件的 base64 编码（`base64 -w0 release.keystore` 的输出，粘贴为一整行） |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 口令（对应 `-storepass`） |
+| `ANDROID_KEY_ALIAS` | 密钥别名（对应 `-alias`） |
+| `ANDROID_KEY_PASSWORD` | 私钥口令（对应 `-keypass`） |
+
+3. 下次构建时 CI 自动写入 keystore、生成 `keystore.properties` 并以正式签名构建
+   （脚本 `tools/configure-android-signing.mjs`，幂等，重复运行零变化）。**未配置
+   上述 Secrets 时自动降级 debug 签名**，流水线不中断。
+
+> 请妥善保管 keystore 文件与口令：丢失后无法再向已发布的 APK 提供升级。

@@ -315,3 +315,73 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
   静态内联直接访问,`const env = process.env` 别名逃逸 → release 运行时缺失。
 - **edge-to-edge 顶部 inset**:header 需 `(RNStatusBar.currentHeight ?? 0)` 上
   移,否则 Android 15+ 状态栏盖住 ☰ 等顶部控件。
+
+## 发布流水线(08-17-github-release-automation)
+
+GitHub Actions 自动化分发:打 `v*` tag → CI 构建桌面安装包(Win NSIS / Linux
+AppImage+deb / mac dmg)+ Android APK → 挂 GitHub Release;`workflow_dispatch`
+手动触发时产物改传 Actions artifact(CI 自测通道)。工作流
+`.github/workflows/release.yml`;打包配置 `desktop/electron-builder.yml`。
+
+### 打包布局契约(镜像仓库根,勿改)
+
+```
+resources/                          ← electron-builder app 根
+  package.json                      ← 根 package.json("type":"module",strip-types ESM 锚点)
+  src/**/*.ts                       ← extraResources(to: src)
+  node_modules/**                   ← 根生产依赖(CI 先 npm ci --omit=dev;extraResources 绕
+                                        electron-builder 注入的 !**/node_modules/** 排除)
+  app/                              ← files 平铺:main/child/preload + server.mjs + lib/ + dist/
+```
+
+**为什么镜像根**:child.mjs 相对导入 `'../app/server.mjs'`、`'../src/store-node.ts'`
+从 resources/app/ 解析;server.mjs 静态根 = 自身 dir/dist;proxies.cjs
+`require('../../src/*.ts')` 从 app/lib/ 上溯两级。**任何把 app 内容嵌套成
+resources/app/app/ 的布局都会打破这三处解析**(设计稿最初的错误形态)。
+改动桌面入口/导入路径时,必须保持该布局或同步改打包配置。
+
+### 决策与契约
+
+- **asar:false + npmRebuild:false**:child 走 `ELECTRON_RUN_AS_NODE` +
+  `--experimental-strip-types` 载 TS,asar 内 fs 行为不赌;运行时依赖全纯 JS
+  (better-sqlite3 仅 type,architecture.test.ts 强制)→ 零原生模块,包内
+  0 `*.node`。
+- **版本契约**:`desktop/package.json` version ↔ tag `v<version>`;产物名自动带
+  version(Win `-Setup-${version}.exe`;Linux/mac `${productName}-${version}-${arch}.{AppImage,deb,dmg}`);
+  APK 重命名 `soa-${version}.apk`(version 取 `${GITHUB_REF_NAME#v}`,dispatch
+  分支 → `soa-<分支名>.apk`,仅自测)。
+- **上传**:tag → softprops/action-gh-release@v2(files 四类 glob);dispatch →
+  actions/upload-artifact@v4。Release body 须含安装/签名提示(AC 要求)。
+- **CI 顺序(desktop job)**:根 `npm ci --omit=dev`(生产依赖 staging)→
+  `app: npm ci && npx expo export --platform web` → `desktop: npm ci &&
+  npx electron-builder --publish never`。矩阵三 OS 统一 `shell: bash`。
+- **APK 签名(tools/configure-android-signing.mjs,纯 Node 零依赖,幂等)**:
+  secrets 全(`ANDROID_KEYSTORE_B64`(base64 keystore)/`ANDROID_KEYSTORE_PASSWORD`/
+  `ANDROID_KEY_ALIAS`/`ANDROID_KEY_PASSWORD`)→ 解码写
+  `app/android/app/release.keystore` + `app/android/keystore.properties`(0600,
+  反斜杠/换行转义)+ 补丁 `app/android/app/build.gradle`(注入 signingConfigs.release
+  读 properties,release buildType 改挂,重复运行零变化);**secrets 缺失 → 退出 0
+  不动作**(expo prebuild 默认 debug 签名兜底,流水线不中断);非法 base64/缺密码 →
+  非零退出,错误只打印 env 名不打印值。app/android 为 prebuild 产物,已被
+  app/.gitignore 覆盖不入库。
+
+### 验证命令(改动打包/CI 后)
+
+```bash
+cd desktop && npx electron-builder --dir --linux     # 产 linux-unpacked
+# 冒烟:packaged 布局下直跑 child(无需 GUI),GET / 200、POST /logs 200、SIGTERM 退出 0
+node --experimental-strip-types child.mjs --store-dir /tmp/s --settings-dir /tmp/s --log-dir /tmp/s
+python3 -c "import yaml; yaml.safe_load(open('.github/workflows/release.yml'))"
+node tools/configure-android-signing.mjs             # 无 secrets:no-op 退出 0
+```
+
+### 陷阱
+
+- electron-builder `files` 默认注入 `!**/node_modules/**` 排除 → 根 node_modules
+  必须经 extraResources(from 指向目录本身)进包,`to` 路径相对 resources/。
+- 自定义 files 列表会替换默认 `**/*`(package.json 仍自动带上),漏列入口文件 =
+  打包成功但启动即崩。
+- **Wrong**:把 `app/` 内容整体搬进 `resources/app/app/`(server/proxies 相对
+  解析全断)。
+  **Correct**:镜像仓库根 —— resources/ = 根,resources/app/ = app 内容平铺 +
+  桌面入口。

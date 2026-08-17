@@ -1,0 +1,149 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      CI: 1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install root production dependencies
+        run: npm ci --omit=dev
+
+      - name: Build web bundle (expo export)
+        working-directory: app
+        run: |
+          npm ci
+          npx expo export --platform web
+
+      - name: Package desktop installers (electron-builder)
+        working-directory: desktop
+        run: |
+          npm ci
+          npx electron-builder --publish never
+
+      - name: Upload to GitHub Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/*.dmg
+          body: |
+            本 Release 由 tag `${{ github.ref_name }}` 自动构建，挂载桌面安装包与 Android APK。
+
+            ## 安装与签名提示
+
+            - **Windows**：`StockOperatorAgent-Setup-<version>.exe`（NSIS 安装包）。产物未签名，SmartScreen 可能提示“未知发布者”，选择“更多信息 → 仍要运行”即可。
+            - **macOS**：`StockOperatorAgent-<version>-<arch>.dmg`。产物未签名/未公证，首次打开会触发 Gatekeeper“无法验证开发者”，需在“系统设置 → 隐私与安全性”中手动允许。
+            - **Linux**：`StockOperatorAgent-<version>-<arch>.AppImage`（`chmod +x` 后运行）与 `.deb`（`sudo dpkg -i` 安装）。
+            - **Android**：`soa-<version>.apk` 可直接安装；未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
+
+            完整发版步骤、产物清单与签名配置见仓库 README「发布」章节。
+
+      - name: Upload build artifacts (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/*.dmg
+
+  android:
+    name: android (apk)
+    runs-on: ubuntu-latest
+    env:
+      CI: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install app dependencies and prebuild Android project
+        working-directory: app
+        run: |
+          npm ci
+          npx expo prebuild --platform android --no-install
+
+      - name: Configure Android release signing (keystore secrets)
+        run: node tools/configure-android-signing.mjs
+
+      - name: Build release APK
+        working-directory: app/android
+        env:
+          GRADLE_OPTS: "-Xmx3g"
+        run: ./gradlew :app:assembleRelease --no-daemon -x lint
+
+      - name: Rename APK to soa-<version>.apk
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cp "app/android/app/build/outputs/apk/release/app-release.apk" "soa-${version}.apk"
+
+      - name: Upload APK to GitHub Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: soa-*.apk
+          body: |
+            本 Release 由 tag `${{ github.ref_name }}` 自动构建，挂载桌面安装包与 Android APK。
+
+            ## 安装与签名提示
+
+            - **Windows**：`StockOperatorAgent-Setup-<version>.exe`（NSIS 安装包）。产物未签名，SmartScreen 可能提示“未知发布者”，选择“更多信息 → 仍要运行”即可。
+            - **macOS**：`StockOperatorAgent-<version>-<arch>.dmg`。产物未签名/未公证，首次打开会触发 Gatekeeper“无法验证开发者”，需在“系统设置 → 隐私与安全性”中手动允许。
+            - **Linux**：`StockOperatorAgent-<version>-<arch>.AppImage`（`chmod +x` 后运行）与 `.deb`（`sudo dpkg -i` 安装）。
+            - **Android**：`soa-<version>.apk` 可直接安装；未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
+
+            完整发版步骤、产物清单与签名配置见仓库 README「发布」章节。
+
+      - name: Upload APK artifact (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: soa-apk
+          path: soa-*.apk

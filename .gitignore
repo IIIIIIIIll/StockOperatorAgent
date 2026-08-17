@@ -2,6 +2,7 @@
 *.fs
 *.fs.*
 .env
+release.keystore
 pyvenv.cfg
 logs
 bin
@@ -30,3 +31,4 @@ probe-output/
 app/.expo/
 # Electron desktop shell
 desktop/node_modules/
+desktop/dist/

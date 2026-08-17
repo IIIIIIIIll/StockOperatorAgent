@@ -1,0 +1,64 @@
+# Electron desktop shell packaging.
+# Contract: .trellis/tasks/08-17-github-release-automation/design.md
+# asar:false — child.mjs runs as ELECTRON_RUN_AS_NODE + --experimental-strip-types
+# over TS sources; plain directory layout keeps every relative-path resolution
+# identical to the source tree. npmRebuild:false — runtime deps are pure JS (no
+# native modules).
+#
+# Layout note: the packaged tree mirrors the REPO ROOT, with resources/ playing
+# the role of the repo root and resources/app/ the app dir (electron-builder
+# convention). This is the only layout that satisfies child.mjs's relative
+# imports unchanged:
+#   child.mjs ('../app/server.mjs', '../app/lib/logs-server.cjs')
+#     -> <app>/server.mjs, <app>/lib/logs-server.cjs        (flattened app/)
+#   child.mjs ('../src/store-node.ts') -> resources/src/     (src as sibling)
+#   server.mjs serves <app>/dist (ROOT = own dir)
+#   lib/proxies.cjs ('../../src/*.ts') -> resources/src/
+#   src/*.ts ('@langchain/*', ...) -> resources/node_modules (upward walk)
+#   src/*.ts ESM format under strip-types <- resources/package.json
+#     (root package.json, "type": "module", mirrors repo root)
+appId: com.stockoperatoragent.desktop
+productName: StockOperatorAgent
+directories:
+  output: dist
+  buildResources: build
+asar: false
+npmRebuild: false
+files:
+  - main.mjs
+  - preload.cjs
+  - child.mjs
+  - from: ../app
+    to: .
+    filter:
+      - server.mjs
+      - lib/**
+      - dist/**
+# electron-builder injects `!**/node_modules/**` into `files` patterns, so the
+# root production node_modules (CI: `npm ci --omit=dev` at repo root) is copied
+# via extraResources with `from` pointing into the module dir itself. All
+# extraResources `to` paths are resources-relative, which is exactly where the
+# mirrored repo-root layout needs them (mac: Contents/Resources/...).
+extraResources:
+  - from: ../src
+    to: src
+    filter:
+      - "**/*.ts"
+  - from: ../node_modules
+    to: node_modules
+  - from: ../package.json
+    to: package.json
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-Setup-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+  artifactName: ${productName}-${version}-${arch}.${ext}
+mac:
+  target:
+    - dmg
+  artifactName: ${productName}-${version}-${arch}.${ext}

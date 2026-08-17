@@ -3,13 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "description": "Electron desktop shell for StockOperatorAgent. Main process is plain JS with zero TS dependencies; the Node backend (strip-types TS) runs in a self-spawned child (ELECTRON_RUN_AS_NODE).",
+  "author": "yh.t",
   "type": "module",
   "main": "main.mjs",
   "scripts": {
     "build": "cd ../app && npx expo export --platform web",
-    "start": "electron ."
+    "start": "electron .",
+    "pack": "electron-builder"
   },
   "devDependencies": {
-    "electron": "43.4.0"
+    "electron": "43.4.0",
+    "electron-builder": "^26.15.3"
   }
 }
