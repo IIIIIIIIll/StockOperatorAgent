@@ -32,3 +32,6 @@ app/.expo/
 # Electron desktop shell
 desktop/node_modules/
 desktop/dist/
+*.aab
+*.apk
+*.exe

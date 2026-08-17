@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "description": "Electron desktop shell for StockOperatorAgent. Main process is plain JS with zero TS dependencies; the Node backend (strip-types TS) runs in a self-spawned child (ELECTRON_RUN_AS_NODE).",
-  "author": "yh.t",
+  "author": "yh.t <21286615+IIIIIIIIll@users.noreply.github.com>",
+  "homepage": "https://github.com/IIIIIIIIll/StockOperatorAgent",
   "type": "module",
   "main": "main.mjs",
   "scripts": {
