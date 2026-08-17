@@ -1181,3 +1181,24 @@ Electron 壳(main 全 JS + child 自 spawn strip-types)+ renderer 桥(快照镜�
 ### Next Steps
 
 - 用户首次 workflow_dispatch 实跑 CI(含 APK job),确认后配置 4 个签名 Secrets
+
+
+## Session 43: Google Play 隐私政策文档
+
+**Date**: 2026-08-17
+**Task**: Google Play 隐私政策文档
+**Branch**: `master`
+
+### Summary
+
+按 Google Play 要求编写 docs/privacy-policy.md:覆盖数据收集(仅本地存储的 API 密钥/股票代码/日志)、第三方共享(用户自配 LLM/TDX/亿信/搜索)、权限说明、用户权利、儿童隐私、联系方式;无广告/分析 SDK,无自有后端。任务 08-17-privacy-policy 归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `89339df` | (see git log) |
+
+### Status
+
+[OK] **Completed**
