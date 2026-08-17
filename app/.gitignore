@@ -20,6 +20,9 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+# Expo 模块 Android 构建产物(误入库,08-17 清理)
+/modules/soa-keepalive/android/build/
+
 # Metro
 .metro-health-check*
 
