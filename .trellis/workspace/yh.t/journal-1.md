@@ -1146,3 +1146,38 @@ Electron 壳(main 全 JS + child 自 spawn strip-types)+ renderer 桥(快照镜�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 42: GitHub 自动化发布流水线
+
+**Date**: 2026-08-17
+**Task**: GitHub 自动化发布流水线
+**Branch**: `master`
+
+### Summary
+
+打 tag 自动构建桌面安装包(Win NSIS/Linux AppImage+deb/mac dmg)+Android APK 并挂 Release;workflow_dispatch 自测通道;APK secrets 驱动正式签名(缺失降级 debug)
+
+### Main Changes
+
+- release.yml: desktop 三 OS 矩阵 + android job,gh-release/upload-artifact 双分支
+- electron-builder.yml: asar:false 镜像仓库根布局,extraResources 绕 node_modules 排除
+- tools/configure-android-signing.mjs 幂等签名脚本;README 发布章节;ts 规范增发布流水线契约
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8080bca` | (see git log) |
+
+### Testing
+
+- [OK] electron-builder --dir 产出核对 + packaged 布局 child 冒烟(GET/POST/SIGTERM)全过;vitest 424 + tsc 0;release.yml YAML 校验;签名脚本 23 断言(含幂等)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户首次 workflow_dispatch 实跑 CI(含 APK job),确认后配置 4 个签名 Secrets
