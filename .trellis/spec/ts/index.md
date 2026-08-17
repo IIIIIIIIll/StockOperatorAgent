@@ -313,6 +313,14 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
   下安全,运行时访问 live binding)。
 - **EXPO_PUBLIC_* 必须直接 process.env.X 成员访问**——babel-preset-expo 只
   静态内联直接访问,`const env = process.env` 别名逃逸 → release 运行时缺失。
+- **EXPO_PUBLIC_* = 编译期内联,公开发布禁止填真实密钥(08-17 泄露实证)**:
+  `expo export`/gradle bundle 会把 `app/.env` 的 `EXPO_PUBLIC_*` 值**写死进
+  JS bundle**(web dist 与 Android bundle 都是),而桌面打包把 `app/dist` 整体
+  带入安装包 → 发布包 = 密钥公开。**构建产物若发现旧值残留,必须
+  `expo export --clear` + 删 `/tmp/metro-cache*`**(metro 持久化缓存会复用旧
+  transform,清空 .env 后 bundle 仍含旧值,hash 不变即缓存命中)。正式发布构建
+  时 `app/.env` 的 `EXPO_PUBLIC_LLM_*` 必须留空,密钥走设置面板运行时输入
+  (localStorage);兜底注入只允许私有自用构建。密钥进过公开产物 → 轮换。
 - **edge-to-edge 顶部 inset**:header 需 `(RNStatusBar.currentHeight ?? 0)` 上
   移,否则 Android 15+ 状态栏盖住 ☰ 等顶部控件。
 
