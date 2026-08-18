@@ -104,6 +104,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Install root production dependencies
+        run: npm ci --omit=dev
+
       - name: Install app dependencies and prebuild Android project
         working-directory: app
         run: |
@@ -113,17 +116,11 @@ jobs:
       - name: Configure Android release signing (keystore secrets)
         run: node tools/configure-android-signing.mjs
 
-      - name: Build release APK
+      - name: Build release APK + AAB
         working-directory: app/android
         env:
           GRADLE_OPTS: "-Xmx3g"
-        run: ./gradlew :app:assembleRelease --no-daemon -x lint
-
-      - name: Build release AAB (Google Play)
-        working-directory: app/android
-        env:
-          GRADLE_OPTS: "-Xmx3g"
-        run: ./gradlew :app:bundleRelease --no-daemon -x lint
+        run: ./gradlew :app:assembleRelease :app:bundleRelease --no-daemon -x lint
 
       - name: Rename APK to soa-<version>.apk
         run: |
