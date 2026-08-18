@@ -10,7 +10,8 @@ include
 /lib
 lib64
 __pycache__
-data
+# Python 时代根级运行时缓存(tdx_cache);仅根级——app/data/ 的 demo.json 是构建必需资源,须入库
+/data
 TODO
 developing-with-streamlit
 # AI platform configs (local only, not in repo)
