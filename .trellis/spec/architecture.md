@@ -1,158 +1,145 @@
 ---
-description: Architecture overview — runtime layers, data flow, config, shared utils, known quirks
+description: Architecture — runtime layers, entry points, data flow, config, CI/Android, EXPO_PUBLIC secret handling
 paths:
-  - main.py
-  - .env.example
-  - utils/**
+  - app/server.mjs
+  - app/App.tsx
+  - app/lib/proxies.cjs
+  - app/lib/logs-server.cjs
+  - app/.env.example
+  - desktop/**
+  - src/env.ts
+  - src/switches.ts
+  - .github/workflows/release.yml
+  - tools/configure-android-signing.mjs
 ---
 
 # Architecture
 
 ## Runtime Layers
 
+Single repo, pure TypeScript (Python business code deleted 2026-08-14; `main.py` /
+`core/` / `agents/` / `data_source/` / `data_storage/` / `data_structure/` /
+`utils/` no longer exist). One shared `src/` business layer feeds four runtimes:
+
 ```
-Streamlit UI (core/ui/display.py)
-  └─ InvestmentCommittee (core/investment_committee.py)  — LangGraph StateGraph
-       └─ core/role_registry.py（08-09-role-registry）— agent 名册单一事实源
-            （ROLES：节点名/State key/Tab 标题/启用谓词/工厂；装配与 UI 共用）
-       └─ 6 agents (agents/chinese_mainland/)  — 8/9 图节点（信息面分析师条件启用，
-           对抗修订为双节点）；expert/trader 带 bind_tools 工具（web_search +
-           亿信三件套，开关门控）
-            └─ make_llm (core/llms/llm_factory.py) — 通用 OpenAI 兼容工厂
-                 （08-09-llm-provider-agnostic：LLM_API_KEY/LLM_MODEL/
-                 LLM_BASE_URL 三键，任意供应商）
-                 └─ tool: get_stock_info (core/llms/tools/get_company_info.py)
-                      └─ DataAcquisition (core/data_acquisition.py)
-                           ├─ TdxSource (data_source/chinese_mainland/tdx/) — 主链路：
-                           │    历史行情 + 个股概览 (overview.py) + 业绩报告 (reports.py)
-                           ├─ AKShareSource (…/akshare/fetch_stcok_data.py) — 备用路径，
-                           │    主流程不再调用（原方法保留）
-                           ├─ BillionsClient (data_source/chinese_mainland/billions/) —
-                           │    亿信 REST 薄包装（可选，BILLIONS_API_KEY 开关门控；
-                           │    供亿信工具/前置段/信息面分析师）
-                           ├─ persistent dataclasses (data_structure/chinese_mainland/)
-                           └─ ZODBStorageInstance (data_storage/chinese_mainland/ZODBStorage.py)
-                                └─ ZODB FileStorage file (database/china_stock_data.fs, gitignored)
+app/      Expo web + RN client (App.tsx)  +  Node web server (server.mjs)
+desktop/  Electron shell (main.mjs) -> self-spawned Node backend (child.mjs)
+src/      shared layer: committee, pipeline, events, tools, stores, log, retry, switches
+.github/workflows/release.yml   CI: desktop matrix + Android APK+AAB, tag-triggered
 ```
 
-Each directory is one layer with its own guideline (see [index.md](./index.md)).
-Cross-layer rules of thumb:
+Per-layer depth lives in [ts/index.md](./ts/index.md) (the live TS contract) and
+[index.md](./index.md). This file states the cross-cutting topology only.
 
-- Data flows as **pandas DataFrames** out of the data source (TDX 主链路 /
-  akshare 备用), becomes **persistent dataclasses** by positional construction,
-  and reaches agents as a **formatted string** (`StockOutputFormatter`). Never
-  skip a layer's conversion. 个股数据按需单股构建（TDX 无全市场行情扫描）；
-  pytdx 无数据的字段输出 NaN 而非报错。
-- LangGraph `State` keys (see `agents/index.md`) are the contract between agents;
-  all agents read `state['target_stock_ticker']` and `state['stock_information']`
-  （信息面分析师条件启用，`information_analysis` 缺失时读方必须 `state.get()`
-  容错——trader/manager 查询插值用条件段）。
-- The Streamlit `progress_updater` (a `st.empty()` container) is passed into every
-  agent constructor; agents report progress via `progress_updater.info("...")`.
-  UI progress text is Chinese.
+## Entry Points
 
-## Entry Point
+- **`app/server.mjs`** — production web server. Run: `npx expo export --platform web
+  && node --experimental-strip-types server.mjs` (default port 8090). `serveStatic`
+  serves `app/dist` (decodeURIComponent guarded -> 400, path traversal -> 403, SPA
+  fallback to index.html) plus same-origin routes: `POST /llm-proxy/*`,
+  `GET /tdx-collect`, `GET /web-search`, `POST /logs`. Listens on `127.0.0.1` by
+  default (`HOST` env to expose — SSRF/log-injection surface, keep loopback).
+  `createAppServer()` is exported for the desktop main process; `isMain` guard
+  keeps import side-effect free (vitest imports it).
+- **`app/App.tsx`** — Expo root (web + RN + Android). Pure rendering: `[采集数据]`
+  tab + role report tabs, sidebar settings. Analysis orchestration (state, startup
+  chain, `runner` subscription, `start`) lives in `app/hooks/useAnalysis.ts`; new
+  UI logic goes to `app/hooks/` or `app/components/`, never back into App.tsx.
+  LLM 三键 missing -> demo-placeholder banner (`missingLlmKeys`), no crash.
+- **`desktop/main.mjs`** — Electron main process: plain JS, zero TS imports.
+  Spawns `child.mjs` (`ELECTRON_RUN_AS_NODE=1`, `--experimental-strip-types` via
+  argv, not env) which runs `createAppServer()` + `createNodeFileStore` +
+  `nodeSettingsFileSystem` + `setLogDir(userData/logs)` on a random loopback port.
+  IPC: renderer invoke `store-init` / `store-op` (6-mutator whitelist) /
+  `settings-save-async`; `sendSync` `settings-load` is cold-path only (sendSync in
+  event handlers deadlocks — proven). Graceful shutdown: main sends shutdown ->
+  child flush+close -> quit; SIGTERM/SIGINT route into the same path.
 
-- Run with `streamlit run main.py` (README.md). `main.py` is minimal: it configures
-  the loguru handler, calls `load_dotenv()`, then `write_ui()`.
-- `main.py` 日志 handler 落位 `LOG_DIR / "stock_operator_agent.log"`（2026-08-02
-  修复：原 `./logs/...` 相对路径随 CWD 漂移，日志落别处；现锚定仓库 `logs/`）。
-- `core/ui/display.py` checks **LLM 三键齐全**（`_llm_configured()`：
-  `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL` 均非空，08-09-llm-provider-
-  agnostic）in `os.environ` before rendering（2026-08-02 修复：检查与实现
-  对齐——`investment_committee.py` 默认 `make_llm()`，缺任一必填键构造即抛
-  ValueError，旧只查 key 的检查会放行但构造崩溃）and validates the
-  ticker input (6-digit numeric) before analysis.
+## Data Flow
 
-## Configuration
+```
+src/env.ts envValue(name)           typeof-process guard, single read point
+  -> src/switches.ts setCapabilitySwitches / fromEnv   capability flags (enabled semantics)
+  -> src/log.ts                      unified logging (see logging.md)
+```
 
-- LLM 配置（08-09-llm-provider-agnostic，**三键必填**）：
-  `LLM_API_KEY` + `LLM_MODEL`（自由文本，如 deepseek-v4-flash、gpt-4o）+
-  `LLM_BASE_URL`（http(s):// 开头的 OpenAI 兼容 endpoint）在 `.env`；
-  可选 `LLM_REASONING_EFFORT`（设了才传 reasoning_effort）。旧
-  `DEEPSEEK_*` / `DASHSCOPE_API_KEY` 已删除（迁移映射见 `.env.example`）。
-  `BILLIONS_API_KEY`（亿信 Fin 开放平台，2026-08-08）为
-  可选信息面能力主闸——未配置时亿信全部能力关闭、现有流程零变化。loaded
-  with `load_dotenv()` in `main.py`, `investment_committee.py`, and LLM tests。
-  亿信开关族（truthy 语义对齐 `WEB_SEARCH_DISABLED`）：总闸
-  `BILLIONS_DISABLED` + 能力闸 `BILLIONS_{FINDB,SEARCH,TWITTER,FETCH,ANALYST}
-  _DISABLED` + 工具调用上限 `BILLIONS_{SEARCH,TWITTER,FETCH}_MAX_CALLS`
-  （默认 3/2/3）。开关解析集中 `utils/billions_config.py`（跨 core/agents/UI
-  共用），读取点 `os.getenv` 调用时判（图装配期判工具绑定与节点接线）。
-  信息面分析师启用谓词 08-10-web-search-fallback 起放宽：无
-  `BILLIONS_API_KEY` 但联网搜索开（`WEB_SEARCH_DISABLED` 未设）→ 分析师
-  注册、预抓走 DDG 免 key 兜底——ANALYST 段经 `billions_cap_switch`（无
-  key 约束的开关判定，亿信源仍受 key 硬约束）。
-- `utils/constants.py` holds the only module-level constants:
-  - `default_start = 1997-01-01` — baseline for "no data yet" timestamps
-    (`ChinaStock.last_data_update`, `ZODBStorageInstance.root.overview_last_updated`)
-  - `china_db_path` — the ZODB file (gitignored via `*.fs`)，**锚定仓库根**
-    （2026-08-02 修复：原相对路径 `'database/china_stock_data.fs'` 在非仓库根
-    CWD 下静默创建第二个空库；现为 `str(REPO_ROOT / 'database' / 'china_stock_data.fs')`，
-    值语义不变、解析不再依赖 CWD）
-  - `REPO_ROOT` — 仓库根 `Path`（`Path(__file__).resolve().parents[1]`），
-    所有曾依赖 CWD 的路径（ZODB 库 / parquet 缓存 / 日志）的统一锚点
-  - `LOG_DIR` — 仓库 `logs/`（gitignored），main.py 的 loguru handler 落位
+- **Config**: all `process.env` reads in `src/` go through `envValue()`
+  (`src/env.ts`); writes are banned (enforced by `test/architecture.test.ts`
+  contract 6). `EXPO_PUBLIC_*` must be read by *direct member access*
+  (`process.env.EXPO_PUBLIC_X`) — babel-preset-expo inlines only direct access;
+  aliasing breaks release builds.
+- **Capability switches** (`src/switches.ts`): explicit `setCapabilitySwitches`
+  (App settings panel, enabled semantics) or lazy `fromEnv()` fallback (inverse
+  polarity: `TDX_MCP_DISABLED` / `WEB_SEARCH_DISABLED` / `BILLIONS_*_DISABLED`;
+  unset/empty/'0'/'false'/'no' -> enabled). Consumers read lazily via
+  `getCapabilitySwitches()` — never at module level.
+- **Same-origin proxies** (`app/lib/proxies.cjs`): one shared implementation for
+  the metro dev middleware and the production server (CJS so both `require`/`import`
+  it — behavior must not drift). `/llm-proxy` forwards the browser-configured LLM
+  base; SSRF guard (C2): scheme http(s) only, no userinfo, DNS-resolved host
+  outside private/loopback ranges else 400/403. SSE passthrough must pipe
+  `upstream.body` chunk-wise — never `await upstream.text()` (buffering kills
+  streaming). Body cap `MAX_BODY_BYTES` = 1MB (raised from 64KB 2026-08-16: real
+  terminal-review payload >64KB hit 413). `/tdx-collect`: single-flight mutex +
+  45s timeout (504 early, lock held until settle). `/web-search`: DDG, q non-empty
+  <=200 chars, no control chars, 20s timeout.
+- **Logs**: `POST /logs` handled by `app/lib/logs-server.cjs` (one file, both
+  entrances) -> appends `<repo>/logs/soa-ts.log`. See [logging.md](./logging.md).
+- **Stores**: one `StoreLike` contract (`src/store.ts` interface; SQLite `Store`
+  is Node-only — `better-sqlite3` value-import whitelist). Web = IndexedDB
+  (`src/store-idb.ts`); RN = expo-file-system file (`src/store-file.ts`);
+  desktop renderer = mirror + write-through queue (`app/lib/desktopBridge.ts`)
+  over backend `src/store-node.ts` (the only `node:fs` whitelist in `src/`).
+  Mutators are synchronous; persistence runs on a serialized promise chain
+  (write-through); failure is logged, never blocks.
 
-## Shared Utils (`utils/`)
+## CI / Android
 
-- `utils/time_helper.get_last_business_day(date)` — the only trading-calendar helper.
-  Handles **weekends only**; public holidays are not modeled. Used by agents
-  (`current_date` prompt partial), `DataAcquisition`, and `ZODBStorage` (17:00 gate).
-- `utils/market_time.py`（2026-08-02，08-02-market-hours-util）— A 股交易
-  时段判定：`is_trading_time(now=None)` 北京时间工作日 9:30–11:30 /
-  13:00–15:00 判交易时段（15:00 整起判非交易时段——行情不再变化）；
-  周末/节假日无日历 → 判非交易时段（保守：休市行情不变，下游"用缓存"
-  正确）。`latest_trading_day(stock)` 从 ZODB 日K 末根 bar 取最近交易日
-  （零网络——pytdx 无交易日历接口，akshare 完全弃用）。复用
-  `get_last_business_day`，时区 Asia/Shanghai 与 time_helper 同约定。
-  消费方：`get_market_intel` 缓存判定（MCP 情报）。
-- `utils/state.py` — the LangGraph `State` TypedDict (documented in `agents/index.md`).
-- `utils/constants.py` — see above.
-- `utils/runtime_config.py`（2026-08-08，08-08-billions-switches-ui）— 通用
-  运行时覆盖层：`set_runtime_overrides` / `clear_runtime_overrides` /
-  `runtime_bool(key, env_fallback)` / `runtime_int`——**会话级配置**（UI 能力
-  开关/亿信上限）唯一落点；覆盖 → env 兜底，默认空 = 零行为变化。消费点：
-  `web_search_enabled`（WEB_SEARCH_ENABLED）、`_mcp_disabled`
-  （TDX_MCP_ENABLED）、`billions_enabled`/`billions_max_calls`
-  （BILLIONS_MASTER / BILLIONS_{CAP} / BILLIONS_{CAP}_MAX_CALLS）。
-  **env 判定单点（2026-08-09，08-09-unify-config-parsing）**：
-  `env_disabled(name)` / `env_int(name, default)` 是**全库唯一** env 假值
-  判定与 int 解析实现（`_FALSEY_STRINGS` 唯一假值元组，set_runtime_overrides
-  归一化共用）——env 层保持**负极性**键名（`X_DISABLED`，truthy = 禁用），
-  覆盖层保持**正极性** bool 键（`X_ENABLED`/`BILLIONS_*`）；消费点一律算
-  正布尔（`not env_disabled(...)` = 启用），翻转只发生在判定内部——新键
-  不会搞反。
-- `utils/env_file.py`（2026-08-08）— `.env` 原子写：
-  `update_env_file(updates) -> (bool, msg)`——**只更新白名单 8 键**
-  （LLM_API_KEY/MODEL/BASE_URL、TDX_API_KEY、
-  BILLIONS_API_KEY、LANGSMITH_TRACING/API_KEY/PROJECT——08-09-llm-
-  provider-agnostic 替换 DEEPSEEK_*/DASHSCOPE_*），保留注释/顺序/
-  无关键，tmp + `os.replace` 原子替换，成功后同步 os.environ（立即生效，
-  无需重启）；失败返回消息不抛异常；密钥值不 log。校验：LLM_MODEL 非空
-  （自由文本）、LLM_BASE_URL 非空且 http(s):// 开头（格式级，不探测网络）。
-  `env_file_path()`：env `ENV_FILE_PATH` 覆盖（e2e 隔离用）→ 回退
-  `REPO_ROOT / ".env"`。
+`.github/workflows/release.yml` — `v*` tag push or `workflow_dispatch`:
+- **desktop job** (matrix ubuntu/windows/macos, Node 22, bash): root
+  `npm ci --omit=dev` -> `app: npm ci && npx expo export --platform web` ->
+  `desktop: npm ci && npx electron-builder --publish never`. Tag -> GitHub Release
+  upload (exe/AppImage/deb/dmg); dispatch -> Actions artifact.
+- **android job** (ubuntu, Node 22 + Java 17 Temurin): `npx expo prebuild
+  --platform android --no-install` -> `node tools/configure-android-signing.mjs`
+  -> `./gradlew :app:assembleRelease :app:bundleRelease` -> rename
+  `soa-<version>.apk` / `.aab` (AAB shares the signing config; APK for sideload,
+  AAB for Play). `tools/configure-android-signing.mjs` (pure Node, idempotent):
+  secrets `ANDROID_KEYSTORE_B64` / `ANDROID_KEYSTORE_PASSWORD` /
+  `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` -> release keystore + build.gradle
+  patch; missing secrets -> exit 0 no-op (debug-signed fallback); invalid input ->
+  non-zero, errors print env names only, never values. `app/android` is prebuild
+  output, gitignored.
 
-## Known Quirks (do not "fix" without a task)
+## EXPO_PUBLIC_* Secrets (compile-time inlined)
 
-- Data-source module is `data_source/chinese_mainland/akshare/fetch_stcok_data.py`
-  (typo "stcok"). Renaming breaks imports — keep the name.
-- `core/stock_output_formatter.py:1` imports `output` from `openpyxl.styles.builtins`
-  and then shadows it with a local `output` variable. Dead import; leave it.
-- `${state[...]}` 字面残留已清理（2026-08-02 fix-dead-code-cleanup：bullish/
-  bearish/investment_manager 删除 `$` 前缀；grep 无残留）——新代码保持无
-  `$` 前缀的正确插值。
-- `bullish_opinions` / `bearish_opinions` are typed `Annotated[list, add_messages]`
-  in `State` but agents return plain strings; the reducer wraps them into message
-  lists, which is why `display.py` and `investment_manager` read `[-1].content`.
-- The LangGraph checkpointer is `InMemorySaver` with `thread_id "1"` — state does
-  not survive process restarts.
+`EXPO_PUBLIC_*` values in `app/.env` are **inlined into the JS bundle at build
+time** — both `expo export` (web dist) and the Android bundle bake them in, and
+the desktop installer ships `app/dist` whole. Treat them as public. Production
+builds MUST leave `EXPO_PUBLIC_LLM_*` empty; keys are entered at runtime in the
+settings panel (localStorage). If a real key ever lands in a public artifact:
+rotate it, then rebuild with `expo export --clear` and delete `/tmp/metro-cache*`
+(Metro caches transforms — a hash-identical rebuild reuses the stale bundle).
+(`app/.env.example` declares `EXPO_PUBLIC_LLM_API_KEY/MODEL/BASE_URL`,
+`EXPO_PUBLIC_TAVILY_API_KEY`, `EXPO_PUBLIC_TDX_HOST`.)
+
+## Known Quirks
+
+- `src/log.ts` must not statically import platform modules — dynamic
+  `import('expo-file-system')` only inside the RN branch (see logging.md).
+- `app/server.mjs` and `proxies.cjs` / `logs-server.cjs` need Node
+  `--experimental-strip-types` for `.ts` requires (node >=23.6 default-on).
+- Desktop package layout mirrors the repo root inside `resources/` (see
+  ts/index.md) — do not nest `app/` deeper or server/proxies relative
+  resolution breaks.
 
 ## Anti-Patterns
 
-- Adding a second business-day implementation in another module — use
-  `get_last_business_day`.
-- Hardcoding `database/china_stock_data.fs` paths elsewhere — use
-  `utils.constants.china_db_path`.
-- Replacing loguru with stdlib `logging` in new modules — see [logging.md](./logging.md).
+- Direct `process.env` reads in `src/` outside `envValue()` (EXPO_PUBLIC direct
+  access excepted) — architecture.test.ts fails.
+- Module-level `getCapabilitySwitches()` evaluation — switches must take effect
+  at runtime.
+- Two implementations of the same proxy/log endpoint for dev vs prod — always
+  one shared CJS file.
+- Static `import 'expo-file-system'` / `react-native` / `node:fs` in `src/` —
+  pollutes other platforms' bundles (metro/vitest).

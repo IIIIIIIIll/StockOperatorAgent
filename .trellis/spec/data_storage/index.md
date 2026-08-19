@@ -2,7 +2,6 @@
 description: ZODB storage patterns — FileStorage, OOBTree index, freshness gate, transaction commits
 paths:
   - data_storage/**
-  - database/**
 ---
 
 # Data Storage (`data_storage/`, `database/`)

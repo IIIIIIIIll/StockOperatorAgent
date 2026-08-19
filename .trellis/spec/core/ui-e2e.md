@@ -1,7 +1,5 @@
 ---
 description: UI E2E 测试 — Playwright mock 模式、种子快照、零调用审计
-paths:
-  - test/e2e/**
 ---
 # UI E2E 测试框架（`test/e2e/`）
 

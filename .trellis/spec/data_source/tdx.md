@@ -1,7 +1,5 @@
 ---
 description: TdxSource — vendor 快照、进程单例、overview/reports/f10_parser、adjust/mapping、TS 移植补充
-paths:
-  - data_source/chinese_mainland/tdx/**
 ---
 # TdxSource（`data_source/chinese_mainland/tdx/`）
 

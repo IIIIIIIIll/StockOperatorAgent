@@ -61,15 +61,17 @@ These guides help you **ask the right questions before coding**.
 
 ### When Verifying UI Changes
 
-- [ ] UI 改动涉及渲染/交互（display.py、charts、data_markdown、主题）→
-      先跑 `pytest test/e2e/ -v`（mock 模式秒级、零 token 验收），
-      再决定是否走完整链路（TDX 抓取 + 5 代理 DeepSeek，分钟级烧 token）
-- [ ] 改动 display.py 的契约（`REPORT_TABS`、观点 expander、数据 Tab、
-      模块全局 committee/build_stock_information）→ 同步检查
-      `test/e2e/` 用例是否仍覆盖，mock 层是否需要跟着改
-- [ ] mock_app 模式下断言失败 ≠ 生产缺陷 → 先核对 mock 层（FakeGraph
-      内容、seed fixture）与浏览器 DOM 实测差异（1.61.1：svg 非 canvas、
-      `[role="tab"]` 选择器、tab 渐进渲染）
+- [ ] UI 改动（`app/` 组件、hooks、图表渲染逻辑）→ 先跑 `npm test`
+      （vitest）相关单测（`test/chart-layout.test.ts` 钉死 `paneTops`、
+      `test/chartData.test.ts` 钉死涨跌柱/财务折线/着色、`test/settings-
+      store.test.ts` 等）+ `npm run typecheck`（tsc --noEmit）
+- [ ] 改动图表布局/WebView 内嵌视图 → `npm run chart:build` 生成后
+      `npm run chart:check` 校验镜像一致性（`src/chartLayout.ts` 与内嵌
+      JS，见 [ts/index.md](../ts/index.md) 图表段）
+- [ ] 仓库无浏览器自动化 E2E（无 Playwright 依赖，test/ 全为 vitest
+      单测）→ 交互/视觉改动手动验证：`cd app && npm start`（Expo dev
+      server）或生产构建 `npx expo export --platform web && node server.mjs`
+      （默认 `http://localhost:8090`）实际点一遍改动路径
 
 ### When Verifying AI Cross-Review Results
 

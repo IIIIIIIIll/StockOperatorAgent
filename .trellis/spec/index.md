@@ -22,7 +22,7 @@ implementation.
 | Topic | Guideline |
 |-------|-----------|
 | Architecture overview, data flow, config, utils | [architecture.md](./architecture.md) |
-| Logging (loguru) | [logging.md](./logging.md) |
+| Logging (src/log.ts — unified web/RN/node) | [logging.md](./logging.md) |
 | Error handling | [error-handling.md](./error-handling.md) |
 | Testing | [testing.md](./testing.md) |
 | Thinking guides | [guides/index.md](./guides/index.md) |
@@ -41,4 +41,5 @@ rules so spec edits never silently break injection.
 
 **Language note**: UI strings and LLM prompts are written in Chinese
 (`app/screens/DataScreen.tsx`, `src/prompt.ts`, agent query templates);
-code identifiers and comments are English. Specs are written in English.
+code identifiers and comments are English. Specs: the TS layer
+(`ts/*.md`) is written in Chinese, root cross-cutting specs in English.

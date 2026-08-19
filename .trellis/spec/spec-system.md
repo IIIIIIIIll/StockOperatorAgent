@@ -100,7 +100,7 @@ from common.spec_match import parse_spec_frontmatter, match_specs_for_file
 from pathlib import Path
 for f in sorted(Path('.trellis/spec').rglob('*.md')):
     parse_spec_frontmatter(f.read_text(errors='replace')[:16384])
-print([str(m.spec_path) for m in match_specs_for_file('.', 'agents/chinese_mainland/trend_analysis_expert.py')])
+print([str(m.spec_path) for m in match_specs_for_file('.', 'src/agents.ts')])
 EOF
 
 # Layers discovered

@@ -1,65 +1,100 @@
 ---
-description: Logging conventions — loguru, placeholder style, handler config, level usage
+description: Logging conventions — unified src/log.ts API, web /logs transport, RN file transport, levels
 paths:
-  - main.py
-  - core/**
-  - agents/**
+  - src/log.ts
+  - app/lib/logs-server.cjs
 ---
 
-# Logging (loguru)
+# Logging
 
-## Handler Configuration
+## Unified API (`src/log.ts`)
 
-`main.py` installs the app's file handler at startup:
+One logging module for all runtimes (web / RN / Node / vitest). Do not add a
+second log surface (`app/lib/log.ts` re-export shim was deleted; architecture
+test contract 7 bans its return).
 
-```python
-logger.add(str(LOG_DIR / "stock_operator_agent.log"), enqueue=True, rotation="50 MB", retention=10)
+```ts
+export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
+export type Platform = 'web' | 'rn' | 'node';
+log(level: LogLevel, message: string): void;
+info / warn / error / debug(message: string): void;   // level-bound helpers
 ```
 
-- App logs go to `logs/` (gitignored). Keep the setup in `main.py` — do not add
-  per-module handlers; modules just use the default logger.
-- `LOG_DIR`（`utils.constants`，锚定仓库 `logs/`）是日志路径唯一来源——不要在
-  main.py 或任何模块里写相对路径（2026-08-02 修复：原 `./logs/...` 随 CWD
-  漂移，日志落别处）。
-- Tests and `core/investment_committee.py` also call `load_dotenv()` before use;
-  `main.py` loads the handler + dotenv before `write_ui()`.
+- **Message style (TS successor of the Python `{}`-placeholder rule)**: `message`
+  is a single pre-formatted string — build it at the call site with a template
+  literal (backticks), never string concatenation, never format args (the API
+  has no bound args):
+  `warn(\`TDX host ${host} 采集失败:${String((err as Error)?.message ?? err)}——尝试下一个\`)`
+  (`src/tdx/deviceCollect.ts`). Identifiers/tickers/log subjects go inline.
+- **Platform detection**: `detectPlatform()` = `isWebEnv()` (`window`+`document`
+  present) -> `isRnEnv()` (`navigator.product === 'ReactNative'`) -> `node`
+  fallback (`process.versions.node`). Probes only — no platform module imports.
+- **Transports** (selected by platform):
+  - console: `[soa <level>] <message>` verbatim; error -> console.error,
+    warn -> console.warn, debug -> console.debug only when `__SOA_DEBUG === '1'`,
+    else console.log.
+  - web: fire-and-forget `POST <origin>/logs` (same-origin), `keepalive: true`;
+    failure -> silent catch, business continues.
+  - RN: sandbox file via expo-file-system — `Paths.document/soa-logs.log`
+    (`RN_LOG_FILE`), >=5MB -> rename `soa-logs.log.1`; plus POST to
+    `EXPO_PUBLIC_LOG_ENDPOINT` when set (empty/absent -> no report).
+  - Node: console only — the server's own fs writes (`logs-server.cjs`) own
+    persistence.
+- **Factories (injection points — house style, no mock framework)**:
+  `makeReporter(_fetch?, _endpoint?)` and `makeRnFileTransport(_fs, _writeDisabled?)`.
+  `fileWriteDisabled()`: `NODE_ENV === 'test'` or `SOA_LOG_FILE === '0'` -> no
+  file writes (vitest must not pollute `logs/`).
+- **Dynamic import**: `expo-file-system` is imported only inside the RN branch
+  via `await import('expo-file-system')` (static specifier — Metro requirement;
+  module-level lazy init once; failure -> silent console fallback). Never
+  static-import it or other platform modules at top level — web/Node builds
+  would drag in RN code.
 
-## Call Style
+## Line Format (single source of truth)
 
-- **Always `{}` placeholders, never f-strings or `%`**:
+`formatLogLine(d, level, message, platform)` — shared with the server endpoint
+(comments cross-reference both sides):
 
-  ```python
-  logger.info("Updating stock overview data...")                    # no args
-  logger.debug(f"Stock {ticker} found")                             # WRONG
-  logger.debug("Stock {} found, last data date is {}", ticker, stock.last_data_update)  # RIGHT
-  ```
+```
+<ts> | <LEVEL> | [soa] <message> (platform:<platform>)
+```
 
-  Examples: `core/data_acquisition.py:58`, `data_storage/.../ZODBStorage.py:24`.
+`<ts>` = local time `YYYY-MM-DD HH:mm:ss` (`formatLogLine` on the client,
+`formatTs` on the server — identical shape).
 
-- Log the subject being operated on: every acquisition/storage method logs the
-  ticker or row it processed (`logger.info(stock_overview)` after storing,
-  `logger.debug("Add data on {} to stock {}", data.date, self.ticker)`).
+## Web Transport (`app/lib/logs-server.cjs`)
 
-## Level Conventions
+`POST /logs` with `{ts?, level, message, platform}` -> `200 {ok:true}`. One
+shared CJS file wired into both the metro dev middleware and `app/server.mjs`
+(CJS: both can load it; behavior must not drift).
 
-- `debug` — detailed flow: per-row processing, cache hits, query/response bodies
-  (`logger.debug("Fundamental Analysis Expert Query: {}", ...)` in agents).
-- `info` — meaningful state transitions: updates performed, successful fetches,
-  start-up, storage open/close (`ZODBStorageInstance.__init__` / `__del__`).
-- `error` — failures: missing stock, failed lookups
-  （`core/data_acquisition.py` 的 `logger.error(f"Stock {ticker} not found in
-  database.")` 与 `core/legacy_akshare.py` 的 14 处 f-string 调用是**存量历史
-  例外**（备用路径，未改造）；新代码一律 `{}` 占位符风格）。
-- `warning` — unused so far; don't invent new conventions, but warning is
-  available for recoverable issues if ever needed.
+- Validation matrix: level not in `info|warn|error|debug` -> 400; message
+  non-string -> 400; platform empty -> 400; body > `MAX_BODY_BYTES` (64KB) ->
+  413; non-JSON -> 400; disk write failure -> 500 `{error}` (server stays up).
+- `sanitizeLine()`: `\r`/`\n` -> space before append (log-injection guard);
+  message truncated to 4KB.
+- File: `setLogDir()` injected (desktop uses `userData/logs`) -> `SOA_LOG_DIR`
+  -> default `<repo>/logs/soa-ts.log`; >=5MB -> rename `.1` (same rotation
+  semantics as the RN sandbox).
+
+## Levels
+
+- `debug` — detailed flow: per-host failover attempts, tool-round rollback
+  notices, cache skips. Console-gated behind `__SOA_DEBUG=1`; still reported
+  and recorded.
+- `info` — meaningful transitions: analysis start, collection skips
+  (`跳过采集:...`).
+- `warn` — recoverable degradation: LLM retry backoff (`src/retry.ts`), TDX
+  host failover, tool-call failures, write-through persistence failures.
+- `error` — failures surfaced to the user or blocking.
 
 ## Anti-Patterns
 
-- `logger.debug("\nAssistant:", value["messages"][-1].content)` — loguru takes
-  a format string + bound args, so the message is dropped and only the arg
-  prints. Use `logger.debug("Assistant: {}", ...)`. （2026-08-02 已修复
-  `core/ui/display.py` 原该行。）
-- `print()` for diagnostics in tests is tolerated (existing tests do it), but
-  production modules must use loguru.
-- Mixing stdlib `logging` into new modules — the project standardizes on loguru.
-- Logging secrets or full API keys (`.env` values are `os.environ`/`getenv`-only).
+- Static `import 'expo-file-system'` / `react-native` / `node:fs` into
+  `src/log.ts` — breaks other platforms' bundles (metro/vitest).
+- Logging secrets or full API keys — settings masks keys; report content equals
+  console content (both go over the wire / to disk).
+- A second logging entry point anywhere (web/RN/Node) — all calls go through
+  `src/log.ts`.
+- Letting client-side report/file failures interrupt business flow — always
+  catch -> console fallback (degradation style, see error-handling.md).
