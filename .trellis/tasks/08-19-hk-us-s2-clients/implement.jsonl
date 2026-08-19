@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "TS 侧最终实现契约(事件协议/代理/接线/常量单源/架构断言)"}
+{"file": ".trellis/spec/error-handling.md", "reason": "degrade don't raise/自定义异常先例(BillionsApiError)"}
+{"file": ".trellis/spec/data_source/index.md", "reason": "class per source / method per endpoint / 命名构造模式"}
+{"file": ".trellis/tasks/08-19-hk-us-stocks/research/yahoo-api-verified.md", "reason": "Yahoo 响应形状实测"}
+{"file": ".trellis/tasks/08-19-hk-us-stocks/research/coupling-map.md", "reason": "耦合点锚点"}
