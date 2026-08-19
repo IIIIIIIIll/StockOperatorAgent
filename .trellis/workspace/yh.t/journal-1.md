@@ -1202,3 +1202,24 @@ Electron 壳(main 全 JS + child 自 spawn strip-types)+ renderer 桥(快照镜�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 44: Spec refresh to pure-TS reality
+
+**Date**: 2026-08-19
+**Task**: Spec refresh to pure-TS reality
+**Branch**: `master`
+
+### Summary
+
+Full .trellis/spec refresh via 6 subagents (3 scouts, 3 writers, 1 verifier): ts/ split into entry+9 topic files under injection cap; 4 Python-era root specs rewritten TS-era; archived-layer routing neutralized; drift fixed (StoreLike 11 methods, typeof window, safe-area); new coverage toolLoop/overview/xdxr/f10Client/chartData; all 8 verification checks pass.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f3127a9` | (see git log) |
+
+### Status
+
+[OK] **Completed**

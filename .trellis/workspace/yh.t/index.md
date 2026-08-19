@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 43
-- **Last Active**: 2026-08-17
+- **Total Sessions**: 44
+- **Last Active**: 2026-08-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1204 | Active |
+| `journal-1.md` | ~1225 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 44 | 2026-08-19 | Spec refresh to pure-TS reality | `f3127a9` | `master` |
 | 43 | 2026-08-17 | Google Play 隐私政策文档 | `89339df` | `master` |
 | 42 | 2026-08-17 | GitHub 自动化发布流水线 | `8080bca` | `master` |
 | 41 | 2026-08-16 | 技术债清理:tsc 归零+残留删除+优雅退出 | `f88ede1` | `master` |
