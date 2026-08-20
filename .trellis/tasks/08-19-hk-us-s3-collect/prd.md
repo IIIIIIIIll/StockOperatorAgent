@@ -25,7 +25,7 @@ S1 + S2（`src/market.ts`、`src/yahoo/*`、`src/finnhub/finnhubClient.ts` 已�
 
 ## 验收
 
-- `SOA_COLLECT_ONLY=1 node --experimental-transform-types tools/probe.mts 00700` → 日K≥500、报告≥8 行、概览含 `currency: HKD`；`AAPL` → USD、bars≥1000；`09988` → 落 `09988.HK`；`600036` 输出与改造前一致（CN 回归）。
+- `SOA_COLLECT_ONLY=1 node --experimental-transform-types tools/probe.mts 00700` → 日K≥500、报告≥8 行、概览含 `currency: HKD`；`AAPL` → USD、bars≥1000；`09988` → 落 `9988.HK`（实网 09988.HK 404，官方 4 位码 9988.HK，name 含 Alibaba）；`600036` 输出与改造前一致（CN 回归）。
 - web 代理冒烟：`cd app && npx expo export --platform web && node server.mjs` 后 `curl -X POST localhost:8090/yahoo-collect -d '{"ticker":"0700.HK"}'` → 200 payload JSON；`{"ticker":"600036"}` → 400。
 - `npm test`（collectorSelection/runner 相关既有用例）绿 + `npm run typecheck`。
 - 若 Android 真机不可达：以 deviceYahooCollect 注入 fake fetch 单测代替并记录。
