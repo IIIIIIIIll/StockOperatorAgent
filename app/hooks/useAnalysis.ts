@@ -36,7 +36,7 @@ import {
 } from '../lib/runner';
 import { describeError } from '../../src/events.ts';
 import { selectCollector } from '../lib/collectorSelection';
-import { normalizeTicker, type Market, type MarketChoice } from '../../src/market.ts';
+import { normalizeTicker, type Market } from '../../src/market.ts';
 import type { MarketCollector } from '../../src/collector.ts';
 import type { CollectSkipOpts } from '../../src/webCollect.ts';
 import { startAnalysisKeepAlive, stopAnalysisKeepAlive } from '../modules/soa-keepalive';
@@ -60,7 +60,7 @@ export interface UseAnalysis {
    *  初始 cn(demo 上下文);lastRun 恢复路径与市场无关(ticker 即键),保持。 */
   market: Market;
   settings: SettingsState;
-  start: (ticker: string, marketChoice?: MarketChoice) => Promise<void>;
+  start: (ticker: string, market: Market) => Promise<void>;
   onSettingsChange: (next: SettingsState) => void;
 }
 
@@ -202,7 +202,7 @@ export function useAnalysis(): UseAnalysis {
     setError(null);
   }
 
-  async function start(ticker: string, marketChoice: MarketChoice = 'auto'): Promise<void> {
+  async function start(ticker: string, market: Market): Promise<void> {
     setEvents([]);
     setFinalDecision('');
     setStockInformation('');
@@ -211,19 +211,15 @@ export function useAnalysis(): UseAnalysis {
     setStatuses({});
     setLastRunAt(null); // 新分析开始:清除上次结果标记(R4)
     const code = ticker.trim();
-    // 北交所拦截(S1 detectMarket 将 4/8 前缀 6 位归 null,先于归一化判定,
-    // 文案逐字保留既有契约;仅自动/沪深选择下生效——手动选港股/美股时 6 位
+    // 北交所拦截(仅沪深市场;文案逐字保留既有契约——手动选港股/美股时 6 位
     // 数字归各自格式校验,不落北交所文案)
-    if (
-      (marketChoice === 'auto' || marketChoice === 'cn') &&
-      /^\d{6}$/.test(code) && (code.startsWith('4') || code.startsWith('8'))
-    ) {
+    if (market === 'cn' && /^\d{6}$/.test(code) && (code.startsWith('4') || code.startsWith('8'))) {
       setError('北交所(BJ)股票暂不支持分析:TDX 数据源不覆盖 BJ 证券,请使用沪深 A 股代码');
       return;
     }
-    // 市场归一化(S5):CN 6 位原样 / HK 1-5 位 → 首候选('0700.HK') / US 字母大写;
-    // 手动选择市场时按所选市场强制校验(格式不符 → null);无法识别 → 明确文案
-    const normalized = normalizeTicker(code, marketChoice);
+    // 市场归一化:按所选市场强制校验(CN 6 位原样 / HK 1-5 位 → 首候选
+    // ('0700.HK') / US 字母大写);格式不符 → 明确文案,不发起分析
+    const normalized = normalizeTicker(code, market);
     if (normalized === null) {
       setError('请输入有效的股票代码：沪深A股六位数字、港股一至五位数字、或美股字母代码');
       return;

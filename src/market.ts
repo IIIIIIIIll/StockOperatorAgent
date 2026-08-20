@@ -6,12 +6,8 @@
 // 纯 TS 零依赖:web/RN/Node 三端共享,不 import node:/react-native。
 export type Market = 'cn' | 'hk' | 'us';
 
-/** UI 市场选择:auto = 自动识别(默认,既有行为);cn/hk/us = 手动强制市场。 */
-export type MarketChoice = 'auto' | Market;
-
-/** 输入框旁下拉面板选项(UI 渲染顺序即此序)。 */
-export const MARKET_CHOICES: ReadonlyArray<{ value: MarketChoice; label: string }> = [
-  { value: 'auto', label: '自动识别' },
+/** 输入框旁下拉面板选项(UI 渲染顺序即此序)。市场一律手动选择,无自动识别。 */
+export const MARKET_CHOICES: ReadonlyArray<{ value: Market; label: string }> = [
   { value: 'cn', label: '沪深A股' },
   { value: 'hk', label: '港股' },
   { value: 'us', label: '美股' },
@@ -83,29 +79,18 @@ export function hkSymbolCandidates(input: string): string[] {
   return [`${input}.HK`];
 }
 
-/** 用户输入 → 规范 ticker(store/fetch 键):CN 原样 6 位;HK 取首候选(真实
- *  解析在采集层对候选逐个试探,本函数只定首选);US 大写原样。无法识别 → null。
- *  choice 指定时按该市场**强制校验**输入(格式不符 → null),用于 UI 手动选
- *  市场;缺省 'auto' 自动识别(既有行为逐字节不变)。 */
-export function normalizeTicker(
-  input: string,
-  choice: MarketChoice = 'auto',
-): { market: Market; ticker: string } | null {
-  if (choice === 'cn') {
+/** 用户输入 → 规范 ticker(store/fetch 键):按所选市场**强制校验**输入(格式
+ *  不符 → null):CN 原样 6 位;HK 取首候选(真实解析在采集层对候选逐个试探,
+ *  本函数只定首选);US 大写原样。市场由 UI 下拉手动选择,无自动识别。 */
+export function normalizeTicker(input: string, market: Market): { market: Market; ticker: string } | null {
+  if (market === 'cn') {
     if (!/^\d{6}$/.test(input) || input.startsWith('4') || input.startsWith('8')) return null;
     return { market: 'cn', ticker: input };
   }
-  if (choice === 'hk') {
+  if (market === 'hk') {
     if (!/^\d{1,5}$/.test(input)) return null;
     return { market: 'hk', ticker: hkSymbolCandidates(input)[0] };
   }
-  if (choice === 'us') {
-    if (!/^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(input)) return null;
-    return { market: 'us', ticker: input.toUpperCase() };
-  }
-  const market = detectMarket(input);
-  if (market === null) return null;
-  if (market === 'hk') return { market, ticker: hkSymbolCandidates(input)[0] };
-  if (market === 'us') return { market, ticker: input.toUpperCase() };
-  return { market, ticker: input };
+  if (!/^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(input)) return null;
+  return { market: 'us', ticker: input.toUpperCase() };
 }

@@ -14,7 +14,7 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';
 import { missingLlmKeys } from './lib/settings';
 import { reportRoles } from '../src/committee.ts';
 import { DEMO_TICKER } from '../src/metaKeys.ts';
-import { marketInfo, MARKET_CHOICES, type MarketChoice } from '../src/market.ts';
+import { marketInfo, MARKET_CHOICES, type Market } from '../src/market.ts';
 import { useAnalysis } from './hooks/useAnalysis';
 import type { PipelineEvent } from './lib/runner';
 
@@ -35,8 +35,8 @@ function AppContent() {
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = React.useState<TabId>('data');
   const [ticker, setTicker] = React.useState(DEMO_TICKER);
-  // 市场手动选择(输入框旁下拉):auto = 自动识别(默认);cn/hk/us = 强制市场
-  const [marketChoice, setMarketChoice] = React.useState<MarketChoice>('auto');
+  // 市场手动选择(输入框旁下拉):默认沪深A股;无自动识别
+  const [market, setMarket] = React.useState<Market>('cn');
   const [showMarketMenu, setShowMarketMenu] = React.useState(false);
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
   const [showSettings, setShowSettings] = React.useState(false);
@@ -68,7 +68,7 @@ function AppContent() {
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as unknown as Record<string, unknown>).__soa = {
-        start: () => void a.start(ticker, marketChoice),
+        start: () => void a.start(ticker, market),
         switchTab: (id: TabId) => setActiveTab(id),
         getState: () => ({ finalDecision: a.finalDecision, eventCount: a.events.length, running: a.running, partials: a.partials, statuses: a.statuses }),
       };
@@ -100,7 +100,7 @@ function AppContent() {
             maxLength={10}
             autoCapitalize="characters"
           />
-          {/* 市场下拉面板:手动选市场(auto 自动识别,保持既有行为) */}
+          {/* 市场下拉面板:手动选市场(默认沪深A股) */}
           <View style={styles.marketSelectWrap}>
             <Pressable
               style={styles.marketSelect}
@@ -108,20 +108,20 @@ function AppContent() {
               accessibilityLabel="选择市场"
             >
               <Text style={styles.marketSelectText}>
-                {MARKET_CHOICES.find((c) => c.value === marketChoice)?.label ?? '自动识别'}
+                {MARKET_CHOICES.find((c) => c.value === market)?.label ?? '沪深A股'}
               </Text>
               <Text style={styles.marketSelectCaret}>▾</Text>
             </Pressable>
             {showMarketMenu ? (
               <View style={styles.marketMenu}>
                 {MARKET_CHOICES.map((c) => {
-                  const active = c.value === marketChoice;
+                  const active = c.value === market;
                   return (
                     <Pressable
                       key={c.value}
                       style={[styles.marketOption, active && styles.marketOptionActive]}
                       onPress={() => {
-                        setMarketChoice(c.value);
+                        setMarket(c.value);
                         setShowMarketMenu(false);
                       }}
                     >
@@ -133,7 +133,7 @@ function AppContent() {
               </View>
             ) : null}
           </View>
-          <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => void a.start(ticker, marketChoice)}>
+          <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => void a.start(ticker, market)}>
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
         </View>

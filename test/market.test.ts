@@ -65,57 +65,35 @@ describe('hkSymbolCandidates', () => {
 });
 
 describe('normalizeTicker', () => {
-  it('CN → 原样 6 位', () => {
-    expect(normalizeTicker('600036')).toEqual({ market: 'cn', ticker: '600036' });
-  });
-
-  it('HK → 首候选(真实解析留采集层试探)', () => {
-    expect(normalizeTicker('700')).toEqual({ market: 'hk', ticker: '0700.HK' });
-    expect(normalizeTicker('00700')).toEqual({ market: 'hk', ticker: '0700.HK' });
-    expect(normalizeTicker('09988')).toEqual({ market: 'hk', ticker: '9988.HK' }); // 官方 4 位码
-    expect(normalizeTicker('99887')).toEqual({ market: 'hk', ticker: '99887.HK' });
-  });
-
-  it('US → 大写原样(保留 . 与 -)', () => {
-    expect(normalizeTicker('aapl')).toEqual({ market: 'us', ticker: 'AAPL' });
-    expect(normalizeTicker('BRK.B')).toEqual({ market: 'us', ticker: 'BRK.B' });
-    expect(normalizeTicker('BF-B')).toEqual({ market: 'us', ticker: 'BF-B' });
-  });
-
-  it('无法识别 → null', () => {
-    expect(normalizeTicker('1234567')).toBeNull();
-    expect(normalizeTicker('430047')).toBeNull();
-    expect(normalizeTicker('')).toBeNull();
-  });
-
-  it('手动强制市场:格式符合 → 按所选市场归一化', () => {
-    expect(normalizeTicker('700', 'hk')).toEqual({ market: 'hk', ticker: '0700.HK' });
-    expect(normalizeTicker('09988', 'hk')).toEqual({ market: 'hk', ticker: '9988.HK' });
-    expect(normalizeTicker('aapl', 'us')).toEqual({ market: 'us', ticker: 'AAPL' });
+  it('CN:6 位且非 4/8 → 原样', () => {
     expect(normalizeTicker('600036', 'cn')).toEqual({ market: 'cn', ticker: '600036' });
-    // 自动识别下会是 hk 的纯数字,强制 cn 时按 cn 格式校验(6 位)→ 归 cn
     expect(normalizeTicker('000001', 'cn')).toEqual({ market: 'cn', ticker: '000001' });
   });
 
-  it('手动强制市场:格式不符 → null(不跨市场兜底)', () => {
+  it('HK → 首候选(真实解析留采集层试探)', () => {
+    expect(normalizeTicker('700', 'hk')).toEqual({ market: 'hk', ticker: '0700.HK' });
+    expect(normalizeTicker('00700', 'hk')).toEqual({ market: 'hk', ticker: '0700.HK' });
+    expect(normalizeTicker('09988', 'hk')).toEqual({ market: 'hk', ticker: '9988.HK' }); // 官方 4 位码
+    expect(normalizeTicker('99887', 'hk')).toEqual({ market: 'hk', ticker: '99887.HK' });
+  });
+
+  it('US → 大写原样(保留 . 与 -)', () => {
+    expect(normalizeTicker('aapl', 'us')).toEqual({ market: 'us', ticker: 'AAPL' });
+    expect(normalizeTicker('BRK.B', 'us')).toEqual({ market: 'us', ticker: 'BRK.B' });
+    expect(normalizeTicker('BF-B', 'us')).toEqual({ market: 'us', ticker: 'BF-B' });
+  });
+
+  it('格式不符 → null(按所选市场严格校验,不跨市场兜底)', () => {
     expect(normalizeTicker('AAPL', 'cn')).toBeNull();
     expect(normalizeTicker('AAPL', 'hk')).toBeNull();
     expect(normalizeTicker('00700', 'us')).toBeNull();
     expect(normalizeTicker('600036', 'us')).toBeNull();
     expect(normalizeTicker('600036', 'hk')).toBeNull();
-    expect(normalizeTicker('430047', 'cn')).toBeNull(); // 北交所前缀在强制 cn 下同样拦截
+    expect(normalizeTicker('430047', 'cn')).toBeNull(); // 北交所前缀在 cn 下同样拦截
+    expect(normalizeTicker('430047', 'us')).toBeNull();
     expect(normalizeTicker('0700', 'us')).toBeNull();
-  });
-
-  it('往返:CN/US 输出 ticker 可被 detectMarket 复认;HK 输出 Yahoo 符号(detectMarket 只管原始输入)', () => {
-    for (const input of ['600036', 'aapl', 'BRK.B']) {
-      const n = normalizeTicker(input);
-      expect(n).not.toBeNull();
-      expect(detectMarket(n!.ticker)).not.toBeNull();
-    }
-    // HK 规范化产物是 Yahoo 符号('0700.HK'),不在 detectMarket 输入面——由采集
-    // 层直接消费,不复认
-    expect(normalizeTicker('700')!.ticker).toBe('0700.HK');
+    expect(normalizeTicker('1234567', 'hk')).toBeNull(); // 超 HK 5 位上限
+    expect(normalizeTicker('', 'cn')).toBeNull();
   });
 });
 
