@@ -1,14 +1,23 @@
 // freshness 门 + FetchScope —— 移植自 Python（data_acquisition / time_helper）
 // 节假日日历未建模（已知缺陷，与 Python 侧一致保留）
+import { marketInfo, type Market } from './market.ts';
 
-/** 北京时间"今天" YYYY-MM-DD（对齐 Python asia_today，全仓唯一"今天"来源）。 */
-export function asiaToday(): string {
+/** 某市场时区"今天" YYYY-MM-DD（en-CA 格式逐字节对齐 Python asia_today）。
+ *  港美股沿用 CN 周末规则（getLastBusinessDay 仅周末、无节假日日历，与 CN
+ *  一致保留——见 coupling-map）。 */
+export function marketToday(market: Market): string {
   return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: marketInfo(market).timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+}
+
+/** 北京时间"今天" YYYY-MM-DD（对齐 Python asia_today，全仓唯一"今天"来源；
+ *  委托 marketToday('cn')，输出逐字节不变）。 */
+export function asiaToday(): string {
+  return marketToday('cn');
 }
 
 /** get_last_business_day：周六 → 周五(-1)，周日 → 周五(-2)，其余当天。 */

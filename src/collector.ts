@@ -9,7 +9,8 @@
 // 不进 bundle);gates/log 为全端共享轻量模块。
 import type { StoreLike } from './store.ts';
 import type { CollectSkipOpts, WebCollectResult } from './webCollect.ts';
-import { asiaToday, freshnessGates } from './gates.ts';
+import { freshnessGates, marketToday } from './gates.ts';
+import type { Market } from './market.ts';
 import { info } from './log.ts';
 
 /** 平台无关采集器:web(collectForWeb)与真机(collectForDevice)两实现均满足
@@ -21,19 +22,23 @@ export type MarketCollector = (ticker: string, opts?: CollectSkipOpts) => Promis
  *  opts 缺省(undefined)按 store 现有数据自动判定——dailyFresh 同日跳过日K、
  *  f10Fresh 同季跳过 F10(performance_reports 最新 report_date == 最近已过
  *  季度末);显式布尔值覆盖自动判定(测试/调试用)。部分 fresh 不整体短路。
+ *  market 参数(S1):"今天"按市场时区(marketToday)判定,CN 缺省逐字节不变;
+ *  hk/us 恒 skipF10=false——Yahoo 报告全量拉取 + addPerformanceReports PK
+ *  幂等(重复入库无害),无 F10 门,opts.skipF10 显式覆盖同样忽略。
  *  skipped 为可跳过源的中文标签(日志/测试断言用)。 */
 export function resolveSkipGates(
   store: StoreLike,
   ticker: string,
   opts?: CollectSkipOpts,
+  market: Market = 'cn',
 ): { skipDaily: boolean; skipF10: boolean; skipped: string[] } {
-  const today = asiaToday();
+  const today = marketToday(market);
   const stock = store.getStock(ticker);
   const reports = store.getPerformanceReports(ticker);
   const latestReportDate = reports.reduce((m, r) => (r.report_date > m ? r.report_date : m), '') || null;
   const gates = freshnessGates(stock?.lastDataUpdate ?? null, latestReportDate, today);
   const skipDaily = opts?.skipDaily ?? gates.dailyFresh;
-  const skipF10 = opts?.skipF10 ?? gates.f10Fresh;
+  const skipF10 = market === 'hk' || market === 'us' ? false : (opts?.skipF10 ?? gates.f10Fresh);
   const skipped: string[] = [];
   if (skipDaily) skipped.push('日K(同日已采集)');
   if (skipF10) skipped.push('F10财务分析(同季已入库)');

@@ -1,0 +1,135 @@
+// market 模型单测:detectMarket 全表 / hkSymbolCandidates 候选序 /
+// normalizeTicker 往返 / marketInfo 元信息表。纯函数零 IO,无 mock。
+import { describe, expect, it } from 'vitest';
+import { detectMarket, hkSymbolCandidates, marketInfo, normalizeTicker } from '../src/market.ts';
+
+describe('detectMarket', () => {
+  it('CN:6 位数字且非 4/8 开头 → cn', () => {
+    expect(detectMarket('600036')).toBe('cn');
+    expect(detectMarket('000001')).toBe('cn');
+    expect(detectMarket('300750')).toBe('cn');
+    expect(detectMarket('688981')).toBe('cn');
+  });
+
+  it('北交所语义保留:4/8 开头的 6 位数字 → null', () => {
+    expect(detectMarket('430047')).toBeNull();
+    expect(detectMarket('830799')).toBeNull();
+  });
+
+  it('HK:1-5 位数字 → hk(含 5 位前导零)', () => {
+    expect(detectMarket('700')).toBe('hk');
+    expect(detectMarket('00700')).toBe('hk');
+    expect(detectMarket('09988')).toBe('hk');
+    expect(detectMarket('3690')).toBe('hk');
+    expect(detectMarket('99887')).toBe('hk');
+    expect(detectMarket('123')).toBe('hk');
+    expect(detectMarket('60003')).toBe('hk');
+  });
+
+  it('边界:7 位数字 → null(超 CN 6 位与 HK 5 位上限)', () => {
+    expect(detectMarket('1234567')).toBeNull();
+    expect(detectMarket('6000361')).toBeNull();
+  });
+
+  it('US:字母开头 ≤10 字符(含 . / -)→ us', () => {
+    expect(detectMarket('aapl')).toBe('us');
+    expect(detectMarket('AAPL')).toBe('us');
+    expect(detectMarket('BRK.B')).toBe('us');
+    expect(detectMarket('BF-B')).toBe('us');
+    expect(detectMarket('A')).toBe('us');
+  });
+
+  it('其它 → null(空串/数字开头带字母/超长)', () => {
+    expect(detectMarket('')).toBeNull();
+    expect(detectMarket('1A')).toBeNull();
+    expect(detectMarket('600036A')).toBeNull();
+    expect(detectMarket('ABCDEFGHIJK')).toBeNull(); // 11 字符超上限
+  });
+});
+
+describe('hkSymbolCandidates', () => {
+  it('≤4 位 → 左补零到 4 位唯一候选', () => {
+    expect(hkSymbolCandidates('700')).toEqual(['0700.HK']);
+    expect(hkSymbolCandidates('3690')).toEqual(['3690.HK']);
+    expect(hkSymbolCandidates('7')).toEqual(['0007.HK']);
+  });
+
+  it('5 位且首 0 → [4 位形式(去一前导零), 5 位原样]', () => {
+    expect(hkSymbolCandidates('00700')).toEqual(['0700.HK', '00700.HK']);
+    expect(hkSymbolCandidates('09988')).toEqual(['0988.HK', '09988.HK']);
+  });
+
+  it('5 位非 0 首 → 原样唯一', () => {
+    expect(hkSymbolCandidates('99887')).toEqual(['99887.HK']);
+  });
+});
+
+describe('normalizeTicker', () => {
+  it('CN → 原样 6 位', () => {
+    expect(normalizeTicker('600036')).toEqual({ market: 'cn', ticker: '600036' });
+  });
+
+  it('HK → 首候选(真实解析留采集层试探)', () => {
+    expect(normalizeTicker('700')).toEqual({ market: 'hk', ticker: '0700.HK' });
+    expect(normalizeTicker('00700')).toEqual({ market: 'hk', ticker: '0700.HK' });
+    expect(normalizeTicker('99887')).toEqual({ market: 'hk', ticker: '99887.HK' });
+  });
+
+  it('US → 大写原样(保留 . 与 -)', () => {
+    expect(normalizeTicker('aapl')).toEqual({ market: 'us', ticker: 'AAPL' });
+    expect(normalizeTicker('BRK.B')).toEqual({ market: 'us', ticker: 'BRK.B' });
+    expect(normalizeTicker('BF-B')).toEqual({ market: 'us', ticker: 'BF-B' });
+  });
+
+  it('无法识别 → null', () => {
+    expect(normalizeTicker('1234567')).toBeNull();
+    expect(normalizeTicker('430047')).toBeNull();
+    expect(normalizeTicker('')).toBeNull();
+  });
+
+  it('往返:CN/US 输出 ticker 可被 detectMarket 复认;HK 输出 Yahoo 符号(detectMarket 只管原始输入)', () => {
+    for (const input of ['600036', 'aapl', 'BRK.B']) {
+      const n = normalizeTicker(input);
+      expect(n).not.toBeNull();
+      expect(detectMarket(n!.ticker)).not.toBeNull();
+    }
+    // HK 规范化产物是 Yahoo 符号('0700.HK'),不在 detectMarket 输入面——由采集
+    // 层直接消费,不复认
+    expect(normalizeTicker('700')!.ticker).toBe('0700.HK');
+  });
+});
+
+describe('marketInfo', () => {
+  it('cn:沪深A股/上海时区/CNY/整手 100', () => {
+    expect(marketInfo('cn')).toEqual({
+      market: 'cn',
+      label: '沪深A股',
+      timeZone: 'Asia/Shanghai',
+      currency: 'CNY',
+      lotSize: 100,
+      promptRules: '',
+    });
+  });
+
+  it('hk:港股/香港时区/HKD/无整手', () => {
+    expect(marketInfo('hk')).toEqual({
+      market: 'hk',
+      label: '港股',
+      timeZone: 'Asia/Hong_Kong',
+      currency: 'HKD',
+      lotSize: null,
+      promptRules: '',
+    });
+  });
+
+  it('us:美股/纽约时区/USD/无整手', () => {
+    expect(marketInfo('us')).toEqual({
+      market: 'us',
+      label: '美股',
+      timeZone: 'America/New_York',
+      currency: 'USD',
+      lotSize: null,
+      promptRules: '',
+    });
+  });
+});
