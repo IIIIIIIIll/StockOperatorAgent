@@ -5,3 +5,6 @@
 // 桥内静态 re-export src/tdx(静态跨根 import 正常),动态 import 该桥时 specifier
 // 保持在根内 → 运行时解析成功;web bundle 仍只含惰性 chunk 引用,不含 TCP 链。
 export { collectForDevice, setDeviceStore } from '../../src/tdx/deviceCollect.ts';
+// Yahoo 直连采集(RN fetch 直连 Yahoo;纯 fetch 零 node 依赖,进 bundle 安全;
+// 与 CN 链并列,selectCollector 的 rn 实现按 market 取)
+export { collectYahooForDevice } from '../../src/yahoo/deviceYahooCollect.ts';

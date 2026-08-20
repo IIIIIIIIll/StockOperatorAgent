@@ -36,6 +36,7 @@ import {
 } from '../lib/runner';
 import { describeError } from '../../src/events.ts';
 import { selectCollector } from '../lib/collectorSelection';
+import { collectYahooViaProxy } from '../../src/yahoo/webYahooCollect.ts';
 import { startAnalysisKeepAlive, stopAnalysisKeepAlive } from '../modules/soa-keepalive';
 import type { RoleStatus } from '../../src/progress.ts';
 import { loadLastRun, saveLastRun } from '../../src/lastRun.ts';
@@ -244,13 +245,19 @@ export function useAnalysis(): UseAnalysis {
       let capital: { zongguben: number; liutongguben: number } | null = null;
       // 采集:web 走同源代理(collectForWeb 静态绑定);真机 TDX 直连
       // (collectForDevice 经 selectCollector 动态 import——仅非 web 求值,
-      // web bundle 不含 node-tdx-market 死链)。两实现同一 MarketCollector
-      // 接口,skip 判定共用 resolveSkipGates(store 现状自动判定,见 src/collector.ts)
+      // web bundle 不含 node-tdx-market 死链)。S3:selectCollector 市场感知
+      // (cn/hk/us 三实现;本 hook 仍 CN-only,market 恒 'cn'——hk/us 分派随
+      // S5 归一化 ticker 时接入;webImpls 的 hk/us 已绑定代理 base,直接可用)
       info(`正在采集 ${code} 的真实行情(${Platform.OS === 'web' ? 'TDX 代理' : 'TDX 直连'})...`);
       try {
         const collect = await selectCollector(
           Platform.OS === 'web' ? 'web' : 'rn',
-          collectForWeb,
+          'cn',
+          {
+            cn: collectForWeb,
+            hk: (t, o) => collectYahooViaProxy(t, Platform.OS === 'web' ? (globalThis.location?.origin ?? '') : '', o),
+            us: (t, o) => collectYahooViaProxy(t, Platform.OS === 'web' ? (globalThis.location?.origin ?? '') : '', o),
+          },
         );
         const collected = await collect(code);
         f10Text = collected.f10Text ?? undefined;

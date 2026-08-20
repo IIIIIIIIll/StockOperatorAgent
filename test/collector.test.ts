@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { resolveSkipGates } from '../src/collector.ts';
 import type { MarketCollector } from '../src/collector.ts';
+import type { Market } from '../src/market.ts';
 import { selectCollector } from '../app/lib/collectorSelection.ts';
 import { InMemoryStore } from '../src/store-memory.ts';
 import type { StoreLike } from '../src/store.ts';
@@ -90,35 +91,48 @@ describe('resolveSkipGates', () => {
   });
 });
 
-describe('selectCollector(平台选择,注入 fake 实现)', () => {
+describe('selectCollector(平台+市场选择,注入 fake 实现)', () => {
   const emptyResult = { f10Text: null, snapshot: null, name: null, capital: null };
+  // 三市场同实现占位(单实现注入场景;按市场分派见下一用例)
+  const impls = (fn: MarketCollector): Record<Market, MarketCollector> => ({ cn: fn, hk: fn, us: fn });
 
-  it('web → 直接返回静态 web 实现,不触发设备模块加载', async () => {
+  it('web → 直接返回静态 webImpls[market],不触发设备模块加载', async () => {
     const web: MarketCollector = vi.fn().mockResolvedValue(emptyResult);
     const loadDevice = vi.fn();
-    const impl = await selectCollector('web', web, loadDevice);
+    const impl = await selectCollector('web', 'hk', impls(web), loadDevice);
     expect(impl).toBe(web);
     expect(loadDevice).not.toHaveBeenCalled();
   });
 
-  it('rn → 经 loadDeviceImpl 动态加载设备实现(注入 fake)', async () => {
+  it('web 按 market 分派:cn/hk/us 各自取对应实现', async () => {
+    const webImpls: Record<Market, MarketCollector> = {
+      cn: vi.fn().mockResolvedValue(emptyResult),
+      hk: vi.fn().mockResolvedValue(emptyResult),
+      us: vi.fn().mockResolvedValue(emptyResult),
+    };
+    expect(await selectCollector('web', 'cn', webImpls)).toBe(webImpls.cn);
+    expect(await selectCollector('web', 'hk', webImpls)).toBe(webImpls.hk);
+    expect(await selectCollector('web', 'us', webImpls)).toBe(webImpls.us);
+  });
+
+  it('rn → 经 loadDeviceImpls 动态加载设备实现(注入 fake)并按 market 取', async () => {
     const device: MarketCollector = vi.fn().mockResolvedValue(emptyResult);
-    const loadDevice = vi.fn().mockResolvedValue(device);
-    const impl = await selectCollector('rn', vi.fn(), loadDevice);
+    const loadDevice = vi.fn().mockResolvedValue(impls(device));
+    const impl = await selectCollector('rn', 'us', impls(vi.fn()), loadDevice);
     expect(impl).toBe(device);
     expect(loadDevice).toHaveBeenCalledTimes(1);
   });
 
   it('web 实现按接口契约驱动:collect(ticker, opts) 透传并返回 WebCollectResult', async () => {
     const web: MarketCollector = vi.fn().mockResolvedValue(emptyResult);
-    const impl = await selectCollector('web', web);
+    const impl = await selectCollector('web', 'cn', impls(web));
     const out = await impl(TICKER, { skipDaily: true });
     expect(web).toHaveBeenCalledWith(TICKER, { skipDaily: true });
     expect(out).toEqual(emptyResult);
   });
 
-  it('缺省设备加载器 → 真实 deviceCollect.collectForDevice(与 MarketCollector 契约一致)', async () => {
-    const impl = await selectCollector('rn', vi.fn());
+  it('缺省设备加载器 → 真实 deviceBridge 实现(cn → collectForDevice,与 MarketCollector 契约一致)', async () => {
+    const impl = await selectCollector('rn', 'cn', impls(vi.fn()));
     const { collectForDevice } = await import('../src/tdx/deviceCollect.ts');
     expect(impl).toBe(collectForDevice);
   });

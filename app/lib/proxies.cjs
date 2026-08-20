@@ -13,6 +13,9 @@ const { TdxClient } = require('node-tdx-market');
 const { collectAll } = require('../../src/tdx/quoteClient.ts');
 const { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } = require('../../src/tdx/f10Client.ts');
 const { ddgSearcher } = require('../../src/webSearch.ts');
+const { YahooClient } = require('../../src/yahoo/yahooClient.ts');
+const { collectYahooPayload, obtainA3 } = require('../../src/yahoo/deviceYahooCollect.ts');
+const { detectMarket } = require('../../src/market.ts');
 const dns = require('node:dns');
 const net = require('node:net');
 
@@ -231,6 +234,95 @@ async function handleTdxCollect(req, res, _collect = doCollect) {
   }
 }
 
+// ─── Yahoo 采集代理(/yahoo-collect)──────────────────────────────────────────
+// 港美股数据链(web 端同 /tdx-collect 的代理语义):Node 侧 YahooClient 直连
+// (chart 免 crumb;quoteSummary 走 A3 cookie + crumb 两跳),浏览器 fetch 回写
+// InMemoryStore。gate:正则(格式)+ detectMarket(hk/us 市场语义,双校验互为
+// 兜底——600036 等 CN 6 位数字被拒);HK 候选 hkSymbolCandidates 逐个 chart
+// 试探(result 存在即定符号,全败 502);quoteSummary 失败降级(crumb 失效场景,
+// 概览仅 chart meta 字段 + reports 空,不整体失败——chart 失败才中止)。
+// 独立互斥 collectingYahoo(与 TDX 采集互不阻塞);45s 超时仅提前回 504,
+// 锁保持到真正 settle(W4 同款,防后台采集并发泄漏);timer 在 finally clear。
+const YAHOO_COLLECT_TIMEOUT_MS = 45_000;
+let collectingYahoo = false;
+
+const YAHOO_TICKER_RE = /^([A-Z0-9]{1,5}(\.HK)?|[A-Z][A-Z0-9.-]{0,9})$/i;
+
+/** 代理 gate 的市场判定:.HK 存储形 → 剥后缀按数字判('0700.HK' → hk);其余按
+ *  detectMarket 原样('AAPL' → us);仅 hk/us 通过(cn/null → 拒)。 */
+function isYahooMarket(ticker) {
+  const base = /^(\d{1,5})\.HK$/i.exec(ticker)?.[1] ?? ticker;
+  const m = detectMarket(base);
+  return m === 'hk' || m === 'us';
+}
+
+async function doYahooCollect(ticker, opts = {}) {
+  // 采集流共享 deviceYahooCollect.collectYahooPayload(候选试探/chart 分页/
+  // quoteSummary 降级/合成,server/真机/探针三端单一实现)。
+  // fc.yahoo.com 实测 404 但仍回 Set-Cookie A3(2026-08-20):预取 A3 经
+  // cookieProvider 注入(YahooClient 自身 fc 请求遇非 2xx 会抛,crumb 链断)
+  const a3 = await obtainA3();
+  const client = new YahooClient(undefined, () => a3);
+  return collectYahooPayload(client, ticker, { skipDaily: opts.skipDaily === true });
+}
+
+async function handleYahooCollect(req, res, _collect = doYahooCollect) {
+  // body JSON {ticker}(对齐 MAX_BODY_BYTES 上限;非法/空 body → ticker '' → 400)
+  let body = '';
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Yahoo 采集请求体超过 1MB 限制' }));
+      return;
+    }
+    body += chunk;
+  }
+  let ticker = '';
+  try {
+    const parsed = JSON.parse(body || '{}');
+    ticker = typeof parsed?.ticker === 'string' ? parsed.ticker : '';
+  } catch {
+    ticker = '';
+  }
+  // C8 freshness:浏览器按 store 现有数据判定后传跳过标记(仅 '1' 生效,缺省全量)
+  const url = new URL(req.url, 'http://x');
+  const skipDaily = url.searchParams.get('skipDaily') === '1';
+  if (!YAHOO_TICKER_RE.test(ticker) || !isYahooMarket(ticker)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '非法代码' }));
+    return;
+  }
+  if (collectingYahoo) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: '已有采集进行中,请稍后重试' }));
+    return;
+  }
+  collectingYahoo = true;
+  let settled = false;
+  const send = (status, obj) => {
+    if (settled) return;
+    settled = true;
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(obj));
+  };
+  // W4 同款:超时 timer 仅提前回 504 通知客户端,不打断采集(底层无
+  // AbortSignal 支持);锁保持到 _collect 真正 settle(下方 await 返回)才释放。
+  const timer = setTimeout(() => {
+    send(504, { error: `Yahoo 采集超时(${YAHOO_COLLECT_TIMEOUT_MS / 1000}s),后台任务继续直至结束` });
+  }, YAHOO_COLLECT_TIMEOUT_MS);
+  try {
+    const result = await _collect(ticker, { skipDaily });
+    send(200, result);
+  } catch (err) {
+    send(502, { error: String(err?.message ?? err) });
+  } finally {
+    clearTimeout(timer);
+    collectingYahoo = false; // await _collect 已返回 → 真 settle,此刻才放锁
+  }
+}
+
 // ─── Web 搜索代理 ────────────────────────────────────────────────────────────
 // 浏览器直连 DDG 有反爬/CORS 限制 → 本 server(Node)执行查询回包 {results}
 // JSON(对齐 Python web_search 工具语义;免 key)。q 校验(非空 + ≤200 字符
@@ -271,10 +363,12 @@ async function handleWebSearch(req, res, _ddg = ddgSearcher) {
 module.exports = {
   handleLlmProxy,
   handleTdxCollect,
+  handleYahooCollect,
   handleWebSearch,
   // 测试/复用导出(新增,不删旧)
   MAX_BODY_BYTES, // W2 上限
   COLLECT_TIMEOUT_MS, // W4 超时
+  YAHOO_COLLECT_TIMEOUT_MS, // Yahoo 采集超时
   normalizeBaseUrl, // C2 base 校验
   isPrivateAddress,
   isPublicHost,

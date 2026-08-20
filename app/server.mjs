@@ -8,7 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleLlmProxy, handleTdxCollect, handleWebSearch } from './lib/proxies.cjs';
+import { handleLlmProxy, handleTdxCollect, handleWebSearch, handleYahooCollect } from './lib/proxies.cjs';
 import { handleLogs } from './lib/logs-server.cjs';
 
 const PORT = Number(process.env.PORT || 8090);
@@ -65,6 +65,10 @@ export function createAppServer() {
     }
     if (req.method === 'GET' && req.url.startsWith('/tdx-collect')) {
       void handleTdxCollect(req, res);
+      return;
+    }
+    if (req.method === 'POST' && req.url.startsWith('/yahoo-collect')) {
+      void handleYahooCollect(req, res);
       return;
     }
     if (req.method === 'GET' && req.url.startsWith('/web-search')) {

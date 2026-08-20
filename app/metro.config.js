@@ -69,10 +69,11 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
-// 同源代理(dev server):/llm-proxy /tdx-collect /web-search 与生产 server.mjs
-// 共用 lib/proxies.cjs 单份实现(含 .ts 依赖,需 Node 带 --experimental-strip-types
-// 启动——见 package.json "start");日志汇聚见 lib/logs-server.cjs。
-const { handleLlmProxy, handleTdxCollect, handleWebSearch } = require('./lib/proxies.cjs');
+// 同源代理(dev server):/llm-proxy /tdx-collect /yahoo-collect /web-search 与生产
+// server.mjs 共用 lib/proxies.cjs 单份实现(含 .ts 依赖,需 Node 带
+// --experimental-strip-types 启动——见 package.json "start");日志汇聚见
+// lib/logs-server.cjs。
+const { handleLlmProxy, handleTdxCollect, handleWebSearch, handleYahooCollect } = require('./lib/proxies.cjs');
 const { handleLogs } = require('./lib/logs-server.cjs');
 
 config.server.enhanceMiddleware = (middleware, _server) => {
@@ -83,6 +84,10 @@ config.server.enhanceMiddleware = (middleware, _server) => {
     }
     if (req.method === 'GET' && req.url.startsWith('/tdx-collect')) {
       void handleTdxCollect(req, res);
+      return;
+    }
+    if (req.method === 'POST' && req.url.startsWith('/yahoo-collect')) {
+      void handleYahooCollect(req, res);
       return;
     }
     if (req.method === 'GET' && req.url.startsWith('/web-search')) {

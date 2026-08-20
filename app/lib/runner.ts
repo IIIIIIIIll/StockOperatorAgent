@@ -7,7 +7,10 @@ import type { StoreLike } from '../../src/store.ts';
 import { createPipelineRunner, type PipelineEvent, type FinalReport } from '../../src/events.ts';
 import { createLlm, MissingLlmConfigError, type LlmConfig } from '../../src/llm.ts';
 import { applyCollectedToStore, collectViaProxy, type WebCollectResult } from '../../src/webCollect.ts';
+import { collectYahooViaProxy } from '../../src/yahoo/webYahooCollect.ts';
+import { setYahooStore } from '../../src/yahoo/applyYahooCollectedToStore.ts';
 import { resolveSkipGates } from '../../src/collector.ts';
+import type { Market } from '../../src/market.ts';
 import { detectPlatform } from '../../src/log.ts';
 import { getMarketIntel } from '../../src/mcp.ts';
 import { BillionsClient } from '../../src/billionsClient.ts';
@@ -47,6 +50,9 @@ if (isDesktopBridge()) {
   const b = getBridge();
   if (b) setStore(new DesktopStore(b));
 }
+// Yahoo 采集链入库面与 runner 同一 store 实例(collectYahooViaProxy/
+// collectYahooForDevice 签名固定,store 经注入面;对齐 setDeviceStore 先例)
+setYahooStore(store);
 
 /** 持久化后端就绪(IndexedDB 打开 + 内存 hydrate / 文件读回)。App 启动链先 await 再加载。 */
 export function storeReady(): Promise<void> {
@@ -75,22 +81,34 @@ export const runner = createPipelineRunner(store);
 declare const location: { origin?: string } | undefined;
 
 /** 采集跳过选项:缺省(undefined)按 store 现有数据自动判定(resolveSkipGates);
- *  显式布尔值覆盖自动判定(测试/调试用)。向后兼容——旧调用无第二参,恒全量判定。 */
+ *  显式布尔值覆盖自动判定(测试/调试用)。向后兼容——旧调用无第二参,恒全量判定。
+ *  market(S3):缺省 'cn' 逐字节不变;hk/us 走 Yahoo 代理链(/yahoo-collect)。 */
 export interface CollectForWebOpts {
   skipDaily?: boolean;
   skipF10?: boolean;
+  market?: Market;
 }
 
-/** web 采集(server /tdx-collect 代理)→ 写 InMemoryStore;返回本次采集结果
+/** web 采集(server 代理)→ 写 InMemoryStore;返回本次采集结果
  *  (f10Text/snapshot/name 供 runner.run opts)。失败抛错 → 调用方中止分析。
+ *  market 分派:cn → /tdx-collect 代理(collectViaProxy + applyCollectedToStore);
+ *  hk/us → /yahoo-collect 代理(collectYahooViaProxy,内部 apply)。
  *  C8 freshness 接线:依据 store 现有数据(stock.lastDataUpdate /
  *  performance_reports 最新 report_date)判定同日跳过日K、同季跳过 F10,
  *  跳过源不拉网络、沿用既有数据(不置空);部分 fresh 不整体短路。
  *  同季跳过 F10 时用上次入库的缓存文本(f10:ticker meta)顶替,盈利能力块不降级占位。 */
 export async function collectForWeb(ticker: string, opts?: CollectForWebOpts): Promise<WebCollectResult> {
   // skip 判定共用 resolveSkipGates(store 现状自动判定,opts 显式布尔覆盖;
-  // 原 freshnessGates 逐行逻辑已抽共享,见 src/collector.ts)
-  const { skipDaily, skipF10 } = resolveSkipGates(store, ticker, opts);
+  // market 影响"今天"时区与 F10 门——hk/us 恒 skipF10=false,见 src/collector.ts)
+  const market = opts?.market ?? 'cn';
+  const { skipDaily, skipF10 } = resolveSkipGates(store, ticker, opts, market);
+  // 港美股:Yahoo 代理链(候选试探/合成/入库在 server 侧 + collectYahooViaProxy)
+  if (market !== 'cn') {
+    // web 端 location 全局(ts/ 为 node-only lib 无 DOM 类型);origin 是数据
+    // 读取而非平台选择——与下方 CN 路径同一守卫语义。
+    const origin = location?.origin ?? '';
+    return collectYahooViaProxy(ticker, origin, { skipDaily, skipF10 });
+  }
   // web 端 location 全局(ts/ 为 node-only lib 无 DOM 类型)。origin 是数据
   // 读取而非平台选择:任何存在 location 的环境(web/测试 stub)取其 origin,
   // 不存在(Node/RN)→ '' 相对 URL——等价旧 typeof location 守卫。本函数仅
