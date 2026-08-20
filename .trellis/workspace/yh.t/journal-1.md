@@ -1223,3 +1223,24 @@ Full .trellis/spec refresh via 6 subagents (3 scouts, 3 writers, 1 verifier): ts
 ### Status
 
 [OK] **Completed**
+
+
+## Session 45: 港股美股支持(hk-us-stocks): Yahoo 主源+Finnhub 增强, 任务树 S1-S5 全合并
+
+**Date**: 2026-08-20
+**Task**: 港股美股支持(hk-us-stocks): Yahoo 主源+Finnhub 增强, 任务树 S1-S5 全合并
+**Branch**: `master`
+
+### Summary
+
+5 切片 worktree 并行(Trellis parent/child): S1 市场模型+时间门 / S2 YahooClient+Finnhub+合成 / S4 提示词市场化(并行) / S3 采集链+/yahoo-collect 代理+探针 / S5 UI+设置; trellis-check 修复 4 处数据流断点; 全量 508 测试绿+typecheck; 实测 00700→0700.HK(HKD 5476 根日K/8 报告行)、AAPL(USD 11514 根)、09988→9988.HK、600036 CN 回归逐字一致; spec: ts/hk-us-data.md+error-handling 双异常; 归档完成
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `791d05b1eb182fe80e16a09dc7e6a3c8e0d1a7f0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
