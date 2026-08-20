@@ -140,6 +140,20 @@ describe('financialTrendSeries (财务跨期折线)', () => {
   it('空数据 → [] (财务图不渲染不崩)', () => {
     expect(financialTrendSeries([], [])).toEqual([]);
   });
+
+  it('hk/us 标签按市场币种(亿HKD/HKD、亿USD/USD);cn 缺省逐字节不变', () => {
+    const reports = [
+      { report_date: '20260331', fields: { eps: 1.49, net_profit: 15200000000, sales_gross_margin: NaN } },
+    ];
+    expect(financialTrendSeries(reports, [], 'hk').map((s) => s.label)).toEqual(['净利润 (亿HKD)', '每股收益 (HKD)']);
+    expect(financialTrendSeries(reports, [], 'us').map((s) => s.label)).toEqual(['净利润 (亿USD)', '每股收益 (USD)']);
+    // cn 显式传参与缺省一致(逐字节不变:亿元/元)
+    expect(financialTrendSeries(reports, [], 'cn').map((s) => s.label)).toEqual(['净利润 (亿元)', '每股收益 (元)']);
+    expect(financialTrendSeries(reports, []).map((s) => s.label)).toEqual(['净利润 (亿元)', '每股收益 (元)']);
+    // 点的值不受市场影响(仅标签币种化)
+    const np = financialTrendSeries(reports, [], 'hk').find((s) => s.label === '净利润 (亿HKD)')!;
+    expect(np.points).toEqual([{ time: '2026-03-31', value: 152 }]);
+  });
 });
 
 describe('salesGrossMargin (业绩卡片销售毛利率)', () => {

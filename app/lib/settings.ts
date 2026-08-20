@@ -31,6 +31,10 @@ export interface KeysState {
   llmBaseUrl: string;
   tdxApiKey: string;
   billionsApiKey: string;
+  /** Finnhub API Key(可选,美股增强):仅 market us 且有值时采集链直连
+   *  companyProfile2 合并 overview.industry;掩码显示、不落日志(对齐
+   *  BILLIONS_API_KEY 模式)。 */
+  finnhubApiKey: string;
   langsmithKey: string;
   langsmithProject: string;
   langsmithTracing: boolean;
@@ -57,7 +61,7 @@ const DEFAULT_CAPS: CapsState = {
 
 const DEFAULT_KEYS: KeysState = {
   llmApiKey: '', llmModel: '', llmBaseUrl: '',
-  tdxApiKey: '', billionsApiKey: '',
+  tdxApiKey: '', billionsApiKey: '', finnhubApiKey: '',
   langsmithKey: '', langsmithProject: '', langsmithTracing: false,
 };
 

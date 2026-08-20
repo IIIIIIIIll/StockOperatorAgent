@@ -164,6 +164,21 @@ describe('settings.ts 经 settingsStore 路由(web 分支)', () => {
     expect(loadSettings()).toEqual(defaultSettings());
   });
 
+  it('finnhubApiKey 在保存白名单内:默认空串,保存 → 往返 + 落盘 JSON 含键', async () => {
+    const { loadSettings, saveSettings } = await import('../app/lib/settings.ts');
+    expect(defaultSettings().keys.finnhubApiKey).toBe('');
+    const d = defaultSettings();
+    const saved: typeof d = { ...d, keys: { ...d.keys, finnhubApiKey: 'finn-abc123' } };
+    saveSettings(saved);
+    expect(mem.get('soa:settings')).toContain('"finnhubApiKey":"finn-abc123"');
+    expect(loadSettings().keys.finnhubApiKey).toBe('finn-abc123');
+    // 未存该键的旧存储 → 默认空串(深合并保持)
+    mem.set('soa:settings', JSON.stringify({ keys: { llmModel: 'gpt-x' } }));
+    const s = loadSettings();
+    expect(s.keys.finnhubApiKey).toBe('');
+    expect(s.keys.llmModel).toBe('gpt-x');
+  });
+
   it('损坏 JSON → 默认值(不抛出)', async () => {
     mem.set('soa:settings', '{not-json');
     const { loadSettings } = await import('../app/lib/settings.ts');

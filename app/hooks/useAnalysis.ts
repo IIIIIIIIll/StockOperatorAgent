@@ -37,6 +37,9 @@ import {
 import { describeError } from '../../src/events.ts';
 import { selectCollector } from '../lib/collectorSelection';
 import { collectYahooViaProxy } from '../../src/yahoo/webYahooCollect.ts';
+import { normalizeTicker, type Market } from '../../src/market.ts';
+import type { MarketCollector } from '../../src/collector.ts';
+import type { CollectSkipOpts } from '../../src/webCollect.ts';
 import { startAnalysisKeepAlive, stopAnalysisKeepAlive } from '../modules/soa-keepalive';
 import type { RoleStatus } from '../../src/progress.ts';
 import { loadLastRun, saveLastRun } from '../../src/lastRun.ts';
@@ -54,6 +57,9 @@ export interface UseAnalysis {
   dataVersion: number;
   lastRunTicker: string;
   lastRunAt: { at: string; mode: 'real' | 'demo' } | null;
+  /** 最近一次 start() 归一化得到的市场(S5;UI 徽标/DataScreen 单位消费)。
+   *  初始 cn(demo 上下文);lastRun 恢复路径与市场无关(ticker 即键),保持。 */
+  market: Market;
   settings: SettingsState;
   start: (ticker: string) => Promise<void>;
   onSettingsChange: (next: SettingsState) => void;
@@ -73,6 +79,8 @@ export function useAnalysis(): UseAnalysis {
   const [dataVersion, setDataVersion] = React.useState(0);
   // 最近一次成功分析/采集的 ticker(采集数据 Tab 的数据源;默认 demo 票)
   const [lastRunTicker, setLastRunTicker] = React.useState(DEMO_TICKER);
+  // 最近一次 start() 归一化的市场(UI 徽标/DataScreen 单位;默认 cn=demo 上下文)
+  const [market, setMarket] = React.useState<Market>('cn');
   // 上次分析运行模式(real|demo):subscribe effect 闭包持初始 settings 会陈旧,
   // 用 ref 在 start() 计算 mode 处同步,写缓存与标记时以 start() 时刻为准
   const modeRef = React.useRef<'real' | 'demo'>('demo');
@@ -204,15 +212,21 @@ export function useAnalysis(): UseAnalysis {
     setStatuses({});
     setLastRunAt(null); // 新分析开始:清除上次结果标记(R4)
     const code = ticker.trim();
-    // 对齐 Python:六位数字校验 + BJ 拦截
-    if (!/^\d{6}$/.test(code)) {
-      setError('请输入有效的六位数字股票代码');
-      return;
-    }
-    if (code.startsWith('4') || code.startsWith('8')) {
+    // 北交所拦截(S1 detectMarket 将 4/8 前缀 6 位归 null,先于归一化判定,
+    // 文案逐字保留既有契约)
+    if (/^\d{6}$/.test(code) && (code.startsWith('4') || code.startsWith('8'))) {
       setError('北交所(BJ)股票暂不支持分析:TDX 数据源不覆盖 BJ 证券,请使用沪深 A 股代码');
       return;
     }
+    // 市场归一化(S5):CN 6 位原样 / HK 1-5 位 → 首候选('0700.HK') / US 字母大写;
+    // 无法识别 → 明确文案,不发起分析
+    const normalized = normalizeTicker(code);
+    if (normalized === null) {
+      setError('请输入有效的股票代码：沪深A股六位数字、港股一至五位数字、或美股字母代码');
+      return;
+    }
+    const { market: m, ticker: nt } = normalized;
+    setMarket(m);
     setCapabilitySwitches(switchesToCapabilities(settings.switches));
     // 能力开关经 setCapabilitySwitches 显式注入(settings 面板语义 enabled →
     // 直映;消费点惰性读 config——committee/webSearch/mcp/billionsTools)。
@@ -220,13 +234,13 @@ export function useAnalysis(): UseAnalysis {
     // 自动走代理,交易员工具与分析师预抓共用)
     const mode = llmConfigured(settings.keys) ? '真实 LLM' : '演示占位 LLM';
     modeRef.current = llmConfigured(settings.keys) ? 'real' : 'demo'; // 缓存/标记以 start() 时刻模式为准
-    info(`开始分析 ${code}(模式:${mode})`);
+    info(`开始分析 ${nt}(市场:${m},模式:${mode})`);
     const t0 = Date.now();
     setRunning(true);
     // 前台服务保活:分析分钟级,切后台/锁屏时保持进程前台(豁免 Doze 冻结与
     // 内存回收),JS 分析链继续执行;结束在 finally 停止(soa-keepalive 模块,
     // Android 前台服务 + 常驻通知)
-    startAnalysisKeepAlive(`正在分析 ${code}`, 'AI 分析进行中,可切到后台等待完成');
+    startAnalysisKeepAlive(`正在分析 ${nt}`, 'AI 分析进行中,可切到后台等待完成');
     try {
       // web 走同源代理(绕开 CORS;绝对 URL——SDK 的 new URL 不接受相对路径);
       // Node/真机直连
@@ -243,28 +257,46 @@ export function useAnalysis(): UseAnalysis {
       let snapshot: { price: number; high: number; low: number; open: number } | null = null;
       let stockName: string | null = null;
       let capital: { zongguben: number; liutongguben: number } | null = null;
-      // 采集:web 走同源代理(collectForWeb 静态绑定);真机 TDX 直连
-      // (collectForDevice 经 selectCollector 动态 import——仅非 web 求值,
-      // web bundle 不含 node-tdx-market 死链)。S3:selectCollector 市场感知
-      // (cn/hk/us 三实现;本 hook 仍 CN-only,market 恒 'cn'——hk/us 分派随
-      // S5 归一化 ticker 时接入;webImpls 的 hk/us 已绑定代理 base,直接可用)
-      info(`正在采集 ${code} 的真实行情(${Platform.OS === 'web' ? 'TDX 代理' : 'TDX 直连'})...`);
+      // 采集:web 走同源代理(collectForWeb/collectYahooViaProxy 静态绑定);
+      // 真机经 selectCollector 动态 import(仅非 web 求值,web bundle 不含
+      // node-tdx-market 死链)。S5:market 由 start() 归一化结果分派(cn →
+      // TDX 链;hk/us → Yahoo 链,webImpls 已绑定代理 base)。
+      // Finnhub(仅美股增强):设置面板 key 存在 → 采集链直连 companyProfile2
+      // 合并 overview.industry(失败 warn 忽略);无 key → null(零网络,不调)
+      const origin = Platform.OS === 'web' ? (globalThis.location?.origin ?? '') : '';
+      const finnhub: { apiKey: string } | null =
+        m === 'us' && settings.keys.finnhubApiKey.trim()
+          ? { apiKey: settings.keys.finnhubApiKey.trim() }
+          : null;
+      const collectKind = Platform.OS === 'web'
+        ? (m === 'cn' ? 'TDX 代理' : 'Yahoo 代理')
+        : (m === 'cn' ? 'TDX 直连' : 'Yahoo 直连');
+      info(`正在采集 ${nt} 的真实行情(${collectKind})...`);
       try {
-        const collect = await selectCollector(
-          Platform.OS === 'web' ? 'web' : 'rn',
-          'cn',
-          {
-            cn: collectForWeb,
-            hk: (t, o) => collectYahooViaProxy(t, Platform.OS === 'web' ? (globalThis.location?.origin ?? '') : '', o),
-            us: (t, o) => collectYahooViaProxy(t, Platform.OS === 'web' ? (globalThis.location?.origin ?? '') : '', o),
-          },
-        );
-        const collected = await collect(code);
+        const webImpls = {
+          cn: collectForWeb,
+          hk: (t: string, o?: CollectSkipOpts) => collectYahooViaProxy(t, origin, o),
+          us: (t: string, o?: CollectSkipOpts) => collectYahooViaProxy(t, origin, o, finnhub),
+        };
+        let collect: MarketCollector;
+        if (Platform.OS === 'web') {
+          collect = await selectCollector('web', m, webImpls);
+        } else if (m === 'us' && finnhub) {
+          // 真机 + 美股 + Finnhub key:deviceImpls 绑定面不带 finnhub 参 →
+          // 直取设备桥传参(与 web 链同契约)。动态 import:deviceBridge 是
+          // RN 专属模块(含 TCP 链),web bundle 不可含——同本文件启动链
+          // setDeviceStore 先例,Platform.OS 门控内求值
+          const { collectYahooForDevice } = await import('../lib/deviceBridge');
+          collect = (t, o) => collectYahooForDevice(t, o, finnhub);
+        } else {
+          collect = await selectCollector('rn', m, webImpls);
+        }
+        const collected = await collect(nt);
         f10Text = collected.f10Text ?? undefined;
         snapshot = collected.snapshot;
         stockName = collected.name;
         capital = collected.capital;
-        info(`采集完成:${store.getDatas(code).length} 根日K + F10`);
+        info(`采集完成:${store.getDatas(nt).length} 根日K${m === 'cn' ? ' + F10' : ''}`);
         setDataVersion((v) => v + 1); // 采集数据 Tab 立即刷新
       } catch (err) {
         const detail = describeError(err);
@@ -272,12 +304,12 @@ export function useAnalysis(): UseAnalysis {
         setError(`行情采集失败:${detail}`);
         return;
       }
-      setLastRunTicker(code);
+      setLastRunTicker(nt);
       // 亿信/mcp 情报段（phase out 能力补齐）：预查询一次 → 缓存闭包，供
       // buildStockInformation 与 runner.run 双算共享（不重复触发 120s 网络）。
       const [billions, mcp] = await Promise.all([
-        makeBillionsIntel(code, settings.keys.billionsApiKey),
-        makeMcpIntel(code, settings.keys.tdxApiKey),
+        makeBillionsIntel(nt, settings.keys.billionsApiKey),
+        makeMcpIntel(nt, settings.keys.tdxApiKey),
       ]);
       // 亿信预抓 client 注入（phaseout C1）：web 端 key 在 localStorage ——
       // 带 key → 分析师预抓三源+twitter 生效；无 key → undefined（现状 DDG
@@ -289,19 +321,20 @@ export function useAnalysis(): UseAnalysis {
       // 采集完成立即生成上下文(委员会真 LLM 需数分钟——不等 done 才显示;
       // runner.run 内部同源重算,结果一致,双算成本 ~ms)
       setStockInformation(
-        buildStockInformation(code, {
+        buildStockInformation(nt, {
           store,
           f10Text,
           snapshot,
           name: stockName,
           capital,
+          market: m,
           today: new Date().toISOString().slice(0, 10),
           ...(billions ? { billions } : {}),
           ...(mcp ? { mcp } : {}),
         }),
       );
-      await runner.run(code, {
-        llm, f10Text, snapshot, name: stockName, capital, today: new Date().toISOString().slice(0, 10),
+      await runner.run(nt, {
+        llm, f10Text, snapshot, name: stockName, capital, market: m, today: new Date().toISOString().slice(0, 10),
         tools: assembleTools(settings.keys, settings.caps),
         ...(billions ? { billions } : {}),
         ...(mcp ? { mcp } : {}),
@@ -329,6 +362,7 @@ export function useAnalysis(): UseAnalysis {
     dataVersion,
     lastRunTicker,
     lastRunAt,
+    market,
     settings,
     start,
     onSettingsChange,

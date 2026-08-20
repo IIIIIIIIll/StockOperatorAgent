@@ -8,7 +8,34 @@
 import type { CollectSkipOpts, WebCollectResult } from '../webCollect.ts';
 import type { Market } from '../market.ts';
 import { detectMarket } from '../market.ts';
+import { FinnhubClient } from '../finnhub/finnhubClient.ts';
+import { warn } from '../log.ts';
 import { requireYahooStore, applyYahooCollectedToStore, type YahooCollectedPayload } from './applyYahooCollectedToStore.ts';
+
+/** Finnhub 美股增强合并:companyProfile2 的 finnhubIndustry → payload.overview
+ *  .industry(消费方 build_stock_information 等按需读取)。
+ *  仅 market us 且有 key 时直连(web 浏览器端 / 真机 RN 均无 CORS 限制);
+ *  失败 warn + 忽略(degrade don't raise,error-handling spec)——美股分析
+ *  不因增强源故障中断。无 key → 零网络。 */
+export async function mergeFinnhubIndustry(
+  payload: YahooCollectedPayload,
+  market: Market,
+  finnhub: { apiKey: string } | null,
+): Promise<void> {
+  if (market !== 'us' || !finnhub?.apiKey) return;
+  try {
+    const profile = await new FinnhubClient(finnhub.apiKey).companyProfile2(payload.ticker);
+    if (profile !== null && typeof profile === 'object') {
+      const industry = (profile as Record<string, unknown>)['finnhubIndustry'];
+      if (typeof industry === 'string' && industry !== '') {
+        payload.overview = { ...payload.overview, industry };
+      }
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    warn(`Finnhub 公司画像合并失败,跳过(美股增强降级):${detail}`);
+  }
+}
 
 /** 采集目标 → 市场:HK 存储形('.HK' 后缀,剥后缀按数字判)或 1-5 位数字输入 →
  *  hk;字母 ticker(AAPL/BRK.B/BF-B)→ us;其余(CN 代码等)抛错——代理 gate
@@ -23,11 +50,14 @@ export function yahooMarketOfTicker(ticker: string): Market {
 /** 浏览器 → server.mjs 同源 /yahoo-collect;解析 YahooCollectedPayload → 入库
  *  (applyYahooCollectedToStore,store 经 setYahooStore 注入)→ WebCollectResult。
  *  opts.skipDaily → 查询参数 skipDaily=1(缺省不带参数 = 全量,兼容旧调用)。
- *  失败抛错:HTTP 非 2xx → 解析 {error} 抛 Error(对齐 collectViaProxy 语义)。 */
+ *  失败抛错:HTTP 非 2xx → 解析 {error} 抛 Error(对齐 collectViaProxy 语义)。
+ *  finnhub(S5 可选参):仅 market us 且有 key → 浏览器端直连 FinnhubClient
+ *  .companyProfile2 合并 overview.industry(失败 warn 忽略);无 key → 不调。 */
 export async function collectYahooViaProxy(
   ticker: string,
   base: string,
   opts?: CollectSkipOpts,
+  finnhub?: { apiKey: string } | null,
 ): Promise<WebCollectResult> {
   const store = requireYahooStore();
   const market = yahooMarketOfTicker(ticker);
@@ -49,5 +79,7 @@ export async function collectYahooViaProxy(
   if (!res.ok) {
     throw new Error(`Yahoo 采集失败(${res.status}):${body?.error ?? '未知错误'}`);
   }
-  return applyYahooCollectedToStore(store, body as unknown as YahooCollectedPayload, market);
+  const payload = body as unknown as YahooCollectedPayload;
+  await mergeFinnhubIndustry(payload, market, finnhub ?? null);
+  return applyYahooCollectedToStore(store, payload, market);
 }

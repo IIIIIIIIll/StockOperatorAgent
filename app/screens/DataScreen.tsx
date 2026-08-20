@@ -13,12 +13,13 @@ import { changePercentSeries, fmtNumber, turnoverPct } from '../../src/pipeline.
 import { financialTrendSeries, salesGrossMargin } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
 import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key } from '../../src/metaKeys.ts';
+import { marketInfo, type Market } from '../../src/market.ts';
 import { useTheme, type Theme } from '../theme';
 
 const DAILY_TABLE_N = 20;
 const KLINE_N = 60;
 
-export default function DataScreen({ stockInformation, dataVersion, ticker }: { stockInformation: string; dataVersion?: number; ticker: string }) {
+export default function DataScreen({ stockInformation, dataVersion, ticker, market }: { stockInformation: string; dataVersion?: number; ticker: string; market: Market }) {
   void dataVersion; // 父组件数据就绪信号:触发本组件重渲染以读取 store
   const theme = useTheme();
   const styles = makeStyles(theme);
@@ -38,8 +39,9 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
   // 涨跌幅:由 bars 现算(复用 pipeline changePercentSeries 公式;首根 NaN → N/A)
   const changePct = React.useMemo(() => changePercentSeries(bars), [bars]);
   // 财务跨期趋势:净利润/每股收益取自 performance_reports,销售毛利率取自
-  // F10 盈利能力节(financialTrendSeries 内 N/A 期跳过;全空 → [] → 图不渲染)
-  const financialSeriesData = React.useMemo(() => financialTrendSeries(reports, profit), [reports, profit]);
+  // F10 盈利能力节(financialTrendSeries 内 N/A 期跳过;全空 → [] → 图不渲染);
+  // market(S5):标签币种化(cn 亿元/元;hk→亿HKD/HKD、us→亿USD/USD)
+  const financialSeriesData = React.useMemo(() => financialTrendSeries(reports, profit, market), [reports, profit, market]);
 
   // 概览:snapshot 缺失 → 价格回退日K末根(与 compose_overview 语义一致)
   const overview = composeOverview({
@@ -71,9 +73,10 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>采集数据 · {overview.name} ({overview.ticker})</Text>
+      {/* 采集数据 header:市场徽标(marketInfo.label)+ ticker(S5) */}
+      <Text style={styles.title}>采集数据 · {marketInfo(market).label} {overview.name} ({overview.ticker})</Text>
 
-      {/* 概览单行 */}
+      {/* 概览单行(货币列:cn CNY / hk HKD / us USD) */}
       <View style={styles.overviewRow}>
         {[['最新价', fmtNumber(overview.latest_price as number, 2)],
           ['涨跌幅', `${fmtNumber(overview.change_percent as number, 2)}%`],
@@ -81,6 +84,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
           ['市净率', fmtNumber(overview.pb as number, 2)],
           ['60日', `${fmtNumber(overview.change_percent_60d as number, 2)}%`],
           ['YTD', `${fmtNumber(overview.change_percent_ytd as number, 2)}%`],
+          ['货币', marketInfo(market).currency],
         ].map(([label, value]) => (
           <View key={label} style={styles.overviewCell}>
             <Text style={styles.overviewLabel}>{label}</Text>
@@ -116,12 +120,13 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
             <Text style={styles.cell}>高</Text>
             <Text style={styles.cell}>低</Text>
             <Text style={styles.cell}>涨跌幅</Text>
-            <Text style={styles.cell}>量(手)</Text>
+            {/* 量列头:cn 手 / hk,us 股(S5 市场感知) */}
+            <Text style={styles.cell}>{market === 'cn' ? '量(手)' : '量(股)'}</Text>
             <Text style={styles.cell}>换手率</Text>
           </View>
           {tail.map((b, i) => {
             const pct = tailChangePct[i];
-            const turnover = turnoverPct(b, capital);
+            const turnover = turnoverPct(b, capital, market);
             return (
               <View key={i} style={styles.row}>
                 <Text style={[styles.cell, styles.dateCell]}>{fmtDate(b.date)}</Text>
@@ -132,7 +137,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker }: { 
                 <Text style={[styles.cell, { color: Number.isNaN(pct) ? undefined : pct >= 0 ? theme.colors.up : theme.colors.down }]}>
                   {Number.isNaN(pct) ? 'N/A' : `${fmtNumber(pct, 2)}%`}
                 </Text>
-                <Text style={styles.cell}>{(b.volume / 10000).toFixed(1)}万</Text>
+                <Text style={styles.cell}>{market === 'cn' ? `${(b.volume / 10000).toFixed(1)}万` : `${(b.volume / 1e6).toFixed(2)}M`}</Text>
                 <Text style={styles.cell}>{Number.isNaN(turnover) ? 'N/A' : `${fmtNumber(turnover, 2)}%`}</Text>
               </View>
             );

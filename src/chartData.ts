@@ -5,6 +5,7 @@
 import type { PerformanceReport } from './store.ts';
 import type { F10Record } from './f10.ts';
 import { fmtDate } from './format.ts';
+import { marketInfo, type Market } from './market.ts';
 
 // ─── 涨跌幅柱 ─────────────────────────────────────────────────────────────
 
@@ -60,8 +61,14 @@ export const FINANCIAL_COLORS = {
  *  N/A 期跳过;某指标全 N/A → 该线省略;两源全空 → 第三条线省略;全空 → []。
  *  time 升序(报告期稀疏季度轴,与日K 共享 time scale 会拉平——独立成图)。
  *  单位:net_profit 字段为元(见 reports.ts METRIC_COLUMNS),÷1e8 显示亿元;
- *  eps 元;ROE/毛利率 %(label 内嵌单位,2026-08-15 用户反馈:图无单位很怪)。 */
-export function financialTrendSeries(reports: PerformanceReport[], profit: F10Record[]): FinancialSeries[] {
+ *  eps 元;ROE/毛利率 %(label 内嵌单位,2026-08-15 用户反馈:图无单位很怪)。
+ *  market(S5):标签币种化——cn 输出与改造前逐字节不变(亿元/元);hk→亿HKD/HKD、
+ *  us→亿USD/USD(marketInfo(market).currency)。 */
+export function financialTrendSeries(
+  reports: PerformanceReport[],
+  profit: F10Record[],
+  market: Market = 'cn',
+): FinancialSeries[] {
   const series: FinancialSeries[] = [];
 
   const netProfit: FinancialPoint[] = [];
@@ -89,10 +96,12 @@ export function financialTrendSeries(reports: PerformanceReport[], profit: F10Re
   }
   netWorthReturn.sort((a, b) => a.time.localeCompare(b.time)); // 防御性升序(与毛利率一致)
 
-  if (netProfit.length) series.push({ label: '净利润 (亿元)', color: FINANCIAL_COLORS.netProfit, points: netProfit });
+  // 币种单位:cn → '元'(亿元/元 逐字节不变);hk/us → 市场币种(亿HKD/HKD、亿USD/USD)
+  const currency = market === 'cn' ? '元' : marketInfo(market).currency;
+  if (netProfit.length) series.push({ label: `净利润 (亿${currency})`, color: FINANCIAL_COLORS.netProfit, points: netProfit });
   if (grossMargin.length) series.push({ label: '销售毛利率 (%)', color: FINANCIAL_COLORS.grossMargin, points: grossMargin });
   else if (netWorthReturn.length) series.push({ label: '净资产收益率 (%)', color: FINANCIAL_COLORS.grossMargin, points: netWorthReturn });
-  if (eps.length) series.push({ label: '每股收益 (元)', color: FINANCIAL_COLORS.eps, points: eps });
+  if (eps.length) series.push({ label: `每股收益 (${currency})`, color: FINANCIAL_COLORS.eps, points: eps });
   return series;
 }
 

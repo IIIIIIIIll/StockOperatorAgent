@@ -14,6 +14,7 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';
 import { missingLlmKeys } from './lib/settings';
 import { reportRoles } from '../src/committee.ts';
 import { DEMO_TICKER } from '../src/metaKeys.ts';
+import { marketInfo } from '../src/market.ts';
 import { useAnalysis } from './hooks/useAnalysis';
 import type { PipelineEvent } from './lib/runner';
 
@@ -84,23 +85,28 @@ function AppContent() {
         </View>
       </View>
 
-      {/* ticker 表单(首页最显眼,对齐 Python 主区表单) */}
+      {/* ticker 表单(首页最显眼,对齐 Python 主区表单;S5 三市场输入) */}
       <View style={styles.form}>
-        <Text style={styles.formLabel}>输入您想要分析的沪深A股六位股票代码</Text>
+        <Text style={styles.formLabel}>输入股票代码（沪深A股 / 港股 / 美股）</Text>
         <View style={styles.formRow}>
           <TextInput
             style={styles.tickerInput}
             value={ticker}
             onChangeText={setTicker}
-            placeholder={DEMO_TICKER}
-            maxLength={6}
-            autoCapitalize="none"
-            keyboardType="number-pad"
+            placeholder={`${DEMO_TICKER} / 00700 / AAPL`}
+            maxLength={10}
+            autoCapitalize="characters"
           />
           <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => void a.start(ticker)}>
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
         </View>
+        {/* 市场徽标(S5):start() 归一化后 market 已知;有结果/错误/上次分析时展示 */}
+        {a.lastRunAt || a.error || a.stockInformation ? (
+          <View style={styles.marketBadgeRow}>
+            <Text style={styles.marketBadge}>{marketInfo(a.market).label}</Text>
+          </View>
+        ) : null}
         {gateNotice ? <Text style={styles.warn}>⚠ {gateNotice}</Text> : null}
         {a.lastRunAt && !a.running ? (
           <Text style={styles.info}>
@@ -168,7 +174,7 @@ function AppContent() {
           {/* 内容 */}
           <View style={styles.content}>
             {activeTab === 'data' ? (
-              <DataScreen stockInformation={a.stockInformation} dataVersion={a.dataVersion} ticker={a.lastRunTicker} />
+              <DataScreen stockInformation={a.stockInformation} dataVersion={a.dataVersion} ticker={a.lastRunTicker} market={a.market} />
             ) : activeRole ? (
               <ReportContent
                 roleKey={activeRole.stateKey!}
@@ -206,6 +212,8 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },
     warn: { color: theme.colors.warn, fontSize: 12, marginTop: theme.spacing.sm },
+    marketBadgeRow: { flexDirection: 'row', marginTop: theme.spacing.sm },
+    marketBadge: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, color: '#fff', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
     info: { color: theme.colors.textSecondary, fontSize: 12, marginTop: theme.spacing.sm },
     error: { color: theme.colors.error, fontSize: 12, marginTop: theme.spacing.sm },
     sidebarTab: { width: 44, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },

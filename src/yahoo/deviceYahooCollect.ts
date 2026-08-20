@@ -26,7 +26,7 @@ import { YahooClient, YahooApiError } from './yahooClient.ts';
 import { applyYahooCollectedToStore, requireYahooStore, type YahooCollectedPayload } from './applyYahooCollectedToStore.ts';
 import { composeYahooOverview } from './composeYahooOverview.ts';
 import { composeYahooReports } from './composeYahooReports.ts';
-import { yahooMarketOfTicker } from './webYahooCollect.ts';
+import { mergeFinnhubIndustry, yahooMarketOfTicker } from './webYahooCollect.ts';
 import { detectMarket, hkSymbolCandidates } from '../market.ts';
 import { resolveSkipGates } from '../collector.ts';
 import { warn } from '../log.ts';
@@ -369,10 +369,13 @@ export async function collectYahooPayload(
  *  collectYahooPayload → applyYahooCollectedToStore 写 FileStore → WebCollectResult。
  *  freshness 门对齐 collectForWeb:opts 缺省按 store 现状判定(skipDaily 同日),
  *  hk/us 恒 skipF10=false(Yahoo 报告全量拉取 + PK 幂等,无 F10 门)。
- *  失败抛错(调用方中止分析,不喂空数据);store 经 setYahooStore 注入。 */
+ *  失败抛错(调用方中止分析,不喂空数据);store 经 setYahooStore 注入。
+ *  finnhub(S5 可选参,与 web 链同契约):仅 market us 且有 key → 真机直连
+ *  FinnhubClient.companyProfile2 合并 overview.industry(失败 warn 忽略)。 */
 export async function collectYahooForDevice(
   ticker: string,
   opts?: CollectSkipOpts,
+  finnhub?: { apiKey: string } | null,
 ): Promise<WebCollectResult> {
   const store = requireYahooStore();
   const market = yahooMarketOfTicker(ticker);
@@ -382,5 +385,6 @@ export async function collectYahooForDevice(
   const a3 = await obtainA3();
   const client = new YahooClient(undefined, () => a3);
   const payload = await collectYahooPayload(client, ticker, { skipDaily: skipDaily === true });
+  await mergeFinnhubIndustry(payload, market, finnhub ?? null);
   return applyYahooCollectedToStore(store, payload, market);
 }

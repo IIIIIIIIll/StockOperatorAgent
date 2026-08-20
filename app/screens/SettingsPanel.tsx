@@ -120,6 +120,8 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         <TextInput style={styles.input} value={settings.keys.tdxApiKey} onChangeText={(v) => updateKey('tdxApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
         <Text style={styles.label}>亿信 API Key</Text>
         <TextInput style={styles.input} value={settings.keys.billionsApiKey} onChangeText={(v) => updateKey('billionsApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
+        <Text style={styles.label}>Finnhub API Key（可选，美股增强）</Text>
+        <TextInput style={styles.input} value={settings.keys.finnhubApiKey} onChangeText={(v) => updateKey('finnhubApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
       </View>
 
       {/* ── 3. LangSmith(遥测)─────────────────────────────────── */}
