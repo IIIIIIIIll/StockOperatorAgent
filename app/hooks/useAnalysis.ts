@@ -36,7 +36,6 @@ import {
 } from '../lib/runner';
 import { describeError } from '../../src/events.ts';
 import { selectCollector } from '../lib/collectorSelection';
-import { collectYahooViaProxy } from '../../src/yahoo/webYahooCollect.ts';
 import { normalizeTicker, type Market } from '../../src/market.ts';
 import type { MarketCollector } from '../../src/collector.ts';
 import type { CollectSkipOpts } from '../../src/webCollect.ts';
@@ -257,13 +256,13 @@ export function useAnalysis(): UseAnalysis {
       let snapshot: { price: number; high: number; low: number; open: number } | null = null;
       let stockName: string | null = null;
       let capital: { zongguben: number; liutongguben: number } | null = null;
-      // 采集:web 走同源代理(collectForWeb/collectYahooViaProxy 静态绑定);
+      // 采集:web 走同源代理(collectForWeb 市场分派:cn → /tdx-collect;
+      // hk/us → /yahoo-collect,resolveSkipGates 同日跳过对三市场一致生效);
       // 真机经 selectCollector 动态 import(仅非 web 求值,web bundle 不含
       // node-tdx-market 死链)。S5:market 由 start() 归一化结果分派(cn →
       // TDX 链;hk/us → Yahoo 链,webImpls 已绑定代理 base)。
       // Finnhub(仅美股增强):设置面板 key 存在 → 采集链直连 companyProfile2
       // 合并 overview.industry(失败 warn 忽略);无 key → null(零网络,不调)
-      const origin = Platform.OS === 'web' ? (globalThis.location?.origin ?? '') : '';
       const finnhub: { apiKey: string } | null =
         m === 'us' && settings.keys.finnhubApiKey.trim()
           ? { apiKey: settings.keys.finnhubApiKey.trim() }
@@ -275,8 +274,8 @@ export function useAnalysis(): UseAnalysis {
       try {
         const webImpls = {
           cn: collectForWeb,
-          hk: (t: string, o?: CollectSkipOpts) => collectYahooViaProxy(t, origin, o),
-          us: (t: string, o?: CollectSkipOpts) => collectYahooViaProxy(t, origin, o, finnhub),
+          hk: (t: string, o?: CollectSkipOpts) => collectForWeb(t, { ...(o ?? {}), market: 'hk' }),
+          us: (t: string, o?: CollectSkipOpts) => collectForWeb(t, { ...(o ?? {}), market: 'us', finnhub }),
         };
         let collect: MarketCollector;
         if (Platform.OS === 'web') {
@@ -307,9 +306,11 @@ export function useAnalysis(): UseAnalysis {
       setLastRunTicker(nt);
       // 亿信/mcp 情报段（phase out 能力补齐）：预查询一次 → 缓存闭包，供
       // buildStockInformation 与 runner.run 双算共享（不重复触发 120s 网络）。
+      // S4:mcp 仅 cn 查询(TDX MCP range:'AG' 是 A股情报;hk/us 块 4 恒占位,
+      // 查询了也不消费——跳过注入,见 S4 契约)
       const [billions, mcp] = await Promise.all([
         makeBillionsIntel(nt, settings.keys.billionsApiKey),
-        makeMcpIntel(nt, settings.keys.tdxApiKey),
+        m === 'cn' ? makeMcpIntel(nt, settings.keys.tdxApiKey) : Promise.resolve(undefined),
       ]);
       // 亿信预抓 client 注入（phaseout C1）：web 端 key 在 localStorage ——
       // 带 key → 分析师预抓三源+twitter 生效；无 key → undefined（现状 DDG

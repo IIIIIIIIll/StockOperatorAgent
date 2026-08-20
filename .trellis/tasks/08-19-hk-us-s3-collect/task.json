@@ -3,7 +3,7 @@
   "name": "hk-us-s3-collect",
   "title": "Yahoo 采集链与代理",
   "description": "webYahooCollect/deviceYahooCollect/proxies /yahoo-collect/probe 市场分派",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

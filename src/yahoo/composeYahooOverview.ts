@@ -26,6 +26,7 @@
 // - market_cap 直取 defaultKeyStatistics.marketCap.raw（Yahoo 原值），
 //   circulating_market_cap 派生 = latest_price×liutongguben（CN 语义）
 import type { OverviewRow } from '../overview.ts';
+import { divide } from '../overview.ts';
 
 export interface YahooOverviewOptions {
   /** 60 日窗口首根收盘（含）——change_percent_60d 分子基准。 */
@@ -59,13 +60,6 @@ function firstFinite(...candidates: unknown[]): number {
     if (Number.isFinite(n)) return n;
   }
   return NaN;
-}
-
-/** a/b；b 缺失/≤0 → NaN（除零保护；对齐 overview.ts:26-30 约定）。 */
-function divide(a: number, b: number): number {
-  if (Number.isNaN(a)) return NaN;
-  if (Number.isNaN(b) || b <= 0) return NaN;
-  return a / b;
 }
 
 /** string 字段取值（非字符串 → 空串）。 */

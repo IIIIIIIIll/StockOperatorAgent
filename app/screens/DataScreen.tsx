@@ -43,16 +43,21 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
   // market(S5):标签币种化(cn 亿元/元;hk→亿HKD/HKD、us→亿USD/USD)
   const financialSeriesData = React.useMemo(() => financialTrendSeries(reports, profit, market), [reports, profit, market]);
 
-  // 概览:snapshot 缺失 → 价格回退日K末根(与 compose_overview 语义一致)
-  const overview = composeOverview({
-    ticker,
-    name: stock?.name ?? ticker,
-    snapshot: null,
-    capital: null,
-    f10: parseIndicatorSection(f10Text, '【主要财务指标】'),
-    bars,
-    today: bars.length ? bars[bars.length - 1].date : '2026-08-10',
-  });
+  // 概览:snapshot 缺失 → 价格回退日K末根(与 compose_overview 语义一致)。
+  // hk/us:以 Yahoo 合成概览槽(applyYahooCollectedToStore 写入,含 trailingPE/
+  // priceToBook/52周高低)覆盖重算结果——重算无 F10 源 PE/PB 恒 NaN,槽缺失回退
+  const overview = {
+    ...composeOverview({
+      ticker,
+      name: stock?.name ?? ticker,
+      snapshot: null,
+      capital: null,
+      f10: parseIndicatorSection(f10Text, '【主要财务指标】'),
+      bars,
+      today: bars.length ? bars[bars.length - 1].date : '2026-08-10',
+    }),
+    ...(market !== 'cn' ? ((stock?.overview ?? {}) as Record<string, number | string>) : {}),
+  };
 
   const tail = bars.slice(-DAILY_TABLE_N);
   // 表列值:涨跌幅/换手率与 tail 同窗切片(index 对齐;首根涨跌幅 NaN → N/A)

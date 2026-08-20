@@ -248,4 +248,25 @@ describe('market 分支（S4:turnoverPct/formatStockOutput/trendIndicatorsText/b
     });
     expect(text).toContain('净利润: 7000000000.00 HKD');
   });
+
+  it('hk 块 1:Yahoo 概览槽(PE/PB)覆盖重算结果,不再 NaN;槽缺失回退重算', () => {
+    const store = makeStore();
+    store.addDatas('0700.HK', [
+      { date: '2026-08-06', open: 370, close: 380, high: 382, low: 368, volume: 1_000_000, amount: 3.8e8 },
+    ]);
+    store.putStock({
+      ticker: '0700.HK',
+      name: '腾讯控股',
+      overview: { ticker: '0700.HK', name: '腾讯控股', latest_price: 380, pe_dynamic: 14.8, pb: 3.2 },
+      overviewLastUpdate: '2026-08-09',
+      lastDataUpdate: '2026-08-09',
+    });
+    const text = buildStockInformation('0700.HK', { store, today: '2026-08-09', market: 'hk' });
+    expect(text).toContain('Dynamic PE: 14.80');
+    expect(text).toContain('Pb: 3.20');
+    // 槽缺失(未采集/演示场景)→ composeOverview 重算兜底(无 F10 → NaN)
+    const text2 = buildStockInformation('0700.HK', { store: makeStore(), today: '2026-08-09', market: 'hk' });
+    expect(text2).toContain('Dynamic PE: N/A');
+    expect(text2).toContain('Pb: N/A');
+  });
 });

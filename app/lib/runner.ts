@@ -87,6 +87,9 @@ export interface CollectForWebOpts {
   skipDaily?: boolean;
   skipF10?: boolean;
   market?: Market;
+  /** Finnhub 美股增强(S5):仅 market us 且有 key 时浏览器端直连
+   *  companyProfile2 合并 overview.industry(失败 warn 忽略);无 key → 不调。 */
+  finnhub?: { apiKey: string } | null;
 }
 
 /** web 采集(server 代理)→ 写 InMemoryStore;返回本次采集结果
@@ -107,7 +110,7 @@ export async function collectForWeb(ticker: string, opts?: CollectForWebOpts): P
     // web 端 location 全局(ts/ 为 node-only lib 无 DOM 类型);origin 是数据
     // 读取而非平台选择——与下方 CN 路径同一守卫语义。
     const origin = location?.origin ?? '';
-    return collectYahooViaProxy(ticker, origin, { skipDaily, skipF10 });
+    return collectYahooViaProxy(ticker, origin, { skipDaily, skipF10 }, opts?.finnhub ?? null);
   }
   // web 端 location 全局(ts/ 为 node-only lib 无 DOM 类型)。origin 是数据
   // 读取而非平台选择:任何存在 location 的环境(web/测试 stub)取其 origin,

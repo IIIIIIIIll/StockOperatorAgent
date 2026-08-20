@@ -10,6 +10,7 @@ import { collectYahooForDevice, collectYahooPayload } from '../src/yahoo/deviceY
 import { YahooClient } from '../src/yahoo/yahooClient.ts';
 import { collectYahooViaProxy } from '../src/yahoo/webYahooCollect.ts';
 import { marketToday } from '../src/gates.ts';
+import { collectForWeb, store as runnerStore } from '../app/lib/runner.ts';
 
 interface FetchCall {
   url: string;
@@ -242,7 +243,7 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(stored.map((r) => r.report_date)).toEqual(['20241231', '20251231', '20260630']);
   });
 
-  it('HK 零剥离变体:09988 输入 → 0988.HK/09988.HK 404 试探跳过 → 9988.HK 命中', async () => {
+  it('HK 5 位输入:09988 → 首候选 9988.HK(官方 4 位码)命中;5 位原样形不再试探', async () => {
     const store = new InMemoryStore();
     setYahooStore(store);
     const calls = makeGlobalFetch([
@@ -259,9 +260,10 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     ]);
     const client = new YahooClient(undefined, () => 'fake-a3');
     const payload = await collectYahooPayload(client, '09988');
-    expect(payload.ticker).toBe('9988.HK');
-    // 试探 3 次(0988.HK 404 → 09988.HK 404 → 9988.HK 命中)+ 全量日K 分页 3 窗口
-    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(6);
+    expect(payload.ticker).toBe('9988.HK'); // 4 位官方码 = store 键(normalizeTicker 首候选一致)
+    // 试探 1 次(9988.HK 首候选即命中)+ 全量日K 分页 3 窗口
+    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(4);
+    expect(calls[0].url).toContain('/chart/9988.HK?');
     expect(applyYahooCollectedToStore(store, payload, 'hk').name).toBe('腾讯控股有限公司');
   });
 
@@ -367,5 +369,93 @@ describe('collectYahooViaProxy(浏览器 → /yahoo-collect)', () => {
       '非港美股代码:600036',
     );
     expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同日跳过门 + finnhub 合并)', () => {
+  beforeEach(() => {
+    runnerStore.close();
+    setYahooStore(runnerStore); // 与 runner 模块级 store 同实例(生产接线一致)
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    runnerStore.close();
+  });
+
+  it('us 同日已采集 → skipDaily=1 查询参数(不重拉日K);finnhub key → 浏览器端合并 industry 入库', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z')); // 纽约今天 2026-08-19
+    runnerStore.putStock({
+      ticker: 'AAPL',
+      name: 'Apple',
+      overview: null,
+      overviewLastUpdate: null,
+      lastDataUpdate: marketToday('us'),
+    });
+    const payload = {
+      ticker: 'AAPL',
+      name: 'Apple Inc.',
+      bars: [],
+      snapshot: null,
+      overview: { ticker: 'AAPL', name: 'Apple Inc.', currency: 'USD', pe_dynamic: 30 },
+      reports: [],
+      capital: { zongguben: 1.5e10, liutongguben: 1.4e10 },
+      skipDaily: true,
+    };
+    const calls: FetchCall[] = [];
+    const fakeFetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (url.includes('/yahoo-collect')) return jsonResponse(payload);
+      if (url.startsWith('https://finnhub.io/')) return jsonResponse({ finnhubIndustry: 'Technology' });
+      throw new Error(`unexpected url: ${url}`);
+    }) as unknown as typeof fetch;
+    vi.stubGlobal('location', { origin: 'http://test' });
+    vi.stubGlobal('fetch', fakeFetch);
+    const out = await collectForWeb('AAPL', { market: 'us', finnhub: { apiKey: 'k' } });
+    expect(calls[0].url).toBe('http://test/yahoo-collect?skipDaily=1');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ ticker: 'AAPL' });
+    const finnhubCall = calls.find((c) => c.url.startsWith('https://finnhub.io/'));
+    expect(finnhubCall?.url).toBe('https://finnhub.io/api/v1/stock/profile2?symbol=AAPL&token=k');
+    expect(out.name).toBe('Apple Inc.');
+    // 同日跳过:既有日K 保留、lastDataUpdate 维持今天;概览/名称仍入库
+    expect(runnerStore.getDatas('AAPL')).toHaveLength(0);
+    expect(runnerStore.getStock('AAPL')?.lastDataUpdate).toBe(marketToday('us'));
+    expect(runnerStore.getStock('AAPL')?.overview?.industry).toBe('Technology'); // finnhub 合并
+    expect(runnerStore.getStock('AAPL')?.overviewLastUpdate).toBe(marketToday('us'));
+  });
+
+  it('跨日 us:全量路径(无跳过参数);无 finnhub key → 零 finnhub 请求', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
+    runnerStore.putStock({
+      ticker: 'AAPL',
+      name: 'Apple',
+      overview: null,
+      overviewLastUpdate: null,
+      lastDataUpdate: '2026-08-18', // 跨日 → skipDaily false
+    });
+    const payload = {
+      ticker: 'AAPL',
+      name: 'Apple Inc.',
+      bars: [{ date: '2024-01-02', open: 190, close: 191, high: 192, low: 189, volume: 50_000_000 }],
+      snapshot: null,
+      overview: { ticker: 'AAPL', name: 'Apple Inc.', currency: 'USD' },
+      reports: [],
+      capital: { zongguben: 1.5e10, liutongguben: 1.4e10 },
+    };
+    const calls: FetchCall[] = [];
+    const fakeFetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (url.includes('/yahoo-collect')) return jsonResponse(payload);
+      throw new Error(`unexpected url: ${url}`);
+    }) as unknown as typeof fetch;
+    vi.stubGlobal('location', { origin: 'http://test' });
+    vi.stubGlobal('fetch', fakeFetch);
+    await collectForWeb('AAPL', { market: 'us' });
+    expect(calls[0].url).toBe('http://test/yahoo-collect'); // 全量,无跳过参数
+    expect(calls).toHaveLength(1); // 无 finnhub 请求
+    expect(runnerStore.getDatas('AAPL')).toHaveLength(1);
   });
 });

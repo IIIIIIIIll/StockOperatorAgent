@@ -59,15 +59,16 @@ export function detectMarket(input: string): Market | null {
 }
 
 /** 港股代码候选(采集层按序试探,首个 chart 命中即定符号):
- *  ≤4 位 → 左补零到 4 位唯一候选;5 位且首字符 '0' → [4 位形式(去掉第二位,
- *  即首 0 + 后 3 位), 5 位原样]——'00700'→['0700.HK','00700.HK']、
- *  '09988'→['0988.HK','09988.HK'](决策见 PRD 例表,4 位形式故意非 '9988':
- *  若首候选是存在的 4 位码会短路,5 位码候选就永远探不到;S3 探针 '09988'
- *  须落 09988.HK 佐证);5 位非 0 首 → 原样唯一。
+ *  ≤4 位 → 左补零到 4 位唯一候选;5 位且首字符 '0' → [4 位形式(去首前导零,
+ *  即 input.slice(1)), 5 位原样]——HKEX 5 位码 = 官方 4 位码加前导 0,故
+ *  '00700'→['0700.HK','00700.HK']、'09988'→['9988.HK','09988.HK'](Yahoo
+ *  实测 2026-08-20:'9988.HK' 200/'09988.HK' 404,4 位形式即真实符号;历史
+ *  实现曾取 '0988.HK'(去第二字符),那是**另一家公司**(0988),且 App 归一化
+ *  只取首候选 → '09988' 输入永远解析失败——已修正);5 位非 0 首 → 原样唯一。
  *  例:'700'→['0700.HK']、'3690'→['3690.HK']、'99887'→['99887.HK']。 */
 export function hkSymbolCandidates(input: string): string[] {
   if (input.length <= 4) return [`${input.padStart(4, '0')}.HK`];
-  if (input.startsWith('0')) return [`${input.slice(0, 1)}${input.slice(2)}.HK`, `${input}.HK`];
+  if (input.startsWith('0')) return [`${input.slice(1)}.HK`, `${input}.HK`];
   return [`${input}.HK`];
 }
 

@@ -54,9 +54,9 @@ describe('hkSymbolCandidates', () => {
     expect(hkSymbolCandidates('7')).toEqual(['0007.HK']);
   });
 
-  it('5 位且首 0 → [4 位形式(去一前导零), 5 位原样]', () => {
+  it('5 位且首 0 → [4 位形式(去首前导零), 5 位原样]', () => {
     expect(hkSymbolCandidates('00700')).toEqual(['0700.HK', '00700.HK']);
-    expect(hkSymbolCandidates('09988')).toEqual(['0988.HK', '09988.HK']);
+    expect(hkSymbolCandidates('09988')).toEqual(['9988.HK', '09988.HK']); // 4 位形式=官方码(Yahoo 实测 9988.HK 200)
   });
 
   it('5 位非 0 首 → 原样唯一', () => {
@@ -72,6 +72,7 @@ describe('normalizeTicker', () => {
   it('HK → 首候选(真实解析留采集层试探)', () => {
     expect(normalizeTicker('700')).toEqual({ market: 'hk', ticker: '0700.HK' });
     expect(normalizeTicker('00700')).toEqual({ market: 'hk', ticker: '0700.HK' });
+    expect(normalizeTicker('09988')).toEqual({ market: 'hk', ticker: '9988.HK' }); // 官方 4 位码
     expect(normalizeTicker('99887')).toEqual({ market: 'hk', ticker: '99887.HK' });
   });
 

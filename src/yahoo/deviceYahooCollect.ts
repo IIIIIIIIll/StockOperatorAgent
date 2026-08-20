@@ -22,7 +22,7 @@
 import type { DailyBar } from '../store.ts';
 import type { CollectedSnapshot } from '../tdx/quoteClient.ts';
 import type { CollectSkipOpts, WebCollectResult } from '../webCollect.ts';
-import { YahooClient, YahooApiError } from './yahooClient.ts';
+import { YahooClient, YahooApiError, parseA3FromSetCookie } from './yahooClient.ts';
 import { applyYahooCollectedToStore, requireYahooStore, type YahooCollectedPayload } from './applyYahooCollectedToStore.ts';
 import { composeYahooOverview } from './composeYahooOverview.ts';
 import { composeYahooReports } from './composeYahooReports.ts';
@@ -50,10 +50,9 @@ const _PAGE_WINDOW_SEC = 10 * 365 * 24 * 3600;
 
 // ─── A3 cookie 手动脉冲(模块级缓存) ────────────────────────────────────────
 
-/** fetch 响应 → A3 cookie 值(Set-Cookie 多 cookie 逗号拼接容错;
- *  起始/分号/逗号后均可出现 A3=)。 */
-const setCookie = (res: Response): string | null =>
-  (res.headers.get('set-cookie') ?? '').match(/(?:^|[;,])\s*A3=([^;,\s]+)/)?.[1] ?? null;
+/** fetch 响应 → A3 cookie 值（Set-Cookie 多 cookie 逗号拼接容错；
+ *  起始/分号/逗号后均可出现 A3=；解析单源 yahooClient.parseA3FromSetCookie）。 */
+const setCookie = (res: Response): string | null => parseA3FromSetCookie(res.headers.get('set-cookie') ?? '');
 
 /** 模块级缓存:首次 fc.yahoo.com 响应的 A3 值(后续请求复用,免重复网络)。 */
 let firstSetCookie: string | null = null;
@@ -272,8 +271,8 @@ function normalizeIncomeStatements(summary: unknown): unknown {
 
 /** HK 候选(S1 hkSymbolCandidates 之上补零剥离变体):实测 Yahoo 部分港股仅存
  *  零剥离符号('09988.HK' → 404、'9988.HK' → 200;阿里巴巴),部分两种皆可
- *  ('0700.HK');探测顺序保持 hkSymbolCandidates 原序(4 位形式先,防短路),
- *  零剥离形兜底。 */
+ *  ('0700.HK');hkSymbolCandidates 首位即官方 4 位码(9988.HK)通常直接命中,
+ *  零剥离形与 5 位原样作兜底(4 位码与 5 位码一致的输入,Set 去重)。 */
 function hkCandidates(input: string): string[] {
   const stripped = `${input.replace(/^0+/, '')}.HK`;
   return [...new Set([...hkSymbolCandidates(input), stripped])];

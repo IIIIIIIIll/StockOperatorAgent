@@ -3,7 +3,7 @@
 // → 实时市场情报(可注入,缺省占位)→ 亿信(开关/注入)。
 // 全部纯函数 + store/注入点,不直接访问网络。
 import type { StoreLike, DailyBar, PerformanceReport } from './store.ts';
-import { composeOverview } from './overview.ts';
+import { composeOverview, type OverviewRow } from './overview.ts';
 import { computeAll } from './indicators.ts';
 import { parseIndicatorSection } from './f10.ts';
 import { asiaToday } from './gates.ts';
@@ -219,15 +219,22 @@ export function buildStockInformation(ticker: string, deps: PipelineDeps): strin
     .map((r) => ({ report_date: r.report_date, fields: r.fields as ReportFields }));
 
   safe(deps.progress, `正在获取 ${ticker} 的个股信息与财务数据...`);
-  const overview = composeOverview({
-    ticker,
-    name,
-    snapshot: deps.snapshot ?? null,
-    capital: deps.capital ?? null,
-    f10: deps.f10Text ? parseIndicatorSection(deps.f10Text, '【主要财务指标】') : [],
-    bars,
-    today,
-  });
+  // 块 1 概览:cn 由 composeOverview 现算(F10 eps → PE/PB);hk/us 以 Yahoo
+  // 合成概览槽(applyYahooCollectedToStore putStock 写入,含 trailingPE/
+  // priceToBook/52周高低/股息率)覆盖重算结果——重算无 F10 源 PE/PB 恒 NaN,
+  // 槽缺失时回退重算(演示/未采集场景兜底)
+  const overview = {
+    ...composeOverview({
+      ticker,
+      name,
+      snapshot: deps.snapshot ?? null,
+      capital: deps.capital ?? null,
+      f10: deps.f10Text ? parseIndicatorSection(deps.f10Text, '【主要财务指标】') : [],
+      bars,
+      today,
+    }),
+    ...(market !== 'cn' ? ((store.getStock(ticker)?.overview ?? {}) as OverviewRow) : {}),
+  };
   let info = formatStockOutput(ticker, name, overview, bars, reports, deps.capital ?? null, market);
 
   safe(progress, `正在计算 ${ticker} 的技术指标...`);

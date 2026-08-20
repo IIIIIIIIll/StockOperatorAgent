@@ -44,6 +44,13 @@ export class YahooApiError extends Error {
 /** Yahoo host 白名单（S3 代理防 SSRF 用；本切片仅导出常量）。 */
 export const YAHOO_HOSTS = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com', 'fc.yahoo.com'];
 
+/** Set-Cookie 头 → A3 cookie 值（多 cookie 逗号拼接容错：起始/分号/逗号后
+ *  均可出现 A3=；无 → null）。S3 真机/代理路径（deviceYahooCollect.obtainA3）
+ *  复用同一解析，避免两处正则漂移。 */
+export function parseA3FromSetCookie(setCookie: string): string | null {
+  return setCookie.match(/(?:^|[;,])\s*A3=([^;,\s]+)/)?.[1] ?? null;
+}
+
 const USER_AGENT = 'Mozilla/5.0';
 
 const _CHART_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
@@ -176,11 +183,10 @@ export class YahooClient {
     const resp = await this._request(_FC_URL);
     if (!resp.ok) throw await this._errorFrom(resp, 'fc.yahoo.com');
     // Set-Cookie 可能是多 cookie 逗号拼接（undici get('set-cookie')），
-    // 起始/分号/逗号后均可出现 A3=
-    const setCookie = resp.headers.get('set-cookie') ?? '';
-    const m = setCookie.match(/(?:^|[;,])\s*A3=([^;,\s]+)/);
-    if (!m) throw new YahooApiError('crumb', resp.status, 'Yahoo fc.yahoo.com 未返回 A3 cookie');
-    return m[1];
+    // 起始/分号/逗号后均可出现 A3=（解析单源见 parseA3FromSetCookie）
+    const a3 = parseA3FromSetCookie(resp.headers.get('set-cookie') ?? '');
+    if (a3 === null) throw new YahooApiError('crumb', resp.status, 'Yahoo fc.yahoo.com 未返回 A3 cookie');
+    return a3;
   }
 
   /** GET + UA 头；网络异常归一化（不重试）。 */

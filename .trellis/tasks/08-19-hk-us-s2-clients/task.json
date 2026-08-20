@@ -3,7 +3,7 @@
   "name": "hk-us-s2-clients",
   "title": "Yahoo/Finnhub 客户端与合成",
   "description": "yahooClient/finnhubClient + composeYahooOverview/composeYahooReports",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

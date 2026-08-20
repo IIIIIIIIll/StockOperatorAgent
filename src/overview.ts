@@ -22,8 +22,10 @@ export interface CapitalData {
 
 export const LOT_SIZE = 100; // 手 → 股
 
-/** a/b；b 缺失/≤0 → NaN（除零保护；PE/PB 分母 ≤0 时 NaN 的约定）。 */
-function divide(numerator: number, denominator: number): number {
+/** a/b；b 缺失/≤0 → NaN（除零保护；PE/PB 分母 ≤0 时 NaN 的约定）。
+ *  单源导出：Yahoo 合成（composeYahooOverview/composeYahooReports）复用同一
+ *  语义，防两处漂移。 */
+export function divide(numerator: number, denominator: number): number {
   if (Number.isNaN(numerator)) return NaN;
   if (Number.isNaN(denominator) || denominator <= 0) return NaN;
   return numerator / denominator;

@@ -13,6 +13,7 @@
 //   与 reports.ts qoqSeries「负分母合法」不同，契约指定）
 // - quarterly 模块缺失/空 → 返回 [] 不抛（degrade don't raise）
 import type { PerformanceReport } from '../store.ts';
+import { divide } from '../overview.ts';
 
 export interface YahooReportsOptions {
   /** 行 fields.ticker（调用方传入；缺省 ''）。 */
@@ -33,13 +34,6 @@ function rawNum(v: unknown): number {
   if (typeof v === 'number') return v;
   const raw = rec(v)['raw'];
   return typeof raw === 'number' ? raw : NaN;
-}
-
-/** a/b；b 缺失/≤0 → NaN（除零保护；对齐 overview.ts:26-30 约定）。 */
-function divide(a: number, b: number): number {
-  if (Number.isNaN(a)) return NaN;
-  if (Number.isNaN(b) || b <= 0) return NaN;
-  return a / b;
 }
 
 /** 报表语句的 endDate → 日期键 'YYYY-MM-DD'：优先 endDate.fmt（Yahoo 原值，

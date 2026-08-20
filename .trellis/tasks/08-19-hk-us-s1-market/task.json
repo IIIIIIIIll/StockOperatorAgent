@@ -3,7 +3,7 @@
   "name": "hk-us-s1-market",
   "title": "市场模型与时间门",
   "description": "src/market.ts Market 模型 + gates marketToday/resolveSkipGates market 参数",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
