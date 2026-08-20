@@ -14,7 +14,7 @@ import { THEME_HEADING, useTheme, type Theme } from './theme';
 import { missingLlmKeys } from './lib/settings';
 import { reportRoles } from '../src/committee.ts';
 import { DEMO_TICKER } from '../src/metaKeys.ts';
-import { marketInfo } from '../src/market.ts';
+import { marketInfo, MARKET_CHOICES, type MarketChoice } from '../src/market.ts';
 import { useAnalysis } from './hooks/useAnalysis';
 import type { PipelineEvent } from './lib/runner';
 
@@ -35,6 +35,9 @@ function AppContent() {
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = React.useState<TabId>('data');
   const [ticker, setTicker] = React.useState(DEMO_TICKER);
+  // 市场手动选择(输入框旁下拉):auto = 自动识别(默认);cn/hk/us = 强制市场
+  const [marketChoice, setMarketChoice] = React.useState<MarketChoice>('auto');
+  const [showMarketMenu, setShowMarketMenu] = React.useState(false);
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
   const [showSettings, setShowSettings] = React.useState(false);
   React.useEffect(() => {
@@ -65,7 +68,7 @@ function AppContent() {
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as unknown as Record<string, unknown>).__soa = {
-        start: () => void a.start(ticker),
+        start: () => void a.start(ticker, marketChoice),
         switchTab: (id: TabId) => setActiveTab(id),
         getState: () => ({ finalDecision: a.finalDecision, eventCount: a.events.length, running: a.running, partials: a.partials, statuses: a.statuses }),
       };
@@ -97,7 +100,40 @@ function AppContent() {
             maxLength={10}
             autoCapitalize="characters"
           />
-          <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => void a.start(ticker)}>
+          {/* 市场下拉面板:手动选市场(auto 自动识别,保持既有行为) */}
+          <View style={styles.marketSelectWrap}>
+            <Pressable
+              style={styles.marketSelect}
+              onPress={() => setShowMarketMenu((v) => !v)}
+              accessibilityLabel="选择市场"
+            >
+              <Text style={styles.marketSelectText}>
+                {MARKET_CHOICES.find((c) => c.value === marketChoice)?.label ?? '自动识别'}
+              </Text>
+              <Text style={styles.marketSelectCaret}>▾</Text>
+            </Pressable>
+            {showMarketMenu ? (
+              <View style={styles.marketMenu}>
+                {MARKET_CHOICES.map((c) => {
+                  const active = c.value === marketChoice;
+                  return (
+                    <Pressable
+                      key={c.value}
+                      style={[styles.marketOption, active && styles.marketOptionActive]}
+                      onPress={() => {
+                        setMarketChoice(c.value);
+                        setShowMarketMenu(false);
+                      }}
+                    >
+                      <Text style={[styles.marketOptionText, active && styles.marketOptionTextActive]}>{c.label}</Text>
+                      {active ? <Text style={styles.marketOptionCheck}>✓</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+          <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => void a.start(ticker, marketChoice)}>
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
         </View>
@@ -208,6 +244,16 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     formLabel: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing.sm },
     formRow: { flexDirection: 'row', gap: theme.spacing.sm },
     tickerInput: { flex: 1, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: theme.colors.text, maxWidth: 220 },
+    marketSelectWrap: { position: 'relative', zIndex: 100, justifyContent: 'center' },
+    marketSelect: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 10, paddingVertical: 10, minWidth: 92 },
+    marketSelectText: { fontSize: 13, color: theme.colors.text, fontWeight: '600' },
+    marketSelectCaret: { fontSize: 10, color: theme.colors.textSecondary },
+    marketMenu: { position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, zIndex: 200, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, paddingVertical: 2 },
+    marketOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 9 },
+    marketOptionActive: { backgroundColor: theme.colors.background },
+    marketOptionText: { fontSize: 13, color: theme.colors.text },
+    marketOptionTextActive: { color: theme.colors.primary, fontWeight: '700' },
+    marketOptionCheck: { fontSize: 12, color: theme.colors.primary, fontWeight: '700' },
     startButton: { backgroundColor: theme.colors.primary, borderRadius: theme.radius.sm, paddingHorizontal: 24, justifyContent: 'center' },
     startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },

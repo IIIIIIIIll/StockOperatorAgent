@@ -88,6 +88,25 @@ describe('normalizeTicker', () => {
     expect(normalizeTicker('')).toBeNull();
   });
 
+  it('手动强制市场:格式符合 → 按所选市场归一化', () => {
+    expect(normalizeTicker('700', 'hk')).toEqual({ market: 'hk', ticker: '0700.HK' });
+    expect(normalizeTicker('09988', 'hk')).toEqual({ market: 'hk', ticker: '9988.HK' });
+    expect(normalizeTicker('aapl', 'us')).toEqual({ market: 'us', ticker: 'AAPL' });
+    expect(normalizeTicker('600036', 'cn')).toEqual({ market: 'cn', ticker: '600036' });
+    // 自动识别下会是 hk 的纯数字,强制 cn 时按 cn 格式校验(6 位)→ 归 cn
+    expect(normalizeTicker('000001', 'cn')).toEqual({ market: 'cn', ticker: '000001' });
+  });
+
+  it('手动强制市场:格式不符 → null(不跨市场兜底)', () => {
+    expect(normalizeTicker('AAPL', 'cn')).toBeNull();
+    expect(normalizeTicker('AAPL', 'hk')).toBeNull();
+    expect(normalizeTicker('00700', 'us')).toBeNull();
+    expect(normalizeTicker('600036', 'us')).toBeNull();
+    expect(normalizeTicker('600036', 'hk')).toBeNull();
+    expect(normalizeTicker('430047', 'cn')).toBeNull(); // 北交所前缀在强制 cn 下同样拦截
+    expect(normalizeTicker('0700', 'us')).toBeNull();
+  });
+
   it('往返:CN/US 输出 ticker 可被 detectMarket 复认;HK 输出 Yahoo 符号(detectMarket 只管原始输入)', () => {
     for (const input of ['600036', 'aapl', 'BRK.B']) {
       const n = normalizeTicker(input);
