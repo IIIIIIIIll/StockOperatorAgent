@@ -6,8 +6,9 @@
 // 尾部缩进 vs TS 单换行），Python test_query_baselines 基线随 Python 删除。
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import type { RunnableLike } from '@langchain/core/runnables';
-import { system_prompt, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';
-import { getLastBusinessDay } from './gates.ts';
+import { system_prompt, marketPromptRules, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';
+import { getLastBusinessDay, marketToday } from './gates.ts';
+import type { Market } from './market.ts';
 import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts';
 import { invokeWithTools, type ToolLike } from './toolLoop.ts';
 import { pushReport, safeProgress, safePushDelta, safePushStatus, type ProgressUpdater } from './progress.ts';
@@ -29,13 +30,6 @@ export type StateLike = Record<string, unknown> & {
   messages?: unknown[];
 };
 
-/** 本地今天（YYYY-MM-DD）——对齐 Python datetime.date.today() 语义。 */
-export function localToday(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
 export interface CompleteOptions {
   startMsg: string;
   doneMsg: string;
@@ -50,6 +44,7 @@ export class AgentNode {
   protected config: unknown;
   protected progressUpdater: ProgressUpdater | null;
   protected tools: ToolLike[];
+  protected readonly market: Market;
 
   constructor(
     llm: LlmLike,
@@ -57,10 +52,13 @@ export class AgentNode {
     progressUpdater: ProgressUpdater | null = null,
     tools: ToolLike[] = [],
     roleMessage: string,
+    market: Market = 'cn',
   ) {
+    const rules = marketPromptRules(market);
     const systemText = system_prompt
-      .replace('{system_message}', roleMessage)
-      .replace('{current_date}', getLastBusinessDay(localToday()));
+      .replace('{system_message}', roleMessage.replace('{market_cycle}', rules.market_cycle))
+      .replace('{market_rules}', rules.market_rules)
+      .replace('{current_date}', getLastBusinessDay(marketToday(market)));
     const prompt = ChatPromptTemplate.fromMessages([
       ['system', systemText],
       new MessagesPlaceholder('query'),
@@ -78,13 +76,16 @@ export class AgentNode {
     this.config = config;
     this.progressUpdater = progressUpdater;
     this.tools = tools;
+    this.market = market;
   }
 
   /** 第二条链（对抗修订轮）：复用构造时已绑定实例（双链共享）。 */
   buildChain(roleMessage: string, llm?: LlmLike): unknown {
+    const rules = marketPromptRules(this.market);
     const systemText = system_prompt
-      .replace('{system_message}', roleMessage)
-      .replace('{current_date}', getLastBusinessDay(localToday()));
+      .replace('{system_message}', roleMessage.replace('{market_cycle}', rules.market_cycle))
+      .replace('{market_rules}', rules.market_rules)
+      .replace('{current_date}', getLastBusinessDay(marketToday(this.market)));
     const prompt = ChatPromptTemplate.fromMessages([
       ['system', systemText],
       new MessagesPlaceholder('query'),
@@ -193,8 +194,8 @@ function stockInfo(state: StateLike): string {
 }
 
 export class FundamentalAnalysisExpert extends AgentNode {
-  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null) {
-    super(llm, config, progressUpdater, [], fundamental_analysis_expert_message);
+  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, market: Market = 'cn') {
+    super(llm, config, progressUpdater, [], fundamental_analysis_expert_message, market);
   }
   async fundamental_analysis_expert(state: StateLike) {
     return this.completeExpert(
@@ -207,8 +208,8 @@ export class FundamentalAnalysisExpert extends AgentNode {
 }
 
 export class TrendAnalysisExpert extends AgentNode {
-  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null) {
-    super(llm, config, progressUpdater, [], trend_analysis_expert_message);
+  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, market: Market = 'cn') {
+    super(llm, config, progressUpdater, [], trend_analysis_expert_message, market);
   }
   async trend_analysis_expert(state: StateLike) {
     return this.completeExpert(
@@ -221,8 +222,8 @@ export class TrendAnalysisExpert extends AgentNode {
 }
 
 export class TechnicalIndicatorAnalyst extends AgentNode {
-  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null) {
-    super(llm, config, progressUpdater, [], technical_indicator_analyst_message);
+  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, market: Market = 'cn') {
+    super(llm, config, progressUpdater, [], technical_indicator_analyst_message, market);
   }
   async technical_indicator_analyst(state: StateLike) {
     return this.completeExpert(
@@ -333,8 +334,9 @@ export class BillionsInformationAnalyst extends AgentNode {
     progressUpdater: ProgressUpdater | null = null,
     private _searcher: (query: string) => Promise<SearchResult[]> = defaultSearcher(),
     private _billionsClient?: BillionsClient,
+    market: Market = 'cn',
   ) {
-    super(llm, config, progressUpdater, [], information_analyst_message);
+    super(llm, config, progressUpdater, [], information_analyst_message, market);
   }
 
   private _client: BillionsClient | undefined;
@@ -471,8 +473,8 @@ export class BillionsInformationAnalyst extends AgentNode {
 }
 
 export class BullishTrader extends AgentNode {
-  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, tools: ToolLike[] = []) {
-    super(llm, config, progressUpdater, tools, bullish_trader_message);
+  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, tools: ToolLike[] = [], market: Market = 'cn') {
+    super(llm, config, progressUpdater, tools, bullish_trader_message, market);
     this.reviseLlm = this.buildChain(bullish_revise_message);
   }
   private reviseLlm: unknown;
@@ -497,8 +499,8 @@ export class BullishTrader extends AgentNode {
 }
 
 export class BearishTrader extends AgentNode {
-  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, tools: ToolLike[] = []) {
-    super(llm, config, progressUpdater, tools, bearish_trader_message);
+  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, tools: ToolLike[] = [], market: Market = 'cn') {
+    super(llm, config, progressUpdater, tools, bearish_trader_message, market);
     this.reviseLlm = this.buildChain(bearish_revise_message);
   }
   private reviseLlm: unknown;
@@ -523,8 +525,8 @@ export class BearishTrader extends AgentNode {
 }
 
 export class InvestmentManager extends AgentNode {
-  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, tools: ToolLike[] = []) {
-    super(llm, config, progressUpdater, tools, investment_manager_message);
+  constructor(llm: LlmLike, config: unknown, progressUpdater: ProgressUpdater | null = null, tools: ToolLike[] = [], market: Market = 'cn') {
+    super(llm, config, progressUpdater, tools, investment_manager_message, market);
   }
   async investment_manager(state: StateLike) {
     const opinions = state['bullish_opinions'] as Array<{ content: string }> | undefined;

@@ -2,11 +2,12 @@
 // 块序对齐 Python:个股信息(StockOutputFormatter)→ 技术指标 → 盈利能力
 // → 实时市场情报(可注入,缺省占位)→ 亿信(开关/注入)。
 // 全部纯函数 + store/注入点,不直接访问网络。
-import type { StoreLike, DailyBar } from './store.ts';
+import type { StoreLike, DailyBar, PerformanceReport } from './store.ts';
 import { composeOverview } from './overview.ts';
 import { computeAll } from './indicators.ts';
 import { parseIndicatorSection } from './f10.ts';
 import { asiaToday } from './gates.ts';
+import { marketInfo, type Market } from './market.ts';
 import type { ProgressUpdater } from './progress.ts';
 
 // ─── 数值格式化（对齐 Python utils/formatting.fmt_number） ───────────────
@@ -34,10 +35,12 @@ export function changePercentSeries(bars: DailyBar[]): number[] {
   return bars.map((b, i) => (i === 0 ? NaN : ((b.close - bars[i - 1].close) / bars[i - 1].close) * 100));
 }
 
-/** 换手率%:成交量(手)×100 股 ×100% / 流通股本(股) = 量×10⁴/股本;缺股本 → NaN。 */
-export function turnoverPct(b: DailyBar, capital: { liutongguben: number } | null): number {
+/** 换手率%:cn 成交量(手)×100 股 ×100% / 流通股本(股) = 量×10⁴/股本;
+ *  hk/us 成交量(股)/流通股本(股)×100(原币股数直除);缺股本 → NaN。 */
+export function turnoverPct(b: DailyBar, capital: { liutongguben: number } | null, market: Market = 'cn'): number {
   if (!capital || !capital.liutongguben) return NaN;
-  return (b.volume * 10_000) / capital.liutongguben;
+  if (market === 'cn') return (b.volume * 10_000) / capital.liutongguben;
+  return (b.volume / capital.liutongguben) * 100;
 }
 
 export function formatStockOutput(
@@ -47,11 +50,15 @@ export function formatStockOutput(
   bars: DailyBar[],
   reports: Array<{ report_date: string; fields: ReportFields }>,
   capital: { zongguben: number; liutongguben: number } | null = null,
+  market: Market = 'cn',
 ): string {
   const price = overview.latest_price as number;
   const changePct = changePercentSeries(bars);
+  // cn 量为手、无市场行(改造前逐字节不变);hk/us 量为股 + 市场标签/币种行
+  const volumeUnit = market === 'cn' ? 'lots' : 'shares';
   let out = '\n-----------\n';
   out += `Stock: ${name} (${ticker})\n`;
+  if (market !== 'cn') out += `Market: ${marketInfo(market).label}, Currency: ${marketInfo(market).currency}\n`;
   out += `Latest price: ${fmtNumber(price, 2)}\n`;
   out += `Dynamic PE: ${fmtNumber(overview.pe_dynamic as number, 2)}\n`;
   out += `Pb: ${fmtNumber(overview.pb as number, 2)}\n`;
@@ -61,8 +68,8 @@ export function formatStockOutput(
     const b = bars[i];
     out += `  Date: ${b.date}, Open:${fmtNumber(b.open, 2)}, Close: ${fmtNumber(b.close, 2)}, `
       + `High: ${fmtNumber(b.high, 2)}, Low: ${fmtNumber(b.low, 2)}, `
-      + `Change Percent: ${fmtNumber(changePct[i], 2)}%, Volume: ${fmtNumber(b.volume, 2)}lots, `
-      + `Turnover Rate: ${fmtNumber(turnoverPct(b, capital), 2)}%\n`;
+      + `Change Percent: ${fmtNumber(changePct[i], 2)}%, Volume: ${fmtNumber(b.volume, 2)}${volumeUnit}, `
+      + `Turnover Rate: ${fmtNumber(turnoverPct(b, capital, market), 2)}%\n`;
   }
   out += 'Last 20 financial abstracts:\n';
   for (const r of reports.slice(-20)) {
@@ -112,12 +119,16 @@ const INDICATOR_ROWS: Array<[string, string[], number]> = [
 ];
 
 /** 指标摘要文本（compute_all 末根 + MACD-VH 相邻柱态 + 乖离率）。
- *  liutongguben(股)→ 传 shares(万股,vendor 语义:vol手/万股 = 换手率%)。 */
-export function trendIndicatorsText(bars: DailyBar[], ticker: string, liutongguben?: number | null): string {
+ *  TURNOVER_RATE = vol/shares(vendor 语义,输出即换手率%):
+ *  cn 量(手)÷流通股本(万股);hk/us 量(股)÷(流通股本/100) = 量×100/股本。 */
+export function trendIndicatorsText(bars: DailyBar[], ticker: string, liutongguben?: number | null, market: Market = 'cn'): string {
   if (!bars.length) return `（无 ${ticker} 的行情数据，跳过技术指标）`;
+  const shares = liutongguben && liutongguben > 0
+    ? (market === 'cn' ? liutongguben / 10_000 : liutongguben / 100)
+    : null;
   const rows = computeAll(
     bars.map((b) => ({ datetime: b.date, open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume })),
-    liutongguben && liutongguben > 0 ? liutongguben / 10_000 : null,
+    shares,
   );
   const last = rows[rows.length - 1];
   const prevVh = rows.length >= 2 ? rows[rows.length - 2].MACD_VH : null;
@@ -160,6 +171,24 @@ export function financialIndicatorsText(f10Text: string | null, ticker: string):
   return lines.join('\n');
 }
 
+/** Yahoo 业绩报告（hk/us,fields 复用 REPORT_COLUMNS 键、原币原始值）
+ *  → 最新报告期盈利能力摘要（净利/营收/ROE/EPS,{currency} 单位）。
+ *  风格对齐 financialIndicatorsText;无报告 → 占位不 raise。 */
+export function yahooFinancialIndicatorsText(reports: PerformanceReport[], ticker: string, market: Market): string {
+  if (!reports.length) return `（无 ${ticker} 的盈利能力指标，跳过）`;
+  const periods = [...new Set(reports.map((r) => r.report_date))].sort();
+  const latest = periods[periods.length - 1];
+  const f = reports.filter((r) => r.report_date === latest).at(-1)?.fields ?? {};
+  const currency = marketInfo(market).currency;
+  const num = (v: unknown): number | null | undefined => (typeof v === 'number' ? v : null);
+  const lines = [`【盈利能力指标（${latest}）】`];
+  lines.push(`净利润: ${fmtNumber(num(f.net_profit), 2)} ${currency}`);
+  lines.push(`营业收入: ${fmtNumber(num(f.total_income), 2)} ${currency}`);
+  lines.push(`净资产收益率(ROE): ${fmtNumber(num(f.net_worth_return_rate), 2)}%`);
+  lines.push(`每股收益(EPS): ${fmtNumber(num(f.eps), 2)} ${currency}`);
+  return lines.join('\n');
+}
+
 // ─── 组装 ─────────────────────────────────────────────────────────────────
 
 export interface PipelineDeps {
@@ -169,20 +198,24 @@ export interface PipelineDeps {
   capital?: { zongguben: number; liutongguben: number } | null;
   name?: string | null; // 缺省回退 ticker
   today?: string; // YYYY-MM-DD;缺省 asiaToday
-  mcp?: (ticker: string) => string; // 实时市场情报注入;缺省 TDX_API_KEY 占位
+  mcp?: (ticker: string) => string; // 实时市场情报注入;缺省 TDX_API_KEY 占位(cn)
   billions?: (ticker: string) => string; // 亿信注入;缺省开关关 → 空串
   progress?: ProgressUpdater | null;
+  /** 市场（S4）：块 1/2 单位与换手率、块 3/4 分支;缺省 cn 逐字节不变。 */
+  market?: Market;
+  /** 业绩报告注入（S4,hk/us 块 3 用）;缺省从 store 读。 */
+  reports?: PerformanceReport[];
 }
 
 /** build_stock_information 等价：五段拼接（对齐 Python 唯一组装点）。 */
 export function buildStockInformation(ticker: string, deps: PipelineDeps): string {
   const { store, progress } = deps;
+  const market = deps.market ?? 'cn';
   const today = deps.today ?? asiaToday();
   const stock = store.getStock(ticker);
   const name = deps.name ?? stock?.name ?? ticker;
   const bars = store.getDatas(ticker);
-  const reports = store
-    .getPerformanceReports(ticker)
+  const reports = (deps.reports ?? store.getPerformanceReports(ticker))
     .map((r) => ({ report_date: r.report_date, fields: r.fields as ReportFields }));
 
   safe(deps.progress, `正在获取 ${ticker} 的个股信息与财务数据...`);
@@ -195,16 +228,22 @@ export function buildStockInformation(ticker: string, deps: PipelineDeps): strin
     bars,
     today,
   });
-  let info = formatStockOutput(ticker, name, overview, bars, reports, deps.capital ?? null);
+  let info = formatStockOutput(ticker, name, overview, bars, reports, deps.capital ?? null, market);
 
   safe(progress, `正在计算 ${ticker} 的技术指标...`);
-  info += '\n' + trendIndicatorsText(bars, ticker, deps.capital?.liutongguben ?? null);
+  info += '\n' + trendIndicatorsText(bars, ticker, deps.capital?.liutongguben ?? null, market);
 
+  // 块 3:cn F10 盈利能力;hk/us Yahoo 业绩报告(净利/营收/ROE/EPS,原币单位)
   safe(progress, `正在获取 ${ticker} 的财务指标...`);
-  info += '\n' + financialIndicatorsText(deps.f10Text ?? null, ticker);
+  info += '\n' + (market === 'cn'
+    ? financialIndicatorsText(deps.f10Text ?? null, ticker)
+    : yahooFinancialIndicatorsText(deps.reports ?? store.getPerformanceReports(ticker), ticker, market));
 
+  // 块 4:cn 现逻辑(注入 mcp 或 TDX_API_KEY 占位);hk/us 无实时情报源 → 占位
   safe(progress, `正在获取 ${ticker} 的实时市场情报...`);
-  info += '\n' + (deps.mcp ? deps.mcp(ticker) : fallbackMarketIntel());
+  info += '\n' + (market === 'cn'
+    ? (deps.mcp ? deps.mcp(ticker) : fallbackMarketIntel())
+    : '（港股/美股暂无实时市场情报源，跳过）');
 
   // 亿信段:开关关或未注入 → 空串(该段自然不出现,对齐 Python 零行为变化)
   const bills = deps.billions ? deps.billions(ticker) : '';

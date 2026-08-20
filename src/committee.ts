@@ -13,6 +13,7 @@ import {
   FundamentalAnalysisExpert, InvestmentManager, TechnicalIndicatorAnalyst, TrendAnalysisExpert,
 } from './agents.ts';
 import type { BillionsClient } from './billionsClient.ts';
+import type { Market } from './market.ts';
 import { envValue } from './env.ts';
 import { getCapabilitySwitches, type CapabilitySwitches } from './switches.ts';
 
@@ -26,6 +27,9 @@ export interface CommitteeDeps {
    *  关闭，DDG 兜底）。安全：key 仅存于 client 私有字段——不落日志、不经
    *  服务端代理，浏览器端直连（billionsClient.ts 契约）。 */
   billionsClient?: BillionsClient;
+  /** 市场（S4）：透传 AgentNode 提示词 {market_rules}/{market_cycle} 与
+   *  current_date 时区；缺省 cn —— 与改造前逐字节一致。 */
+  market?: Market;
 }
 
 export interface Role {
@@ -76,17 +80,17 @@ type AgentFactory = (
   llm: LlmLike, config: unknown, progress: ProgressUpdater | null, tools: ToolLike[], deps?: CommitteeDeps,
 ) => unknown;
 
-const expert = (cls: new (llm: LlmLike, config: unknown, progress: ProgressUpdater | null) => unknown): AgentFactory =>
-  (llm, config, progress, _tools, _deps) => new cls(llm, config, progress);
+const expert = (cls: new (llm: LlmLike, config: unknown, progress: ProgressUpdater | null, market?: Market) => unknown): AgentFactory =>
+  (llm, config, progress, _tools, deps) => new cls(llm, config, progress, deps?.market ?? 'cn');
 
-const trader = (cls: new (llm: LlmLike, config: unknown, progress: ProgressUpdater | null, tools: ToolLike[]) => unknown): AgentFactory =>
-  (llm, config, progress, tools, _deps) => new cls(llm, config, progress, tools);
+const trader = (cls: new (llm: LlmLike, config: unknown, progress: ProgressUpdater | null, tools: ToolLike[], market?: Market) => unknown): AgentFactory =>
+  (llm, config, progress, tools, deps) => new cls(llm, config, progress, tools, deps?.market ?? 'cn');
 
 /** 信息面分析师工厂：透传亿信 client 注入（web 端 localStorage key → 预抓
  *  三源+twitter 生效）。单独工厂而非 expert()：构造器第 5 参 _billionsClient
  *  仅此类支持；无 deps → 与 expert() 路径一致（无 key client 回退，DDG 兜底）。 */
 const informationAnalyst: AgentFactory = (llm, config, progress, _tools, deps) =>
-  new BillionsInformationAnalyst(llm, config, progress, undefined, deps?.billionsClient);
+  new BillionsInformationAnalyst(llm, config, progress, undefined, deps?.billionsClient, deps?.market ?? 'cn');
 
 export const ROLES: Role[] = [
   { nodeName: 'fundamental_analysis_expert', kind: 'expert', stateKey: 'fundamental_analysis', tabTitle: '基本面分析', enabled: () => true, factory: expert(FundamentalAnalysisExpert) },
@@ -136,6 +140,7 @@ export const StateAnnotation = Annotation.Root({
   messages: Annotation({ reducer: addMessages, default: () => [] }),
   target_stock_ticker: Annotation<string>(),
   stock_information: Annotation<string>(),
+  market: Annotation<string>(),
   fundamental_analysis: Annotation<string>(),
   trend_analysis: Annotation<string>(),
   technical_indicator_analysis: Annotation<string>(),

@@ -259,3 +259,91 @@ describe('亿信 client 注入接线（C1:committee deps → 分析师预抓）'
     expect(final.information_analysis).toBe('INFO_REPORT'); // 固定回退文本路径照常
   });
 });
+
+// ─── S4:deps.market → 角色工厂 → AgentNode 提示词（market_rules/current_date）──
+
+describe('deps.market 接线（S4:工厂透传 AgentNode 提示词）', () => {
+  beforeEach(() => {
+    delete process.env.BILLIONS_ANALYST_DISABLED;
+    delete process.env.BILLIONS_SEARCH_DISABLED;
+    delete process.env.BILLIONS_TWITTER_DISABLED;
+    delete process.env.BILLIONS_DISABLED;
+    delete process.env.WEB_SEARCH_DISABLED;
+    syncSwitches(); // 全开默认态同步
+  });
+
+  it('deps.market=hk → 各角色 system 消息含港股 market_rules,current_date 按港股时区', async () => {
+    const saved: Record<string, string | undefined> = {};
+    for (const k of ['WEB_SEARCH_DISABLED', 'BILLIONS_DISABLED']) {
+      saved[k] = process.env[k];
+      process.env[k] = '1'; // 离线:亿信+联网预抓全关,分析师落固定回退文本
+    }
+    syncSwitches();
+    try {
+      const systemTexts: string[] = [];
+      const capturingRouter = makeRoutingLlm((text: string) => {
+        systemTexts.push(text);
+        return makeRouter()(text);
+      }) as never;
+      const graph = makeInvestmentCommittee(
+        { configurable: { thread_id: '1' } }, null, capturingRouter, undefined,
+        { market: 'hk' },
+      );
+      const stream = await graph.stream({
+        messages: [],
+        target_stock_ticker: '0700.HK',
+        stock_information: 'dummy info',
+        market: 'hk',
+      }, { configurable: { thread_id: '1' } });
+      for await (const _chunk of stream) { /* 驱动图执行 */ }
+      expect(systemTexts.length).toBeGreaterThan(0);
+      for (const text of systemTexts) {
+        expect(text).toContain('本次分析对象为港股。注意：港股实行 T+0 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00；财报以半年报+年报为主；报价货币为港币。');
+      }
+      const final = await graph.getState({ configurable: { thread_id: '1' } });
+      expect((final.values as Record<string, unknown>).market).toBe('hk');
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      syncSwitches();
+    }
+  });
+
+  it('缺省(无 deps) → cn:system 消息无 market_rules 残留(逐字节回归)', async () => {
+    const saved: Record<string, string | undefined> = {};
+    for (const k of ['WEB_SEARCH_DISABLED', 'BILLIONS_DISABLED']) {
+      saved[k] = process.env[k];
+      process.env[k] = '1'; // 离线:亿信+联网预抓全关,分析师落固定回退文本
+    }
+    syncSwitches();
+    try {
+      const systemTexts: string[] = [];
+      const capturingRouter = makeRoutingLlm((text: string) => {
+        systemTexts.push(text);
+        return makeRouter()(text);
+      }) as never;
+      const graph = makeInvestmentCommittee(
+        { configurable: { thread_id: '1' } }, null, capturingRouter, undefined, undefined,
+      );
+      const stream = await graph.stream({
+        messages: [],
+        target_stock_ticker: '600036',
+        stock_information: 'dummy info',
+      }, { configurable: { thread_id: '1' } });
+      for await (const _chunk of stream) { /* 驱动图执行 */ }
+      expect(systemTexts.length).toBeGreaterThan(0);
+      for (const text of systemTexts) {
+        expect(text).not.toContain('{market_rules}');
+        expect(text).not.toContain('{market_cycle}');
+      }
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      syncSwitches();
+    }
+  });
+});

@@ -9,6 +9,7 @@ import { buildStockInformation } from './pipeline.ts';
 import { enabledRoles, makeInvestmentCommittee } from './committee.ts';
 import { makeLlm } from './llm.ts';
 import type { BillionsClient } from './billionsClient.ts';
+import type { Market } from './market.ts';
 import type { ProgressUpdater, RoleStatus } from './progress.ts';
 import type { PipelineDeps } from './pipeline.ts';
 import type { ToolLike } from './toolLoop.ts';
@@ -42,6 +43,8 @@ export interface RunOptions extends Omit<PipelineDeps, 'store' | 'progress'> {
   /** 亿信客户端注入（web 端 localStorage key → 信息面分析师预抓三源+twitter；
    *  缺省 → 现状：分析师内部回退无 key client，亿信路径静默关闭、DDG 兜底）。 */
   billionsClient?: BillionsClient;
+  /** 市场（S4，继承自 PipelineDeps）：提示词/日期/管道块分支；缺省 cn。 */
+  market?: Market;
 }
 
 export interface PipelineRunner {
@@ -109,22 +112,29 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
       try {
         emit({ type: 'progress', message: `开始分析 ${ticker}...` });
 
+        // S4:市场线程(缺省 cn 逐字节不变)。mcp 情报注入点在 App 层
+        // (runner.makeMcpIntel → deps.mcp)——本文件不调 makeMcpIntel,
+        // hk/us 跳过注入由 App 层按 market 决定;pipeline 块 4 占位兜底。
+        const market = opts.market ?? 'cn';
+
         // 1. 组装 stock_information(图前 enrichment 唯一组装点;数据已由
         //    Node 侧采集写入 store —— 见 tools/probe.mts;App 端注入/预载)
         const info = buildStockInformation(ticker, {
           ...opts,
           store,
           progress: updater,
+          market,
         });
 
         // 2. 委员会(事件经 updater 实时发射)
         const config = opts.config ?? { configurable: { thread_id: '1' } };
         const llm = opts.llm ?? makeLlm();
-        const graph = makeInvestmentCommittee(config, updater, llm as never, opts.tools, { billionsClient: opts.billionsClient });
+        const graph = makeInvestmentCommittee(config, updater, llm as never, opts.tools, { billionsClient: opts.billionsClient, market });
         const initial = {
           messages: [new HumanMessage(`请帮我分析一下 ${ticker}`)],
           target_stock_ticker: ticker,
           stock_information: info,
+          market,
         };
         // 迭代流以执行图（LangGraph JS 惰性执行;事件经 updater 实时发射）
         for await (const _chunk of await graph.stream(initial, config as never)) {

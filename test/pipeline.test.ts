@@ -10,6 +10,8 @@ import {
   macdVhState,
   momentumZone,
   trendIndicatorsText,
+  turnoverPct,
+  yahooFinancialIndicatorsText,
 } from '../src/pipeline.ts';
 
 const fixtureRaw = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')).raw as DailyBar[];
@@ -143,5 +145,107 @@ describe('buildStockInformation (五段唯一组装点)', () => {
     expect(text).toContain('（无 600036 的行情数据，跳过技术指标）');
     expect(text).toContain('（无 600036 的盈利能力指标，跳过）');
     expect(text).toContain(fallbackMarketIntel());
+  });
+});
+
+describe('market 分支（S4:turnoverPct/formatStockOutput/trendIndicatorsText/buildStockInformation）', () => {
+  const bar: DailyBar = { date: '2026-08-04', open: 10, close: 10.2, high: 10.6, low: 10.1, volume: 1_000_000 };
+  const capital = { zongguben: 1.1e9, liutongguben: 1e9 };
+
+  it('turnoverPct:cn 量×10⁴/股本不变;hk/us 量/股本×100', () => {
+    expect(turnoverPct(bar, capital)).toBeCloseTo((1_000_000 * 10_000) / 1e9, 6);
+    expect(turnoverPct(bar, capital, 'hk')).toBeCloseTo((1_000_000 / 1e9) * 100, 6);
+    expect(turnoverPct(bar, capital, 'us')).toBeCloseTo((1_000_000 / 1e9) * 100, 6);
+    expect(Number.isNaN(turnoverPct(bar, null, 'hk'))).toBe(true);
+  });
+
+  it('formatStockOutput hk:市场标签/币种行 + 量(股);cn 无市场行且逐字节不变', () => {
+    const hk = formatStockOutput('0700.HK', '腾讯控股', { latest_price: 380, pe_dynamic: 20, pb: 4, momentum: 5 }, [bar], [], capital, 'hk');
+    expect(hk).toContain('Stock: 腾讯控股 (0700.HK)\n');
+    expect(hk).toContain('Market: 港股, Currency: HKD\n');
+    expect(hk).toContain('Volume: 1000000.00shares');
+    expect(hk).toContain('Turnover Rate: 0.10%');
+    expect(hk).not.toContain('lots');
+    const us = formatStockOutput('AAPL', 'Apple', { latest_price: 230, pe_dynamic: 30, pb: 40, momentum: 3 }, [bar], [], capital, 'us');
+    expect(us).toContain('Market: 美股, Currency: USD\n');
+    const cn = formatStockOutput('600036', '招商银行', { latest_price: 38.8, pe_dynamic: 13.2, pb: 0.84, momentum: NaN }, [bar], [], capital);
+    expect(cn).toContain('Volume: 1000000.00lots');
+    expect(cn).not.toContain('Market: ');
+    expect(cn).not.toContain('shares');
+  });
+
+  it('trendIndicatorsText hk/us:量(股)×100/股本 = 换手率%;cn 路径不变', () => {
+    const hk = trendIndicatorsText([bar], '0700.HK', 1e9, 'hk');
+    expect(hk).toContain('换手率: 0.100'); // 1000000×100/1e9
+    const us = trendIndicatorsText([bar], 'AAPL', 1e9, 'us');
+    expect(us).toContain('换手率: 0.100');
+    const cn = trendIndicatorsText([bar], '600036', 1e9);
+    expect(cn).toContain('换手率: 10.000'); // 1000000×10⁴/1e9
+  });
+
+  it('yahooFinancialIndicatorsText:最新期净利/营收/ROE/EPS + 币种单位', () => {
+    const reports = [
+      { report_date: '20251231', fields: { net_profit: 8e9, total_income: 5e10, net_worth_return_rate: 12.5, eps: 2.4 } },
+      { report_date: '20260630', fields: { net_profit: 9.5e9, total_income: 5.5e10, net_worth_return_rate: 13.2, eps: 2.9 } },
+    ];
+    const text = yahooFinancialIndicatorsText(reports, '0700.HK', 'hk');
+    expect(text.startsWith('【盈利能力指标（20260630）】')).toBe(true);
+    expect(text).toContain('净利润: 9500000000.00 HKD');
+    expect(text).toContain('营业收入: 55000000000.00 HKD');
+    expect(text).toContain('净资产收益率(ROE): 13.20%');
+    expect(text).toContain('每股收益(EPS): 2.90 HKD');
+  });
+
+  it('yahooFinancialIndicatorsText:无报告占位;us 币种 USD;缺失字段 → N/A', () => {
+    expect(yahooFinancialIndicatorsText([], 'AAPL', 'us')).toBe('（无 AAPL 的盈利能力指标，跳过）');
+    const text = yahooFinancialIndicatorsText([{ report_date: '20260630', fields: { net_profit: 1e10 } }], 'AAPL', 'us');
+    expect(text).toContain('净利润: 10000000000.00 USD');
+    expect(text).toContain('营业收入: N/A USD');
+    expect(text).toContain('净资产收益率(ROE): N/A%');
+    expect(text).toContain('每股收益(EPS): N/A USD');
+  });
+
+  it('buildStockInformation hk:块 1 市场行 + 块 3 yahoo 摘要 + 块 4 占位;亿信段不变', () => {
+    const store = makeStore();
+    store.addDatas('0700.HK', [
+      { date: '2026-08-06', open: 370, close: 380, high: 382, low: 368, volume: 1_000_000, amount: 3.8e8 },
+      { date: '2026-08-07', open: 380, close: 385, high: 387, low: 378, volume: 1_200_000, amount: 4.6e8 },
+    ]);
+    store.addPerformanceReports('0700.HK', [
+      { report_date: '20260630', fields: { net_profit: 9.5e9, total_income: 5.5e10, net_worth_return_rate: 13.2, eps: 2.9 } },
+    ]);
+    const text = buildStockInformation('0700.HK', {
+      store, today: '2026-08-09', market: 'hk',
+      capital: { zongguben: 9e9, liutongguben: 8.9e9 },
+      billions: () => '亿信段注入',
+    });
+    expect(text).toContain('Market: 港股, Currency: HKD\n');
+    expect(text).toContain('Volume: 1200000.00shares');
+    expect(text).not.toContain('lots');
+    expect(text).toContain('【盈利能力指标（20260630）】');
+    expect(text).toContain('净利润: 9500000000.00 HKD');
+    expect(text).toContain('（港股/美股暂无实时市场情报源，跳过）');
+    expect(text).not.toContain(fallbackMarketIntel());
+    expect(text.match(/【盈利能力指标（/g)).toHaveLength(1); // 仅 yahoo 块,F10 块不出现
+    expect(text).toContain('亿信段注入'); // 块 5 亿信不变
+  });
+
+  it('buildStockInformation cn 缺省:块 3 F10 + 块 4 TDX 占位(回归)', () => {
+    const store = makeStore();
+    const text = buildStockInformation('600036', { store, f10Text, snapshot: SNAPSHOT, today: '2026-08-09' });
+    expect(text).toContain('【盈利能力指标（');
+    expect(text).toContain(fallbackMarketIntel());
+    expect(text).not.toContain('（港股/美股暂无实时市场情报源，跳过）');
+    expect(text).not.toContain('Market: 港股');
+    expect(text).not.toContain('shares');
+  });
+
+  it('deps.reports 注入优先于 store（hk 块 3 数据源）', () => {
+    const store = makeStore(); // 无 0700.HK 报告
+    const text = buildStockInformation('0700.HK', {
+      store, today: '2026-08-09', market: 'hk',
+      reports: [{ report_date: '20260331', fields: { net_profit: 7e9, total_income: 4e10, net_worth_return_rate: 11.1, eps: 2.1 } }],
+    });
+    expect(text).toContain('净利润: 7000000000.00 HKD');
   });
 });

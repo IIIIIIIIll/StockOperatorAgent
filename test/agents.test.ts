@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { AIMessage } from '@langchain/core/messages';
-import { BillionsInformationAnalyst, BullishTrader, FundamentalAnalysisExpert, type CompleteOptions } from '../src/agents.ts';
+import { BillionsInformationAnalyst, BullishTrader, FundamentalAnalysisExpert, InvestmentManager, type CompleteOptions } from '../src/agents.ts';
+import { fundamental_analysis_expert_message } from '../src/prompt.ts';
+import { getLastBusinessDay, marketToday } from '../src/gates.ts';
 import { BillionsApiError, BillionsClient, type SearchOptions } from '../src/billionsClient.ts';
 import type { SearchResult } from '../src/webSearch.ts';
 import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
@@ -314,5 +316,62 @@ describe('completeExpert 流式状态发射 (D6)', () => {
       startMsg: 's', doneMsg: 'd', logLabel: 'l', nodeName: 'fundamental_analysis_expert',
     });
     expect(out.fundamental_analysis).toBe('ok'); // 报告仍产出
+  });
+});
+
+// ─── S4:AgentNode market 提示词（market_rules/market_cycle/current_date 市场化）─
+
+/** 捕获 LLM 实际收到的 system 消息全文（prompt.pipe 后经 completeExpert 送达）。 */
+async function captureSystemText(
+  makeAgent: (llm: { invoke(payload: unknown): Promise<AIMessage> }) => unknown,
+): Promise<string> {
+  let captured = '';
+  const fn = async (payload: unknown) => {
+    const list = Array.isArray(payload)
+      ? (payload as Array<{ _getType?: () => string; content?: unknown }>)
+      : (((payload as { messages?: Array<{ _getType?: () => string; content?: unknown }> }).messages) ?? []);
+    const sys = list.find((m) => m._getType?.() === 'system');
+    captured = typeof sys?.content === 'string' ? sys.content : '';
+    return new AIMessage({ content: 'ok' });
+  };
+  (fn as unknown as { invoke: unknown }).invoke = fn;
+  const agent = makeAgent(fn as never) as { completeExpert(q: string, k: string, o: CompleteOptions): Promise<Record<string, unknown>> };
+  await agent.completeExpert('q', 'fundamental_analysis', {
+    startMsg: 's', doneMsg: 'd', logLabel: 'l', nodeName: 'n',
+  });
+  return captured;
+}
+
+describe('AgentNode market 提示词（S4）', () => {
+  it('cn 缺省:壳 + 角色消息 + current_date,与改造前逐字节相同(零占位残留)', async () => {
+    const text = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}));
+    expect(text).toBe(
+      `必须使用提供的真实数据进行分析，不允许编造任何数据！${fundamental_analysis_expert_message}当前日期：${getLastBusinessDay(marketToday('cn'))}。`,
+    );
+    expect(text).not.toContain('{market_rules}');
+    expect(text).not.toContain('{market_cycle}');
+  });
+
+  it('hk:market_rules 注入,current_date 按港股时区', async () => {
+    const text = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}, null, 'hk'));
+    expect(text).toContain('本次分析对象为港股。注意：港股实行 T+0 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00；财报以半年报+年报为主；报价货币为港币。');
+    expect(text).toContain(`当前日期：${getLastBusinessDay(marketToday('hk'))}。`);
+    expect(text).not.toContain('{market_rules}');
+  });
+
+  it('us:market_rules 注入', async () => {
+    const text = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}, null, 'us'));
+    expect(text).toContain('本次分析对象为美股。注意：美股实行 T+0 交收、无日涨跌幅限制、存在盘前盘后交易；财报为季度制；报价货币为美元；注意拆股/合股与 ADR 对价格序列的影响。');
+    expect(text).toContain(`当前日期：${getLastBusinessDay(marketToday('us'))}。`);
+  });
+
+  it('经理 cn:market_cycle 替换为逐字节原文;hk/us 各自文案', async () => {
+    const cn = await captureSystemText((llm) => new InvestmentManager(llm as never, {}));
+    expect(cn).toContain('- 考虑中国市场的特殊周期性');
+    expect(cn).not.toContain('{market_cycle}');
+    const hk = await captureSystemText((llm) => new InvestmentManager(llm as never, {}, null, [], 'hk'));
+    expect(hk).toContain('- 考虑港股市场的特殊周期性（T+0 结算、无涨跌停限制、港币计价）');
+    const us = await captureSystemText((llm) => new InvestmentManager(llm as never, {}, null, [], 'us'));
+    expect(us).toContain('- 考虑美股市场的特殊周期性（T+0 结算、无涨跌停限制、美元计价、盘前盘后交易与财报季效应）');
   });
 });

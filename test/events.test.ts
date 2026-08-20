@@ -166,6 +166,38 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
   });
 });
 
+describe('run() market 接线（S4）', () => {
+  it('market=hk → stock_information 走 hk 分支(占位块),图照常跑完', async () => {
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const events: PipelineEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    const report = await runner.run('0700.HK', {
+      today: '2026-08-09',
+      market: 'hk',
+      llm: stubLlm(),
+    });
+
+    expect(report.stock_information).toContain('（港股/美股暂无实时市场情报源，跳过）');
+    expect(report.stock_information).not.toContain('未配置 TDX_API_KEY');
+    expect(report.final_decision).toBe('FINAL_REPORT'); // 委员会 market 接线不影响产出
+  });
+
+  it('缺省(无 market) → cn 路径占位不变(回归)', async () => {
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const events: PipelineEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    const report = await runner.run('600036', { today: '2026-08-09', llm: stubLlm() });
+
+    expect(report.stock_information).toContain('（未配置 TDX_API_KEY，跳过实时市场情报）');
+    expect(report.stock_information).not.toContain('（港股/美股暂无实时市场情报源，跳过）');
+    expect(report.final_decision).toBe('FINAL_REPORT');
+  });
+});
+
 describe('describeError(聚合异常解包)', () => {
   it('superstep 聚合错误 → 底层具体原因', () => {
     const agg = { name: 'GraphRecursionError', message: 'Multiple errors occurred during superstep 1. See the "errors" field of this exception for more details.', errors: [{ message: 'AuthenticationError: 401 Invalid API key.' }, { message: 'AuthenticationError: 401 Invalid API key.' }] };
