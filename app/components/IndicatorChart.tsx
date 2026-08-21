@@ -3,7 +3,7 @@
 // bars 同长同序,窗口一致)。面板编排对齐通达信习惯 + Python
 // get_trend_indicators 分组:主图(MA/EMA/BOLL 叠加)+ 成交量 + 全部振荡器。
 import React from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { IChartApi, LineStyle } from 'lightweight-charts';
 import type { IndicatorRow } from '../../src/indicators.ts';
@@ -118,6 +118,9 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 export default function IndicatorChart({ bars, rows, changePct, theme }: { bars: Bar[]; rows: IndicatorRow[]; changePct: number[]; theme: Theme }) {
+  const { width } = useWindowDimensions();
+  // 窄屏(<560px)下主图图例改文档流内换行块(浮层换行会遮挡 K 线,见 design.md)
+  const narrow = width < 560;
   const ref = React.useRef<View | null>(null);
   // 各 pane 顶 y 坐标(web 分支浮层标题定位;stretch 后按实际高度累积)
   const [paneTops, setPaneTops] = React.useState<number[]>([]);
@@ -327,9 +330,22 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
     <View>
       {/* 图例随各 pane(浮层叠加在各自 pane 顶部,见下方 paneLabels)——
          不再集中渲染顶部大图例块(用户 2026-08-15 反馈:图例应跟随各自图) */}
+      {/* 窄屏(<560px)主图图例:渲染为图表容器上方文档流内换行块,9 chips 完整
+         显示且不遮挡 K 线(浮层单行放不下会截断,见 design.md) */}
+      {narrow && LEGEND[0] ? (
+        <View style={styles.mainLegendBlock}>
+          <Text style={styles.paneLabelTitle}>{LEGEND[0].title}</Text>
+          {LEGEND[0].series.map((s) => (
+            <View key={s.label} style={styles.paneLabelChip}>
+              <View style={[styles.paneLabelDot, { backgroundColor: s.color }]} />
+              <Text style={styles.paneLabelText}>{s.label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <View style={{ position: 'relative', width: '100%' }}>
         <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
-        {paneTops.map((top, i) => (LEGEND[i] ? (
+        {paneTops.map((top, i) => (LEGEND[i] && !(narrow && i === 0) ? (
           <View key={i} pointerEvents="none" style={[styles.paneLabel, { top }]}>
             <Text style={styles.paneLabelTitle}>{LEGEND[i].title}</Text>
             {LEGEND[i].series.map((s) => (
@@ -347,6 +363,8 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
+    // 窄屏主图图例:图表容器上方文档流内换行块(复用下面 paneLabel* 各样式)
+    mainLegendBlock: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, marginLeft: 8, paddingBottom: 8 },
     // 浮层图例:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
     paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 10, maxWidth: '92%' },
     paneLabelTitle: { fontWeight: '700', fontSize: 11, color: theme.colors.textSecondary },

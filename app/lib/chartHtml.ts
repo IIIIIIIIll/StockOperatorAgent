@@ -19,6 +19,8 @@ export const CHART_HTML: string = `<!DOCTYPE html>
   .pane-label .pl-chip { display: inline-flex; align-items: center; gap: 4px; }
   .pane-label .pl-dot { width: 8px; height: 8px; border-radius: 4px; }
   .pane-label .pl-label { font-weight: 400; opacity: .85; }
+  /* 窄屏(<560px)主图图例:改图表容器上方文档流内换行块,不遮挡 K 线 */
+  .pane-label.inline { position: static; max-width: none; flex-wrap: wrap; row-gap: 4px; padding: 0 8px 8px; }
   #empty { display: none; padding: 16px 8px; font-size: 12px; }
 </style>
 </head>
@@ -57,6 +59,9 @@ export const CHART_HTML: string = `<!DOCTYPE html>
     // 重渲染安全:先清空 pane 标题叠加(与 #chart 平级,不受 chartEl.innerHTML='' 影响)
     var labelsEl = document.getElementById('pane-labels');
     labelsEl.innerHTML = '';
+    // 窄屏主图图例是 #chart-wrap 之前的文档流块(不在 labelsEl 内),重渲染前单独移除
+    var oldInline = document.querySelector('.pane-label.inline');
+    if (oldInline) oldInline.parentNode.removeChild(oldInline);
     var data = window.__SOA_CHART_DATA__;
     if (!data) {
       document.getElementById('empty').style.display = 'block';
@@ -175,6 +180,8 @@ export const CHART_HTML: string = `<!DOCTYPE html>
       acc += (height * st2) / sumStretch;
     }
     labelsEl.innerHTML = '';
+    // 窄屏(<560px)主图图例改文档流内块:插入 #chart-wrap 之前,不遮挡 K 线
+    var narrow = window.innerWidth < 560;
     for (var pi3 = 0; pi3 < panes.length; pi3++) {
       if (pi3 >= tops.length) continue; // 防御:pane 数据缺失(理论不触发,stretch 循环同假设)
       var g2 = data.legend && data.legend[pi3];
@@ -194,7 +201,6 @@ export const CHART_HTML: string = `<!DOCTYPE html>
       if (!paneTitle && !chips.length) continue;
       var lab = document.createElement('div');
       lab.className = 'pane-label';
-      lab.style.top = tops[pi3] + 'px';
       if (paneTitle) {
         var tt = document.createElement('span');
         tt.className = 'pl-title';
@@ -214,7 +220,15 @@ export const CHART_HTML: string = `<!DOCTYPE html>
         chip.appendChild(l2);
         lab.appendChild(chip);
       }
-      labelsEl.appendChild(lab);
+      if (narrow && pi3 === 0) {
+        // 窄屏主图:文档流内换行块,插到图表容器之前(absolute 浮层换行会遮挡 K 线)
+        lab.classList.add('inline');
+        var cw = document.getElementById('chart-wrap');
+        cw.parentNode.insertBefore(lab, cw);
+      } else {
+        lab.style.top = tops[pi3] + 'px';
+        labelsEl.appendChild(lab);
+      }
     }
   }
 

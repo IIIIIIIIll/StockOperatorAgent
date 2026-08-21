@@ -52,6 +52,11 @@ chart:build` 生成、`npm run chart:check` 校验一致性。
   正负着色。
 - **图例与颜色单点**:系列色常量 `C` 与 `LEGEND` 数组同源,图例 chips 与图上
   线条不漂移;柱(成交量/MACD/MACD_VH)用 theme.colors.up/down 半透明。
+- **窄屏图例(08-21-mobile-pane-label)**:宽度 < 560px 时主图图例(9 chips
+  单行 ≈ 470px 放不下)改为图表容器上方**文档流内换行块**(flexWrap,不遮挡
+  K 线),其余 pane(≤3 chips)保持浮层;宽屏维持浮层叠加。判定:
+  web 分支 `useWindowDimensions().width`、WebView 分支 `window.innerWidth`
+  (chartHtml `.pane-label.inline`),两分支规则一致。
 
 ## 财务趋势图(app/components/FinancialTrendChart.tsx)
 
