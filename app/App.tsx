@@ -141,8 +141,9 @@ function AppContent() {
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
         </View>
-        {/* 菜单展开时下方内容整体下移(≈菜单高度):浮层悬在空白上,不遮任何信息 */}
-        <View style={showMarketMenu ? styles.formMenuPush : undefined}>
+        {/* 悬浮下拉:菜单为 absolute 浮层(zIndex 200),直接盖在下方内容上;
+            点击全屏背板(下方)关闭 */}
+        <View>
           {/* 市场徽标(S5):start() 归一化后 market 已知;有结果/错误/上次分析时展示 */}
           {a.lastRunAt || a.error || a.stockInformation ? (
             <View style={styles.marketBadgeRow}>
@@ -265,8 +266,6 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     marketOptionTextActive: { color: theme.colors.primary, fontWeight: '700' },
     marketOptionCheck: { fontSize: 12, color: theme.colors.primary, fontWeight: '700' },
     marketBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, backgroundColor: 'transparent' },
-    // 菜单展开时下方内容整体下移(≈菜单高度):浮层悬在空白上,不遮任何信息
-    formMenuPush: { marginTop: 116 },
     startButton: { backgroundColor: theme.colors.primary, borderRadius: theme.radius.sm, paddingHorizontal: 24, justifyContent: 'center' },
     startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },
