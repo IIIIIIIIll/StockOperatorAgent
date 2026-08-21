@@ -36,7 +36,7 @@ import {
 } from '../lib/runner';
 import { describeError } from '../../src/events.ts';
 import { selectCollector } from '../lib/collectorSelection';
-import { normalizeTicker, type Market } from '../../src/market.ts';
+import { marketOfStoreTicker, normalizeTicker, type Market } from '../../src/market.ts';
 import type { MarketCollector } from '../../src/collector.ts';
 import type { CollectSkipOpts } from '../../src/webCollect.ts';
 import { startAnalysisKeepAlive, stopAnalysisKeepAlive } from '../modules/soa-keepalive';
@@ -57,7 +57,7 @@ export interface UseAnalysis {
   lastRunTicker: string;
   lastRunAt: { at: string; mode: 'real' | 'demo' } | null;
   /** 最近一次 start() 归一化得到的市场(S5;UI 徽标/DataScreen 单位消费)。
-   *  初始 cn(demo 上下文);lastRun 恢复路径与市场无关(ticker 即键),保持。 */
+   *  初始 cn(demo 上下文);lastRun 恢复路径按 ticker 反推市场,不落默认 cn。 */
   market: Market;
   settings: SettingsState;
   start: (ticker: string, market: Market) => Promise<void>;
@@ -134,6 +134,10 @@ export function useAnalysis(): UseAnalysis {
         if (manager && last.final_decision.trim()) st[manager.nodeName] = 'done';
         setStatuses(st);
         setLastRunAt({ at: last.at, mode: last.mode });
+        // 恢复路径同步市场:lastRun ticker 即 store 键(规范化产物),反推市场 → 徽标/
+        // DataScreen 单位/下拉初始值一致(手动市场时代,恢复不再停留默认 cn)
+        const m = marketOfStoreTicker(last.ticker);
+        if (m) setMarket(m);
       } else {
         // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
         const demoF10 = store.getMeta(DEMO_F10_KEY);
@@ -221,7 +225,13 @@ export function useAnalysis(): UseAnalysis {
     // ('0700.HK') / US 字母大写);格式不符 → 明确文案,不发起分析
     const normalized = normalizeTicker(code, market);
     if (normalized === null) {
-      setError('请输入有效的股票代码：沪深A股六位数字、港股一至五位数字、或美股字母代码');
+      // 校验文案按所选市场定制(北交所文案在上一分支逐字保留,不归此处)
+      const messages: Record<Market, string> = {
+        cn: '请输入有效的沪深A股代码：六位数字',
+        hk: '请输入有效的港股代码：一至五位数字',
+        us: '请输入有效的美股代码：字母开头，可含 . 或 -',
+      };
+      setError(messages[market]);
       return;
     }
     const { market: m, ticker: nt } = normalized;

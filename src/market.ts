@@ -94,3 +94,13 @@ export function normalizeTicker(input: string, market: Market): { market: Market
   if (!/^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(input)) return null;
   return { market: 'us', ticker: input.toUpperCase() };
 }
+
+/** store/fetch 键(规范化产物)→ 市场反推(lastRun 恢复等场景;store 键已规范化,
+ *  格式即市场,无需 4/8 拦截——BJ 票从不入库)。'600036'→cn;'0700.HK'/'9988.HK'
+ *  →hk;'AAPL'/'BRK.B'→us;无法识别 → null。 */
+export function marketOfStoreTicker(ticker: string): Market | null {
+  if (/^\d{6}$/.test(ticker)) return 'cn';
+  if (/^\d{1,5}\.HK$/i.test(ticker)) return 'hk';
+  if (/^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(ticker)) return 'us';
+  return null;
+}

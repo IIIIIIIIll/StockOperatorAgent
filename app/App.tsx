@@ -45,6 +45,10 @@ function AppContent() {
   }, [width]);
 
   const a = useAnalysis();
+  // 恢复/上次运行后下拉跟随真实市场(a.market 仅 start()/恢复时变更,不影响运行中选择)
+  React.useEffect(() => {
+    setMarket(a.market);
+  }, [a.market]);
   const roles = reportRoles(); // (stateKey, tabTitle) —— report_tabs() 契约
 
   const missing = missingLlmKeys(a.settings.keys);
@@ -133,25 +137,31 @@ function AppContent() {
               </View>
             ) : null}
           </View>
-          <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => void a.start(ticker, market)}>
+          <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => { setShowMarketMenu(false); void a.start(ticker, market); }}>
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
         </View>
-        {/* 市场徽标(S5):start() 归一化后 market 已知;有结果/错误/上次分析时展示 */}
-        {a.lastRunAt || a.error || a.stockInformation ? (
-          <View style={styles.marketBadgeRow}>
-            <Text style={styles.marketBadge}>{marketInfo(a.market).label}</Text>
-          </View>
-        ) : null}
-        {gateNotice ? <Text style={styles.warn}>⚠ {gateNotice}</Text> : null}
-        {a.lastRunAt && !a.running ? (
-          <Text style={styles.info}>
-            已显示上次分析结果 · {new Date(a.lastRunAt.at).toLocaleString()} · {a.lastRunAt.mode === 'real' ? '真实 LLM' : '演示模式'}
-          </Text>
-        ) : null}
-        {a.error ? <Text style={styles.error}>✗ {a.error}</Text> : null}
+        {/* 菜单展开时下方内容整体下移(≈菜单高度):浮层悬在空白上,不遮任何信息 */}
+        <View style={showMarketMenu ? styles.formMenuPush : undefined}>
+          {/* 市场徽标(S5):start() 归一化后 market 已知;有结果/错误/上次分析时展示 */}
+          {a.lastRunAt || a.error || a.stockInformation ? (
+            <View style={styles.marketBadgeRow}>
+              <Text style={styles.marketBadge}>{marketInfo(a.market).label}</Text>
+            </View>
+          ) : null}
+          {gateNotice ? <Text style={styles.warn}>⚠ {gateNotice}</Text> : null}
+          {a.lastRunAt && !a.running ? (
+            <Text style={styles.info}>
+              已显示上次分析结果 · {new Date(a.lastRunAt.at).toLocaleString()} · {a.lastRunAt.mode === 'real' ? '真实 LLM' : '演示模式'}
+            </Text>
+          ) : null}
+          {a.error ? <Text style={styles.error}>✗ {a.error}</Text> : null}
+        </View>
 
       </View>
+
+      {/* 全屏背板:菜单打开时点击空白处关闭(背板 zIndex 90,在菜单 wrap 100 之下、正文之上) */}
+      {showMarketMenu ? <Pressable style={styles.marketBackdrop} onPress={() => setShowMarketMenu(false)} accessibilityLabel="关闭市场选择" /> : null}
 
       {/* 主体:侧边栏设置(左侧抽屉)+ 内容区 */}
       <View style={styles.main}>
@@ -242,7 +252,7 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     heading: { fontSize: 24, fontWeight: '800', color: theme.colors.primary, letterSpacing: 0.5 },
     form: { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
     formLabel: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing.sm },
-    formRow: { flexDirection: 'row', gap: theme.spacing.sm },
+    formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
     tickerInput: { flex: 1, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: theme.colors.text, maxWidth: 220 },
     marketSelectWrap: { position: 'relative', zIndex: 100, justifyContent: 'center' },
     marketSelect: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 10, paddingVertical: 10, minWidth: 92 },
@@ -254,6 +264,9 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     marketOptionText: { fontSize: 13, color: theme.colors.text },
     marketOptionTextActive: { color: theme.colors.primary, fontWeight: '700' },
     marketOptionCheck: { fontSize: 12, color: theme.colors.primary, fontWeight: '700' },
+    marketBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, backgroundColor: 'transparent' },
+    // 菜单展开时下方内容整体下移(≈菜单高度):浮层悬在空白上,不遮任何信息
+    formMenuPush: { marginTop: 116 },
     startButton: { backgroundColor: theme.colors.primary, borderRadius: theme.radius.sm, paddingHorizontal: 24, justifyContent: 'center' },
     startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },
@@ -267,7 +280,7 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     sidebarTabText: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
     main: { flex: 1, flexDirection: 'row' },
     contentColumn: { flex: 1 },
-    tabBar: { flexGrow: 0, backgroundColor: theme.colors.background, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    tabBar: { flexGrow: 0, flexWrap: 'wrap', backgroundColor: theme.colors.background, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     statusBar: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
     statusChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2 },
     statusChipText: { fontSize: 11, fontWeight: '600' },

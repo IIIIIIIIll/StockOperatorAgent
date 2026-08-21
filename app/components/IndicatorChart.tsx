@@ -143,7 +143,9 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
           horzLines: { color: theme.colors.border },
         },
         timeScale: { borderColor: theme.colors.border },
-        rightPriceScale: { borderColor: theme.colors.border },
+        // 刻度区最小宽度:默认下价格标签紧贴 canvas 右缘(视觉拥挤/截断风险),
+        // 给足宽度让标签舒展
+        rightPriceScale: { borderColor: theme.colors.border, minimumWidth: 56 },
       });
 
       const dates = bars.map((b) => fmtDate(b.date));

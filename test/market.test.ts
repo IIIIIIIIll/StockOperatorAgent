@@ -1,7 +1,7 @@
 // market 模型单测:detectMarket 全表 / hkSymbolCandidates 候选序 /
-// normalizeTicker 往返 / marketInfo 元信息表。纯函数零 IO,无 mock。
+// normalizeTicker 按市场强制校验 / marketOfStoreTicker 反推 / marketInfo 元信息表。纯函数零 IO,无 mock。
 import { describe, expect, it } from 'vitest';
-import { detectMarket, hkSymbolCandidates, marketInfo, normalizeTicker } from '../src/market.ts';
+import { detectMarket, hkSymbolCandidates, marketInfo, marketOfStoreTicker, normalizeTicker } from '../src/market.ts';
 
 describe('detectMarket', () => {
   it('CN:6 位数字且非 4/8 开头 → cn', () => {
@@ -94,6 +94,31 @@ describe('normalizeTicker', () => {
     expect(normalizeTicker('0700', 'us')).toBeNull();
     expect(normalizeTicker('1234567', 'hk')).toBeNull(); // 超 HK 5 位上限
     expect(normalizeTicker('', 'cn')).toBeNull();
+  });
+});
+
+describe('marketOfStoreTicker', () => {
+  it('CN:6 位数字 store 键 → cn', () => {
+    expect(marketOfStoreTicker('600036')).toBe('cn');
+  });
+
+  it('HK:数字+.HK 后缀 → hk', () => {
+    expect(marketOfStoreTicker('0700.HK')).toBe('hk');
+    expect(marketOfStoreTicker('9988.HK')).toBe('hk');
+    expect(marketOfStoreTicker('60003.HK')).toBe('hk'); // 契约正则 ^\d{1,5}\.HK$ 允许 5 位数字
+  });
+
+  it('US:字母开头(含 . 与 -)→ us', () => {
+    expect(marketOfStoreTicker('AAPL')).toBe('us');
+    expect(marketOfStoreTicker('BRK.B')).toBe('us');
+    expect(marketOfStoreTicker('BF-B')).toBe('us');
+  });
+
+  it('无法识别 → null(空串/无后缀/超长)', () => {
+    expect(marketOfStoreTicker('')).toBeNull();
+    expect(marketOfStoreTicker('12345')).toBeNull(); // 5 位数字但无 .HK 后缀
+    expect(marketOfStoreTicker('1234567')).toBeNull(); // 超 CN 6 位上限
+    expect(marketOfStoreTicker('0700')).toBeNull(); // 无 .HK 后缀
   });
 });
 
