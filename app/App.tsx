@@ -265,7 +265,7 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     marketOptionText: { fontSize: 13, color: theme.colors.text },
     marketOptionTextActive: { color: theme.colors.primary, fontWeight: '700' },
     marketOptionCheck: { fontSize: 12, color: theme.colors.primary, fontWeight: '700' },
-    marketBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, backgroundColor: 'transparent' },
+    marketBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, backgroundColor: theme.colors.background },
     startButton: { backgroundColor: theme.colors.primary, borderRadius: theme.radius.sm, paddingHorizontal: 24, justifyContent: 'center' },
     startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },

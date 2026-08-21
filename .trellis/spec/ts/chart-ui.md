@@ -81,8 +81,8 @@ IndicatorChart 同约定);pane 顶 y 坐标经 chartLayout `paneTops` 计算。
   挂载(start/switchTab/getState)。
 - **市场下拉(悬浮式)**:菜单为 absolute 浮层(在 select wrap 内 `top:
   '100%'`,zIndex 200),直接盖在下方内容上;**禁止用 marginTop 推移下方内容**
-  (08-22 移除 116px 推移——布局跳动换零遮挡不可取);全屏透明背板
-  (zIndex 90)点外关闭,开始分析先关菜单。
+  (08-22 移除 116px 推移——布局跳动换零遮挡不可取);全屏背板
+  (zIndex 90,**主题背景色实心填充** 而非透明)点外关闭,开始分析先关菜单。
 
 ## iOS/Android 安全区(08-16-audit-remediation)
 
