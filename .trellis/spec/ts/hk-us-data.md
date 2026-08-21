@@ -13,7 +13,8 @@ interface MarketInfo { market: Market; label: string; timeZone: string; currency
 marketInfo(market: Market): MarketInfo;
 detectMarket(input: string): Market | null;                    // cn: /^\d{6}$/ 非 4/8 开头; hk: /^\d{1,5}$/; us: /^[A-Za-z][A-Za-z0-9.-]{0,9}$/
 hkSymbolCandidates(input: string): string[];                   // ≤4 位左补零; 5 位首 0 → [去一前导零 4 位, 原样]; 5 位非 0 首 → 原样。'09988'→['9988.HK','09988.HK']（实网 9988.HK 是阿里官方码）
-normalizeTicker(input: string): { market: Market; ticker: string } | null;  // ticker = store/fetch 键
+normalizeTicker(input: string, market: Market): { market: Market; ticker: string } | null;  // 按所选市场强制校验(无自动识别);ticker = store/fetch 键
+marketOfStoreTicker(ticker: string): Market | null;  // store 键反推市场(恢复场景)
 
 // src/gates.ts（S1）
 marketToday(market: Market): string;            // Intl timeZone: Shanghai/Hong_Kong/New_York
@@ -53,6 +54,7 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 ## 3. Contracts
 
 - **store/fetch ticker 键**：CN 裸 6 位（`600036`）/ 港股 Yahoo 符号（`0700.HK`、`9988.HK`）/ 美股大写（`AAPL`、`BRK.B`）。三格式无碰撞，store schema 零迁移。
+- **市场选择**：UI 下拉三市场(沪深A股/港股/美股,默认沪深A股),无自动识别;normalizeTicker 按所选市场强制校验,格式不符 → null。
 - **HK 代码解析**：输入 → `hkSymbolCandidates` 逐个 chart 试探（404/`chart.error` 视为未命中继续，其余失败中止）；全败 → `无法解析港股代码`。US 无候选直接采。
 - **DailyBar**：date `YYYY-MM-DD` 升序；volume 原始股数（非手）；close 已前复权（Yahoo 服务端）；**10 年窗口 period1/period2 分页**（`range=max` 实测被降级为月K）。
 - **crumb**：fc.yahoo.com 现回 HTTP 404 但仍带 `A3=` Set-Cookie → Node 侧预取 + cookieProvider 注入（`obtainA3`），RN 手动取 set-cookie；quoteSummary 401 → 刷新一次 → 再败降级（overview 仅 chart meta 字段、reports 空，**不整体失败**；chart 失败才中止）。
@@ -69,7 +71,7 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 
 | 条件 | 行为 |
 |---|---|
-| 非法 ticker（非三市场格式） | normalizeTicker → null → UI 错误文案，不发起分析 |
+| 非法 ticker（与所选市场格式不符） | normalizeTicker → null → 按市场定制的错误文案（cn/hk/us 各一），不发起分析 |
 | CN 4/8 前缀 | 北交所文案（逐字保留），不发起 |
 | HK 候选全 404 | 502 `{error:'无法解析港股代码'}`，分析中止 |
 | chart 失败（网络/5xx） | 抛 → 502，分析中止（核心行情） |

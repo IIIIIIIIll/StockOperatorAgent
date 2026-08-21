@@ -1244,3 +1244,51 @@ Full .trellis/spec refresh via 6 subagents (3 scouts, 3 writers, 1 verifier): ts
 ### Status
 
 [OK] **Completed**
+
+
+## Session 46: 市场下拉 review + 修复(交接备忘,未提交)
+
+**Date**: 2026-08-21
+**Task**: 市场下拉 review + 修复(交接备忘,未提交)
+**Branch**: `master`
+
+### Summary
+
+review 08-21 凌晨两笔 UI 提交(f2edddd 市场下拉 + d74046b 移除自动识别/强制校验)并修复全部发现:review 无 bug(511 测试绿+typecheck+Chromium 实机+vision 目检);修复菜单遮挡/恢复路径市场/按市场文案/窄屏溢出 4 类问题
+
+### Main Changes
+
+### 未提交改动(7 文件,建议拆 2 commit:代码+测试 / spec 同步)
+
+| 文件 | 内容 |
+|------|------|
+| `src/market.ts` | 新增 `marketOfStoreTicker(ticker)`(store 键反推市场:6 位→cn / 数字+.HK→hk / 字母→us / 其余 null) |
+| `app/hooks/useAnalysis.ts` | lastRun 恢复按 ticker 反推市场(setMarket);错误文案按所选市场定制(cn/hk/us 各一);北交所文案逐字保留 |
+| `app/App.tsx` | 下拉跟随 a.market;全屏 backdrop 点外关闭;开始分析先关菜单;菜单展开时下方内容 marginTop 116 推移防遮挡;formRow/tabBar 加 flexWrap(窄屏防溢出) |
+| `app/components/IndicatorChart.tsx` | rightPriceScale minimumWidth: 56(Y 轴刻度贴边) |
+| `test/market.test.ts` | 头注释修正 + marketOfStoreTicker 单测(+4) |
+| `.trellis/spec/ts/hk-us-data.md` / `chart-ui.md` | normalizeTicker(input, market) / start(ticker, market) / marketOfStoreTicker 签名同步 |
+
+### 验证
+
+511 通过/1 跳过、typecheck 干净;实机(Chromium+CDP)验证:菜单推移无遮挡、三市场错误文案、北交所保留、窄屏 375px 无横向滚动、恢复路径(港股 lastRun → 下拉/徽标/单位 HKD);vision 目检 6+3 张截图(遗留问题见下)。
+
+### 遗留(未修,移动端专项)
+
+窄屏下 K线图 pane 浮层图例文字挤压截断(EMA20→EMA2),paneLabel wrap 会遮图,未动。
+
+### 平台环境交接(重要)
+
+- **xd:// 设备缺失**:本会话(`omp --resume 01a02492...`,21:46 创建)内 inspect_image/browser/lsp/chrome-devtools MCP 全部 not found;**全新会话设备齐全**(实测 lsp/inspect_image 可用)。换 session 请**新开**,勿 resume 旧会话。
+- vision 模型可用:配置 `~/.omp/agent/config.yml` `vision: opencode-go/mimo-v2.5:high`;CLI 直调:`omp -p "描述" --model opencode-go/mimo-v2.5 @<png>`。
+- 测试截图:`/tmp/soa-shots/01~10-*.png`(桌面/菜单/窄屏/错误文案/完成态)。
+- 测试用 profile:/tmp/soa-chrome2 含港股 lastRun(IndexedDB),可复现恢复路径。
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**

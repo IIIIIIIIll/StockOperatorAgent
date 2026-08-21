@@ -68,7 +68,7 @@ IndicatorChart 同约定);pane 顶 y 坐标经 chartLayout `paneTops` 计算。
 - 分析编排(状态/启动链/runner 订阅/start 编排/设置保存)在 useAnalysis.ts;
   App.tsx 是**纯渲染层**(UI 状态 activeTab/ticker/showSettings + 派生 +
   `__soa` 调试钩子 + 样式)。
-- 约束:`start(ticker)` 参数化(ticker 输入框在 App);hook 内订阅 effect 保持
+- 约束:`start(ticker, market)` 参数化(ticker 输入框与市场下拉均在 App;市场手动选择,默认沪深A股;hook 恢复 lastRun 时按 ticker 反推市场);hook 内订阅 effect 保持
   **空依赖数组**——闭包只碰稳定引用(`modeRef`)+ 模块级 `enabledRoles()`,
   新增状态读取若来自 settings 必须经 ref 同步(防陈旧闭包);后续 UI 逻辑
   (新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx。
