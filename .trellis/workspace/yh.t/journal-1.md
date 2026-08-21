@@ -1313,3 +1313,24 @@ review 08-21 凌晨两笔 UI 提交(f2edddd 市场下拉 + d74046b 移除自动�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 48: 市场下拉改悬浮式(移除 116px 推移)
+
+**Date**: 2026-08-22
+**Task**: 市场下拉改悬浮式(移除 116px 推移)
+**Branch**: `master`
+
+### Summary
+
+用户要求去掉 Session 46 的 marginTop 116 推移方案:菜单为 absolute 浮层(zIndex 200)直接盖在下方内容上,全屏透明背板(zIndex 90)点外关闭,开始分析先关菜单;移除 formMenuPush 样式与条件包装。验证:typecheck 干净 + Chromium 实测(菜单开/关徽标 top 104.5 不变、无布局跳动、开→背板点外关闭环、vision 目检悬浮正常)。spec chart-ui.md 增加约定:禁止推移方案
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ff21450` | (see git log) |
+
+### Status
+
+[OK] **Completed**
