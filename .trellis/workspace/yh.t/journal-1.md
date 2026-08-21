@@ -1292,3 +1292,24 @@ review 08-21 凌晨两笔 UI 提交(f2edddd 市场下拉 + d74046b 移除自动�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 47: 窄屏主图图例截断修复(mobile-pane-label)
+
+**Date**: 2026-08-22
+**Task**: 窄屏主图图例截断修复(mobile-pane-label)
+**Branch**: `master`
+
+### Summary
+
+窄屏(<560px)主图图例(9 chips 单行≈470px 放不下,EMA20 被截成 EMA2)改为图表上方文档流内换行块,不遮 K 线;宽屏浮层不变。web 分支 useWindowDimensions + WebView 分支 window.innerWidth 同规则(chartHtml .pane-label.inline,chart:build/check 通过)。验证:typecheck 干净 + 511 测试绿 + Chromium 实机(375px 仿真两行完整/1280px 浮层原样,DOM 计算样式核对) + vision 目检 3 张截图
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `05e9c25` | (see git log) |
+
+### Status
+
+[OK] **Completed**

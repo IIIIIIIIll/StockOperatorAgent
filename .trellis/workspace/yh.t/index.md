@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 46
-- **Last Active**: 2026-08-21
+- **Total Sessions**: 47
+- **Last Active**: 2026-08-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1294 | Active |
+| `journal-1.md` | ~1315 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 47 | 2026-08-22 | 窄屏主图图例截断修复(mobile-pane-label) | `05e9c25` | `master` |
 | 46 | 2026-08-21 | 市场下拉 review + 修复(交接备忘,未提交) | - | `master` |
 | 45 | 2026-08-20 | 港股美股支持(hk-us-stocks): Yahoo 主源+Finnhub 增强, 任务树 S1-S5 全合并 | `791d05b1eb182fe80e16a09dc7e6a3c8e0d1a7f0` | `master` |
 | 44 | 2026-08-19 | Spec refresh to pure-TS reality | `f3127a9` | `master` |
