@@ -1334,3 +1334,24 @@ review 08-21 凌晨两笔 UI 提交(f2edddd 市场下拉 + d74046b 移除自动�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 49: 市场下拉背板改实心填充
+
+**Date**: 2026-08-22
+**Task**: 市场下拉背板改实心填充
+**Branch**: `master`
+
+### Summary
+
+背板 backgroundColor transparent → theme.colors.background(实心,不透明):菜单打开时下方内容被主题色层完全覆盖,菜单悬浮其上,零布局位移;点背板关闭闭环。验证:typecheck 干净 + Chromium 实测(背板 rgb(255,255,255) opacity 1 全屏、zIndex 90<菜单 200、开→关闭环)+ vision 目检。spec 同步'实心填充'
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `be37715` | (see git log) |
+
+### Status
+
+[OK] **Completed**
