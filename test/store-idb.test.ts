@@ -203,3 +203,52 @@ describe('IdbStore 写穿透队列(决策 C:失败仅记录不阻断后续写)',
     expect(puts).toHaveLength(4);
   });
 });
+
+describe('IdbStore close() 排空写穿队列(close 不丢 pending 写)', () => {
+  it('enqueue 后立即 close(不显式 flush)→ 未落盘写全部已提交,新实例 hydrate 可见', async () => {
+    const factory = makeIdbFactory();
+    const a = newStore(factory);
+    await a.ready();
+    a.putStock({
+      ticker: '600036',
+      name: '招商银行',
+      overview: { latest_price: 38.8 },
+      overviewLastUpdate: '2026-08-07',
+      lastDataUpdate: '2026-08-14',
+    });
+    a.addDatas('600036', bars(['2026-08-13', '2026-08-14']));
+    a.setMeta('k', 'v');
+    // replaceDatas 的落盘 op 在执行时读 bars 内存镜像:close 若先清内存则写 0 行丢数据
+    a.replaceDatas('T2', bars(['2026-09-01', '2026-09-02']));
+    a.close(); // 无显式 flush;close 实现:清理挂队列尾(先排空 pending 写再清理/关连接)
+    await a.flush(); // 队列尾 = close 清理任务;resolve 即 pending 写已提交 + 连接已关
+    expect(a.getDatas('T2')).toHaveLength(0); // 清理已随队列执行:内存镜像已清
+
+    const b = newStore(factory);
+    await b.ready();
+    expect(b.getStock('600036')?.name).toBe('招商银行');
+    expect(b.getDatas('600036').map((x) => x.date)).toEqual(['2026-08-13', '2026-08-14']);
+    expect(b.getMeta('k')).toBe('v');
+    expect(b.getDatas('T2').map((x) => x.date)).toEqual(['2026-09-01', '2026-09-02']);
+  });
+
+  it('close 后 enqueue 被阻止:close 之后的改动不再落盘', async () => {
+    const factory = makeIdbFactory();
+    const a = newStore(factory);
+    await a.ready();
+    a.close();
+    await a.flush();
+    a.putStock({
+      ticker: 'B',
+      name: '复活',
+      overview: { latest_price: 1 },
+      overviewLastUpdate: '2026-08-07',
+      lastDataUpdate: '2026-08-14',
+    }); // close 后:enqueue no-op(写穿禁用)
+    a.addDatas('B', bars(['2026-08-13']));
+    const b = newStore(factory);
+    await b.ready();
+    expect(b.getStock('B')).toBeNull();
+    expect(b.getDatas('B')).toHaveLength(0);
+  });
+});

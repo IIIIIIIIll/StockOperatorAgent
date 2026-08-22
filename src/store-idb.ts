@@ -128,6 +128,7 @@ export class IdbStore implements StoreLike {
   private readonly factory: IdbFactoryLike | undefined;
   private readonly dbName: string;
   private queue: Promise<void> = Promise.resolve();
+  private closed = false;
   private dbPromise: Promise<IdbDatabaseLike> | null = null;
   private readyPromise: Promise<void> | null = null;
 
@@ -192,8 +193,10 @@ export class IdbStore implements StoreLike {
     }
   }
 
-  /** 写穿透队列:单 Promise 链串行保证写序;失败仅记录,不阻断后续写(决策 C)。 */
+  /** 写穿透队列:单 Promise 链串行保证写序;失败仅记录,不阻断后续写(决策 C)。
+   *  close() 后不再入队(store 已关闭,写穿禁用;见 close 注释)。 */
   private enqueue(op: () => Promise<void>): void {
+    if (this.closed) return;
     this.queue = this.queue
       .then(() => this.ready())
       .then(op)
@@ -254,14 +257,28 @@ export class IdbStore implements StoreLike {
     });
   }
 
+  /** 关闭仓储:先排空写穿队列(所有 pending 写落盘)再清内存镜像、释放连接,不丢写。
+   *  接口契约为同步 close(): void(StoreLike 11 同步方法),无法在 close 内 await
+   *  队列——实现:本方法同步置 closed(阻止后续 enqueue,close 后不再排队/落盘),
+   *  并把「等待队列排空 → 清内存 + 关连接」挂到队列尾:队列尾任务按序排在前序
+   *  pending 写之后执行,等效于先 flush 后清理。队列可由 flush() 观察排空时机。 */
   close(): void {
-    this.stocks.clear();
-    this.bars.clear();
-    this.reports.clear();
-    this.meta.clear();
-    this.queue = Promise.resolve();
-    this.readyPromise = null;
-    this.dbPromise = null;
+    if (this.closed) return;
+    this.closed = true;
+    this.queue = this.queue.then(async () => {
+      this.stocks.clear();
+      this.bars.clear();
+      this.reports.clear();
+      this.meta.clear();
+      try {
+        const db = await (this.dbPromise ?? Promise.resolve(null));
+        if (db) db.close();
+      } catch (err: unknown) {
+        logError(`IdbStore 关闭连接失败:${err instanceof Error ? err.message : String(err)}`);
+      }
+      this.readyPromise = null;
+      this.dbPromise = null;
+    });
   }
 
   getStock(ticker: string): StockRecord | null {
