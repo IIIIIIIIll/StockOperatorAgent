@@ -1374,3 +1374,22 @@ review 08-21 凌晨两笔 UI 提交(f2edddd 市场下拉 + d74046b 移除自动�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 51: 市场下拉改 Modal 弹层修复 web 端菜单透明(RN-web 层叠 bug)
+
+**Date**: 2026-08-22
+**Task**: 市场下拉改 Modal 弹层修复 web 端菜单透明(RN-web 层叠 bug)
+**Branch**: `master`
+
+### Summary
+
+用户报告 web 端市场下拉菜单看起来透明、背后内容(未配置LLM三键警告文字等)透出。根因:RN-web 层叠上下文 bug——表单里下拉之后渲染的警告/信息文字 View 被绘制到菜单卡片之上,导致卡片看似透明。验证:纯 zIndex 提升(卡片/下拉wrap/form 调到999999/3000)均无效,隐藏警告文字后卡片才恢复实心,确证层叠而非透明度问题。修复:菜单改用 RN Modal(transparent)渲染,portal 到 root 层盖住表单内容;按钮 measureInWindow 测量坐标定位菜单于按钮下;全屏透明点击层点外关闭。验证:typecheck 干净+511 测试绿+chart:check OK+web(DevTools 像素 gold=0 警告文字不再透出,vision 确认真实心浮层,点外关闭/选美股标签更新)+Android(模拟器实机,像素 gold=0,vision 确认实心,点外关闭/选港股标签更新)。spec chart-ui.md 同步 Modal 方案。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
