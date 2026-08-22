@@ -59,7 +59,18 @@ These guides help you **ask the right questions before coding**.
 
 → Read [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md)
 
+### When to Think About Cross-Platform Rendering
+
+- [ ] You're implementing 浮层/下拉/弹窗/toast in `app/` (absolute overlay)
+- [ ] A visual bug reproduces on one platform but not the other (web vs Android/iOS)
+- [ ] You're about to fight zIndex / elevation / stacking order
+- [ ] You touch safe-area, status bar, or keyboard-avoiding layout
+- [ ] 修完平台差异 bug → 追加到指南内「已知平台差异清单」
+
+→ Read [Cross-Platform Thinking Guide](./cross-platform-thinking-guide.md)
+
 ### When Verifying UI Changes
+
 
 - [ ] UI 改动（`app/` 组件、hooks、图表渲染逻辑）→ 先跑 `npm test`
       （vitest）相关单测（`test/chart-layout.test.ts` 钉死 `paneTops`、
