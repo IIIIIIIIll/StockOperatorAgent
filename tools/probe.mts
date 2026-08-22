@@ -4,7 +4,7 @@
 // 直连行情无需 key(A 股);Yahoo 直连免 key(港股/美股)。
 // SOA_COLLECT_ONLY=1:仅采集入库 → 打印 行情已入库/业绩报告/概览键摘要 →
 // 写 probe-output/report.json {ticker, bars, reports, overview} → 退出
-// (不要求 LLM 三键、不跑委员会);未设 → 现有全链逻辑(LLM 三键必需,错误照旧)。
+// (不要求 LLM 三键、不跑委员会);未设 → 现有全链逻辑(LLM 三键必需,失败经 error 事件上报)。
 import fs from 'node:fs';
 import { TdxClient } from 'node-tdx-market';
 import { Store } from '../src/store.ts';
@@ -39,7 +39,7 @@ function overviewKeys(overview: Record<string, number | string>): string {
 }
 
 /** 全链 LLM 段(CN/hk/us 共用):三键齐 → 真 LLM;缺 → 占位 stub;runner.run 后
- *  写完整 report.json。LLM 三键必需,错误照旧。 */
+ *  写完整 report.json。LLM 三键必需,失败经 error 事件上报。 */
 async function runFullAnalysis(
   store: Store,
   runner: PipelineRunner,
@@ -65,7 +65,11 @@ async function runFullAnalysis(
   }
 
   const t0 = Date.now();
-  const report = (await runner.run(ticker, { ...opts, llm }))!;
+  const report = await runner.run(ticker, { ...opts, llm });
+  if (!report) {
+    console.error('  分析失败(根因见上方 error 事件),跳过 report.json');
+    return;
+  }
   console.error(`  耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s;final_decision ${report.final_decision.length} 字符`);
   const out = {
     ticker: report.ticker,
@@ -195,6 +199,7 @@ async function main(): Promise<void> {
   runner.subscribe((e) => {
     if (e.type === 'progress') console.error(`  · ${e.message}`);
     else if (e.type === 'report') console.error(`  · 报告[${e.tabTitle}] ${e.content.length} 字符`);
+    else if (e.type === 'error') console.error(`  ✗ 分析失败:${e.error}`);
   });
   console.error(`=== 探针 ${ticker} ===`);
   // ticker 经 detectMarket 市场分派:cn → 现有 TDX 链路原样;hk/us → Yahoo 直连

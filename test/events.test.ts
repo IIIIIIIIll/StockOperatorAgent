@@ -62,7 +62,8 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     const events: PipelineEvent[] = [];
     runner.subscribe((e) => events.push(e));
 
-    const report = (await runner.run('600036', {      f10Text,
+    const report = (await runner.run('600036', {
+      f10Text,
       snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
       today: '2026-08-09',
       llm: stubLlm(),
@@ -177,7 +178,8 @@ describe('run() market 接线（S4）', () => {
     const events: PipelineEvent[] = [];
     runner.subscribe((e) => events.push(e));
 
-    const report = (await runner.run('0700.HK', {      today: '2026-08-09',
+    const report = (await runner.run('0700.HK', {
+      today: '2026-08-09',
       market: 'hk',
       llm: stubLlm(),
     }))!;
@@ -193,7 +195,7 @@ describe('run() market 接线（S4）', () => {
     const events: PipelineEvent[] = [];
     runner.subscribe((e) => events.push(e));
 
-    const report = (await runner.run('600036', { today: '2026-08-09', llm: stubLlm() }) )!;
+    const report = (await runner.run('600036', { today: '2026-08-09', llm: stubLlm() }))!;
 
     expect(report.stock_information).toContain('（未配置 TDX_API_KEY，跳过实时市场情报）');
     expect(report.stock_information).not.toContain('（港股/美股暂无实时市场情报源，跳过）');

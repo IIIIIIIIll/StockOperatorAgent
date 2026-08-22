@@ -60,7 +60,12 @@ export function describeError(err: unknown): string {
       const parts = e.errors.map((x) => {
         const m = (x as { message?: unknown })?.message;
         if (typeof m === 'string') return m;
-        const s = JSON.stringify(x);
+        let s: string | undefined;
+        try {
+          s = JSON.stringify(x);
+        } catch {
+          s = undefined;
+        }
         return s ? s.slice(0, 200) : String(x);
       });
       return parts.join('; ');
