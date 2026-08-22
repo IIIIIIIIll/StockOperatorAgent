@@ -49,7 +49,7 @@ export interface RunOptions extends Omit<PipelineDeps, 'store' | 'progress'> {
 
 export interface PipelineRunner {
   subscribe(listener: (e: PipelineEvent) => void): () => void;
-  run(ticker: string, opts?: RunOptions): Promise<FinalReport>;
+  run(ticker: string, opts?: RunOptions): Promise<FinalReport | undefined>;
 }
 
 /** LangGraph 聚合异常(如 superstep 并行节点全失败)含 errors[]——提取具体原因。 */
@@ -166,9 +166,13 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         emit({ type: 'done', report });
         return report;
       } catch (err) {
+        // 契约(error-handling.md「runner never throws past event boundary」):
+        // 运行期/配置期失败一律以 `error` 事件(携带 describeError 消息文本)
+        // 上报,run() resolve(undefined)而非 rethrow —— 失败信号唯一通道是
+        // 事件,UI/探针经 subscribe 消费,不越过事件边界抛错。
         const message = describeError(err);
         emit({ type: 'error', error: message });
-        throw err;
+        return undefined;
       }
     },
   };

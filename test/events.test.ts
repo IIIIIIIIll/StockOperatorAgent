@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import { AIMessage } from '@langchain/core/messages';
 import { Store, type DailyBar } from '../src/store.ts';
 import { createPipelineRunner, describeError, type PipelineEvent } from '../src/events.ts';
-import { MissingLlmConfigError } from '../src/llm.ts';
 
 const fixtureRaw = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')).raw as DailyBar[];
 const bars = fixtureRaw.map((b) => ({ ...b, date: b.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') }));
@@ -63,12 +62,11 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     const events: PipelineEvent[] = [];
     runner.subscribe((e) => events.push(e));
 
-    const report = await runner.run('600036', {
-      f10Text,
+    const report = (await runner.run('600036', {      f10Text,
       snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
       today: '2026-08-09',
       llm: stubLlm(),
-    });
+    }))!;
 
     const types = events.map((e) => e.type);
     expect(types[0]).toBe('progress');
@@ -109,7 +107,7 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     expect(report.stock_information).toContain('（未配置 TDX_API_KEY，跳过实时市场情报）');
   });
 
-  it('error path: missing LLM keys → error event + throw', async () => {
+  it('error path: missing LLM keys → error event, run resolves undefined(契约:不抛)', async () => {
     const store = seededStore();
     const runner = createPipelineRunner(store);
     const events: PipelineEvent[] = [];
@@ -119,16 +117,22 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     delete process.env.LLM_API_KEY;
     delete process.env.LLM_MODEL;
     delete process.env.LLM_BASE_URL;
+    let result: unknown;
     try {
-      await expect(runner.run('600036', { today: '2026-08-09' })).rejects.toThrow(MissingLlmConfigError);
+      // 契约(error-handling.md:26-40):失败只以 error 事件上报,run() resolve
+      // (undefined)——不越过事件边界抛错
+      result = await runner.run('600036', { today: '2026-08-09' });
     } finally {
       process.env.LLM_API_KEY = saved.LLM_API_KEY;
       process.env.LLM_MODEL = saved.LLM_MODEL;
       process.env.LLM_BASE_URL = saved.LLM_BASE_URL;
     }
+    expect(result).toBeUndefined();
     expect(events.some((e) => e.type === 'error')).toBe(true);
     const err = events.find((e) => e.type === 'error') as { error: string };
     expect(err.error).toContain('缺少 LLM 配置');
+    // error 为终态:错误路径不得再发 done(防双终态回归)
+    expect(events.some((e) => e.type === 'done')).toBe(false);
   });
 
   it('unsubscribe stops delivery', async () => {
@@ -173,11 +177,10 @@ describe('run() market 接线（S4）', () => {
     const events: PipelineEvent[] = [];
     runner.subscribe((e) => events.push(e));
 
-    const report = await runner.run('0700.HK', {
-      today: '2026-08-09',
+    const report = (await runner.run('0700.HK', {      today: '2026-08-09',
       market: 'hk',
       llm: stubLlm(),
-    });
+    }))!;
 
     expect(report.stock_information).toContain('（港股/美股暂无实时市场情报源，跳过）');
     expect(report.stock_information).not.toContain('未配置 TDX_API_KEY');
@@ -190,7 +193,7 @@ describe('run() market 接线（S4）', () => {
     const events: PipelineEvent[] = [];
     runner.subscribe((e) => events.push(e));
 
-    const report = await runner.run('600036', { today: '2026-08-09', llm: stubLlm() });
+    const report = (await runner.run('600036', { today: '2026-08-09', llm: stubLlm() }) )!;
 
     expect(report.stock_information).toContain('（未配置 TDX_API_KEY，跳过实时市场情报）');
     expect(report.stock_information).not.toContain('（港股/美股暂无实时市场情报源，跳过）');

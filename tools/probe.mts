@@ -65,7 +65,7 @@ async function runFullAnalysis(
   }
 
   const t0 = Date.now();
-  const report = await runner.run(ticker, { ...opts, llm });
+  const report = (await runner.run(ticker, { ...opts, llm }))!;
   console.error(`  耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s;final_decision ${report.final_decision.length} 字符`);
   const out = {
     ticker: report.ticker,
