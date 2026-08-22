@@ -52,6 +52,30 @@ export function requireYahooStore(): StoreLike {
   return yahooStore;
 }
 
+/** B3 字段级合并:新值无效(NaN/undefined/null/缺失)且旧值有效 → 保留旧值,防
+ *  部分字段降级(采集失败/字段缺失)覆盖既有好数据。数值槽 Number.isFinite 校验
+ *  (0 合法);字符串槽新值空(null/undefined/'')且旧值非空 → 保留旧值。 */
+function mergeOverview(
+  incoming: Record<string, number | string>,
+  existing: Record<string, unknown> | null | undefined,
+): Record<string, number | string> {
+  const merged: Record<string, number | string> = { ...incoming };
+  if (!existing) return merged;
+  for (const [key, oldValue] of Object.entries(existing)) {
+    if (!isUsableOverviewValue(merged[key]) && isUsableOverviewValue(oldValue)) {
+      merged[key] = oldValue as number | string;
+    }
+  }
+  return merged;
+}
+
+/** overview 槽值是否可用:数值必须有限(0 合法);字符串必须非空;其余类型不可用。 */
+function isUsableOverviewValue(v: unknown): boolean {
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v === 'string') return v !== '';
+  return false;
+}
+
 /** 代理载荷 → store(putStock overview 槽 / replaceDatas / addPerformanceReports);
  *  返回 run opts 用结果(f10Text 恒 null——Yahoo 链无 F10 文本)。
  *  freshness:skipDaily 时保留既有日K 与 lastDataUpdate,快照/名称/概览仍照常
@@ -68,10 +92,11 @@ export function applyYahooCollectedToStore(
   if (payload.bars.length) {
     store.replaceDatas(payload.ticker, payload.bars);
   }
+  // B3:字段级合并——降级 payload 不覆盖既有好数据(name 同字符串规则)
   store.putStock({
     ticker: payload.ticker,
-    name: payload.name ?? existing?.name ?? payload.ticker,
-    overview: payload.overview,
+    name: payload.name || existing?.name || payload.ticker,
+    overview: mergeOverview(payload.overview, existing?.overview),
     overviewLastUpdate: marketToday(market),
     // 同日跳过:保留既有 lastDataUpdate(维持下次跳过判定);否则记市场本地今天
     // (Yahoo 链 fresh 语义;须在 replaceDatas 之后覆盖其末根日期)

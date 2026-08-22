@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InMemoryStore } from '../src/store-memory.ts';
 import type { StoreLike } from '../src/store.ts';
-import { setYahooStore, applyYahooCollectedToStore } from '../src/yahoo/applyYahooCollectedToStore.ts';
+import { setYahooStore, applyYahooCollectedToStore, type YahooCollectedPayload } from '../src/yahoo/applyYahooCollectedToStore.ts';
 import { collectYahooForDevice, collectYahooPayload } from '../src/yahoo/deviceYahooCollect.ts';
 import { YahooClient, YAHOO_REQUEST_TIMEOUT_MS } from '../src/yahoo/yahooClient.ts';
 import { collectYahooViaProxy } from '../src/yahoo/webYahooCollect.ts';
@@ -513,5 +513,106 @@ describe('Yahoo 链超时(B1:AbortController 40s < 代理 504 定时器 45s;Herm
     await vi.advanceTimersByTimeAsync(YAHOO_REQUEST_TIMEOUT_MS);
     await assertion;
     expect(recorder.current?.aborted).toBe(true);
+  });
+});
+
+describe('applyYahooCollectedToStore B3:字段级合并(降级不覆盖既有好数据)', () => {
+  function seedStock(store: InMemoryStore, overview: Record<string, number | string>): void {
+    store.putStock({
+      ticker: '0700.HK',
+      name: '腾讯控股',
+      overview,
+      overviewLastUpdate: '2026-08-21',
+      lastDataUpdate: '2026-08-21',
+    });
+  }
+
+  function payload(
+    overview: Record<string, number | string>,
+    name: string | null = null,
+  ): YahooCollectedPayload {
+    return {
+      ticker: '0700.HK',
+      name,
+      bars: [],
+      snapshot: null,
+      overview,
+      reports: [],
+      capital: { zongguben: 9_300_000_000, liutongguben: 9_000_000_000 },
+    };
+  }
+
+  it('NaN/空串 payload 不覆盖数值齐全旧槽(逐字段保留),name 同规则', () => {
+    const store = new InMemoryStore();
+    seedStock(store, {
+      ticker: '0700.HK',
+      name: '腾讯控股',
+      latest_price: 400,
+      prev_close: 398,
+      pe_dynamic: 12.5,
+      pb: 1.8,
+      change_percent_60d: -12.5,
+      currency: 'HKD',
+    });
+    applyYahooCollectedToStore(
+      store,
+      payload(
+        {
+          ticker: '0700.HK',
+          name: '',
+          latest_price: NaN,
+          prev_close: NaN,
+          pe_dynamic: NaN,
+          pb: NaN,
+          change_percent_60d: NaN,
+          currency: '',
+        },
+        '',
+      ),
+      'hk',
+    );
+    const overview = store.getStock('0700.HK')?.overview;
+    expect(overview?.latest_price).toBe(400);
+    expect(overview?.prev_close).toBe(398);
+    expect(overview?.pe_dynamic).toBe(12.5);
+    expect(overview?.pb).toBe(1.8);
+    expect(overview?.change_percent_60d).toBe(-12.5);
+    expect(overview?.currency).toBe('HKD');
+    expect(overview?.name).toBe('腾讯控股');
+    expect(store.getStock('0700.HK')?.name).toBe('腾讯控股');
+  });
+
+  it('新有效值(有限数值/非空字符串)覆盖旧值', () => {
+    const store = new InMemoryStore();
+    seedStock(store, { latest_price: 400, pe_dynamic: 12.5, pb: 1.8, currency: 'HKD' });
+    applyYahooCollectedToStore(
+      store,
+      payload({ latest_price: 402, pe_dynamic: 15, pb: 2.1, currency: 'USD' }),
+      'hk',
+    );
+    const overview = store.getStock('0700.HK')?.overview;
+    expect(overview?.latest_price).toBe(402);
+    expect(overview?.pe_dynamic).toBe(15);
+    expect(overview?.pb).toBe(2.1);
+    expect(overview?.currency).toBe('USD');
+  });
+
+  it('0 是合法数值:新值 0 覆盖旧值(勿把 0 判无效)', () => {
+    const store = new InMemoryStore();
+    seedStock(store, { pb: 1.8, volume: 12_345_678 });
+    applyYahooCollectedToStore(store, payload({ pb: 0, volume: 0 }), 'hk');
+    const overview = store.getStock('0700.HK')?.overview;
+    expect(overview?.pb).toBe(0);
+    expect(overview?.volume).toBe(0);
+  });
+
+  it('新 payload 缺失字段(60d)→ 保留既有有效值;新字段照常入库', () => {
+    const store = new InMemoryStore();
+    seedStock(store, { change_percent_60d: -12.5, dividend_yield: 0.05 });
+    applyYahooCollectedToStore(store, payload({ change_percent: 1.2 }), 'hk');
+    const overview = store.getStock('0700.HK')?.overview;
+    expect(overview?.change_percent_60d).toBe(-12.5);
+    expect(overview?.dividend_yield).toBe(0.05);
+    expect(overview?.change_percent).toBe(1.2);
   });
 });
