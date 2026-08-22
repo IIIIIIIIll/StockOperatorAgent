@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/guides/index.md", "reason": "验证 rubric 与质量门"}
+{"file": ".trellis/spec/testing.md", "reason": "测试约定"}
+{"file": ".trellis/spec/ts/index.md", "reason": "七条架构断言/主题路由"}

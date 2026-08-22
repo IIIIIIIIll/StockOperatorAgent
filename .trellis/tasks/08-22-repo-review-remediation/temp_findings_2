@@ -1,0 +1,90 @@
+Content inventory:                                                                                        
+                                                                                                           
+ DesktopToolingReview (delivered JSON, full):                                                              
+ 1. major app/server.mjs:44 — startsWith(DIST) traversal; agent empirically got 200 on /..%2fserver.mjs. I 
+    verified the guard text myself (startsWith only). ✓                                                    
+ 2. major release.yml:127,132 — version="${GITHUB_REF_NAME#v}" unsanitized into bash; permissions          
+    contents:write. Verified lines exist ✓                                                                 
+ 3. minor desktop/package.json:3 version frozen 1.0.0, no tag↔version CI enforcement (verified 1.0.0       
+    present ✓)                                                                                             
+ 4. minor tools/configure-android-signing.mjs:159 lenient base64                                           
+ 5. minor desktop/child.mjs:148 store-op args unvalidated → ticker filename traversal (defense-in-depth)   
+ 6. polish app/server.mjs:58 no Host header validation (DNS rebinding hardening)                           
+ Clean: Electron sandbox:true/contextIsolation:true/nodeIntegration:false, will-navigate denied, preload 4 
+ whitelisted methods, IPC op whitelist+timeouts, child random loopback port; no secrets in dist bundles    
+ (only env var names); app/.env not packaged.                                                              
+ Note: npmmirror registry in all 3 lockfiles (928 pkgs).                                                   
+                                                                                                           
+ AppRNReview (salvaged from final thinking blocks — near-final drafts):                                    
+ 1. major App.tsx:157-171 — Modal fade-out animation leaves ~250ms invisible full-screen input blocker on  
+    web (RNW ModalAnimation pointerEvents none during fadeOut; rapid toggle dead-clicks). Suggest          
+    animationType none on web.                                                                             
+ 2. major App.tsx:117-120/164-171 — stale menuAnchor on rotation/resize; no re-measure/useWindowDimensions 
+    dep.                                                                                                   
+ 3. minor App.tsx:117-120 — measureInWindow async race double-tap reopen.                                  
+ 4. minor App.tsx:169-171 — menu can open off-screen bottom edge, no flip.                                 
+ 5. minor App.tsx:290 — marketModalMenu no maxWidth/right constraint (RN-web shrink quirk).                
+ 6. minor SettingsPanel.tsx:73-78 — saveAndCheck no unmount guard → setState after unmount + stale result. 
+ 7. minor settings.ts:154-190 — checkLlmReachability doc says GET /models but POSTs chat/completions (paid 
+    call), fires unconditionally on save; relative '/llm-proxy' URL invalid in native/desktop shell        
+    contexts [partly INFERENCE]. NOTE my grep for checkLlmReachability|llm-proxy in app returned NOTHING — 
+    suspicious! Maybe it lives elsewhere (app/lib/settings.ts exists per earlier listing... my grep        
+    covered app --include ts,tsx and found nothing?). Hmm — grep printed nothing for "== llm reachability  
+    ==" — that means the symbol doesn't exist under those names in app/. Could be named differently (e.g.  
+    testConnection / probeLlm). Mark as UNVERIFIED/possibly mislocated in doc.                             
+ 8. minor useAnalysis.ts:202-207 — onSettingsChange clears global error banner mid-run.                    
+ 9. minor App.tsx:75-83 — __soa.start bypasses a.running guard (verified verbatim ✓).                      
+ 10. minor DataScreen.tsx:57 — hardcoded fallback '2026-08-10' (verified ✓).                               
+ 11. minor modules/soa-keepalive/index.ts:17-22 — POST_NOTIFICATIONS never requested Android 13+.          
+ 12. polish ReportContent.tsx/DataScreen index keys.                                                       
+ 13. polish IndicatorChart no resize/autoSize handling.                                                    
+ 14. polish stopPropagation redundant (dropped by agent later — include as note? skip).                    
+ 15. minor a11y roles for dropdown/menu.                                                                   
+ 16. minor marketModalRoot aria-modal gap.                                                                 
+ Verified-clean: Android back button onRequestClose OK, click-catcher OK, unmount cleanup OK, WebView      
+ contract OK.                                                                                              
+                                                                                                           
+ CoreLogicReview (salvaged):                                                                               
+ 1. major events.ts:170-171 — emit error + rethrow; spec contract violation ("runner never throws past     
+    event boundary"); duplicate surfacing via useAnalysis listener (193) AND catch (355-357) — both        
+    verified ✓ by me.                                                                                      
+ 2. minor runner.ts:77 module-level singleton runner; no internal concurrent-run guard (UI-only guard);    
+    __soa.start can double-run combined with #9 above (verified singleton line ✓).                         
+ 3. minor store-idb.ts:257 close() drops pending queue without await flush (flush() exists at 146; close   
+    body unverified — mark partially verified).                                                            
+ 4. Design note: mid-graph failure loses all partial results (no done emitted) — error path design         
+    limitation.                                                                                            
+                                                                                                           
+ DataSourceReview (salvaged):                                                                              
+ 1. major Yahoo chain zero timeouts: yahooClient._request bare fetch; deviceYahooCollect                   
+    fetchChartWindow(140-161)/obtainA3(62-70) bare fetch (obtainA3 verified ✓ no signal). Proxy: 45s timer 
+    replies 504 early but collectingYahoo lock held till settle (proxies.cjs:244-322 verified ✓ incl.      
+    comment) → hung connection = permanent 429 for all future /yahoo-collect until restart. RN device path 
+    hangs indefinitely.                                                                                    
+ 2. minor-major deviceYahooCollect.ts:57-70 firstSetCookie sentinel collision — null cached forever after  
+    one transient failure; mitigated: YahooClient falls back to own fc.yahoo.com parse per request         
+    (verified code ✓; impact softer than agent claimed).                                                   
+ 3. minor composeYahooOverview prevCloseOf edge: lastIsToday && bars<2 → prevClose=today close →           
+    change_pct=0 vs CN chain NaN (overview.ts:84).                                                         
+ 4. minor applyYahooCollectedToStore full-slot overwrite: crumb failure/skipDaily recomposed overview      
+    wipes previously good PE/PB/change_percent_60d (NaN) until next successful full collect.               
+ 5. Note: chartPreviousClose documented unusable; collect path avoids except degrade fallbacks.            
+                                                                                                           
+ TestSpecReview (draft recovered with anchors):                                                            
+ Coverage good: market truth-table tests (market.test.ts:7-124), events ordering pinned                    
+ (events.test.ts:60-167), pipeline branches, gates timezones, yahoo candidate probing, proxies SSRF W2/W4  
+ semantics.                                                                                                
+ Gaps:                                                                                                     
+ 1. major(useAnalysis orchestration zero tests): start(ticker, market) ~222-382 + lastRun restore 116-141. 
+ 2. minor updateOverview store-family untested (store-memory.ts:61/store-file.ts:225/store-idb.ts:328).    
+ 3. minor listStocks store-file.ts:251.                                                                    
+ 4. minor mergeFinnhubIndustry deviceYahooCollect.ts:374-389.                                              
+ 5. minor handleYahooCollect proxies.cjs:269.                                                              
+ 6. minor settings env fallback settings.ts:88-91.                                                         
+ Dead exports (certain): makeInvestmentDecision committee.ts:188; overviewNeedsRefresh gates.ts:33;        
+ FetchScope gates.ts:87; envDisabledBool committee.ts:48 (+switches.ts hit in my grep — nuance: appears    
+ also defined/referenced in switches.ts; needs wiring-or-delete decision).                                 
+ Spec drift: hk-us-data.md §7 candidate-order wording vs code (去一前导零 vs 去全部前导零);                
+ agents-tools.md:49 stale; chart-ui.md:21 signature stale re market param.                                 
+ Duplication: isYahooMarket proxies.cjs:253 ≈ webYahooCollect.ts:43-47 yahooMarketOfTicker.                
+ Polish: MarketInfo.lotSize unused; promptRules placeholder by design.     

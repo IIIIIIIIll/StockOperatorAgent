@@ -1,0 +1,93 @@
+ 全仓 Review 发现汇总(2026-08-22)                                                                                                   
+                                                                                                                                    
+ 元信息                                                                                                                             
+                                                                                                                                    
+ - 5 reviewer 并行(CoreLogic/DataSource/AppRN/DesktopTooling/TestSpec)                                                              
+ - 交付方式:DesktopTooling 完整 JSON;其余四个 provider stream 错误死在最后回复,findings 从 transcript 挖掘                          
+ - 验证标记:✅=我已对源码核实;⚠️=agent 引证但未复核;[INFERENCE] 标注                                                                
+ - AppRN 的多轮草稿有自相矛盾(它自己也 drop 了一些),我按其最终收敛版本记录                                                          
+                                                                                                                                    
+ A. 安全/CI (DesktopToolingReview)                                                                                                  
+                                                                                                                                    
+ A1 major server.mjs traversal ✅ (I verified the startsWith guard myself; agent empirically got 200 on /..%2fserver.mjs)           
+ A2 major release.yml GITHUB_REF_NAME injection ✅ lines 127/132 confirmed                                                          
+ A3 minor version↔tag unenforced ✅ desktop/package.json "version": "1.0.0"                                                         
+ A4 minor base64 lenient keystore check ⚠️                                                                                          
+ A5 minor child.mjs store-op args unvalidated → ticker filename ⚠️                                                                  
+ A6 polish Host header / DNS-rebinding ⚠️                                                                                           
+ Clean: electron sandbox/contextIsolation/nodeIntegration false, preload whitelist, no secrets in dist bundle; note npmmirror       
+ registry in all 3 lockfiles                                                                                                        
+                                                                                                                                    
+ B. 数据源 (DataSourceReview, mined)                                                                                                
+                                                                                                                                    
+ B1 major Yahoo chain no timeout + proxy lock held forever → 429 forever ⚠️→ partially ✅ (I verified obtainA3 fetch has no signal; 
+ proxies.cjs lock mechanics confirmed lines 244-322)                                                                                
+ B2 minor-major A3 cache null sentinel collision ✅ verified code (firstSetCookie !== null return) — impact softened by per-request 
+ YahooClient fallback                                                                                                               
+ B3 minor skipDaily/degrade overwrites good overview slot fields ⚠️ (mechanism plausible; not re-verified)                          
+ B4 minor prevCloseOf single-bar-today edge → change_pct=0 vs CN NaN ⚠️                                                             
+                                                                                                                                    
+ C. 核心/事件 (CoreLogicReview, mined)                                                                                              
+                                                                                                                                    
+ C1 major events.ts:170 emit error + throw err → contract violation ("runner never throws past event boundary" per spec), double    
+ surfacing (useAnalysis 193 listener + 355-357 catch log) ✅ verified both sides                                                    
+ C2 minor runner.ts:77 module-level singleton; soa.start bypasses a.running guard (AppRN also found #6 same); concurrent runs       
+ interleave events ⚠️ (soa.start ✅ verified no guard)                                                                              
+ C3 minor store-idb close() drops pending queue ⚠️ (close() exists at 257, body not inspected)                                      
+ C4 design note: mid-graph failure loses partial results (no done event) ⚠️                                                         
+ Dropped by agent itself after re-derivation: done/opinions draft+revision mismatch (consistent), manager final_decision exclusion  
+ (normal path fine) — record as investigated-not-bugs to avoid future re-churn? Good for doc.                                       
+                                                                                                                                    
+ D. RN App 层 (AppRNReview, mined final converged list)                                                                             
+                                                                                                                                    
+ D1 major stale menuAnchor on resize/rotation (App.tsx measureInWindow once) ⚠️                                                     
+ D2 major web Modal fade-out 250ms dead-click window (animationType="fade") ⚠️ [INFERENCE re RNW internals]                         
+ D3 minor double-tap measure race (async measureInWindow) ⚠️                                                                        
+ D4 minor menu can open off-screen bottom, no flip ⚠️                                                                               
+ D5 minor marketModalMenu no maxWidth constraint ⚠️                                                                                 
+ D6 minor SettingsPanel saveAndCheck no unmount guard ⚠️                                                                            
+ D7 minor checkLlmReachability doc GET /models vs POST chat/completions + relative URL invalid on native/desktop shell → TypeError  
+ + misleading CORS advice ⚠️ (my grep found nothing in app/lib/settings.ts — location unconfirmed! mark unverified-location)        
+ Hmm — my earlier grep grep -rn "checkLlmReachability\|llm-proxy" app got skipped twice (queued message). So location unverified.   
+ Mark accordingly.                                                                                                                  
+ D8 minor DataScreen '2026-08-10' hardcoded ✅                                                                                      
+ D9 minor onSettingsChange clears error banner mid-run ⚠️                                                                           
+ D10 minor __soa.start bypasses running guard ✅ (same as C2)                                                                       
+ D11 minor POST_NOTIFICATIONS never requested (Android 13+) ⚠️                                                                      
+ D12 polish stopPropagation redundant but harmless; keyboard focus trap gap [INFERENCE]                                             
+ D13 polish index-keyed lists (static-length, low risk)                                                                             
+ D14 polish IndicatorChart no resize handling                                                                                       
+ D15 polish ✓分析完成 shown on error termination too                                                                                
+ Also verified-clean: Android back button onRequestClose OK, click-catcher ordering OK, unmount cleanup OK, WebView contract OK.    
+                                                                                                                                    
+ E. 测试/规范卫生 (TestSpecReview, draft recovered)                                                                                 
+                                                                                                                                    
+ E1 major: useAnalysis start(ticker,market)+restore wiring zero tests (only untested orchestrator)                                  
+ Good coverage: marketOfStoreTicker/normalizeTicker/detectMarket truth tables (test/market.test.ts:7-124), events ordering pinned,  
+ pipeline branches, gates timezones, yahoo probing, proxy SSRF W2/W4.                                                               
+ E2 minor: updateOverview store-family untested (store-memory.ts:61/store-file.ts:225/store-idb.ts:328)                             
+ E3 minor: listStocks (store-file.ts:251) only probe-tested                                                                         
+ E4 minor: mergeFinnhubIndustry device-only branch untested (deviceYahooCollect.ts:374-389)                                         
+ E5 minor: handleYahooCollect proxies.cjs:269 untested                                                                              
+ E6 minor: settings env fallback settings.ts:88-91 release-config dependent                                                         
+ E7 minor dead exports: makeInvestmentDecision committee.ts:188 ✅ (grep: only src/committee.ts), overviewNeedsRefresh+FetchScope   
+ gates.ts:33/87 ✅ only src/gates.ts, envDisabledBool committee.ts:48 — ⚠️ nuance: my grep showed envDisabledBool also in           
+ src/switches.ts → needs case-by-case check before deletion!                                                                        
+ E8 spec drift: hk-us-data.md §7 candidate order wording (去一前导零 vs 去全部前导零); agents-tools.md:49; chart-ui.md:21           
+ signatures stale                                                                                                                   
+ E9 minor duplication: isYahooMarket proxies.cjs:253 ≡ yahooMarketOfTicker webYahooCollect.ts:43-47 (proxies.cjs already requires   
+ src modules so reusable)                                                                                                           
+ E10 polish: MarketInfo.lotSize unused; promptRules documented placeholder keep                                                     
+ E11 polish: events designed-fallback branch untested; pipeline safe() swallow documented                                           
+ Test count claim: 511 passing at review time.                                                                                      
+                                                                                                                                    
+ 建议修复顺序 top priorities (cross-agent consensus):                                                                               
+                                                                                                                                    
+ P0/P1: A1 traversal, B1 timeout+lock, C1 error double-report, D1 stale anchor, E1 orchestrator tests, A2 CI injection              
+ Then minors batched.                                                                                                               
+                                                                                                                                    
+ 附注                                                                                                                               
+                                                                                                                                    
+ - 3/5 agents died on provider stream errors; salvage method noted                                                                  
+ - False-positive budget ~35% per guides/index.md; each finding carries verification status                                         
+ - Investigated-and-cleared items listed to prevent re-churn                          

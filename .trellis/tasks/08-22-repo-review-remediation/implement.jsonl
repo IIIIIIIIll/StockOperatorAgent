@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/ts/events-streaming.md", "reason": "events 契约/重试/代理(C1 相关)"}
+{"file": ".trellis/spec/error-handling.md", "reason": "runner 不越过事件边界契约(C1 法律依据)"}
+{"file": ".trellis/spec/ts/stores.md", "reason": "store 族契约/持久化(C3, E2)"}
+{"file": ".trellis/spec/ts/hk-us-data.md", "reason": "Yahoo/Finnhub 链(B1-B4, E4, E9, E8a)"}
+{"file": ".trellis/spec/ts/rn-runtime.md", "reason": "RN/Hermes 兼容(polyfill 面,B1 超时实现)"}
+{"file": ".trellis/spec/ts/desktop-ci.md", "reason": "桌面/CI 约定(A3-A6)"}
+{"file": ".trellis/spec/ts/chart-ui.md", "reason": "图表/UI 编排(D1/D4/D5/D14, E8c)"}
+{"file": ".trellis/spec/ts/env-switches.md", "reason": "env 读取约定(E6, D7)"}
+{"file": ".trellis/spec/ts/agents-tools.md", "reason": "agent 工具链(E8b)"}
+{"file": ".trellis/spec/guides/cross-platform-thinking-guide.md", "reason": "浮层/平台差异(D2-ghost 追加)"}
+{"file": ".trellis/tasks/08-22-repo-review-remediation/findings_verified.md", "reason": "全部证据与锚点(必读)"}
+{"file": ".trellis/tasks/08-22-repo-review-remediation/temp_findings", "reason": "原始 salvage 稿(交叉参考)"}
