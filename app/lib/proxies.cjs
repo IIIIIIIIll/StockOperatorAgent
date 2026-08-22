@@ -15,7 +15,7 @@ const { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } = require(
 const { ddgSearcher } = require('../../src/webSearch.ts');
 const { YahooClient } = require('../../src/yahoo/yahooClient.ts');
 const { collectYahooPayload, obtainA3 } = require('../../src/yahoo/deviceYahooCollect.ts');
-const { detectMarket } = require('../../src/market.ts');
+const { yahooMarketOfTicker } = require('../../src/yahoo/webYahooCollect.ts');
 const dns = require('node:dns');
 const net = require('node:net');
 
@@ -237,8 +237,8 @@ async function handleTdxCollect(req, res, _collect = doCollect) {
 // ─── Yahoo 采集代理(/yahoo-collect)──────────────────────────────────────────
 // 港美股数据链(web 端同 /tdx-collect 的代理语义):Node 侧 YahooClient 直连
 // (chart 免 crumb;quoteSummary 走 A3 cookie + crumb 两跳),浏览器 fetch 回写
-// InMemoryStore。gate:正则(格式)+ detectMarket(hk/us 市场语义,双校验互为
-// 兜底——600036 等 CN 6 位数字被拒);HK 候选 hkSymbolCandidates 逐个 chart
+// InMemoryStore。gate:正则(格式)+ yahooMarketOfTicker(hk/us 市场语义,与
+// webYahooCollect 单源,双校验互为兜底——600036 等 CN 6 位数字被拒);HK 候选 hkSymbolCandidates 逐个 chart
 // 试探(result 存在即定符号,全败 502);quoteSummary 失败降级(crumb 失效场景,
 // 概览仅 chart meta 字段 + reports 空,不整体失败——chart 失败才中止)。
 // 独立互斥 collectingYahoo(与 TDX 采集互不阻塞);45s 超时仅提前回 504,
@@ -248,19 +248,24 @@ let collectingYahoo = false;
 
 const YAHOO_TICKER_RE = /^([A-Z0-9]{1,5}(\.HK)?|[A-Z][A-Z0-9.-]{0,9})$/i;
 
-/** 代理 gate 的市场判定:.HK 存储形 → 剥后缀按数字判('0700.HK' → hk);其余按
- *  detectMarket 原样('AAPL' → us);仅 hk/us 通过(cn/null → 拒)。 */
+/** 代理 gate 的布尔市场判定(adapter):仅 hk/us → true;非法/cn/未判定(即
+ *  yahooMarketOfTicker 抛错)→ false。判定核心与 webYahooCollect.ts 同名函数
+ *  单源(E9 去重,防两处正则漂移);调用点仅本 gate 一处。 */
 function isYahooMarket(ticker) {
-  const base = /^(\d{1,5})\.HK$/i.exec(ticker)?.[1] ?? ticker;
-  const m = detectMarket(base);
-  return m === 'hk' || m === 'us';
+  try {
+    yahooMarketOfTicker(ticker);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function doYahooCollect(ticker, opts = {}) {
   // 采集流共享 deviceYahooCollect.collectYahooPayload(候选试探/chart 分页/
   // quoteSummary 降级/合成,server/真机/探针三端单一实现)。
-  // fc.yahoo.com 实测 404 但仍回 Set-Cookie A3(2026-08-20):预取 A3 经
-  // cookieProvider 注入(YahooClient 自身 fc 请求遇非 2xx 会抛,crumb 链断)
+  // 预取 A3 经 cookieProvider 注入(obtainA3 模块级缓存单源,避免重复 fc 请求;
+  // fc.yahoo.com 实测 404 亦回 Set-Cookie A3,状态码无关解析);失败 → YahooClient
+  // 回落自身 fc 请求解析(同款契约),确无 A3 才抛错。
   const a3 = await obtainA3();
   const client = new YahooClient(undefined, () => a3);
   return collectYahooPayload(client, ticker, { skipDaily: opts.skipDaily === true });
@@ -369,6 +374,7 @@ module.exports = {
   MAX_BODY_BYTES, // W2 上限
   COLLECT_TIMEOUT_MS, // W4 超时
   YAHOO_COLLECT_TIMEOUT_MS, // Yahoo 采集超时
+  isYahooMarket, // E9 布尔谓词(与 yahooMarketOfTicker 单源;测试等价回归)
   normalizeBaseUrl, // C2 base 校验
   isPrivateAddress,
   isPublicHost,

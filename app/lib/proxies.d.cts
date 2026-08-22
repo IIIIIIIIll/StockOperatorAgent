@@ -14,6 +14,11 @@ declare const proxies: {
     res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
     _collect?: (ticker: any, opts?: any) => Promise<any>,
   ): Promise<void>;
+  handleYahooCollect(
+    req: unknown,
+    res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
+    _collect?: (ticker: any, opts?: any) => Promise<any>,
+  ): Promise<void>;
   handleWebSearch(
     req: { url: string },
     res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
@@ -21,8 +26,10 @@ declare const proxies: {
   ): Promise<void>;
   MAX_BODY_BYTES: number;
   COLLECT_TIMEOUT_MS: number;
+  YAHOO_COLLECT_TIMEOUT_MS: number;
   normalizeBaseUrl(raw: string): string;
   isPrivateAddress(ip: string): boolean;
   isPublicHost(u: URL): Promise<boolean>;
+  isYahooMarket(ticker: unknown): boolean;
 };
 export = proxies;

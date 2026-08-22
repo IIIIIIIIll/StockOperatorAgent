@@ -3,15 +3,18 @@
 // 为可选参数(house style 无 mock 框架)。
 import { describe, expect, it, vi } from 'vitest';
 import proxies from '../app/lib/proxies.cjs';
+import { yahooMarketOfTicker } from '../src/yahoo/webYahooCollect.ts';
 
 const {
   handleLlmProxy,
   handleTdxCollect,
+  handleYahooCollect,
   MAX_BODY_BYTES,
   COLLECT_TIMEOUT_MS,
   normalizeBaseUrl,
   isPrivateAddress,
   isPublicHost,
+  isYahooMarket,
 } = proxies;
 
 interface FakeRes {
@@ -317,5 +320,73 @@ describe('handleWebSearch q 校验(08-16-desktop-app:多词查询须放行)', ()
 
   it('控制字符 → 400', async () => {
     expect(await statusFor('/web-search?q=' + encodeURIComponent('abc\ndef'))).toBe(400);
+  });
+});
+describe('proxies.cjs /yahoo-collect gate(E9:isYahooMarket 与 yahooMarketOfTicker 单源)', () => {
+  it('布尔谓词:仅 hk/us → true;cn/非法/未判定 → false', () => {
+    const table: Array<[string, boolean]> = [
+      // hk/us 合法形
+      ['AAPL', true],
+      ['BRK.B', true],
+      ['BF-B', true],
+      ['700.HK', true],
+      ['0700.HK', true],
+      ['09988.HK', true],
+      ['00988', true], // 5 位数字 → hk
+      // 非法/非港美股 → false
+      ['600036', false], // 6 位 CN
+      ['430001', false], // 6 位 4 开头 → null
+      ['666666.HK', false], // 6 位数字不匹配 strip 正则(不剥)→ detectMarket null
+      ['123456.HK', false],
+      ['', false],
+      ['非港美股', false],
+      ['APL?', false],
+    ];
+    for (const [ticker, expected] of table) {
+      expect(isYahooMarket(ticker), ticker).toBe(expected);
+    }
+  });
+
+  it('与 yahooMarketOfTicker 一致性:抛错 ⇔ false(去重后行为全等)', () => {
+    const probes = ['AAPL', 'BRK.B', '0700.HK', '600036', '430001', '123456.HK', '00988', '', '非港美股'];
+    for (const ticker of probes) {
+      let classifierThrows = false;
+      try {
+        yahooMarketOfTicker(ticker);
+      } catch {
+        classifierThrows = true;
+      }
+      expect(isYahooMarket(ticker), ticker).toBe(!classifierThrows);
+    }
+  });
+
+  it('gate 集成:非法 ticker → 400 不触 _collect;合法 → 200 且参数透传', async () => {
+    // 400 路径(正则/谓词双校验任一不过 → 拒;不触收集)
+    const resBad = fakeRes();
+    let calledBad = false;
+    // '1A' 过正则不过谓词(双校验第二分支可达)——同样 400 不触收集
+    await handleYahooCollect(
+      fakeReq(JSON.stringify({ ticker: '1A' }), {}, '/yahoo-collect'),
+      resBad,
+      async () => {
+        calledBad = true;
+        return {};
+      },
+    );
+    expect(resBad.calls[0].status).toBe(400);
+    expect(calledBad).toBe(false);
+    // 200 路径(注入 _collect,不触网):ticker 与 skipDaily 标记透传
+    const resOk = fakeRes();
+    let argsOk: unknown;
+    await handleYahooCollect(
+      fakeReq(JSON.stringify({ ticker: 'AAPL' }), {}, '/yahoo-collect'),
+      resOk,
+      async (...a: unknown[]) => {
+        argsOk = a;
+        return { ticker: 'AAPL', name: 'Apple' };
+      },
+    );
+    expect(resOk.calls[0].status).toBe(200);
+    expect(argsOk).toEqual(['AAPL', { skipDaily: false }]);
   });
 });
