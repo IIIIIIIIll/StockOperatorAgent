@@ -78,6 +78,9 @@ export function describeError(err: unknown): string {
 /** 创建 pipeline runner（Node 探针与 App 共用）。 */
 export function createPipelineRunner(store: StoreLike): PipelineRunner {
   const listeners = new Set<(e: PipelineEvent) => void>();
+  // C2 并发守卫:实例级(模块单例 app/lib/runner.ts:77 与探针 runner 各自独立)。
+  // 入口同步置位(先于任何 await),done/catch 两路径复位;busy 拒绝不改状态。
+  let running = false;
 
   function emit(e: PipelineEvent): void {
     for (const fn of listeners) {
@@ -114,6 +117,14 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
     },
 
     async run(ticker, opts = {}) {
+      // C2 守卫:入口(任何 await 之前)同步检查+置位 —— 同 tick 二次调用(如
+      // __soa.start 直调)即可见 running=true,以 error 事件(busy 语义)拒绝并
+      // resolve(undefined);不得启动第二个 pipeline、不得交错事件。
+      if (running) {
+        emit({ type: 'error', error: '上一次分析仍在进行中,请等待完成后再试' });
+        return undefined;
+      }
+      running = true;
       try {
         emit({ type: 'progress', message: `开始分析 ${ticker}...` });
 
@@ -169,6 +180,7 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
           opinions,
         };
         emit({ type: 'done', report });
+        running = false; // done 路径复位:状态变可用,后续 run 正常执行
         return report;
       } catch (err) {
         // 契约(error-handling.md「runner never throws past event boundary」):
@@ -177,6 +189,7 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         // 事件,UI/探针经 subscribe 消费,不越过事件边界抛错。
         const message = describeError(err);
         emit({ type: 'error', error: message });
+        running = false; // catch 路径复位:失败终态后 runner 回到可用状态
         return undefined;
       }
     },
