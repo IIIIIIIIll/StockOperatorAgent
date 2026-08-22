@@ -1355,3 +1355,22 @@ review 08-21 凌晨两笔 UI 提交(f2edddd 市场下拉 + d74046b 移除自动�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 50: 市场下拉背板回退透明+内容可见(悬浮菜单回归)
+
+**Date**: 2026-08-22
+**Task**: 市场下拉背板回退透明+内容可见(悬浮菜单回归)
+**Branch**: `master`
+
+### Summary
+
+用户确认 Android 打开市场下拉后整屏全白:根因 be37715 背板实心填充(纯白)盖全屏。改为透明点击捕获层(backgroundColor 'transparent')内容可见+点外关闭,菜单本身不透明浮层只遮自己那小块。spec chart-ui.md 同步。验证:typecheck 干净+511 测试绿+chart:check OK+Android 实机(菜单浮层不透明、下方内容完整可见、点外关闭、市场切换港股正常)。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
