@@ -186,15 +186,24 @@ async function fetchFullDailyBars(symbol: string, firstTradeDateSec: number): Pr
 
 /** 最近交易日收盘(chart meta 无 previousClose 字段——实测 HK/US 均缺,
  *  chartPreviousClose 是窗口前收盘,不可用):末根为当日(regularMarketTime 与
- *  末根同日)→ 倒数第二根;否则末根。bars 空 → NaN。 */
-function prevCloseOf(bars: DailyBar[], meta: Record<string, unknown>, fmt: Intl.DateTimeFormat): number {
+ *  末根同日)→ 倒数第二根;否则末根。bars 空 → NaN。
+ *  B4 今日单 bar(IPO 日边):无前收来源——绝不回退末根=今日收盘(否则
+ *  prev_close=今日收盘 → change_pct=0,与 CN 侧 overview.ts:84 bars<2 → NaN
+ *  不对称)→ 返回 NaN(本文件无值哨兵,同 bars 空分支;注入门
+ *  !Number.isFinite 判定 → 不注入 meta),compose 走 firstFinite → divide(NaN)
+  *  → change_pct NaN,与 CN 对齐。
+ *  注: 注入被跳过时 compose 回退链仍会读 meta 的 chartPreviousClose(窗口前收盘,
+ *  实测 AAPL 5d 含该字段)——若其恰为 0(IPO 日窗口),divide 除零 → NaN(仍修复);
+ *  若等于首根 close,change_pct=0(依赖 Yahoo 窗口形状,已记 CheckU7 minor)。 */
+ function prevCloseOf(bars: DailyBar[], meta: Record<string, unknown>, fmt: Intl.DateTimeFormat): number {
   if (bars.length === 0) return NaN;
   const rmTime = meta['regularMarketTime'];
   const lastIsToday =
     typeof rmTime === 'number' && Number.isFinite(rmTime)
       ? fmt.format(new Date(rmTime * 1000)) === bars[bars.length - 1].date
       : false;
-  return lastIsToday && bars.length >= 2 ? bars[bars.length - 2].close : bars[bars.length - 1].close;
+  if (lastIsToday) return bars.length >= 2 ? bars[bars.length - 2].close : NaN;
+  return bars[bars.length - 1].close;
 }
 
 /** chart meta → 快照(price/open/high/low/prevClose;缺失 → NaN;

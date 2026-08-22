@@ -73,6 +73,34 @@ function chartBody(symbol: string): unknown {
 }
 
 const ERROR_CHART_BODY = { chart: { error: { code: 'Not Found', description: 'No data found' } } };
+// B4 边:IPO 日——窗口仅今日一根(无前收来源);regularMarketTime 与末根同日
+// (时区 Asia/Hong_Kong)→ prevCloseOf 命中 lastIsToday && bars.length<2。
+function singleBarTodayBody(symbol: string): unknown {
+  return {
+    chart: {
+      result: [
+        {
+          meta: {
+            symbol,
+            regularMarketPrice: 400,
+            regularMarketDayHigh: 401,
+            regularMarketDayLow: 399,
+            regularMarketDayOpen: 400,
+            regularMarketVolume: 12_345_678,
+            currency: 'HKD',
+            exchangeTimezoneName: 'Asia/Hong_Kong',
+            firstTradeDate: 1_700_086_400 - 86_400 * 2, // IPO 日:窗口内仅一根
+            regularMarketTime: 1_700_086_400,
+          },
+          timestamp: [1_700_086_400],
+          indicators: {
+            quote: [{ open: [400], high: [401], low: [399], close: [400], volume: [12_345_678] }],
+          },
+        },
+      ],
+    },
+  };
+}
 
 // HK 实测形状(2026-08-20):quarterly 模块键名为 incomeStatementHistory(仅 4 期),
 // 年度模块 incomeStatementHistory 另 4 期(重叠 1231)→ 三源合并供 compose。
@@ -209,6 +237,37 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(store.getDatas('0700.HK')).toHaveLength(2); // 日K 不受影响
     expect(out.name).toBeNull();
     expect(calls.filter((c) => c.url.includes('/v10/finance/quoteSummary/'))).toHaveLength(2); // 401 → 刷新重试
+  });
+  it('B4:今日单 bar(IPO 日边,无前收来源)→ prevClose 不注入 → change_percent/prev_close NaN(与 CN 一致)', async () => {
+    makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(singleBarTodayBody('0700.HK')) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      // quoteSummary 401 → 降级(无 price.regularMarketChangePercent)→ change_pct 仅能由 prevClose
+      // 推算:正是 B4 单 bar 边暴露面(修复前 prevClose=今日收盘 400 → change_pct=0,不对称)
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse({ error: { code: 'Unauthorized' } }, 401) },
+    ]);
+    const out = await collectYahooForDevice('0700.HK');
+    expect((out.snapshot as { prevClose?: number } | null)?.prevClose).toBeNaN(); // 不注入今日收盘
+    const overview = store.getStock('0700.HK')?.overview;
+    expect(Number.isNaN(overview?.change_percent)).toBe(true); // divide(NaN) → NaN,对齐 CN bars<2
+    expect(Number.isNaN(overview?.prev_close)).toBe(true);
+    expect(Number.isNaN(overview?.change_amount)).toBe(true);
+    expect(Number.isNaN(overview?.amplitude)).toBe(true);
+  });
+
+  it('B4 回归:双 bar 今日末根 → 倒数第二根注入,降级路径 change_percent 仍有限', async () => {
+    makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(chartBody('0700.HK')) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse({ error: { code: 'Unauthorized' } }, 401) },
+    ]);
+    const out = await collectYahooForDevice('0700.HK');
+    expect((out.snapshot as { prevClose?: number } | null)?.prevClose).toBe(400); // 倒数第二根收盘
+    const overview = store.getStock('0700.HK')?.overview;
+    expect(overview?.prev_close).toBe(400);
+    expect(overview?.change_percent).toBe(0); // (400-400)/400×100:有限值而非 NaN
   });
 
   it('HK 候选全败(无效符号 chart error 壳)→ 抛 无法解析港股代码', async () => {
