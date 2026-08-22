@@ -79,10 +79,15 @@ IndicatorChart 同约定);pane 顶 y 坐标经 chartLayout `paneTops` 计算。
   (新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx。
 - `__soa` 调试钩子:App.tsx effect 内 `typeof window !== 'undefined'` 守卫
   挂载(start/switchTab/getState)。
-- **市场下拉(悬浮式)**:菜单为 absolute 浮层(在 select wrap 内 `top:
-  '100%'`,zIndex 200),直接盖在下方内容上;**禁止用 marginTop 推移下方内容**
-  (08-22 移除 116px 推移——布局跳动换零遮挡不可取);全屏背板
-  (zIndex 90,**主题背景色实心填充** 而非透明)点外关闭,开始分析先关菜单。
+- **市场下拉(Modal 弹层,08-22-modal-dropdown)**:菜单用 RN `Modal`
+  (`transparent`, `animationType='fade'`)渲染,portal 到 root 层——**在 web 和
+  原生都盖住表单内容**(修复 RN-web 层叠上下文 bug:表单里「未配置 LLM三键」警告
+  文字等信息 View 被绘制到菜单卡片之上,导致菜单看似透明、内容透出;曾尝试纯
+  zIndex 提升无效,必须用 Modal 隔离层叠上下文)。菜单定位:触发按钮
+  `measureInWindow` 测量窗口坐标存 `menuAnchor`,Modal 内菜单 `position:absolute`
+  `left/top` 到按钮下方。菜单卡片本身不透明(`surface` + 边框 + 阴影);全屏透明
+  点击层(`marketModalRoot`)负责点外关闭,开始分析先关菜单。**禁止用 marginTop
+  推移下方内容**(08-22 移除 116px 推移——布局跳动换零遮挡不可取)。
 
 ## iOS/Android 安全区(08-16-audit-remediation)
 

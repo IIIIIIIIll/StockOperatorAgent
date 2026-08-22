@@ -4,7 +4,7 @@
 // 分析编排(状态/启动链/订阅/start)在 app/hooks/useAnalysis.ts(08-16 重构),
 // 本组件只保留 UI 状态(activeTab/ticker/showSettings)、派生与渲染。
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import ReportContent from './components/ReportContent';
@@ -38,6 +38,9 @@ function AppContent() {
   // 市场手动选择(输入框旁下拉):默认沪深A股;无自动识别
   const [market, setMarket] = React.useState<Market>('cn');
   const [showMarketMenu, setShowMarketMenu] = React.useState(false);
+  // 下拉锚点:按钮在窗口中的位置(用于 Modal 全屏层里定位菜单浮层)
+  const [menuAnchor, setMenuAnchor] = React.useState<{ x: number; y: number; width: number; bottom: number } | null>(null);
+  const marketButtonRef = React.useRef<View>(null);
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
   const [showSettings, setShowSettings] = React.useState(false);
   React.useEffect(() => {
@@ -107,8 +110,15 @@ function AppContent() {
           {/* 市场下拉面板:手动选市场(默认沪深A股) */}
           <View style={styles.marketSelectWrap}>
             <Pressable
+              ref={marketButtonRef}
               style={styles.marketSelect}
-              onPress={() => setShowMarketMenu((v) => !v)}
+              onPress={() => {
+                // 测量按钮在窗口中的位置,供 Modal 全屏层定位菜单浮层
+                marketButtonRef.current?.measureInWindow((x, y, width, height) => {
+                  setMenuAnchor({ x, y, width, bottom: y + height });
+                  setShowMarketMenu(true);
+                });
+              }}
               accessibilityLabel="选择市场"
             >
               <Text style={styles.marketSelectText}>
@@ -116,33 +126,13 @@ function AppContent() {
               </Text>
               <Text style={styles.marketSelectCaret}>▾</Text>
             </Pressable>
-            {showMarketMenu ? (
-              <View style={styles.marketMenu}>
-                {MARKET_CHOICES.map((c) => {
-                  const active = c.value === market;
-                  return (
-                    <Pressable
-                      key={c.value}
-                      style={[styles.marketOption, active && styles.marketOptionActive]}
-                      onPress={() => {
-                        setMarket(c.value);
-                        setShowMarketMenu(false);
-                      }}
-                    >
-                      <Text style={[styles.marketOptionText, active && styles.marketOptionTextActive]}>{c.label}</Text>
-                      {active ? <Text style={styles.marketOptionCheck}>✓</Text> : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
           </View>
           <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => { setShowMarketMenu(false); void a.start(ticker, market); }}>
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
         </View>
-        {/* 悬浮下拉:菜单为 absolute 浮层(zIndex 200),直接盖在下方内容上;
-            点击全屏背板(下方)关闭 */}
+        {/* 悬浮下拉:菜单为 absolute 浮层(zIndex 200),不透明,直接盖在下方内容上;
+            点击全屏透明点击层(下方,背景透明)关闭,内容保持可见 */}
         <View>
           {/* 市场徽标(S5):start() 归一化后 market 已知;有结果/错误/上次分析时展示 */}
           {a.lastRunAt || a.error || a.stockInformation ? (
@@ -161,8 +151,45 @@ function AppContent() {
 
       </View>
 
-      {/* 全屏背板:菜单打开时点击空白处关闭(背板 zIndex 90,在菜单 wrap 100 之下、正文之上) */}
-      {showMarketMenu ? <Pressable style={styles.marketBackdrop} onPress={() => setShowMarketMenu(false)} accessibilityLabel="关闭市场选择" /> : null}
+      {/* 市场下拉菜单:用 RN Modal(transparent)渲染,portal 到 root 层,确保在 web/原生
+          都盖住表单内容(修复 RN-web 层叠上下文中警告文字压在卡片上的 bug);全屏透明
+          点击层负责点外关闭。菜单卡片不透明浮层,定位在触发按钮下方。 */}
+      <Modal
+        visible={showMarketMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMarketMenu(false)}
+      >
+        {/* 全屏透明点击层:点菜单外区域关闭 */}
+        <Pressable style={styles.marketModalRoot} onPress={() => setShowMarketMenu(false)} accessibilityLabel="关闭市场选择" />
+        {/* 菜单浮层:定位到按钮下方(受点击层 zIndex 之下,仍可点选) */}
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.marketModalMenu,
+            menuAnchor ? { left: menuAnchor.x, top: menuAnchor.bottom + 4, minWidth: menuAnchor.width } : null,
+          ]}
+        >
+          <Pressable style={styles.marketMenuInner} onPress={(e) => e.stopPropagation()}>
+            {MARKET_CHOICES.map((c) => {
+              const active = c.value === market;
+              return (
+                <Pressable
+                  key={c.value}
+                  style={[styles.marketOption, active && styles.marketOptionActive]}
+                  onPress={() => {
+                    setMarket(c.value);
+                    setShowMarketMenu(false);
+                  }}
+                >
+                  <Text style={[styles.marketOptionText, active && styles.marketOptionTextActive]}>{c.label}</Text>
+                  {active ? <Text style={styles.marketOptionCheck}>✓</Text> : null}
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </View>
+      </Modal>
 
       {/* 主体:侧边栏设置(左侧抽屉)+ 内容区 */}
       <View style={styles.main}>
@@ -255,17 +282,18 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     formLabel: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing.sm },
     formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
     tickerInput: { flex: 1, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: theme.colors.text, maxWidth: 220 },
-    marketSelectWrap: { position: 'relative', zIndex: 100, justifyContent: 'center' },
+    marketSelectWrap: { position: 'relative', justifyContent: 'center' },
     marketSelect: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, paddingHorizontal: 10, paddingVertical: 10, minWidth: 92 },
     marketSelectText: { fontSize: 13, color: theme.colors.text, fontWeight: '600' },
     marketSelectCaret: { fontSize: 10, color: theme.colors.textSecondary },
-    marketMenu: { position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, zIndex: 200, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, paddingVertical: 2 },
+    marketModalRoot: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'transparent' },
+    marketModalMenu: { position: 'absolute' },
+    marketMenuInner: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, paddingVertical: 2 },
     marketOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 9 },
     marketOptionActive: { backgroundColor: theme.colors.background },
     marketOptionText: { fontSize: 13, color: theme.colors.text },
     marketOptionTextActive: { color: theme.colors.primary, fontWeight: '700' },
     marketOptionCheck: { fontSize: 12, color: theme.colors.primary, fontWeight: '700' },
-    marketBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90, backgroundColor: theme.colors.background },
     startButton: { backgroundColor: theme.colors.primary, borderRadius: theme.radius.sm, paddingHorizontal: 24, justifyContent: 'center' },
     startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },
