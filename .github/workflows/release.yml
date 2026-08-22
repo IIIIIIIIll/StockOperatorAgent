@@ -36,6 +36,20 @@ jobs:
             app/package-lock.json
             desktop/package-lock.json
 
+      - name: Verify desktop version matches release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
+          if [ "$pkg_version" != "$tag_version" ]; then
+            echo "Release gate failed: desktop/package.json version does not match tag version"
+            echo "expected: v${tag_version}"
+            echo "actual:   ${pkg_version}"
+            echo "Bump desktop/package.json to ${tag_version} and re-tag, or delete this tag and create v${pkg_version}."
+            exit 1
+          fi
+          echo "Release gate OK: desktop/package.json ${pkg_version} matches tag v${tag_version}"
+
       - name: Install root production dependencies
         run: npm ci --omit=dev
 
@@ -97,6 +111,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Verify desktop version matches release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
+          if [ "$pkg_version" != "$tag_version" ]; then
+            echo "Release gate failed: desktop/package.json version does not match tag version"
+            echo "expected: v${tag_version}"
+            echo "actual:   ${pkg_version}"
+            echo "Bump desktop/package.json to ${tag_version} and re-tag, or delete this tag and create v${pkg_version}."
+            exit 1
+          fi
+          echo "Release gate OK: desktop/package.json ${pkg_version} matches tag v${tag_version}"
 
       - name: Setup Java 17 (Temurin)
         uses: actions/setup-java@v4
