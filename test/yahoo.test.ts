@@ -150,11 +150,48 @@ describe('YahooClient.quoteSummary / crumb 流程', () => {
     );
     expect(header(qsCall.init, 'Cookie')).toBe('A3=fc-a3');
     expect(header(qsCall.init, 'User-Agent')).toBe('Mozilla/5.0');
-
     // crumb 实例缓存：第二次 quoteSummary 不再走 fc/getcrumb
     await client.quoteSummary('AAPL', ['price']);
     expect(fcCalls).toBe(1);
     expect(calls.filter((c) => c.url.includes('/v1/test/getcrumb'))).toHaveLength(1);
+  });
+
+  it('fc.yahoo.com 404 + Set-Cookie A3 → 状态码无关解析:A3 作 crumb 链入口,不抛 crumb/404', async () => {
+    const { fetchImpl, calls } = makeFetch([
+      { match: (url) => url.startsWith('https://fc.yahoo.com'), respond: () => textResponse('', 404, { 'set-cookie': 'A3=fc-a3; Path=/' }) },
+      crumbRoute('crumb-404a3'),
+      { match: (url) => url.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+    ]);
+    const client = new YahooClient(fetchImpl);
+    const out = await client.quoteSummary('AAPL', ['price']);
+    expect(out).toEqual(QUOTE_BODY);
+    const fcCall = calls.find((c) => c.url === 'https://fc.yahoo.com')!;
+    expect(fcCall.init?.signal).toBeInstanceOf(AbortSignal); // U4 组合:回落路径经 fetchWithTimeout(带超时信号),无异常
+    const crumbCall = calls.find((c) => c.url.includes('/v1/test/getcrumb'))!;
+    expect(header(crumbCall.init, 'Cookie')).toBe('A3=fc-a3');
+    expect(crumbCall.init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('fc.yahoo.com 404 且无 Set-Cookie → 原错误语义保留:YahooApiError(status_code=404)', async () => {
+    const { fetchImpl } = makeFetch([
+      { match: (url) => url.startsWith('https://fc.yahoo.com'), respond: () => textResponse('not found', 404) },
+    ]);
+    await expect(new YahooClient(fetchImpl).quoteSummary('AAPL', ['price'])).rejects.toMatchObject({
+      name: 'YahooApiError',
+      code: null,
+      status_code: 404,
+    });
+  });
+
+  it('fc.yahoo.com 200 但无 Set-Cookie → 抛 YahooApiError(code=crumb)', async () => {
+    const { fetchImpl } = makeFetch([
+      { match: (url) => url.startsWith('https://fc.yahoo.com'), respond: () => textResponse('', 200) },
+    ]);
+    await expect(new YahooClient(fetchImpl).quoteSummary('AAPL', ['price'])).rejects.toMatchObject({
+      name: 'YahooApiError',
+      code: 'crumb',
+      status_code: 200,
+    });
   });
 
   it('401 → 清缓存刷新 crumb 重试一次成功（fc/getcrumb/quoteSummary 各两次，用新 crumb）', async () => {

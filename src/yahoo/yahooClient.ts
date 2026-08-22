@@ -213,12 +213,15 @@ export class YahooClient {
       if (v !== null && v !== '') return v;
     }
     const resp = await this._request(_FC_URL);
-    if (!resp.ok) throw await this._errorFrom(resp, 'fc.yahoo.com');
-    // Set-Cookie 可能是多 cookie 逗号拼接（undici get('set-cookie')），
-    // 起始/分号/逗号后均可出现 A3=（解析单源见 parseA3FromSetCookie）
+    // fc.yahoo.com 实测(2026-08-20)起以 HTTP 404 响应但仍带 Set-Cookie A3
+    // (deviceYahooCollect.obtainA3 同款状态码无关契约,见该文件头注)→ 先
+    // 解析 Set-Cookie(状态码无关);确无 A3 才按 HTTP 语义抛错。Set-Cookie
+    // 可能是多 cookie 逗号拼接(undici get('set-cookie')),起始/分号/逗号后
+    // 均可出现 A3=(解析单源见 parseA3FromSetCookie)
     const a3 = parseA3FromSetCookie(resp.headers.get('set-cookie') ?? '');
-    if (a3 === null) throw new YahooApiError('crumb', resp.status, 'Yahoo fc.yahoo.com 未返回 A3 cookie');
-    return a3;
+    if (a3 !== null) return a3;
+    if (!resp.ok) throw await this._errorFrom(resp, 'fc.yahoo.com');
+    throw new YahooApiError('crumb', resp.status, 'Yahoo fc.yahoo.com 未返回 A3 cookie');
   }
 
   /** GET + UA 头；网络异常归一化（不重试）；带超时（AbortController,40s）。
