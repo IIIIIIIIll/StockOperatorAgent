@@ -9,7 +9,8 @@
  *   ANDROID_KEY_PASSWORD           私钥口令（keyPassword）
  *
  * 行为（cwd = 仓库根，expo prebuild 之后运行）：
- *   1. 解码 ANDROID_KEYSTORE_B64 → 写 app/android/app/release.keystore（目录自动创建）
+ *   1. 校验 ANDROID_KEYSTORE_B64（base64 字符集/长度/填充 → 解码后 keystore 魔数）
+ *      并解码 → 写 app/android/app/release.keystore（目录自动创建）
  *   2. 写 app/android/keystore.properties（storeFile=release.keystore + 三口令）
  *   3. 幂等补丁 app/android/app/build.gradle：注入 signingConfigs.release（读
  *      keystore.properties），并把 release buildType 的 signingConfig 从
@@ -18,7 +19,8 @@
  *
  * 退出码：
  *   0  成功；或未配置 ANDROID_KEYSTORE_B64（debug 签名降级，不阻塞流水线）
- *   1  出错（解码失败 / 文件读写失败 / build.gradle 无法补丁），原因打印到 stderr
+ *   1  出错（base64 校验失败 / 解码结果非 keystore / 文件读写失败 / build.gradle
+ *       无法补丁），原因打印到 stderr，只含 env 名不含值
  *
  * 用法：node tools/configure-android-signing.mjs
  */
@@ -138,6 +140,42 @@ function escapePropertyValue(value) {
   return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 }
 
+/**
+ * base64 字符串严格校验；合法返回 null，否则返回错误说明（不含输入值本身）。
+ *
+ * Node 的 Buffer.from(s, 'base64') 是宽松模式：非法字符被忽略、错误填充只截断不抛错
+ * —— 仅靠 try/catch + decode 无法识别垃圾输入（A4 死 try/catch 根因）。因此先按
+ * 「字符集 / 4 字符一组 / 填充规则」拒绝，再以「解码 → 重编码」往返比对确认规范形式
+ * （同时捕获非法补齐位，如 'AAB=' 这类非规范编码）。
+ */
+function base64ValidationError(s) {
+  if (s.length === 0) return "去空白后为空（应提供 base64 编码的 keystore 字节）";
+  if (s.length % 4 !== 0) return `长度 ${s.length} 不是 4 的倍数（base64 按 4 字符一组）`;
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(s)) {
+    return "含非法字符或填充错误（'=' 仅允许在末尾且最多 2 个）";
+  }
+  if (Buffer.from(s, "base64").toString("base64") !== s) {
+    return "非规范 base64（存在被宽松解码忽略的字符或错误补齐位）";
+  }
+  return null;
+}
+
+/**
+ * keystore 文件头（魔数）识别；命中任一即视为 keystore：
+ *   - JKS    0xFEEDFEED（JDK 8 默认，或显式 -storetype JKS）
+ *   - JCEKS  0xCECECECE（显式 -storetype JCEKS）
+ *   - PKCS12 ASN.1 SEQUENCE 0x30 + 长形式长度 0x82（keytool 自 JDK 9 起默认格式；
+ *     含 RSA 密钥对的 keystore 尺寸远超 128 字节，DER 首长度字节必为长形式）
+ * README 的 keytool -genkeypair 命令未固定 -storetype，三种皆为合法输入；既不误拒，
+ * 也能拦下明显传错的文件（文本/图片/ZIP 等）。
+ */
+function looksLikeKeystore(buf) {
+  if (buf.length < 8) return false;
+  const magic = buf.readUInt32BE(0);
+  if (magic === 0xfeedfeed || magic === 0xcececece) return true;
+  return buf[0] === 0x30 && buf[1] === 0x82;
+}
+
 async function main() {
   if (!KEYSTORE_B64) {
     console.log(
@@ -153,15 +191,28 @@ async function main() {
     fail(`配置了 ANDROID_KEYSTORE_B64 但缺少 Secrets：${missing.join(", ")}`);
   }
 
-  // 1) 解码 keystore（先于任何写入，解码失败不产生残留文件）
+  // 1) 校验并解码 keystore（先于任何写入，解码失败不产生残留文件）
+  //    先剥离全部空白再校验：粘贴进 Shell/CI 时可能夹带换行或空格（README 约定
+  //    `base64 -w0` 单行输出；此处对换行/Tab/空格一并容忍后按严格规则校验）。
+  const keystoreB64 = KEYSTORE_B64.replace(/\s+/g, "");
+  const b64Error = base64ValidationError(keystoreB64);
+  if (b64Error) {
+    fail(`ANDROID_KEYSTORE_B64（环境变量）不是合法 base64：${b64Error}`);
+  }
   let keystore;
   try {
-    keystore = Buffer.from(KEYSTORE_B64, "base64");
+    keystore = Buffer.from(keystoreB64, "base64");
   } catch (e) {
-    fail(`ANDROID_KEYSTORE_B64 base64 解码失败：${e.message}`);
+    // Buffer.from 的 'base64' 编码本身不抛错（宽松模式，A4 死 try/catch 根因）；
+    // 此 catch 仅为未来 Node 行为变化的兜底，真实错误已在上方校验处拦下。
+    fail(`ANDROID_KEYSTORE_B64（环境变量）base64 解码失败：${e.message}`);
   }
-  if (keystore.length === 0) {
-    fail("ANDROID_KEYSTORE_B64 解码结果为空（base64 字符串无效）");
+  if (!looksLikeKeystore(keystore)) {
+    fail(
+      `ANDROID_KEYSTORE_B64 解码结果不是 keystore 文件（${keystore.length} 字节，` +
+        "魔数不匹配：期望 JKS 0xFEEDFEED / JCEKS 0xCECECECE / PKCS12 0x30 0x82；" +
+        "请确认上传的是 keytool -genkeypair 产出的 release.keystore 的 base64 编码）"
+    );
   }
 
   // 2) 读取并补丁 build.gradle（补丁不可行则不写任何文件）
