@@ -7,7 +7,7 @@ import { InMemoryStore } from '../src/store-memory.ts';
 import type { StoreLike } from '../src/store.ts';
 import { setYahooStore, applyYahooCollectedToStore } from '../src/yahoo/applyYahooCollectedToStore.ts';
 import { collectYahooForDevice, collectYahooPayload } from '../src/yahoo/deviceYahooCollect.ts';
-import { YahooClient } from '../src/yahoo/yahooClient.ts';
+import { YahooClient, YAHOO_REQUEST_TIMEOUT_MS } from '../src/yahoo/yahooClient.ts';
 import { collectYahooViaProxy } from '../src/yahoo/webYahooCollect.ts';
 import { marketToday } from '../src/gates.ts';
 import { collectForWeb, store as runnerStore } from '../app/lib/runner.ts';
@@ -457,5 +457,61 @@ describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同�
     expect(calls[0].url).toBe('http://test/yahoo-collect'); // 全量,无跳过参数
     expect(calls).toHaveLength(1); // 无 finnhub 请求
     expect(runnerStore.getDatas('AAPL')).toHaveLength(1);
+  });
+});
+
+describe('Yahoo 链超时(B1:AbortController 40s < 代理 504 定时器 45s;Hermes 兼容手写 setTimeout+abort)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** 永不 settle 的 fetch:signal 被 abort(超时)时拒绝 —— 模拟挂死的网络。
+   *  记录器暴露最后一次 init.signal(断言被 abort 而非等回调超时)。 */
+  function hangingFetch(): { fn: typeof fetch; signal: { current: AbortSignal | undefined } } {
+    const recorder = { current: undefined as AbortSignal | undefined };
+    const fn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      recorder.current = init?.signal ?? undefined;
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    }) as unknown as typeof fetch;
+    return { fn, signal: recorder };
+  }
+
+  it('client.chart 挂起 → 超时 abort → YahooApiError(code=timeout),链不再悬挂', async () => {
+    vi.useFakeTimers();
+    const { fn, signal } = hangingFetch();
+    const client = new YahooClient(fn, () => 'fake-a3');
+    const p = collectYahooPayload(client, 'AAPL');
+    const assertion = expect(p).rejects.toMatchObject({
+      name: 'YahooApiError',
+      code: 'timeout',
+      status_code: null,
+    });
+    await vi.advanceTimersByTimeAsync(YAHOO_REQUEST_TIMEOUT_MS);
+    await assertion;
+    expect(signal.current?.aborted).toBe(true); // 请求被 abort,不是等回调超时
+  });
+
+  it('全量日K分页挂起(fetchChartWindow 裸 fetch)→ 相同 timeout 语义', async () => {
+    vi.useFakeTimers();
+    const recorder = { current: undefined as AbortSignal | undefined };
+    const fn = (async (url: string | URL | Request, init?: RequestInit) => {
+      const u = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+      recorder.current = init?.signal ?? undefined;
+      // 候选试探(range=5d)命中;分页(period1/period2)永不 settle
+      if (u.includes('range=5d')) return jsonResponse(chartBody('AAPL'));
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    }) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fn); // fetchChartWindow 走全局 fetch(device 路径)
+    const client = new YahooClient(fn, () => 'fake-a3');
+    const p = collectYahooPayload(client, 'AAPL');
+    const assertion = expect(p).rejects.toMatchObject({ name: 'YahooApiError', code: 'timeout' });
+    await vi.advanceTimersByTimeAsync(YAHOO_REQUEST_TIMEOUT_MS);
+    await assertion;
+    expect(recorder.current?.aborted).toBe(true);
   });
 });

@@ -22,7 +22,7 @@
 import type { DailyBar } from '../store.ts';
 import type { CollectedSnapshot } from '../tdx/quoteClient.ts';
 import type { CollectSkipOpts, WebCollectResult } from '../webCollect.ts';
-import { YahooClient, YahooApiError, parseA3FromSetCookie } from './yahooClient.ts';
+import { YahooClient, YahooApiError, parseA3FromSetCookie, fetchWithTimeout } from './yahooClient.ts';
 import { applyYahooCollectedToStore, requireYahooStore, type YahooCollectedPayload } from './applyYahooCollectedToStore.ts';
 import { composeYahooOverview } from './composeYahooOverview.ts';
 import { composeYahooReports } from './composeYahooReports.ts';
@@ -58,11 +58,12 @@ const setCookie = (res: Response): string | null => parseA3FromSetCookie(res.hea
 let firstSetCookie: string | null = null;
 
 /** 取 A3(模块级缓存;fc.yahoo.com 404 也带 Set-Cookie,状态码无关);
- *  失败 → null(YahooClient 回退自身解析)。server/真机/探针共用。 */
+ *  失败/超时(40s,同 yahooClient 常量)→ null(YahooClient 回退自身解析,
+ *  其 fc 请求同样受超时约束)。server/真机/探针共用。 */
 export async function obtainA3(): Promise<string | null> {
   if (firstSetCookie !== null) return firstSetCookie;
   try {
-    const res = await fetch('https://fc.yahoo.com', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const res = await fetchWithTimeout(fetch, 'https://fc.yahoo.com', { headers: { 'User-Agent': 'Mozilla/5.0' } });
     firstSetCookie = setCookie(res);
   } catch {
     firstSetCookie = null;
@@ -136,15 +137,17 @@ function barsFromChart(r: Record<string, unknown>): DailyBar[] {
 
 /** chart 分页窗口直连(period1/period2 保持日K 粒度;client.chart 的
  *  ChartOptions 无 period 参数,故本函数直连)。非 2xx → YahooApiError(归一化
- *  对齐 client);无效符号不抛(HTTP 200 + chart.error 壳,chartResultOf 判定)。 */
+ *  对齐 client);超时 → YahooApiError('timeout')(与 yahooClient 同常量);
+ *  无效符号不抛(HTTP 200 + chart.error 壳,chartResultOf 判定)。 */
 async function fetchChartWindow(symbol: string, period1: number, period2: number): Promise<unknown> {
   const url =
     `${_CHART_BASE}${encodeURIComponent(symbol)}` +
     `?period1=${period1}&period2=${period2}&interval=1d&events=div%2Csplit`;
   let resp: Response;
   try {
-    resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    resp = await fetchWithTimeout(fetch, url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   } catch (exc) {
+    if (exc instanceof YahooApiError) throw exc; // 归一化错误(超时)原样透传
     const detail = exc instanceof Error ? exc.message : String(exc);
     throw new YahooApiError(null, null, `Yahoo 请求失败：${detail}`);
   }

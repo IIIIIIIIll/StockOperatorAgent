@@ -15,7 +15,8 @@
 // 约定：
 // - 每请求带 User-Agent: Mozilla/5.0
 // - 失败归一化 YahooApiError(code, status_code, message)：网络异常
-//   （status_code=null）/ HTTP 非 2xx（尽力取 body error.code）；**不重试**
+//   （status_code=null）/ 超时（code='timeout'，status_code=null）/
+//   HTTP 非 2xx（尽力取 body error.code）；**不重试**
 // - quoteSummary 遇 401 → 清 crumb 缓存 → 重新取 A3+crumb → 重试一次 →
 //   仍失败抛 YahooApiError('crumb', 401, …)
 // - cookieProvider 注入（S3 RN 路径）：非空时 crumb 流程直接用其返回值作
@@ -57,6 +58,37 @@ const _CHART_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 const _QUOTE_SUMMARY_BASE = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/';
 const _GETCRUMB_URL = 'https://query2.finance.yahoo.com/v1/test/getcrumb';
 const _FC_URL = 'https://fc.yahoo.com';
+/** Yahoo 链单次请求超时(ms):40s < 代理 504 定时器 45s(YAHOO_COLLECT_TIMEOUT_MS,
+ *  app/lib/proxies.cjs)→ 采集链任何单次请求最迟 40s 内 settle,代理锁必在
+ *  有限时间释放(429 窗口有界;B1)。deviceYahooCollect 的裸 fetch 共用此常量
+ *  (经 fetchWithTimeout 缺省参数),单一来源。 */
+export const YAHOO_REQUEST_TIMEOUT_MS = 40_000;
+
+/** fetch + 超时(Hermes 兼容:AbortController 全局存在——app/lib/polyfill.ts
+ *  已为 AbortSignal 补 throwIfAborted,证明其存在;AbortSignal.timeout 静态
+ *  API 在 Hermes 未打补丁、不可靠 → 手写 setTimeout + controller.abort(),
+ *  零新增 polyfill/依赖)。超时 abort → YahooApiError(code='timeout',
+ *  status_code=null)——与其他网络异常同族(status_code=null),但 code 可辨;
+ *  其余异常原样抛出,由调用方归一化(_request/fetchChartWindow)。 */
+export async function fetchWithTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit = {},
+  timeoutMs: number = YAHOO_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } catch (exc) {
+    if (controller.signal.aborted) {
+      throw new YahooApiError('timeout', null, `Yahoo 请求超时(${timeoutMs / 1000}s)`);
+    }
+    throw exc;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export interface ChartOptions {
   /** 日K窗口；缺省 'max'（全量）。 */
@@ -189,14 +221,16 @@ export class YahooClient {
     return a3;
   }
 
-  /** GET + UA 头；网络异常归一化（不重试）。 */
+  /** GET + UA 头；网络异常归一化（不重试）；带超时（AbortController,40s）。
+   *  超时 → YahooApiError('timeout')（fetchWithTimeout 归一,原样透传）。 */
   private async _request(url: string, cookie?: string): Promise<Response> {
     const headers: Record<string, string> = { 'User-Agent': USER_AGENT };
     if (cookie) headers['Cookie'] = cookie;
     let resp: Response;
     try {
-      resp = await this._fetch(url, { headers });
+      resp = await fetchWithTimeout(this._fetch, url, { headers });
     } catch (exc) {
+      if (exc instanceof YahooApiError) throw exc; // 归一化错误(超时)原样透传
       const detail = exc instanceof Error ? exc.message : String(exc);
       throw new YahooApiError(null, null, `Yahoo 请求失败：${detail}`);
     }
