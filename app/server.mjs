@@ -54,11 +54,64 @@ export function serveStatic(req, res) {
   fs.createReadStream(file).pipe(res);
 }
 
+/** A6:Host 头判定(DNS rebinding 硬化)——仅接受 loopback:localhost /
+ *  127.0.0.0/8 / [::1](含 IPv4-mapped ::ffff:127.0.0.1),端口可有可无,
+ *  大小写不敏感;缺失或非 loopback(攻击者域名)→ false。模块私有:
+ *  纯入站策略,不导出(d.ts 声明零漂移)。 */
+function isLoopbackHostHeader(host) {
+  if (typeof host !== 'string' || host === '') return false;
+  let name = host;
+  if (name[0] === '[') {
+    const end = name.indexOf(']');
+    if (end === -1) return false;
+    const ipv6 = name.slice(1, end).toLowerCase();
+    const rest = name.slice(end + 1);
+    if (rest !== '' && !/^:\d{1,5}$/.test(rest)) return false;
+    return ipv6 === '::1' || ipv6 === '::ffff:127.0.0.1';
+  }
+  const parts = name.split(':');
+  if (parts.length > 2) return false; // 非方括号 IPv6 不合法
+  if (parts.length === 2) {
+    if (!/^\d{1,5}$/.test(parts[1]) || Number(parts[1]) > 65535) return false;
+    name = parts[0];
+  }
+  const lower = name.toLowerCase().replace(/\.$/, ''); // 容忍 FQDN 尾点
+  if (lower === 'localhost') return true;
+  const octets = lower.split('.');
+  return (
+    octets.length === 4 &&
+    octets.every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255) &&
+    octets[0] === '127'
+  );
+}
+
+/** 连接本地端点是否 loopback(判定 Host 校验启停;A6 见 createAppServer)。 */
+function isLoopbackBind(addr) {
+  return (
+    typeof addr === 'string' &&
+    (addr === '::1' || addr === '::ffff:127.0.0.1' || /^127\./.test(addr))
+  );
+}
+
 /** 生产 web server 工厂:静态服务 dist + 同源代理路由。导出供桌面主进程复用
  *  (返回 http.Server,监听与否由调用方决定)。路由体与旧模块级 createServer
  *  完全一致,行为零变化。 */
 export function createAppServer() {
   return http.createServer((req, res) => {
+    // A6:DNS rebinding 硬化 —— 连接经 loopback 到达时(默认 127.0.0.1 监听、
+    // 桌面随机回环端口)校验入站 Host 头:攻击者域名解析到 127.0.0.1 后浏览器
+    // 仍发原域名 → Host 非 loopback → 403,不打日志。允许 localhost /
+    // 127.0.0.0/8 / [::1](含 IPv4-mapped),端口可有可无;X-Forwarded-Host 不信任
+    // (不用)。仅作用于入站请求,proxies 转发逻辑不动;显式 HOST=0.0.0.0 远程
+    // 暴露时连接本地端点非 loopback(如 192.168.x),不校验 —— Host 合法值含
+    // 远程地址/域名,保持「生产远程访问显式设 HOST=0.0.0.0」既有契约。
+    // 注意: 仅 http://localhost / 127.0.0.0/8 / [::1] 可直接访问;自定 hostname
+    // 或反向代理(nginx → 127.0.0.1)需将入站 Host 改写为 127.0.0.1:port。
+    if (isLoopbackBind(req.socket.localAddress) && !isLoopbackHostHeader(req.headers.host)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
     if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {
       void handleLlmProxy(req, res);
       return;
