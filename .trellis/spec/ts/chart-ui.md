@@ -1,11 +1,12 @@
 ---
-description: 图表数据纯函数与 UI 编排(chartData/chartLayout/IndicatorChart/FinancialTrendChart/useAnalysis/App 安全区)
+description: 图表数据纯函数与 UI 编排(chartData/chartLayout/IndicatorChart/FinancialTrendChart/analysisController/useAnalysis/App 安全区)
 paths:
   - src/chartData.ts
   - src/chartLayout.ts
   - src/format.ts
   - app/components/IndicatorChart.tsx
   - app/components/FinancialTrendChart.tsx
+  - app/lib/analysisController.ts
   - app/hooks/useAnalysis.ts
   - app/App.tsx
   - app/lib/chartHtml.ts
@@ -71,15 +72,28 @@ tools/build-chart-view.mts 头部文档一致:财务 3 pane 折线,stretch 等�
 图例单行 chips);`PANE_STRETCH = [100,100,100]` 等比例(禁 setHeight,与
 IndicatorChart 同约定);pane 顶 y 坐标经 chartLayout `paneTops` 计算。
 
-## UI 编排(app/hooks/useAnalysis.ts + app/App.tsx,08-16-app-analysis-hook)
+## UI 编排(analysisController + useAnalysis + App.tsx,08-16-app-analysis-hook;U13 双层化)
 
-- 分析编排(状态/启动链/runner 订阅/start 编排/设置保存)在 useAnalysis.ts;
-  App.tsx 是**纯渲染层**(UI 状态 activeTab/ticker/showSettings + 派生 +
-  `__soa` 调试钩子 + 样式)。
-- 约束:`start(ticker, market)` 参数化(ticker 输入框与市场下拉均在 App;市场手动选择,默认沪深A股;hook 恢复 lastRun 时按 ticker 反推市场);hook 内订阅 effect 保持
-  **空依赖数组**——闭包只碰稳定引用(`modeRef`)+ 模块级 `enabledRoles()`,
-  新增状态读取若来自 settings 必须经 ref 同步(防陈旧闭包);后续 UI 逻辑
-  (新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx。
+- **双层编排(U13 可测化)**:分析编排主体在 app/lib/analysisController.ts
+  (`AnalysisController` 纯 TS 类:bootstrap 启动链/lastRun 恢复/runner 事件
+  归约/start(ticker, market)/设置变更);runner/store/设置读写/采集/intel/
+  keepalive/log/clock 经 AnalysisDeps 注入,vitest 以假 runner 直测
+  (test/analysis-controller.test.ts)。useAnalysis.ts 是薄 React 桥(deps 接线
+  实例化 + 快照订阅挂载 effect + start/onSettingsChange 转发,对外字段与抽取前
+  逐一对应);App.tsx 是纯渲染层(UI 状态 activeTab/ticker/showSettings +
+  派生 + `__soa` 调试钩子 + 样式)。
+- **订阅时机**:runner 订阅随控制器生命周期存在(**构造即订阅**;根 hook 常驻
+  不卸载,与抽取前「hook 内空依赖数组 mount effect 订阅/unmount 退订」对外可
+  观察行为一致)。UI 快照监听走 controller.subscribe()(挂载 effect 建立,
+  卸载退订)。编排逻辑变更进 AnalysisController(可测层),useAnalysis 只做
+  React 状态桥接;后续 UI 逻辑(新页面/新入口)一律进 hooks/ 或 components/,
+  不回流 App.tsx。
+- **约束**:`start(ticker, market)` 参数化(ticker 输入框与市场下拉均在 App;
+  市场手动选择,默认沪深A股;lastRun 恢复按 ticker 反推市场)。
+- **D15**:hasDone(done → true;start/error → false;恢复按 final_decision
+  非空同步)由控制器维护;App 进度区整体门消费——运行中显最新进度行,仅
+  !running && hasDone 显「✓ 分析完成」,失败终态整块不渲染防空横条
+  (外层容器一并门控)。
 - `__soa` 调试钩子:App.tsx effect 内 `typeof window !== 'undefined'` 守卫
   挂载(start/switchTab/getState)。
 - **市场下拉(Modal 弹层,08-22-modal-dropdown)**:菜单用 RN `Modal`

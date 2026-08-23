@@ -45,6 +45,10 @@ export interface StoreLike {
   生产 IndexedDB)、`store-file.ts` FileStore(RN expo-file-system)、
   `store-memory.ts` InMemoryStore(测试/回退;语义对齐 Store)。
 - **写穿队列**:同步改内存 → 串行 Promise 链落盘;mutator 同步方法内不 await。
+- **持久化健壮性(F1,08-23-review-remediation)**:文件后端落盘一律**同目录
+  tmp + 原子替换**(node 适配器 fsRename / expo 适配器 moveSync({overwrite:true});
+  tmp 后缀不以 .json 结尾 → hydrate 目录扫描天然跳过崩溃残留);hydrate
+  **逐文件容错**——单个损坏文件跳过该文件并 logError,不中断其余文件加载。
 - **freshness 跨会话生效**:gates.ts `dailyFresh`/`reportsFresh` 读持久化的
   `lastDataUpdate`/最新 `report_date` → 同日跳过日K / 同季跳过 F10 的判定
   跨重启成立(非仅当次会话)。App 启动链 `await storeReady()`(IndexedDB 打开

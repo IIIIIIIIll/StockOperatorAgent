@@ -22,6 +22,13 @@ paths:
 
 - **MAX_TOOL_ROUNDS = 15**;轮数耗尽且模型仍在要工具 → 追加"收尾轮"
   (FINAL_ROUND_INSTRUCTION 强约束"不要再调用任何工具",直接给最终回答)。
+- **收尾轮非合规兜底(AL2,2026-08-23)**:收尾轮不执行任何工具(执行突破
+  「有界 +1 次」上界);仍返回 tool_calls 或 content 经 String().trim() 归一
+  后为空 → logError 后以两态占位文案替代 response.content(「搜索轮数已用尽，
+  未能生成最终回答」/「（本轮未产出结论）」,常量导出于 toolLoop 单源),
+  messages 保持真实轨迹;`closingFallback` 标记随结果返回,completeWithTools
+  据此把 roleStatus 终态置 'retry'(不再无条件 'done'),轮内早退的空串报告
+  同样占位。
 - 每轮(含收尾轮)改 `streamWithRetry` 流式;轮末 `tool_calls` 非空 →
   `onReset()` 回滚该轮已流出文本(UI 经 roleStatus 'retry' 清 partial);
   工具异常 → 占位不 raise(图不中断);未知工具占位;空 tools → 单轮直调。

@@ -1,15 +1,21 @@
 ---
-description: InvestmentCommittee — 注册表驱动图装配、8 节点 4 阶段、build_stock_information 组装
+description: 投资委员会(TS) — 注册表驱动图装配、8 节点 4 阶段、buildStockInformation 组装、events.run 入口
 paths:
-  - core/investment_committee.py
-  - core/role_registry.py
+  - src/committee.ts
+  - src/pipeline.ts
+  - src/events.ts
+  - src/billionsTools.ts
+  - src/prompt.ts
 ---
-# InvestmentCommittee (`core/investment_committee.py`)
+# InvestmentCommittee(src/committee.ts)
 
-- `make_investment_committee(config, progress_updater=None, _llm=None)` builds
-  a `StateGraph(State)` with **8 节点（条件 9 节点）16 边（ANALYST 开 19
-  边）**——**注册表驱动装配**（08-09-role-registry）：节点/边由
-  `core/role_registry.py` 的 `ROLES` + `build_edges` 生成，固定 4 阶段
+> 本文以 TS 实现为准(Python core/ 已删除);标注【历史】的段落描述 Python
+> 时代行为,保留作设计沿革参考。
+
+- `makeInvestmentCommittee(config, progressUpdater = null, _llm, _tools?, deps?)`
+  builds a `StateGraph(StateAnnotation)` with **8 节点（条件 9 节点）16 边（ANALYST 开 19
+  边）**——**注册表驱动装配**（08-09-role-registry 移植）：节点/边由
+  `src/committee.ts` 的 `ROLES` + `buildEdges` 生成，固定 4 阶段
   形状（见下）。历史演进：2026-08-02 review #4 三对并行；08-04
   adversarial-verdict-loop +2 revise 节点；08-08 technical-indicator-
   analyst +1 技术指标分析师；08-08 billions-api-integration +1 条件信息面
@@ -23,75 +29,71 @@ paths:
   三上游都完成、revise 等两份初稿都完成（否则对方初稿缺失）、manager 等
   两份修订版都完成——墙钟 8 串行 → 4 阶段。并行分支写不同 State key
   （无写冲突），`messages` 由 add_messages reducer 合并（顺序不确定——
-  display 只读最终 state，不依赖顺序）。边/节点两形态（16/19 边、8/9
-  节点）由 `test/core/test_role_registry.py` 冻结断言钉死；加 agent 改
+  消费方只读最终 state，不依赖顺序）。边/节点两形态（16/19 边、8/9
+  节点）由 `test/committee.test.ts` 冻结断言钉死；加 agent 改
   `ROLES` 即可，**不要**在 committee 手写条件接线。
-- `_llm` 为测试注入点（house style 无 mock 框架）：默认 `make_llm()`
-  （08-09-llm-provider-agnostic 通用 OpenAI 兼容工厂，见 agents spec）；
-  离线图测试（test/integration/test_graph_parallel.py）传假 LLM 验证
-  join/并行语义。**假 LLM 路由注意**：FakeListChatModel 按共享调用计数器
-  循环响应——并行下节点调用顺序非确定，必须按 system 消息路由（角色文案
-  含"基本面分析师"字样，需用角色独有短语）。
-- Compiled with `InMemorySaver()` checkpointer; runtime `config` must carry
-  `{"configurable": {"thread_id": "1"}}`.
-- `make_investment_decision(target_ticker)` streams the graph with the initial
-  state `{"messages": [...], "target_stock_ticker": ..., "stock_information": ...}`.
-  `stock_information` 由模块函数 **`build_stock_information(ticker, progress=None)`**
-  生成（display 与 make_investment_decision 共用同一组装点——2026-08-02 抽出；
-  `progress` 为可选回调，review #9——三工具调用之间输出分步进度，display
-  传 `updatable_container.info` 包装，无 UI 上下文路径缺省 None 不受影响）：
-  `get_stock_info`（stock 缺失 raise，唯一 raise 点）+ 技术指标
-  (`get_trend_indicators`，无行情数据降级占位) + **财务指标**
-  (`get_financial_indicators`，raw 缓存缺失降级占位，2026-08-02
-  08-02-f10-financial-indicator-sections——F10【盈利能力指标】节最新
-  期中文摘要) + 实时情报 (`get_market_intel`，无 `TDX_API_KEY` 时降级
-  文本) + **亿信金融问数** (`get_billions_financial_intel`，第 5 段，
-  08-08-billions-api-integration) 拼接——顺序：个股信息 → 技术指标 →
-  财务指标 → 实时情报 → 亿信，display 与 make_investment_decision 共用。
-  工具在函数内 import，避免无 key 环境的模块级副作用。亿信段条件拼接：
-  `billions_enabled("FINDB")` 关 → 空串（段不出现，与之前逐字节一致）；
-  `_billions_intel` 注入参数（None 时懒加载真实现）；失败 → 占位段，
-  不污染 stock_information；`data_markdown.iter_sections` 已注册
-  `【亿信金融数据库】` marker（采集 Tab 独立成节）。
-- **MCP 情报缓存（2026-08-02，08-02-mcp-intel-cache）**：`get_market_intel`
-  非交易时段（`utils.market_time.is_trading_time`，收盘后到次日开盘前
-  行情不变）优先读缓存——按 ticker JSON 落 `data/tdx_cache/mcp_intel/
-  ticker=<T>/data.json`（`core/llms/tools/mcp_intel_cache.py`，
-  `{"fetched_at": 北京时间 ISO, "text": 结果文本}`，原子写；读缺失/
-  损坏 → None 回退实时）。交易时段（或缓存缺失）实时查询并写缓存；
-  查询失败 → 降级占位（**不静默用旧缓存**——盘中必须新鲜）；无
-  TDX_API_KEY 不读写缓存。查询+拼文本独立为 `_query_mcp`（模块级，
-  测试计数注入）。缓存只省网络往返，展示/LLM 语义零变化。
-- **MCP 开关（2026-08-02，08-02-disable-tdx-mcp）**：`TDX_MCP_DISABLED`
-  环境变量设置时（除显式假值 "0"/"false"/"no"）`get_market_intel` 直接
-  返回 `（TDX MCP 已禁用，跳过实时市场情报）`——**不查 MCP、不读写
-  缓存**（分析流程不再等 MCP 网络/超时）；恢复 = 删环境变量，不动代码。
-  判定函数 `_mcp_disabled()`（模块级，测试钉死真值/假值/未设置三态）。
-- **联网搜索开关（2026-08-03，08-03-websearch-tool-calling）**：
-  `make_investment_committee` 图装配时 `web_search_enabled()` 判定——
-  `WEB_SEARCH_DISABLED` 设置（存在且值非 ""/"0"/"false"/"no"）→
-  `tools=None` 不绑定，三个工具角色（bullish/bearish/investment_manager）
-  构造行为与现状逐字节一致；启用 → `tools = [make_web_search_tool()]`
-  传三个 agent（fundamental/trend 专家不传）。与 TDX MCP 不同：工具
-  绑定是构造期行为，开关在图装配时判定（TDX MCP 在调用时判定）；二者
-  都是图级可逆开关。语义与测试见 agents spec Tools 段。
-- **亿信工具绑定（2026-08-08，08-08-billions-api-integration）**：
-  `tools` 列表在 web_search 旁按开关追加 `billions_search` /
-  `billions_twitter` / `billions_fetch`（各自 `billions_enabled(cap)`，
-  工厂关 → 返回 None 不绑定）。**每次 run 调用上限**（闭包计数器，
-  默认 3/2/3，env `BILLIONS_{SEARCH,TWITTER,FETCH}_MAX_CALLS` 覆盖）：
-  超限返回占位提示、不再发真实请求——防 15 轮工具循环烧配额。
-  未配置 `BILLIONS_API_KEY` 时 tools 与今日逐字节一致。
-- **信息面分析师条件接线（2026-08-08；08-10-web-search-fallback 放宽）**：
-  有效条件 = `billions_cap_switch("ANALYST")` 且（`billions_enabled("SEARCH")`
-  或 `billions_enabled("TWITTER")` 或 `web_search_enabled()`）——ANALYST
-  段无主闸 key 约束（`billions_cap_switch`，utils/billions_config.py），
-  亿信源仍受 key 硬约束，联网路径只受 `WEB_SEARCH_DISABLED` 总闸；开 →
-  注册 `information_analyst` 节点 + START 边 + trader 第 4 入边（4 专家
-  并行，墙钟 8 串行 → 4 阶段不变）；关 → 完全不注册（图与今日逐字节
-  一致，条件接线非占位节点）。无 key + web 开 → 注册且预抓走 DDG 回退
+- `_llm` 为测试注入点（house style 无 mock 框架）：生产入口 `run(ticker, opts)`
+  缺省 `makeLlm()`（src/llm.ts 通用 OpenAI 兼容工厂，见 agents spec）；
+  离线图测试（test/committee.test.ts）传路由式假 LLM 验证 join/并行语义。
+  **假 LLM 路由注意**：并行下节点调用顺序非确定，必须按 system 消息路由
+  （角色文案含独有短语，如「精于计算公司的基本面数据」）。
+- Compiled with `MemorySaver()` checkpointer; runtime `config` must carry
+  `{"configurable": {"thread_id": "1"}}`（缺省值在 events.run 的 opts.config）。
+- **TS 入口与组装**（重写自 Python make_investment_decision /
+  build_stock_information 段）：图执行入口是
+  `createPipelineRunner(store).run(ticker, opts)`（src/events.ts）：
+  采集数据先行写入 store（Node 探针 tools/probe.mts 直采；App 端注入/预载）
+  → `buildStockInformation(ticker, deps)`（src/pipeline.ts，**图前 enrichment
+  唯一组装点**）→ 组 initial state（messages/target_stock_ticker/
+  stock_information/market）→ `graph.stream` 迭代执行（节点事件经
+  ProgressUpdater 实时发射为 progress/report/token/roleStatus 事件）→ 读终态
+  组 FinalReport（stock_information + final_decision + opinions）→ `done`
+  事件。五段拼接顺序：个股信息（`formatStockOutput`）→ 技术指标
+  （`trendIndicatorsText`）→ 盈利能力（cn `financialIndicatorsText` / hk-us
+  `yahooFinancialIndicatorsText`）→ 实时情报（cn `deps.mcp` 注入闭包，无
+  注入/无 key → `fallbackMarketIntel()` 占位；hk-us 无源跳过占位）→
+  亿信（`deps.billions` 闭包，开关关/未注入 → 空段自然不出现）。各块降级一律
+  占位不 raise；错误契约见 error-handling spec「runner never throws past
+  event boundary」——运行期失败只 emit `error` 事件并 resolve(undefined)；
+  并发二次 run 被 busy 守卫拒绝（error 事件 + resolve(undefined)，C2）。
+- 【历史】Python `make_investment_decision(target_ticker)` 流式执行图；
+  `stock_information` 由模块函数 `build_stock_information` 生成（display 与
+  决策共用同一组装点；`get_stock_info` stock 缺失 raise 为唯一 raise 点；
+  亿信段条件拼接与 data_markdown【亿信金融数据库】marker 注册）。TS 对应物
+  即上条 events.run + pipeline.buildStockInformation（TS 无 stock 缺失
+  raise——空库走演示链）。
+- 【历史】**MCP 情报缓存**（Python `get_market_intel`）：非交易时段
+  （utils.market_time.is_trading_time）优先读按 ticker 落盘 JSON 缓存
+  （data/tdx_cache/mcp_intel/，core/llms/tools/mcp_intel_cache.py，原子写；
+  盘中必须新鲜，查询失败降级占位不静默用旧缓存）。**TS 不移植缓存**
+  （src/mcp.ts 头注：无 is_trading_time 完整移植 → 每次实时查询，与 Python
+  交易时段行为一致；mcp_intel_cache.py 不移植）。
+- **MCP 开关**：TS `mcpDisabled()`（src/mcp.ts）——优先级 TDX_MCP_ENABLED
+  env 覆盖 > config.tdxMcp > env 默认（TDX_MCP_DISABLED 经
+  switches.fromEnv 反推：键缺省/空/'0'/'false'/'no' → enabled，逐位等价旧
+  envDisabledBool 判定）；禁用 → 返回 MCP_DISABLED_TEXT 占位，**不查 MCP、
+  不等网络**；恢复 = 删环境变量/开面板开关，不动代码。开关可由设置面板经
+  setCapabilitySwitches 显式注入（app 层），消费点惰性读（运行时生效）。
+- **联网搜索开关**：语义不变——工具绑定是**构造期**行为：
+  `makeInvestmentCommittee` 内 `_tools ?? (webSearchEnabled() ?
+  [makeWebSearchTool()] : [])`（专家节点工厂忽略 tools）；web 端 App 层可经
+  `assembleTools`（app/lib/runner.ts）组装 web_search + 亿信三件套整表注入。
+  开关源：WEB_SEARCH_DISABLED env 反推或面板注入（src/switches.ts，语义
+  enabled）。与 TDX MCP 不同：TDX MCP 在调用时判定，二者都是图级可逆开关。
+- **亿信工具绑定**：src/billionsTools.ts 工厂各自按 `billionsEnabled(cap)`
+  判定（关 → 不绑定）；**每次 run 调用上限**（闭包计数器）：maxCallsByCap
+  注入（settings.caps 接线）> env `BILLIONS_{SEARCH,TWITTER,FETCH}_MAX_CALLS`
+  > 默认 3/2/3（BILLIONS_DEFAULT_MAX 单源）——超限返回占位提示、不再发真实
+  请求，防 15 轮工具循环烧配额。未配置 BILLIONS_API_KEY 时行为同「关」
+  （key 约束单点在 billionsCapEnabled）。
+- **信息面分析师条件接线**：有效条件 = `informationAnalystEnabled()`
+  （src/committee.ts 单点）= `billionsEnabled('ANALYST') &&
+  (billionsEnabled('SEARCH') || billionsEnabled('TWITTER') ||
+  webSearchEnabled())`；开 → 注册 `information_analyst` 节点 + START 边 +
+  trader 第 4 入边（4 专家并行，4 阶段墙钟不变）；关 → 完全不注册（条件接线
+  非占位节点，图与关态逐字节一致）。无 key + web 开 → 预抓走 DDG 回退
   （见 agents spec 信息面分析师段）。信息面报告经 State key
-  `information_analysis` 插值进 trader/manager 查询（条件段，缺失时
-  查询字节级不变——AC1 硬约束，test_query_baselines 钉死）。
-- New agents mean: new node registration here, a new edge, a new `State` key,
-  and a new prompt in `core/llms/prompt.py`.
+  `information_analysis` 插值进 trader/manager 查询（src/agents.ts
+  infoSection 条件段，缺失时查询字节级不变）。
+- New agents mean: a new entry in `ROLES`, a new edge in `buildEdges`, a new
+  `State` key, and a new prompt in `src/prompt.ts`.

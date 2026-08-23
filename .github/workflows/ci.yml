@@ -1,0 +1,40 @@
+# CI 测试门:typecheck + vitest(push master / PR)。
+# push 必须 branches 过滤:裸 on:push 对 tag push 同样触发,v* tag 推送会与
+# release.yml 并行双跑(审计裁定);branch 过滤天然排除 tag ref。
+# 可选增强(本轮不做,防遗忘):app 层 tsc、expo export 编译门。
+name: ci
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: typecheck + test
+    runs-on: ubuntu-latest
+    env:
+      CI: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test

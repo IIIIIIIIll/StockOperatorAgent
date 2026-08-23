@@ -179,7 +179,6 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   };
   // 1) 同源代理优先(dev server / server.mjs 都有 /llm-proxy)——绕开浏览器
   //    CORS,拿到真实服务端响应;代理本身不可用(纯静态 server)再回退直连
-  let proxyUsed = false;
   try {
     const viaProxy = await fetch('/llm-proxy/chat/completions', {
       method: 'POST',
@@ -187,7 +186,6 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
       body: JSON.stringify(payload),
     });
     if (viaProxy.status !== 502 && viaProxy.status !== 404) {
-      proxyUsed = true;
       return await classifyChatResponse(viaProxy, host, keys, Date.now() - t0);
     }
     warn(`LLM 代理不可用(HTTP ${viaProxy.status})——回退浏览器直连`);

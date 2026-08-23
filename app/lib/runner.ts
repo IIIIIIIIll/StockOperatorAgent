@@ -173,11 +173,6 @@ export function buildLlm(cfg: LlmConfig | null, proxyBase?: string): unknown {
   return demoLlm();
 }
 
-export function configError(cfg: LlmConfig | null): string | null {
-  if (cfg) return null;
-  return '未配置 LLM 三键——将使用演示占位报告。';
-}
-
 // ─── 亿信/mcp 情报段注入（phase out 能力补齐；预查询一次 → 缓存闭包注入，
 //     buildStockInformation 与 runner.run 双算共享同一文本，不重复触发网络）───
 
