@@ -4,7 +4,7 @@
 // 分析编排(状态/启动链/订阅/start)在 app/hooks/useAnalysis.ts(08-16 重构),
 // 本组件只保留 UI 状态(activeTab/ticker/showSettings)、派生与渲染。
 import React from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type Role } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import ReportContent from './components/ReportContent';
@@ -134,6 +134,9 @@ function AppContent() {
                 });
               }}
               accessibilityLabel="选择市场"
+              // a11y#15:显式 button 角色 + 展开态(读屏可发现开合)
+              accessibilityRole="button"
+              aria-expanded={showMarketMenu}
             >
               <Text style={styles.marketSelectText}>
                 {MARKET_CHOICES.find((c) => c.value === market)?.label ?? '沪深A股'}
@@ -194,12 +197,16 @@ function AppContent() {
               : null,
           ]}
         >
-          <View style={styles.marketMenuInner}>
+          {/* 菜单容器 listbox 语义(a11y#15):选项组对读屏暴露为可选择列表 */}
+          <View style={styles.marketMenuInner} role={'listbox' as Role}>
             {MARKET_CHOICES.map((c) => {
               const active = c.value === market;
               return (
                 <Pressable
                   key={c.value}
+                  // a11y#15:选项 role=option + aria-selected 标记当前选中
+                  role="option"
+                  aria-selected={active}
                   style={[styles.marketOption, active && styles.marketOptionActive]}
                   onPress={() => {
                     setMarket(c.value);
