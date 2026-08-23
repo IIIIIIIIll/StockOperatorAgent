@@ -1414,3 +1414,25 @@ review 08-21 凌晨两笔 UI 提交(f2edddd 市场下拉 + d74046b 移除自动�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 53: Web+Android E2E 验证闭环(08-23 整改运行面确认)
+
+**Date**: 2026-08-23
+**Task**: e2e-web-android
+**Branch**: `master`
+
+### Summary
+
+web(expo export + server.mjs 托管 8090)浏览器驱动验证 AC-W1..W4 全 PASS:W1 零 console error;W2 无 key demo 3.7s 达「✓ 分析完成(24 步)」;W3 无效 key 上游 401 横幅且无成功标记(D15 失败路径门控行为级确认);W4 市场/设置/数据页渲染正常,idb+localStorage 写读正常。安卓 assembleDebug+安装启动冒烟 PASS:FATAL=0、ReactNativeJS error=0,进程存活终态保持。6/6 AC PASS 零 SKIP;e2e-report.md 落盘 research/,截图 11 张证据。已知残留记录:错误终态后角色 chips 不复位(statuses 未随 error 重置,展示层)。spec 新增 ts/web-e2e.md 手工验证配方并入路由表。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98ab0f3` | docs(spec): ts 新增 web-e2e 手工验证配方 |
+| `8994930` | chore(trellis): 08-23 e2e 任务工件 |
+
+### Status
+
+[OK] **Completed**
