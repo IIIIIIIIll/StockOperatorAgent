@@ -23,8 +23,8 @@
 //                  | {type:'error', id?, message}
 //   main -> child: {type:'op', id, op, args} | {type:'snapshot', id}
 //                  | {type:'settings-save', json} | {type:'shutdown'}
-//   {type:'op'} args are shape-validated (STORE_OP_VALIDATORS below) before
-//   dispatch — malformed or path-separator-bearing args never reach the store.
+//   {type:'op'} args pass checkStoreOpArgs (src/storeOps.ts) before dispatch
+//   — malformed or path-separator-bearing args never reach the store.
 // Snapshot = {stocks, datas, reports, meta} four Records, JSON-safe
 // (listStocks/listMetaKeys enumeration + existing getters serialized).
 //
@@ -34,6 +34,7 @@ import { mkdirSync } from 'node:fs';
 import { createAppServer } from '../app/server.mjs';
 import { setLogDir } from '../app/lib/logs-server.cjs';
 import { createNodeFileStore, nodeSettingsFileSystem } from '../src/store-node.ts';
+import { checkStoreOpArgs } from '../src/storeOps.ts';
 
 // Aligned with app/lib/settingsStore.ts RN_SETTINGS_FILE.
 const SETTINGS_FILE = 'soa-settings.json';
@@ -115,105 +116,6 @@ function saveSettings(json) {
   const file = new settingsFs.File(settingsFs.Paths.document, SETTINGS_FILE);
   if (!file.exists) file.create();
   file.write(json);
-}
-
-// --- store-op args validation (defense-in-depth) ----------------------------
-// main.mjs gates which ops the renderer may forward (STORE_OPS,
-// desktop/main.mjs:46-52) and that args is an array (:225-228); upstream
-// normalizeTicker (src/market.ts:85-98) rejects '/' or '\' in every market
-// branch before a ticker ever becomes a store key. This child must not
-// depend on those upstream gates: malformed args never reach the store
-// methods. Rationale: FileStore persists per-ticker files as `${ticker}.json`
-// joined onto the store dir (src/store-file.ts enqueuePersistTicker), so a
-// ticker containing '/' or '\' could escape it. Context: the child listens
-// on a random 127.0.0.1 port and only the preload bridge (trusted renderer
-// bundle) can send store ops — pure defense-in-depth, not a new attack
-// surface.
-const PATH_SEP_RE = /[\\/]/;
-
-function isPlainObject(v) {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-
-function isTicker(v) {
-  return typeof v === 'string' && v.length > 0 && !PATH_SEP_RE.test(v);
-}
-
-function isBar(v) {
-  return (
-    isPlainObject(v) &&
-    typeof v.date === 'string' &&
-    typeof v.open === 'number' &&
-    typeof v.close === 'number' &&
-    typeof v.high === 'number' &&
-    typeof v.low === 'number' &&
-    typeof v.volume === 'number' &&
-    (v.amount == null || typeof v.amount === 'number')
-  );
-}
-
-function isReport(v) {
-  return isPlainObject(v) && typeof v.report_date === 'string' && isPlainObject(v.fields);
-}
-
-function checkTickerAndBars(op, args) {
-  if (args.length !== 2) return `${op} expects 2 arguments (ticker, bars)`;
-  if (!isTicker(args[0])) return `${op} ticker must be a non-empty string without path separators`;
-  if (!Array.isArray(args[1]) || !args[1].every(isBar))
-    return `${op} bars must be an array of DailyBar objects`;
-  return null;
-}
-
-// One validator per StoreLike mutator signature (src/store.ts StoreLike /
-// src/store-file.ts FileStore) — exactly the 6 ops main.mjs STORE_OPS
-// forwards. Returns null when args match the contract, else the reason.
-const STORE_OP_VALIDATORS = {
-  putStock(args) {
-    if (args.length !== 1) return 'putStock expects 1 argument (StockRecord)';
-    const r = args[0];
-    if (!isPlainObject(r)) return 'putStock argument must be a StockRecord object';
-    if (!isTicker(r.ticker)) return 'putStock record.ticker must be a non-empty string without path separators';
-    if (typeof r.name !== 'string') return 'putStock record.name must be a string';
-    if (r.overview != null && !isPlainObject(r.overview)) return 'putStock record.overview must be an object or null';
-    if (r.overviewLastUpdate != null && typeof r.overviewLastUpdate !== 'string')
-      return 'putStock record.overviewLastUpdate must be a string or null';
-    if (r.lastDataUpdate != null && typeof r.lastDataUpdate !== 'string')
-      return 'putStock record.lastDataUpdate must be a string or null';
-    return null;
-  },
-  addDatas(args) {
-    return checkTickerAndBars('addDatas', args);
-  },
-  replaceDatas(args) {
-    return checkTickerAndBars('replaceDatas', args);
-  },
-  addPerformanceReports(args) {
-    if (args.length !== 2) return 'addPerformanceReports expects 2 arguments (ticker, reports)';
-    if (!isTicker(args[0])) return 'addPerformanceReports ticker must be a non-empty string without path separators';
-    if (!Array.isArray(args[1]) || !args[1].every(isReport))
-      return 'addPerformanceReports reports must be an array of PerformanceReport objects';
-    return null;
-  },
-  updateOverview(args) {
-    if (args.length !== 3) return 'updateOverview expects 3 arguments (ticker, overview, stamp)';
-    if (!isTicker(args[0])) return 'updateOverview ticker must be a non-empty string without path separators';
-    if (!isPlainObject(args[1])) return 'updateOverview overview must be an object';
-    if (typeof args[2] !== 'string') return 'updateOverview stamp must be a string';
-    return null;
-  },
-  setMeta(args) {
-    if (args.length !== 2) return 'setMeta expects 2 arguments (key, value)';
-    if (typeof args[0] !== 'string' || args[0].length === 0) return 'setMeta key must be a non-empty string';
-    if (typeof args[1] !== 'string') return 'setMeta value must be a string';
-    return null;
-  },
-};
-
-// Whitelist gate + arg-shape gate in one: null = args match the contract.
-function checkStoreOpArgs(op, args) {
-  if (!Object.prototype.hasOwnProperty.call(STORE_OP_VALIDATORS, op)) return `unknown store op: ${op}`;
-  if (!Array.isArray(args)) return `store-op ${op} args must be an array`;
-  return STORE_OP_VALIDATORS[op](args);
 }
 
 async function main() {

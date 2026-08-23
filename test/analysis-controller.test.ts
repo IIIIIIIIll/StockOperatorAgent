@@ -246,6 +246,28 @@ describe('AnalysisController.start 编排', () => {
     expect(h.log.info.some((m) => m.startsWith('分析结束:耗时'))).toBe(true);
   });
 
+  it('us + finnhub key → collect 收到非空 finnhub 参数(空白 trim 后)', async () => {
+    const settings = defaultSettings();
+    settings.keys.finnhubApiKey = '  fh_key_aapl  ';
+    const h = makeHarness({ settings });
+
+    await h.ctrl.start('aapl', 'us');
+
+    expect(h.collectCalls).toHaveLength(1);
+    expect(h.collectCalls[0].market).toBe('us');
+    // 仅美股增强:key 非空才传,且以 trim 后形态传入(空白不随行)
+    expect(h.collectCalls[0].finnhub).toEqual({ apiKey: 'fh_key_aapl' });
+  });
+
+  it('us 无 finnhub key → collect 收到 null(零网络对照)', async () => {
+    const h = makeHarness(); // 默认 settings:finnhubApiKey 为空串
+
+    await h.ctrl.start('AAPL', 'us');
+
+    expect(h.collectCalls[0].market).toBe('us');
+    expect(h.collectCalls[0].finnhub).toBeNull();
+  });
+
   it('北交所代码拦截:逐字文案,不发起采集与 runner.run', async () => {
     const h = makeHarness();
 

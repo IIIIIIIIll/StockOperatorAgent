@@ -26,13 +26,18 @@ describe.skipIf(!LIVE)('live TDX integration (AC7)', () => {
       const last = k.bars[k.bars.length - 1];
       expect(Math.abs(last.close - q[0].price)).toBeLessThan(1e-6);
 
-      // xdxr：与 fixture 一致（67 条，最近事件 2026-07-10 fenhong=10.03）
+      // xdxr：结构性断言——上市公司会持续产生新的除权除息事件，条数与末条
+      // 内容随时间增长（钉死 67 条/'20260710'/fenhong=10.03 在真实分红后恒假红）。
+      // 改钉：规模下界 ≥ 67（2026-08 已知历史规模）+ 事件按日期单调不减返回。
       const xdxr = await getXdxrInfo(client, 1, '600036');
-      const div = xdxr.filter((r) => r.category === 1);
-      expect(xdxr.length).toBe(67);
-      const lastDiv = div[div.length - 1];
-      expect(`${lastDiv.year}${String(lastDiv.month).padStart(2, '0')}${String(lastDiv.day).padStart(2, '0')}`).toBe('20260710');
-      expect(Math.abs(lastDiv.fenhong! - 10.03)).toBeLessThan(1e-6);
+      expect(xdxr.length).toBeGreaterThanOrEqual(67);
+      // 事件日期 → 定宽 8 位数字串(字典序 == 数值序),预计算后两两比对单调
+      const dates = xdxr.map(
+        (r) => `${r.year}${String(r.month).padStart(2, '0')}${String(r.day).padStart(2, '0')}`,
+      );
+      for (let i = 1; i < dates.length; i++) {
+        expect(dates[i] >= dates[i - 1]).toBe(true);
+      }
 
       // F10：category + content + 解析
       const cats = await getCompanyInfoCategory(client, 1, '600036');
