@@ -265,8 +265,11 @@ function AppContent() {
             })}
           </View>
 
-          {/* 进度区(所有 Tab 可见;替换语义,对齐 Python updatable_container) */}
-          {progress.length > 0 ? (
+          {/* 进度区(所有 Tab 可见;替换语义,对齐 Python updatable_container)。
+              D15 整体门控:运行中显示最新进度行;仅成功终态(!running && hasDone)
+              才显示「✓ 分析完成」;失败运行(error 终态 hasDone=false)整块不渲染
+              ——外层容器一并门控,避免渲染空的带边框横条。 */}
+          {progress.length > 0 && (a.running || a.hasDone) ? (
             <View style={styles.progressBar}>
               {a.running ? (
                 <Text style={styles.progressLatest}>⏳ {progress[progress.length - 1].message}</Text>

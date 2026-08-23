@@ -10,7 +10,8 @@
 //
 // 行为等价基线 = 抽取前 useAnalysis.ts(08-16-app-analysis-hook 版),差异仅:
 // - D9:onSettingsChange 仅非运行态清错误横幅(运行中保留);
-// - D15:新增 hasDone(done → true;start()/error → false),App 侧 U16 消费;
+// - D15:新增 hasDone(done → true;start()/error → false;lastRun 恢复按
+//   final_decision 非空同步),App「✓分析完成」横幅消费(D15 整体门);
 // - C1 侧:「分析结束:耗时」仅在 runner.run resolve 出报告时打(U1 契约:runner
 //   不越过事件边界抛错,失败 resolve(undefined)——不再打印误导性成功耗时);
 //   catch 为防御性兜底,单 banner 来源仍是 error 事件监听。
@@ -72,7 +73,8 @@ export interface AnalysisSnapshot {
   readonly lastRunAt: LastRunMarker | null;
   readonly market: Market;
   readonly settings: SettingsState;
-  /** D15:done 事件后 true;新 start()/error 事件后 false(App「✓分析完成」消费,U16)。 */
+  /** D15:done 事件后 true;新 start()/error 事件后 false;lastRun 恢复按
+   *  final_decision 非空同步(App「✓分析完成」横幅消费)。 */
   readonly hasDone: boolean;
 }
 
@@ -238,6 +240,10 @@ export class AnalysisController {
       // 与活运行 roleStatus 置 done 的 chips 语义一致
       const manager = enabledRoles().find((r) => r.kind === 'manager');
       if (manager && last.final_decision.trim()) sts[manager.nodeName] = 'done';
+      // D15:恢复路径同步完成标记(与经理 chip 同款条件:final_decision 非空才算
+      // 完成会话)。App 进度区另有 progress.length>0 外门,恢复态只有 report 型
+      // 事件——当前无 UI 效果,此处为状态一致性(hasDone=存在已完成结果)。
+      s.hasDone = Boolean(last.final_decision.trim());
       s.statuses = sts;
       s.lastRunAt = { at: last.at, mode: last.mode };
       // 恢复路径同步市场:lastRun ticker 即 store 键(规范化产物),反推市场 →

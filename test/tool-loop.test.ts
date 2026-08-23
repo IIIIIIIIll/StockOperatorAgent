@@ -12,6 +12,16 @@ function captureWarn(): { lines: string[]; restore: () => void } {
   return { lines, restore: () => { console.warn = orig; } };
 }
 
+// 同 captureWarn,捕获 console.error(log.ts error → console.error;NODE_ENV=test 不落盘)。
+function captureError(): { lines: string[]; restore: () => void } {
+  const lines: string[] = [];
+  const orig = console.error;
+  console.error = ((...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  }) as typeof console.error;
+  return { lines, restore: () => { console.error = orig; } };
+}
+
 // 脚本化 LLM：按调用序返回预置响应（函数形式，Runnable 兼容）
 function scriptedLlm(script: Array<() => AIMessage>) {
   const fn = async (payload: unknown) => {
@@ -216,5 +226,75 @@ describe('tool loop (AC3)', () => {
     expect(cap.lines[0]).toContain('工具轮 1'); // 轮次(1-based)
     expect(cap.lines[0]).toContain('web_search, get_stock'); // 该轮全部工具名,逗号连接
     expect(cap.lines[0]).toContain('回滚该轮中间文本');
+  });
+});
+
+describe('tool loop 收尾轮非合规兜底(AL2)', () => {
+  it('收尾轮仍返回 tool_calls → 不执行该轮工具,占位替代结论,真实轨迹保留', async () => {
+    let calls = 0;
+    const llm = scriptedLlm([
+      () => { calls += 1; return toolCall('web_search', {}); },
+      () => { calls += 1; return toolCall('web_search', {}); },
+      () => { calls += 1; return toolCall('web_search', {}); }, // 收尾轮不服从强约束
+    ]);
+    const cap = captureError();
+    let resets = 0;
+    try {
+      const { response, messages, closingFallback } = await invokeWithTools(llm, 'q', {}, {
+        tools: [{ name: 'web_search', invoke: () => 'r' }],
+        maxToolRounds: 2,
+        onReset: () => { resets += 1; },
+      });
+      // 两态之一(tool_calls 态):结论被占位文案替代
+      expect(response.content).toBe('搜索轮数已用尽，未能生成最终回答');
+      expect(closingFallback).toBe('tool_calls');
+      // 有界契约:maxToolRounds + 收尾轮共 3 次 LLM 调用,收尾轮的工具不再执行
+      expect(calls).toBe(3);
+      // 真实轨迹保留:末条消息即不服从的 AIMessage(带 tool_calls),未被改写
+      const msgs = humanMessages(messages);
+      const lastMsg = msgs[msgs.length - 1] as AIMessage;
+      expect(lastMsg.tool_calls?.length).toBe(1);
+      // 前两轮各一次回滚 + 收尾轮兜底回滚(该轮已流出文本经同通道清除)
+      expect(resets).toBe(3);
+      // 降级先记录(error-handling「degrade 前 log」契约)
+      expect(cap.lines.join('\n')).toContain('收尾轮');
+      expect(cap.lines.join('\n')).toContain('web_search');
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('收尾轮 content 空白串(trim 归一)→ 「（本轮未产出结论）」占位(empty 态)', async () => {
+    let calls = 0;
+    const llm = scriptedLlm([
+      () => { calls += 1; return toolCall('web_search', {}); },
+      () => { calls += 1; return toolCall('web_search', {}); },
+      () => { calls += 1; return new AIMessage({ content: ' \n\t ' }); }, // 收尾轮白卷
+    ]);
+    const cap = captureError();
+    try {
+      const { response, closingFallback } = await invokeWithTools(llm, 'q', {}, {
+        tools: [{ name: 'web_search', invoke: () => 'r' }],
+        maxToolRounds: 2,
+      });
+      expect(response.content).toBe('（本轮未产出结论）');
+      expect(closingFallback).toBe('empty');
+      expect(calls).toBe(3); // 两轮 + 有界收尾轮
+      expect(cap.lines.join('\n')).toContain('内容为空');
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('合规收尾(无 tool_calls 且非空)→ closingFallback null,行为不变', async () => {
+    const llm = scriptedLlm([
+      () => toolCall('web_search', {}),
+      () => new AIMessage({ content: '收尾回答' }),
+    ]);
+    const { response, closingFallback } = await invokeWithTools(llm, 'q', {}, {
+      tools: [{ name: 'web_search', invoke: () => 'r' }],
+    });
+    expect(response.content).toBe('收尾回答');
+    expect(closingFallback).toBeNull();
   });
 });

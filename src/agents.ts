@@ -10,7 +10,7 @@ import { system_prompt, marketPromptRules, fundamental_analysis_expert_message, 
 import { getLastBusinessDay, marketToday } from './gates.ts';
 import type { Market } from './market.ts';
 import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts';
-import { invokeWithTools, type ToolLike } from './toolLoop.ts';
+import { invokeWithTools, NO_CONCLUSION_TEXT, type ToolLike } from './toolLoop.ts';
 import { pushReport, safeProgress, safePushDelta, safePushStatus, type ProgressUpdater } from './progress.ts';
 import { defaultSearcher, summarizeResults, webSearchEnabled, type SearchResult } from './webSearch.ts';
 import { billionsEnabled } from './committee.ts';
@@ -146,7 +146,7 @@ export class AgentNode {
   ): Promise<Record<string, unknown>> {
     safePushStatus(this.progressUpdater, nodeName, 'running');
     safeProgress(this.progressUpdater, startMsg);
-    const { response, messages } = await invokeWithTools(
+    const { response, messages, closingFallback } = await invokeWithTools(
       (chain ?? this.llm) as never,
       queryText,
       this.config,
@@ -160,9 +160,15 @@ export class AgentNode {
       },
     );
     safeProgress(this.progressUpdater, doneMsg);
-    const content = typeof response.content === 'string' ? response.content : String(response.content);
+    // AL2 配合守卫:收尾轮非合规时 toolLoop 已替换占位并标记 closingFallback;
+    // 此处再防其余路径(直调/轮内早退)的空串报告——占位文案与 toolLoop 单源。
+    // roleStatus 不再无条件 'done':空结论或兜底终态 → 'retry'(chip 显式呈现
+    // 异常,并经控制器 retry 通道清该节点 partial),真实结论照旧 'done'。
+    const rawContent = typeof response.content === 'string' ? response.content : String(response.content);
+    const conclusive = closingFallback === null && rawContent.trim().length > 0;
+    const content = rawContent.trim() ? rawContent : NO_CONCLUSION_TEXT;
     pushReport(this.progressUpdater, stateKey, content);
-    safePushStatus(this.progressUpdater, nodeName, 'done');
+    safePushStatus(this.progressUpdater, nodeName, conclusive ? 'done' : 'retry');
     return { messages, [stateKey]: content };
   }
 
