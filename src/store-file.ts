@@ -1,8 +1,10 @@
 // 文件仓储 —— RN 端 StoreLike 持久化后端(expo-file-system;设计 §7 决策 C,禁止更改)
 // 语义对齐 InMemoryStore/Store(同 IdbStore):addDatas 增量去重、replaceDatas 空输入
 // 早退不清库、业绩 report_date 去重、getDatas/getPerformanceReports 返回副本。
-// 架构:自维护内存缓存双写(内存同步读 + 异步整文件重写,串行队列保证写序);
-// ready() 读全部文件 hydrate;getters 同步读内存副本。
+// 架构:自维护内存缓存双写(内存同步读 + 异步整文件重写,串行队列保证写序;
+// 落盘 = 同目录 tmp 文件 + 原子替换,进程中断只留无害 tmp 或旧文件完整态,
+// 不产生半截 JSON);ready() 读全部文件 hydrate(单文件损坏仅跳过该文件并记
+// error,不中断其余文件加载);getters 同步读内存副本。
 // 布局:<baseDir>/<ticker>.json({stock,bars,reports}) + <baseDir>/meta.json
 // (Record<string,string>)。生产默认适配器 expo-file-system(documentDirectory 下
 // 解析,惰性动态 import,同 log.ts RN 分支先例);测试注入 node fs 适配器。
@@ -52,9 +54,14 @@ function getExpoBackend(relBaseDir: string): Promise<ExpoBackend> {
           return f.exists ? await f.text() : null;
         },
         async writeFile(path: string, data: string): Promise<void> {
-          const f = new File(path);
-          if (!f.exists) f.create();
-          f.write(data);
+          // 原子写:先写同目录 tmp(后缀不以 .json 结尾 → hydrate 扫描天然跳过
+          // 崩溃残留),再 moveSync 原子替换目标。SDK 57 moveSync 默认不覆盖已存在
+          // 目标(RelocationOptions.overwrite 默认 false),必须显式传 overwrite:true。
+          const dest = new File(path);
+          const tmp = new File(`${path}.tmp.${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+          if (!tmp.exists) tmp.create();
+          tmp.write(data);
+          tmp.moveSync(dest, { overwrite: true });
         },
         async listDir(): Promise<string[]> {
           return new Directory(baseDir).list().map((e: { name: string }) => e.name);
@@ -100,26 +107,37 @@ export class FileStore implements StoreLike {
   private async hydrate(): Promise<void> {
     const { fs, baseDir } = await this.backend();
     const names = await fs.listDir();
+    // 单文件容错(评审 08-23 F1):单个坏文件只跳过自身并 logError,不中断其余
+    // 文件加载 —— 此前首个坏文件的解析异常会沿 readyPromise 缓存 rejection,
+    // 全库不可读直至手工删除该文件。非 .json 后缀的崩溃残留 tmp(原子写中间态)
+    // 走不进下方分支,由命名契约天然跳过。
     for (const name of names) {
-      if (name === META_FILE) {
-        const text = await fs.readFile(joinPath(baseDir, name));
-        if (text == null) continue;
-        const rows = JSON.parse(text) as Record<string, string>;
-        for (const [k, v] of Object.entries(rows)) {
-          if (!this.meta.has(k)) this.meta.set(k, v);
+      try {
+        if (name === META_FILE) {
+          const text = await fs.readFile(joinPath(baseDir, name));
+          if (text == null) continue;
+          const rows = JSON.parse(text) as Record<string, string>;
+          for (const [k, v] of Object.entries(rows)) {
+            if (!this.meta.has(k)) this.meta.set(k, v);
+          }
+        } else if (name.endsWith('.json')) {
+          const ticker = name.slice(0, -'.json'.length);
+          const text = await fs.readFile(joinPath(baseDir, name));
+          if (text == null) continue;
+          const data = JSON.parse(text) as TickerFile;
+          if (data.stock && !this.stocks.has(ticker)) this.stocks.set(ticker, { ...data.stock });
+          if (data.bars?.length && !this.bars.has(ticker)) {
+            this.bars.set(ticker, [...data.bars].sort((a, b) => a.date.localeCompare(b.date)));
+          }
+          if (data.reports?.length && !this.reports.has(ticker)) {
+            this.reports.set(
+              ticker,
+              [...data.reports].sort((a, b) => a.report_date.localeCompare(b.report_date)),
+            );
+          }
         }
-      } else if (name.endsWith('.json')) {
-        const ticker = name.slice(0, -'.json'.length);
-        const text = await fs.readFile(joinPath(baseDir, name));
-        if (text == null) continue;
-        const data = JSON.parse(text) as TickerFile;
-        if (data.stock && !this.stocks.has(ticker)) this.stocks.set(ticker, { ...data.stock });
-        if (data.bars?.length && !this.bars.has(ticker)) {
-          this.bars.set(ticker, [...data.bars].sort((a, b) => a.date.localeCompare(b.date)));
-        }
-        if (data.reports?.length && !this.reports.has(ticker)) {
-          this.reports.set(ticker, [...data.reports].sort((a, b) => a.report_date.localeCompare(b.report_date)));
-        }
+      } catch (err) {
+        logError(`FileStore 跳过损坏文件:${name}(${err instanceof Error ? err.message : String(err)})`);
       }
     }
   }

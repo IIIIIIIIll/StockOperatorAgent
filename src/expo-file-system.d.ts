@@ -12,7 +12,10 @@ declare module 'expo-file-system' {
     write(contents: string): void;
     text(): Promise<string>;
     textSync(): string;
-    moveSync(destination: File): void;
+    /** SDK 57 真实签名带 RelocationOptions:{ overwrite?: boolean },默认 false
+     *  (不覆盖已存在目标,直接抛错)—— 原子替换必须显式传 { overwrite: true }
+     *  (store-file.ts 生产后端 writeFile 依赖此语义)。 */
+    moveSync(destination: File, options?: { overwrite?: boolean }): void;
   }
   export class Directory {
     constructor(...uris: unknown[]);

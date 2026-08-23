@@ -7,11 +7,22 @@
 // 路径拼接语义复用 store-file.ts(joinPath:baseDir 尾斜杠兼容;FileStore 传给
 // 适配器的 readFile/writeFile 已是拼好的完整路径,listDir 只枚举 baseDir)。
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { readFile as fsReadFile, readdir, writeFile as fsWriteFile } from 'node:fs/promises';
+import {
+  readFile as fsReadFile,
+  readdir,
+  rename as fsRename,
+  unlink as fsUnlink,
+  writeFile as fsWriteFile,
+} from 'node:fs/promises';
 import { FileStore, type FileFsAdapter } from './store-file.ts';
 
+// tmp 序号:进程内单调递增 + pid 区分实例,保证 tmp 名不与任何已有文件相撞。
+let tmpWriteSeq = 0;
+
 /** FileStore 的 node:fs 适配器(FileFsAdapter 面;同 store-file.test.ts 注入先例)。
- *  readFile 缺文件返回 null(FileStore hydrate 对 null 兜底)。 */
+ *  readFile 缺文件返回 null(FileStore hydrate 对 null 兜底);writeFile 走同目录
+ *  tmp + fsRename 原子替换(评审 08-23 F1:直写曾留下半截 JSON,hydrate 一炸全库),
+ *  tmp 名以 .tmp.<pid>.<seq> 结尾 —— 不以 .json 结尾,hydrate 扫描天然跳过残留。 */
 export function nodeFsAdapter(baseDir: string): FileFsAdapter {
   return {
     async readFile(path) {
@@ -22,7 +33,14 @@ export function nodeFsAdapter(baseDir: string): FileFsAdapter {
       }
     },
     async writeFile(path, data) {
-      await fsWriteFile(path, data, 'utf8');
+      const tmp = `${path}.tmp.${process.pid}.${tmpWriteSeq++}`;
+      try {
+        await fsWriteFile(tmp, data, 'utf8');
+        await fsRename(tmp, path);
+      } catch (err) {
+        await fsUnlink(tmp).catch(() => {}); // 尽力清残留;原错误上抛,由写队列统一记录
+        throw err;
+      }
     },
     async listDir() {
       return readdir(baseDir);

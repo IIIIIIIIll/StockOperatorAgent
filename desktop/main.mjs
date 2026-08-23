@@ -11,6 +11,11 @@
 // loading http://127.0.0.1:<port>/ ; window-all-closed -> send shutdown ->
 // child flushes + exits -> app.quit(); 3s SIGKILL fallback; unexpected child
 // exit -> console.error + app.quit().
+// Single instance: requestSingleInstanceLock() runs at import time, before any
+// mkdir/spawn. A second launch quits immediately; the running instance focuses
+// its window on 'second-instance'. Without the lock, two children would each
+// hold an independent in-memory mirror and race whole-file rewrites of the
+// same userData <ticker>.json / meta.json (lost updates + torn-write window).
 //
 // Run: first `cd app && npx expo export --platform web` to build dist, then
 // `cd desktop && npm start`.
@@ -60,6 +65,22 @@ let quitting = false;
 let msgId = 0;
 const pendingOps = new Map(); // op id -> {resolve, reject}
 const pendingSnapshots = new Map(); // snapshot id -> {resolve, reject}
+let mainWindow = null; // BrowserWindow ref; focused by 'second-instance' below
+
+// --- single instance ---------------------------------------------------------
+// Module scope = before whenReady/mkdir/spawn ever run (Electron standard
+// pattern). The loser quits without creating dirs or spawning a child.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 function nextId() {
   msgId += 1;
@@ -273,12 +294,17 @@ function createWindow(port) {
   win.webContents.on('console-message', (_e, level, message) => {
     console.log(`[renderer:${level}] ${message}`);
   });
+  win.on('closed', () => {
+    mainWindow = null; // let 'second-instance' know the window is gone
+  });
+  mainWindow = win;
   void win.loadURL(`http://127.0.0.1:${port}/`);
 }
 
 // --- app lifecycle -----------------------------------------------------------
 
 app.whenReady().then(async () => {
+  if (!gotSingleInstanceLock) return; // lock loser: app.quit() already requested — never mkdir/spawn
   const userData = app.getPath('userData');
   const storeDir = path.join(userData, 'store');
   const settingsDir = path.join(userData, 'settings');
