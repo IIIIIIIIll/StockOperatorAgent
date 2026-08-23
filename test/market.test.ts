@@ -123,35 +123,32 @@ describe('marketOfStoreTicker', () => {
 });
 
 describe('marketInfo', () => {
-  it('cn:沪深A股/上海时区/CNY/整手 100', () => {
+  it('cn:沪深A股/上海时区/CNY', () => {
     expect(marketInfo('cn')).toEqual({
       market: 'cn',
       label: '沪深A股',
       timeZone: 'Asia/Shanghai',
       currency: 'CNY',
-      lotSize: 100,
       promptRules: '',
     });
   });
 
-  it('hk:港股/香港时区/HKD/无整手', () => {
+  it('hk:港股/香港时区/HKD', () => {
     expect(marketInfo('hk')).toEqual({
       market: 'hk',
       label: '港股',
       timeZone: 'Asia/Hong_Kong',
       currency: 'HKD',
-      lotSize: null,
       promptRules: '',
     });
   });
 
-  it('us:美股/纽约时区/USD/无整手', () => {
+  it('us:美股/纽约时区/USD', () => {
     expect(marketInfo('us')).toEqual({
       market: 'us',
       label: '美股',
       timeZone: 'America/New_York',
       currency: 'USD',
-      lotSize: null,
       promptRules: '',
     });
   });

@@ -9,7 +9,7 @@
 ```ts
 // src/market.ts（S1）
 type Market = 'cn' | 'hk' | 'us';
-interface MarketInfo { market: Market; label: string; timeZone: string; currency: string; lotSize: number | null; promptRules: string; }
+interface MarketInfo { market: Market; label: string; timeZone: string; currency: string; promptRules: string; }
 marketInfo(market: Market): MarketInfo;
 detectMarket(input: string): Market | null;                    // cn: /^\d{6}$/ 非 4/8 开头; hk: /^\d{1,5}$/; us: /^[A-Za-z][A-Za-z0-9.-]{0,9}$/
 hkSymbolCandidates(input: string): string[];                   // ≤4 位左补零; 5 位首 0 → [去一前导零 4 位, 原样]; 5 位非 0 首 → 原样。'09988'→['9988.HK','09988.HK']（实网 9988.HK 是阿里官方码）

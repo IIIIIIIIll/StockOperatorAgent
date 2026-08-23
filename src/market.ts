@@ -18,7 +18,6 @@ export interface MarketInfo {
   label: string;
   timeZone: string;
   currency: string;
-  lotSize: number | null;
   /** 提示词市场规则文本(S4 填充,本切片恒空串占位)。 */
   promptRules: string;
 }
@@ -29,7 +28,6 @@ const MARKET_INFOS: Record<Market, MarketInfo> = {
     label: '沪深A股',
     timeZone: 'Asia/Shanghai',
     currency: 'CNY',
-    lotSize: 100,
     promptRules: '',
   },
   hk: {
@@ -37,7 +35,6 @@ const MARKET_INFOS: Record<Market, MarketInfo> = {
     label: '港股',
     timeZone: 'Asia/Hong_Kong',
     currency: 'HKD',
-    lotSize: null,
     promptRules: '',
   },
   us: {
@@ -45,7 +42,6 @@ const MARKET_INFOS: Record<Market, MarketInfo> = {
     label: '美股',
     timeZone: 'America/New_York',
     currency: 'USD',
-    lotSize: null,
     promptRules: '',
   },
 };
