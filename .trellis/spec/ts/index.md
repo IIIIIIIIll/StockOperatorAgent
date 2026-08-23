@@ -65,7 +65,7 @@ paths:
 | TDX 采集链/qfq/F10/门控 | [tdx-data.md](./tdx-data.md) | 改 tdx/*/adjust/collector/gates/deviceBridge |
 | 港股/美股数据链(Yahoo/Finnhub/市场模型) | [hk-us-data.md](./hk-us-data.md) | 改 market.ts/yahoo/*/finnhub/collectorSelection/采集代理/单位货币分支 |
 | RN/Hermes 运行时兼容 | [rn-runtime.md](./rn-runtime.md) | 改 polyfill/shim 族/metro 边界 |
-| 桌面 Electron/发布/CI/签名 | [desktop-ci.md](./desktop-ci.md) | 改 desktop/*/desktopBridge/CI/签名脚本 |
+| app 手工 E2E 验证(web/安卓) | [web-e2e.md](./web-e2e.md) | 构建/托管 app、浏览器驱动验证、demo 触发/`__soa` 钩子、安卓冒烟 |
 | 探针与构建脚本 | [tools.md](./tools.md) | 改 tools/* |
 
 ## 全局约定
