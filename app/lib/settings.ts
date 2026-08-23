@@ -151,8 +151,12 @@ export interface ReachabilityResult {
   message: string;
 }
 
-/** LLM 可达性监测:GET {baseUrl}/models(OpenAI 兼容,最轻量验证端点+认证)。
- *  浏览器 CORS 限制下 fetch 可能失败——按错误消息如实展示。 */
+/** LLM 可达性监测:POST 最小 chat/completions(ping 消息 + max_tokens:64)验证
+ *  连通 + 认证 + 推理链路——属真实计费调用,预算刻意压到最小(max_tokens 16 实测
+ *  回复为空,故取 64)。不用 GET {baseUrl}/models:它只证明端点可达与认证,覆盖
+ *  不到 chat/completions 推理链路(本函数以 chat 2xx 响应为通过判据,见
+ *  classifyChatResponse)。同源 /llm-proxy 优先(绕开浏览器 CORS),代理不可用再
+ *  回退直连;浏览器 CORS 限制下直连 fetch 可能失败——按错误消息如实展示。 */
 export async function checkLlmReachability(keys: KeysState): Promise<ReachabilityResult> {
   const base = keys.llmBaseUrl.trim().replace(/\/+$/, '');
   if (!base || !keys.llmApiKey.trim() || !keys.llmModel.trim()) {
@@ -205,7 +209,7 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
       ok: false,
       latencyMs: ms,
       message: msg.includes('fetch')
-        ? `浏览器跨域被拒(CORS)——本环境无 /llm-proxy 代理(请用 npx expo start 或 node server.mjs 启动)。`
+        ? `浏览器请求失败(CORS 或网络不可达)——本环境无 /llm-proxy 代理(请用 npx expo start 或 node server.mjs 启动)。`
           + 'Node/真机 App 无此限制(`npm run probe` 可直连验证)'
         : msg,
     };
