@@ -73,6 +73,7 @@ View 被绘制到 absolute 定位的菜单卡片之上。判据实验:隐藏警�
 | 层叠上下文:RN-web 表单内 absolute 浮层可能被后续兄弟 View 盖住 | 浮层用 RN `Modal` 渲染,zIndex 只作同上下文微调 | 本指南 §2 |
 | Hermes 缺口(Buffer/timers/crypto/zlib/GBK) | polyfill.ts + shim 族 + metro resolveRequest 重定向 | rn-runtime.md |
 | `EXPO_PUBLIC_*` 内联 | 必须 `process.env.X` 直接成员访问 | rn-runtime.md |
+| web Modal fade-out 点击穿透(ghost-click):RNW fade-out 期全屏 `pointerEvents:none` 容器保留 ~250ms → 菜单区可视但点击穿到下层按钮(典型=市场按钮 → 菜单立即重开);D2 原「死点击窗(阻塞)」推断已实证为反向 | web 端 Modal 用 `animationType='none'`;native 保留 fade(系统层动画无穿透) | U17(2026-08-23) |
 
 新发现一条就追加一行;修完平台 bug 不留记录 = 下次重查一遍。
 

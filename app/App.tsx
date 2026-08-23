@@ -4,7 +4,7 @@
 // 分析编排(状态/启动链/订阅/start)在 app/hooks/useAnalysis.ts(08-16 重构),
 // 本组件只保留 UI 状态(activeTab/ticker/showSettings)、派生与渲染。
 import React from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import ReportContent from './components/ReportContent';
@@ -171,7 +171,10 @@ function AppContent() {
       <Modal
         visible={showMarketMenu}
         transparent
-        animationType="fade"
+        // web:RNW ModalAnimation fade-out 期全屏 pointerEvents:none 容器保留 ~250ms,
+        // 菜单区可视但点击穿透(ghost-click 落到市场按钮 → 菜单重开)→ web 禁动画;
+        // native fade 走系统层动画无此问题,保留观感(design §4)。
+        animationType={Platform.OS === 'web' ? 'none' : 'fade'}
         onRequestClose={() => setShowMarketMenu(false)}
       >
         {/* 全屏透明点击层:点菜单外区域关闭 */}
