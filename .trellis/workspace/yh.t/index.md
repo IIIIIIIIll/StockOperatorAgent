@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 51
-- **Last Active**: 2026-08-22
+- **Total Sessions**: 52
+- **Last Active**: 2026-08-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1395 | Active |
+| `journal-1.md` | ~1416 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 52 | 2026-08-23 | 全仓评审+整改闭环 | `85a5534` | `master` |
 | 51 | 2026-08-22 | 市场下拉改 Modal 弹层修复 web 端菜单透明(RN-web 层叠 bug) | - | `master` |
 | 50 | 2026-08-22 | 市场下拉背板回退透明+内容可见(悬浮菜单回归) | - | `master` |
 | 49 | 2026-08-22 | 市场下拉背板改实心填充 | `be37715` | `master` |
