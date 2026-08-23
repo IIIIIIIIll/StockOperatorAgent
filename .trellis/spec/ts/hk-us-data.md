@@ -99,12 +99,16 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 
 #### Wrong
 ```ts
-// 09988 候选序按“去一个前导零”（'0988.HK' 先行）→ 那是另一家公司且实网 404，App 取首候选全链失败
-hkSymbolCandidates('09988') // → ['0988.HK', '09988.HK']
+// 「去前导零」误当去**全部**:5 位首 0 码会产生不存在的过短符号,
+// App 取首候选全链失败(404)
+hkSymbolCandidates('00988') // ✗ ['988.HK', '00988.HK'](去全部前导零;实网无 988.HK)
 ```
 #### Correct
 ```ts
-hkSymbolCandidates('09988') // → ['9988.HK', '09988.HK']（去全部前导零的 4 位官方码先行，实网佐证）
+hkSymbolCandidates('09988') // → ['9988.HK', '09988.HK']（去**一**个前导零的 4 位形式先行,input.slice(1);实网佐证 9988.HK=阿里官方码）
+hkSymbolCandidates('00700') // → ['0700.HK', '00700.HK']（同规则）
+// 措辞要点:去**一** ≠ 去**全部**——'09988' 两法恰好同果易混淆;
+// 分歧例 '00988':slice(1) → ['0988.HK', '00988.HK'],去全部 → '988'(与 §2、src/market.ts:78、market.test.ts:58-59 同源)
 ```
 
 ## Gotchas

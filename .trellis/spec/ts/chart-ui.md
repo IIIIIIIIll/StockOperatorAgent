@@ -18,10 +18,13 @@ paths:
 - `changePctHistData(values, dates, upColor, downColor)` — 涨跌幅柱;NaN/非
   有限值过滤(首根无前值 → NaN 跳过),正红负绿着色,0 归红(涨);values/dates
   同长同序(DataScreen computeAll 同窗口切片)。
-- `financialTrendSeries(reports, profit)` — 财务跨期折线:净利润/每股收益取
+- `financialTrendSeries(reports, profit, market: Market = 'cn')` — 财务跨期折线:净利润/每股收益取
   performance_reports 跨期;第三条线优先**销售毛利率**(F10 盈利能力节,
   performance_reports 恒 NaN——见源码注释);N/A 期跳过。ROE/毛利率为 %,
   label 内嵌单位(08-15 用户反馈:图无单位很怪)。
+  market(S5)驱动币种标签:cn 输出与改造前逐字节不变(亿元/元),hk
+  亿HKD/HKD、us 亿USD/USD(`marketInfo(market).currency`;与 chartData.ts
+  头注、hk-us-data.md §3 单位/货币条同源)。
 - `salesGrossMargin(profit, reportDate)` — 业绩卡片:报告期('YYYYMMDD')
   对应销售毛利率,缺失 → NaN。
 - `FINANCIAL_COLORS` 折线色单点(对齐 Python charts._FINANCIAL_LINES:

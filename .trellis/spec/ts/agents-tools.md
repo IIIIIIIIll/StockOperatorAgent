@@ -45,17 +45,21 @@ TS 是最终唯一实现,各能力必须有**生产接线点**(防"开关存在�
   非数字)回退 env/默认)+ agents.ts 信息面分析师预抓(三源
   announcement/report/web + twitter)。**key 在 web 端 localStorage**:
   客户端/工具经 `apiKey` 构造注入(不读 process.env——Metro 不内联非
-  EXPO_PUBLIC 变量)。接线:runner.ts `makeBillionsIntel`(pipeline 段)+
-  `assembleTools`(委员会工具)→ App.tsx 传入;预抓 client 注入(App.tsx 构造
-  带 key 的 `BillionsClient` → runner.run 的 `billionsClient` → events.ts
-  RunOptions → committee `deps.billionsClient` → 分析师构造第 5 参;缺省 →
-  无 key client 回退,亿信路径静默关闭、DDG 兜底)。**安全**:key 仅存 client
+  EXPO_PUBLIC 变量)。接线(U13 抽取后编排进 app/lib/analysisController,
+  App.tsx 为纯渲染层不再接线):app/lib/runner.ts `makeBillionsIntel`(intel
+  预查询)+ `assembleTools`(委员会工具)由 useAnalysis.ts 经控制器 deps
+  注入;预抓 client 注入(useAnalysis deps `makeBillionsClient` 构造:key
+  存在 → 带 key 的 `BillionsClient`,否则 undefined 零网络 →
+  analysisController.start 组装 → runner.run 的 `billionsClient` →
+  events.ts RunOptions → committee `deps.billionsClient`(informationAnalyst
+  工厂透传)→ 分析师构造第 5 参;缺省 → 分析师内部无 key client 回退,
+  亿信路径静默关闭、DDG 兜底)。**安全**:key 仅存 client
   私有字段——不落日志、不经服务端代理(浏览器端直连现状,不新增代理路由)。
 - **mcp 实时情报**:`src/mcp.ts`(`TdxMcpClient`:JSON-RPC 2.0 + tdx-api-key
   + Mcp-Session-Id 透传 + SSE 响应解析取首个 result;`getMarketIntel`:
   TDX_MCP_DISABLED/ENABLED 门控 + 无 key 占位 + 中文摘要 ≤10 行)。**不做
-  缓存**(TS 无 is_trading_time 移植,每次实时查询)。接线:runner.ts
-  `makeMcpIntel` → App.tsx 传入 deps.mcp。
+  缓存**(TS 无 is_trading_time 移植,每次实时查询)。接线:app/lib/runner.ts
+  `makeMcpIntel` → useAnalysis.ts fetchIntel deps 注入(仅 cn 消费,S4)。
 - **qfq 前复权 / 采集 freshness 门 / 北交所**:见
   [tdx-data.md](./tdx-data.md);北交所/akshare 明确不支持(用户决策
   08-13,App.tsx 入口拦截报错)。
