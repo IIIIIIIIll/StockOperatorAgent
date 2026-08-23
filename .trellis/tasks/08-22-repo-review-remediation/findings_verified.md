@@ -122,3 +122,78 @@
 - E7 gates 两个符号「死但测试活」→ 删除需连带测试;envDisabledBool 的 switches.ts 提及为注释
 - D8(常量死支,功能上无影响)
 - 原稿「D15 收到时 vs code」已修正(见 D15 行)
+
+---
+
+## 关闭状态(2026-08-23 整改完成回填)
+
+> 执行模型:串行单元制(U1-U33),每单元 trellis-check approve → 全量回归矩阵(vitest + root tsc + app tsc + Web 打包;Kotlin 单元加 Android gradle)→ 独立 commit。
+> 最终基线:580 通过 / 1 跳过(原基线 511;+69 测试用例,skip 数不变);root/app tsc 0 诊断;`:app:assembleRelease` 签名构建成功。
+
+### 已修复(In Scope 全关闭)
+
+| ID | 单元 | Commit | 说明 |
+|---|---|---|---|
+| A3 | U9 | edcb382 | release.yml 版本↔tag 双 job 硬门禁 |
+| A4 | U10 | 88d519e | 严格 base64 + keystore magic(JKS/JCEKS/PKCS12) |
+| A5 | U11 | d3d884d | child.mjs store-op 入参形状校验(纵深) |
+| A6 | U12 | 6e2dfaf | Host 头校验(loopback 连接时;XFH 不信) |
+| B1 | U4 | cf3d42e | Yahoo 链全链路 40s abort(fetchWithTimeout,Hermes 兼容) |
+| B2-残余 | U5 | b7ceafd | fc 回落状态码无关解析 Set-Cookie A3 |
+| B3 | U6 | d5e183a | putStock 字段级合并(isFinite 门,缺键保旧) |
+| B4 | U7 | 626c401 | prevCloseOf 今日单 bar → NaN,与 CN 对齐 |
+| E9 | U8 | d1cb50a | isYahooMarket 去重单源(try/catch 分类器)+ 附带 handleYahooCollect 测试(E5 一并关闭) |
+| C1 | U1(+U13 收口) | 678b3c2 / ec0d9f2 / 360681b | run() 错误只发 error 事件不再抛出;probe 可观测性;useAnalysis 防御 catch |
+| C2(=D10) | U2 | f5a46bb | createPipelineRunner running 守卫(busy → error 事件) |
+| C3 | U3 | f4d4281 | IdbStore.close() 先排空写穿队列再清理 |
+| D1+D4+D5 | U16 | 08a467b | 菜单几何:resize 重测/右缘 clamp/上翻/maxWidth 280 |
+| D2-ghost(新增) | U17 | d456d21 | web Modal animationType='none' 消穿透;平台差异清单追加 |
+| D6 | U20 | 5e2b017 | SettingsPanel mountedRef + seq token 竞态守卫 |
+| D7 | U21 | 70399a0 | checkLlmReachability 注释对齐 POST chat/completions + CORS 措辞 |
+| D8 | U22 | 0f626f7 | DataScreen 死字面量 '2026-08-10' → asiaToday() 单源 |
+| D9(U14 吸收) | U13 | 360681b | hasDone/运行中不清错误横幅(控制器内) |
+| D11 | U25 | f968a77 | Kotlin POST_NOTIFICATIONS 运行时请求(每进程一次,不阻塞 FGS) |
+| D12(PARTIAL) | U18 | 52d182e | 冗余 stopPropagation 删除 + stale zIndex 注释(焦点陷阱 REFUTED 不修) |
+| D13 | U23 | 2e9b785 | 稳定 React keys(date/period:metric/report_date/slot.title) |
+| D14 | U24 | d612cb5 | IndicatorChart autoSize:true(RN 5.2.0 RO 回流) |
+| D15(U15 吸收) | U13 | 360681b | ✓分析完成仅 done 后显示 |
+| a11y#15 | U19 | 0689554 | 菜单 ARIA button/listbox/option + aria-expanded/selected |
+| E1 | U13 | 360681b | useAnalysis 抽离 AnalysisController(DI)+ analysis-controller.test.ts 12 用例 |
+| E2+E3 | U26 | d89823f | updateOverview 四实现矩阵 + listStocks/listMetaKeys(15 用例) |
+| E4 | U33(计划缺口补) | abe362a | collectYahooForDevice × finnhub 组合 3 用例(implement.md 原表遗漏行,主会话补派) |
+| E5 | (随 U8) | d1cb50a | handleYahooCollect 400 gate 双分支 + 注入 _collect 透传测试(proxies.test.ts +71 行) |
+| E6 | U27 | 8e46638 | EXPO_PUBLIC_LLM_* env 兜底分支 4 用例 |
+| E7 | U29 | a9d1a91 | 死导出删除 ×4(+连带测试;.env.example stale 提及同步) |
+| E8 | U30 | 47288a3 | 三处 spec 漂移修正(hk-us-data §7 重写自洽/agents-tools 接线链/chart-ui 签名) |
+| E10 | U31 | 2ffe82f | MarketInfo.lotSize 删除(+spec §2 镜像同步) |
+| E11 | U28 | a3bb8d5 | demoLlm PHRASES 路由 18 用例 + safe() 契约入 error-handling.md |
+| 新增3(suite 并行脆弱性) | U32 | b6495df | vitest.config.ts testTimeout 15s(假超时未再现) |
+
+### 不修(REFUTED / investigated-not-bug,零代码改动)
+
+A1、A2、B2 主项(null 即哨兵)、C4(R4 设计)、D2 原「死点击窗」、D3、D12 焦点陷阱、a11y#16 — 论证见上文各表与 Investigated-and-cleared 节。
+
+### 规格同步汇总(AC5)
+
+- guides/cross-platform-thinking-guide.md:web fade 穿透行(U17)
+- error-handling.md:pipeline safe()/safeProgress 家族契约条(U28)
+- ts/hk-us-data.md:§7 候选序措辞重写自洽 + §2 lotSize 镜像同步(U30/U31)
+- ts/agents-tools.md:亿信/mcp 接线链更新至 useAnalysis deps 形态(U30)
+- ts/chart-ui.md:financialTrendSeries 第三参 market(U30)
+- testing.md:testTimeout 15s 记录(U32)
+- error-handling.md C1 契约措辞:复核无需改动(代码已向规格收敛)
+
+### Backlog(非阻塞,记录防丢)
+
+- FinancialTrendChart.tsx 同款 createChart 无 autoSize(D14 范围外;如需同修参照 U24 两行改法)
+- U12 F2 socket 层 server 集成测试(可选纵深)
+- events.test.ts 低频 load-flake:U32 上调 testTimeout 后未再现;若复发按 break-loop 另立任务
+
+### AC 核验(2026-08-23)
+
+- AC1 ✅ In-Scope 全关闭(上表);REFUTED 项零改动
+- AC2 ✅ vitest 580/1 skip 全绿(新增 69 用例,无意外 skip)
+- AC3 ✅ root + app tsc 0 诊断
+- AC4 ✅ architecture 七断言绿;proxies 504→锁→200 语义保持;events 顺序断言绿(C1 更新后)
+- AC5 ✅ 规格同步见上节
+- AC6 ✅ 串行单元制执行;每提交前 trellis-check approve + 全量回归;全程无未审合入
