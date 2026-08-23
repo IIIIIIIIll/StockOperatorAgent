@@ -12,6 +12,7 @@ import { computeAll } from '../../src/indicators.ts';
 import { changePercentSeries, fmtNumber, turnoverPct } from '../../src/pipeline.ts';
 import { financialTrendSeries, salesGrossMargin } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
+import { asiaToday } from '../../src/gates.ts';
 import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key } from '../../src/metaKeys.ts';
 import { marketInfo, type Market } from '../../src/market.ts';
 import { useTheme, type Theme } from '../theme';
@@ -54,7 +55,9 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
       capital: null,
       f10: parseIndicatorSection(f10Text, '【主要财务指标】'),
       bars,
-      today: bars.length ? bars[bars.length - 1].date : '2026-08-10',
+      // bars 空(未采集):today 只喂 lastBarIsToday/ytdBaseClose,两者对空 bars 早退 →
+      // 不参与任何计算;占位取全仓单源"今天"(asiaToday,pipeline 同款),防误导性字面量
+      today: bars.length ? bars[bars.length - 1].date : asiaToday(),
     }),
     ...(market !== 'cn' ? ((stock?.overview ?? {}) as Record<string, number | string>) : {}),
   };
