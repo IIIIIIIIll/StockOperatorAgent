@@ -353,6 +353,65 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(before.getStock('0700.HK')?.overview?.currency).toBe('HKD');
     expect(before.getStock('0700.HK')?.lastDataUpdate).toBe(marketToday('hk'));
   });
+  it('E4 device×finnhub:us 全链 + profile2 合并 industry 入库(finnhub 为第三位置参数,非 opts 内嵌)', async () => {
+    const calls = makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      {
+        match: (u) => u.includes('/v8/finance/chart/'),
+        respond: (c) => jsonResponse(chartBody(c.url.split('/chart/')[1].split('?')[0])),
+      },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+      { match: (u) => u.startsWith('https://finnhub.io/'), respond: () => jsonResponse({ finnhubIndustry: 'Technology' }) },
+    ]);
+    // 签名核对:collectYahooForDevice(ticker, opts?, finnhub?) —— 与 web 链同契约,
+    // 但消费方不同(RN 直连全局 fetch),web 路径已有用例,此处钉死 device 组合(E4 缺口)
+    const out = await collectYahooForDevice('AAPL', {}, { apiKey: 'k' });
+    const chartCalls = calls.filter((c) => c.url.includes('/v8/finance/chart/'));
+    expect(chartCalls).toHaveLength(4); // us 无候选试探:probe(range=5d)1 次 + 全量分页 3 窗口
+    expect(chartCalls.every((c) => c.url.includes('/chart/AAPL?'))).toBe(true); // 原样单符号
+    const finnhubCalls = calls.filter((c) => c.url.startsWith('https://finnhub.io/'));
+    expect(finnhubCalls).toHaveLength(1);
+    expect(finnhubCalls[0].url).toBe('https://finnhub.io/api/v1/stock/profile2?symbol=AAPL&token=k');
+    const overview = store.getStock('AAPL')?.overview;
+    expect(overview?.industry).toBe('Technology'); // 合并发生在入库前 → overview 槽含 industry
+    // 其余 overview 字段不受合并影响(Yahoo 链原值,fixture 同既有用例)
+    expect(out.name).toBe('腾讯控股有限公司');
+    expect(overview?.currency).toBe('HKD');
+    expect(overview?.pe_dynamic).toBe(20);
+    expect(overview?.latest_price).toBe(400);
+  });
+
+  it('E4 对照:device 不传 finnhub → 零 finnhub.io 请求(hk-us-data.md 错误矩阵「无 key」行)', async () => {
+    const calls = makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(chartBody('AAPL')) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+      // 刻意无 finnhub 路由:任何 finnhub 请求都会落 unexpected fetch 抛错(双保险)
+    ]);
+    await collectYahooForDevice('AAPL'); // 第三参缺省(web 对照在 collectForWeb describe,device 独立钉死)
+    expect(calls.filter((c) => c.url.startsWith('https://finnhub.io'))).toHaveLength(0);
+    const overview = store.getStock('AAPL')?.overview;
+    expect(overview?.industry).toBeUndefined(); // industry 留空
+    expect(overview?.pe_dynamic).toBe(20); // Yahoo 链本身采集成功
+  });
+
+  it('E4 降级:profile2 429 → warn 忽略,采集整体成功、industry 留空(错误矩阵「失败/429」行)', async () => {
+    makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(chartBody('AAPL')) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+      { match: (u) => u.startsWith('https://finnhub.io/'), respond: () => jsonResponse({ error: 'API limit reached' }, 429) },
+    ]);
+    const out = await collectYahooForDevice('AAPL', {}, { apiKey: 'k' }); // 不抛(degrade don't raise)
+    const overview = store.getStock('AAPL')?.overview;
+    expect(overview?.industry).toBeUndefined(); // industry 留空
+    expect(overview?.currency).toBe('HKD'); // Yahoo 概览照常入库
+    expect(overview?.pe_dynamic).toBe(20);
+    expect(out.snapshot?.price).toBe(400); // 快照链路不受增强源故障影响
+  });
 });
 
 describe('collectYahooViaProxy(浏览器 → /yahoo-collect)', () => {
