@@ -1,0 +1,49 @@
+# RN App 层评审报告(app/lib + UI 面)— 08-23-full-repo-review
+
+- **范围**: `app/lib/`(analysisController / runner / settings / settingsStore / desktopBridge / deviceBridge / proxies.cjs / net-shim / polyfill / async-hooks-shim / punycode-shim / zlib-shim(.ts+.cjs) / chartHtml / collectorSelection / logs-server)、`app/App.tsx`、`app/screens/`、`app/hooks/`、`app/components/`(图表与渲染面)、`app/modules/soa-keepalive`、`metro.config.js`、`app/app.json`、android 配置面(模块级 AndroidManifest 权限 vs 实际使用)。
+- **方法**: 纯静态审读(read/grep/glob 取证),逐文件全文读;每条发现给 file:line + 引文;对照基线 `.trellis/tasks/archive/2026-08/08-22-repo-review-remediation/findings_verified.md`(D/C 系列已定案项不重报,只核修复落地与新变体)与 `.trellis/spec/ts/rn-runtime.md`;判定前过 `.trellis/spec/guides/index.md` 三类 FP 模式(信任边界混淆 / 忽略设计注释 / 变量误读)。
+- **HEAD**: e4d8680(master,工作区仅本评审任务目录未跟踪)。
+
+## 发现表
+
+| ID | 严重度 | 标题 | 证据(file:line + 引文) | 影响 | 建议修法 | 置信度 |
+|---|---|---|---|---|---|---|
+| F1 | **P2** | D15 修复未落地消费侧:「✓ 分析完成」不看 hasDone,失败运行仍显示完成 | `app/App.tsx:271-275`:`{a.running ? (…⏳…) : (<Text style={styles.progressLine}>✓ 分析完成({progress.length} 步)</Text>)}`——判据是 `!running`,非 done。生产侧已按 D15 落地:`app/lib/analysisController.ts:451` `s.hasDone = true; // D15`、`:455` `s.hasDone = false; // D15:error 终态撤销完成标记`;`app/hooks/useAnalysis.ts:53` 注释明说「App『✓分析完成』消费,U16」。但全仓 grep(`app src desktop tools test`)`hasDone` 仅命中接口定义/注释/测试(`test/analysis-controller.test.ts:404-427`),**UI 零消费**。error 归约保留 events(`analysisController.ts:457` `s.events.push(e)`)→ LLM 阶段失败时 progress.length>0 且 !running → 「✓ 分析完成(N 步)」与「✗ 错误」同屏,即上轮 D15 原样。findings_verified 关闭表声称「D15 … ✓分析完成仅 done 后显示(U13)」与 HEAD 不符 | 失败运行(采集成功、LLM 阶段失败——最常见的 key 失效/限流路径)在错误横幅旁同时显示完成勾选,误导用户以为分析成功(D9/D15 复合面) | `App.tsx:273-275` 改为 `{!a.running && a.hasDone ? <Text…>✓ 分析完成(…) </Text> : null}`(恢复 lastRun 的会话可考虑 bootstrap 置 hasDone=true 以保持既有观感);或最小改法 `!a.running && !a.error` | 0.95 |
+| F2 | P3 | 设置面板「会话级/重新加载后恢复默认」文案与持久化实现相反 | `app/screens/SettingsPanel.tsx:156-159`「能力开关(会话级)」「下次分析生效;重新加载后恢复默认。」、`:173-176` 上限区同文案。而每次编辑即持久化:update()(:60-67)`onSettingsChange(next)` → `app/lib/analysisController.ts:269-271` `this.deps.saveSettings(next)` → `app/lib/settings.ts:120-122` `settingsStore.save(JSON.stringify(s))`(localStorage/沙盒文件);重载后 `loadSettings()`(`settings.ts:69-73` spread 合并 saved switches/caps)原样恢复。另 `:151` LangSmith Key placeholder「留空表示不修改」也是 Python 密码框语义的 stale copy(TS 输入框恒显值,空=存空) | 用户以为开关重启即失效,实际跨会话生效;排障时对不上行为 | 文案改为「持久保存」;或真做会话级(不落盘)——二选一,当前代码与文案必须对齐一处;顺带修 :151 placeholder | 0.9 |
+| F3 | P3 | proxies.cjs 注释声称「补 CORS 头」,实现从未设置任何 CORS 头(OPTIONS 亦无处理) | `app/lib/proxies.cjs:86`「→ 补 CORS 头(绕开浏览器跨域…)」,但 `handleLlmProxy` 回包仅 `res.writeHead(upstream.status, { 'Content-Type': … })`(`:128-130`);全仓 grep `Access-Control` 零命中(app/ desktop/)。当前 web 端与代理同源,功能不受影响——纯注释漂移;但注释会让后续维护者误信「跨域可用」(如把面板部署到另一 origin 直连代理) | 无直接行为缺陷;文档性误导 + 若未来跨域复用会踩坑 | 删改 :86-87 注释为如实描述(同源架构无需 CORS);或在 handleLlmProxy 显式加 ACAO 并处理 OPTIONS 预检(若确有跨域诉求) | 0.85 |
+| F4 | P3 | checkLlmReachability 把「代理转发失败(502)」当「代理不存在」,真实上游错误被误导文案掩盖 | `app/lib/settings.ts:189-193`:`if (viaProxy.status !== 502 && viaProxy.status !== 404) { … return classifyChatResponse(…) } warn('LLM 代理不可用(HTTP 502)——回退浏览器直连')`。而 proxies.cjs 把**传输层失败**(上游连不通/超时)也归一为 502:`proxies.cjs:151-153` catch → `writeHead(502, … 'LLM 代理转发失败:…')`(上游 HTTP 错误则透传原状态码,:128)。于是 server 在而上游挂时:前端丢弃了 502 body 里现成的真实原因,回退浏览器直连 → 大概率 CORS 失败 → 用户看到「CORS 或网络不可达…请用 node server.mjs 启动」——与事实相反(server 明明在跑) | 保存配置时的可达性诊断在「server 活着但 LLM 上游不可达」场景给出反向指引 | 区分两类 502:代理转发失败的 body 带 `error.message`,读取并优先展示;仅连接拒绝/404 视为「无代理」回退直连 | 0.75 |
+| F5 | P3 | 本机服务端点无 Origin/CSRF 防护,恶意网页可 drive-by 驱动采集/搜索/日志/LLM 代理 | U12 Host 门(`app/server.mjs`)只校验 Host 为 loopback——浏览器从任意网站向 `http://127.0.0.1:8090/*` 发起的**简单请求**(GET `/tdx-collect?ticker=600036`、GET `/web-search?q=…`、POST text/plain body 到 `/logs`、POST `/llm-proxy` 不带自定义头,body.base 携目标)Host 天然合法 → 全部通过;dev 侧 metro middleware(`app/metro.config.js:88-101`)更无任何门。响应因无 ACAO 不可读(F3),但**请求驱动成立**:触发本机 TDX/Yahoo 采集(占互斥锁、45s 窗口)、DDG 查询走受害者 IP、日志写入(64KB/次)。触发条件 = 受害者运行 dev/prod server 且浏览恶意页面 | 资源滥用/IP 代查/日志垃圾;无数据泄露(响应 opaque、密钥不经服务器存储) | 入口统一校验:存在 Origin 头且非同源 → 403;或要求自定义头(如 X-SOA:1)强制预检失败;双入口(metro+server.mjs)同步 | 0.65 |
+| F6 | P3 | 手写 zlib inflate(251 行 DEFLATE 实现)零测试覆盖 | `app/lib/zlib-shim.ts` 全文(RFC1950 头/BitReader/buildHuffman/inflateBlock/adler32 校验,质量尚可);grep `test/` `zlib\|inflateSync\|adler` **零命中**——51 个测试文件无一触及。该 shim 是真机 TDX 链唯一解压路径(metro `node:zlib` 重定向,`metro.config.js:56-58`;Node/vitest 下走原生 zlib,测试根本不会执行它) | 未来改动 BitReader/Huffman 表无回归红灯;坏帧类 bug 只会在真机采集中爆发 | 补差分用例:Node 下 `zlib.deflateSync` 产流(三 block 类型各一 + 大窗口)→ 断言 shim.inflateSync 输出逐字节一致;坏头/坏 adler32 拒绝 | 0.8 |
+| F7 | P3 | app.json 锁死 light:userInterfaceStyle 使暗色板在原生成死支,「跟随系统」语义两端口径不一 | `app/app.json:6` `"userInterfaceStyle": "light"`(expo 段,iOS/Android 双端生效)vs `app/theme.ts:74-78` dark palette + `/** 跟随系统亮/暗(Streamlit 同语义)。 */ useColorScheme()…`,`app/components/MarkdownText.tsx:2`「主题色驱动,暗/亮自动」。原生 Appearance 被 manifest 锁 light → dark 分支永不可达;web 端 useColorScheme 跟随浏览器 prefers-color-scheme → **web 暗/native 永亮**,同一份双色板两种现实 | 半套死代码 + 跨平台外观不一致;注释与配置互相矛盾 | 二选一:删 `"userInterfaceStyle":"light"` 让原生跟系统(与 theme.ts 语义一致);或明示锁定并把 theme.ts 收敛为单色板、修 MarkdownText 注释 | 0.75 |
+| F8 | P3 | C2 残余变体:controller.start 自身无守卫,__soa.start 可造成并行采集(runner busy 守卫只挡 pipeline) | `app/lib/analysisController.ts:279-291` start() 开头全量重置状态、`:322` `s.running = true`、`:353` `await d.collect(nt, m, finnhub)` 先于 `:390` `await d.runner.run(...)`;U2 守卫(src/events.ts busy 拒绝)只覆盖 runner.run 一环。常规入口被 `App.tsx:130` `disabled={a.running}` 挡住,但调试钩子 `App.tsx:90-94` `__soa.start: () => void a.start(ticker, market)` 可重复调用 → 第二次 start 重置首次的事件流、两次 collect 并行写共享 store、随后一条 run 得到 busy error 事件横幅 | 仅调试/headless 路径可达;后果为事件流错乱 + 双采集资源浪费,无数据损坏(写穿语义幂等) | controller.start 入口加 `if (this.st.running) return;`(或 emit busy 提示);__soa.start 同样受 UI disabled 同源守卫 | 0.7 |
+| F9 | P3 | describeLlmKeys 对 ≤8 字符密钥不做掩码,全文进日志 | `app/lib/settings.ts:117`:`const mask = (v) => (v.length > 8 ? `${v.slice(0,4)}…${v.slice(-4)}` : v);` → 短 key 原样拼进 `LLM_API_KEY=xxx ✓`;该输出经 bootstrap(`analysisController.ts:236-237`)进 info 日志(console + RN 沙盒文件 + POST /logs 聚合落盘,`logs-server.cjs`)。真实 API key 通常 >8,触发面窄;与「密钥不落日志」纪律(spec ts/rn-runtime、env-switches)相悖的边角 | 短密钥/测试 key 场景下泄漏面扩大(日志文件可读) | mask 改为 `v ? `${v.slice(0,2)}…(${v.length})`` 之类,任何长度都不全量输出;model/url 保持明文 | 0.7 |
+
+## Verified-clean 抽检清单
+
+1. **上轮 UI 修复全部落地核验**:D1 resize 重测 effect(`App.tsx:56-63`,deps `[showMarketMenu,width,height]`)、D2 web `animationType={Platform.OS === 'web' ? 'none' : 'fade'}`(:165-168)+ 平台差异指南、D4/D5 `menuGeometry` 右缘 clamp+上翻(:306-330)+ `maxWidth:280`(:351)、a11y#15 button/listbox/option+aria-expanded/selected(:120-123,:193-206)——逐一与 findings_verified 关闭表一致。
+2. **D6 卸载守卫+竞态 token**:`SettingsPanel.tsx:57-64`(mountedRef+effect cleanup)、`:77-87`(seq 取号先于 await,过期结果丢弃)、update():60-67 配置变更使旧检测过期——时序推演无漏洞。
+3. **D14/D13/D8**:IndicatorChart `autoSize: true`(:135-137);DataScreen keys `b.date`/`${r.period}:${r.metric}`/`r.report_date`(:150,:185,:196)+ ReportContent `slot.title`(:79)——唯一性论证成立(store 层 date/report_date 去重键);`asiaToday()` 单源替代硬编码(DataScreen:18 import,:55 使用)。
+4. **U25 通知权限闭环**:模块 manifest 三权限(FOREGROUND_SERVICE / FOREGROUND_SERVICE_DATA_SYNC / POST_NOTIFICATIONS)与实际使用一一对应(`SoaKeepAliveModule.kt` startForegroundService + dataSync 型 service + `maybeRequestNotificationPermission` 运行时请求,T13+ 门控/每进程一次/无前台 Activity 不消耗机会——`SoaKeepAliveModule.kt:51-72`);JS 侧 try/catch 降级不阻断分析(`index.ts:19-24`)。主工程合并后清单未入库(prebuild),见未覆盖面。
+5. **chartHtml WebView 注入面干净**:数据注入走 `injectJavaScript(\`window.__SOA_CHART_DATA__=${JSON.stringify(nativeData)}…\`)`(`IndicatorChart.tsx:309`),页内图例/标题一律 `textContent` + `style.backgroundColor`(`chartHtml.ts:230-246`),无 innerHTML 数据路径;注入字段均为内部常量(dates/colors/title keys),无用户/LLM 可控字符串。
+6. **logs-server 校验链完整**:64KB body 上限 + level 白名单 + CRLF 净化(W3)+ 4KB 截断 + 5MB 轮转 + 全程不抛出(`logs-server.cjs:60-103`);desktop 经 setLogDir 显式注入(`desktop/child.mjs:222`)。
+7. **desktopBridge DesktopStore 与 FileStore 镜像语义一致**:mergeDatas 过滤 `date > last`/keep-last/lastDataUpdate 同步(`desktopBridge.ts:126-141`)、updateOverview 仅既有 stock 生效(:176-181)、写穿串行队列失败仅记录不抛(:104-111)——与 spec stores.md 契约相符。
+8. **net-shim 参数归一正确**:`write(data, cb)` 二参函数不落入 encoding 位(`net-shim.ts:34-46`)、`connect(port, host?, cb)` 三态分发(:18-33)——node-tdx-market 位置参数风格全覆盖。
+
+## 待查线索(证据不足,不列为发现)
+
+- `logs-server.cjs:31-34` 默认目录 `path.join(process.cwd(), '..', 'logs')` 隐含 cwd=`app/`;从仓库根直跑 `node app/server.mjs` 时日志落到仓库外(`<repo>/../logs`)。spec/guides 的启动示例均 `cd app` 后执行,疑按约定可用——需确认是否要 cwd 无关化。
+- AnalysisController 在 React `useMemo` 工厂内构造即订阅 runner(`useAnalysis.ts:62-135`):若未来启用 StrictMode/Suspense 导致渲染废弃重放,会出现双订阅双日志。当前 app 未用 StrictMode,理论面。
+- `handleWebSearch` Promise.race 的 20s setTimeout 成功路径未 clear(`proxies.cjs:366-370`)——悬挂 timer 至多 20s,无功能影响。
+- `body += chunk` 逐 chunk 隐式 utf8 解码,多字节字符跨 chunk 边界会产出 U+FFFD(logs-server/proxies 同模式)——JSON.parse 兜底存在,仅罕见乱码/400。
+- `isPublicHost` DNS 校验与 fetch 实际解析之间存在 TOCTOU rebinding 窗口(proxies.cjs:78-88)——输入是用户自身面板配置,信任边界内,记录备查。
+- FinancialTrendChart web 分支 createChart 无 autoSize(`FinancialTrendChart.tsx:47-56`)——findings_verified 已记 Backlog(D14 范围外),不重复立项。
+- metro dev middleware 无 Host/Origin 门(:86-105)——RN 真机 LAN 联调需要外部可达,疑似有意,仅与 F5 一并评估。
+
+## 未覆盖面声明
+
+- `android/app` 主工程清单与合并后最终权限集未入库(prebuild 产物),INTERNET 等由 Expo 默认注入的权限只能推断、未能静态核验;本报告仅核验了入库的 soa-keepalive 模块级 manifest。
+- `desktop/main.mjs`、`child.mjs` 内部逻辑(IPC/超时/store-op 白名单)属 DesktopToolsCiReview 切片,本次仅从 app/lib 侧(desktopBridge/settingsStore 接口)核对契约。
+- `src/` 业务层(events/pipeline/yahoo 链内部实现/market)归其他切片;本文只在接线点(useAnalysis deps、collectForWeb、setYahooStore)触及。
+- node_modules 内 RN/RNW 组件行为(fade 动画、FocusTrap 等)沿用上轮实证结论,未重复取证。
+- punycode-shim 编解码仅人工算法走查(RFC3492 结构与溢出防护齐全),无与 npm punycode 的差分测试证据。
+- expo-file-system 新 File API(settingsStore RN 分支同步读写)与 KeepAliveService 真机行为未经运行验证(静态分析约束)。

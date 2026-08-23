@@ -1,0 +1,17 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "验证 rubric 与已知 FP 三模式"}
+{"file": ".trellis/spec/ts/index.md", "reason": "七条架构断言/主题路由"}
+{"file": ".trellis/spec/testing.md", "reason": "测试约定"}
+{"file": ".trellis/spec/error-handling.md", "reason": "事件边界错误契约"}
+{"file": ".trellis/spec/ts/stores.md", "reason": "存储层契约"}
+{"file": ".trellis/spec/ts/events-streaming.md", "reason": "事件流契约"}
+{"file": ".trellis/spec/ts/hk-us-data.md", "reason": "港美股数据规范化"}
+{"file": ".trellis/spec/ts/agents-tools.md", "reason": "agents/tools 链路"}
+{"file": ".trellis/spec/ts/rn-runtime.md", "reason": "RN 运行时约定"}
+{"file": ".trellis/spec/ts/desktop-ci.md", "reason": "桌面与 CI 约定"}
+{"file": ".trellis/spec/ts/tools.md", "reason": "tools 脚本约定"}
+{"file": ".trellis/spec/ts/env-switches.md", "reason": "env 开关语义"}
+{"file": ".trellis/spec/ts/tdx-data.md", "reason": "TDX 数据链路"}
+{"file": ".trellis/spec/ts/chart-ui.md", "reason": "图表 UI 契约"}
+{"file": ".trellis/spec/core/data-acquisition.md", "reason": "数据采集核心"}
+{"file": ".trellis/spec/core/investment-committee.md", "reason": "投委会流程"}
