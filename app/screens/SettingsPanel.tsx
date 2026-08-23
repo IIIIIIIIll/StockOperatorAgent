@@ -40,13 +40,26 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   const [settings, setSettings] = React.useState<SettingsState>(() => loadSettings());
   const [reach, setReach] = React.useState<ReachabilityResult | 'idle' | 'checking'>('idle');
 
+  // 卸载守卫 + 请求序号:checkLlmReachability 完成回调落地前,若组件已卸载或
+  // 已有更新的检查/配置变更,则丢弃结果,防止过期 promise 覆盖新状态。
+  const mountedRef = React.useRef(true);
+  const seqRef = React.useRef(0);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const missing = missingLlmKeys(settings.keys);
   const keysComplete = missing.length === 0;
 
   function update(patch: Partial<SettingsState>): void {
+    if (!mountedRef.current) return; // 防御:卸载后不再写入
     const next = { ...settings, ...patch };
     setSettings(next);
     onSettingsChange(next);
+    seqRef.current += 1; // 使进行中的检测结果过期(旧 promise 不得覆盖新状态)
     setReach('idle'); // 配置变化 → 旧检测结果失效
   }
 
@@ -66,8 +79,10 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   async function saveAndCheck(): Promise<void> {
     if (!keysComplete) return; // 缺键:按钮已禁用,双保险
     saveSettings(settings);
+    const seq = ++seqRef.current; // 本次检测的请求序号(新检查/新配置会使其过期)
     setReach('checking');
     const result = await checkLlmReachability(settings.keys);
+    if (!mountedRef.current || seq !== seqRef.current) return; // 已卸载或已有更新的检查 → 丢弃过期结果
     setReach(result);
   }
 
