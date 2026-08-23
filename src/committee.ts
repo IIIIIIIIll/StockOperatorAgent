@@ -3,7 +3,6 @@
 // join，追加写 opinions key）→ 经理（[-1] 读修订版）→ END
 // 信息面分析师为条件节点：启用谓词关 → 完全不注册
 import { addMessages, Annotation, END, MemorySaver, START, StateGraph } from '@langchain/langgraph';
-import { HumanMessage } from '@langchain/core/messages';
 import { webSearchEnabled, makeWebSearchTool } from './webSearch.ts';
 import type { ToolLike } from './toolLoop.ts';
 import type { LlmLike } from './agents.ts';
@@ -14,7 +13,6 @@ import {
 } from './agents.ts';
 import type { BillionsClient } from './billionsClient.ts';
 import type { Market } from './market.ts';
-import { envValue } from './env.ts';
 import { getCapabilitySwitches, type CapabilitySwitches } from './switches.ts';
 
 // ─── 角色注册表（对齐 Python Role dataclass） ─────────────────────────────
@@ -41,14 +39,6 @@ export interface Role {
   enabled: () => boolean;
   factory: AgentFactory;
   reviseNodeName?: string;
-}
-
-/** env-only 兜底判定(存在且非 ""/"0"/"false"/"no" → 禁用):Node 直配 env
- *  场景(无 app 层注入)仍工作;消费面已改走 config(getCapabilitySwitches)。 */
-export function envDisabledBool(name: string): boolean {
-  const v = envValue(name);
-  if (v === undefined || v === '') return false;
-  return !['0', 'false', 'no'].includes(v.toLowerCase());
 }
 
 /** 亿信能力开关 → config(语义 enabled):主闸(billions) 且 能力闸(cap 小写
@@ -183,20 +173,4 @@ export function makeInvestmentCommittee(
   }
   // 对齐 Python：InMemorySaver checkpointer（thread_id 由调用方 config 携带）
   return graph.compile({ checkpointer: new MemorySaver() });
-}
-
-export async function* makeInvestmentDecision(
-  targetTicker: string,
-  stockInformation: string,
-  config?: unknown,
-  _llm?: LlmLike | null,
-): AsyncGenerator {
-  const threadConfig = config ?? { configurable: { thread_id: '1' } };
-  const graph = makeInvestmentCommittee(threadConfig, null, _llm);
-  const initial = {
-    messages: [new HumanMessage(`请帮我分析一下 ${targetTicker}`)],
-    target_stock_ticker: targetTicker,
-    stock_information: stockInformation,
-  };
-  yield* (await graph.stream(initial, threadConfig));
 }

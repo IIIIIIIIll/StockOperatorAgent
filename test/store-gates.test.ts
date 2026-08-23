@@ -2,11 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, type DailyBar } from '../src/store.ts';
 import {
   dailyFresh,
-  FetchScope,
   freshnessGates,
   getLastBusinessDay,
   latestPastQuarterEnd,
-  overviewNeedsRefresh,
   reportsFresh,
 } from '../src/gates.ts';
 import { InMemoryStore } from '../src/store-memory.ts';
@@ -113,14 +111,6 @@ describe('gates (AC5)', () => {
     expect(getLastBusinessDay('2026-08-10')).toBe('2026-08-10');
   });
 
-  it('overviewNeedsRefresh: null → true; same business day → false; older → true', () => {
-    expect(overviewNeedsRefresh(null, '2026-08-10')).toBe(true);
-    expect(overviewNeedsRefresh('2026-08-10', '2026-08-10')).toBe(false); // 同日幂等
-    // 2026-08-07 周五 < 2026-08-10 周一（最近交易日）→ 跨交易日必刷新
-    expect(overviewNeedsRefresh('2026-08-07', '2026-08-10')).toBe(true);
-    expect(overviewNeedsRefresh('2026-08-06', '2026-08-10')).toBe(true);
-  });
-
   it('latestPastQuarterEnd picks most recent passed quarter end', () => {
     expect(latestPastQuarterEnd('2026-08-10')).toBe('20260630');
     expect(latestPastQuarterEnd('2026-07-01')).toBe('20260630');
@@ -133,18 +123,6 @@ describe('gates (AC5)', () => {
     expect(reportsFresh('20260630', '2026-08-10')).toBe(true);
     expect(reportsFresh('20260331', '2026-08-10')).toBe(false); // 未披露当期 → 不新鲜
     expect(reportsFresh(null, '2026-08-10')).toBe(false);
-  });
-
-  it('FetchScope reuses by requested size, not actual rows', () => {
-    const s = new FetchScope();
-    expect(s.canReuse('daily:600036', 250)).toBe(false);
-    s.record('daily:600036', 250); // 请求 250 拉过（即使实际行数 < 250 也算满足）
-    expect(s.canReuse('daily:600036', 250)).toBe(true);
-    expect(s.canReuse('daily:600036', 800)).toBe(false); // 更大请求 → 不满足
-    s.record('daily:600036', 800);
-    expect(s.canReuse('daily:600036', 800)).toBe(true);
-    // 短历史股票：请求 250 拉取实际返回 120 行——按请求尺寸判定仍满足 250
-    expect(s.canReuse('daily:600036', 250)).toBe(true);
   });
 
   it('dailyFresh:lastDataUpdate == 今天 → 同日跳过日K(对齐 Python)', () => {

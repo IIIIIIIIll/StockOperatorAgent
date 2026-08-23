@@ -1,4 +1,4 @@
-// freshness 门 + FetchScope —— 移植自 Python（data_acquisition / time_helper）
+// freshness 门 —— 移植自 Python（data_acquisition / time_helper）
 // 节假日日历未建模（已知缺陷，与 Python 侧一致保留）
 import { marketInfo, type Market } from './market.ts';
 
@@ -26,13 +26,6 @@ export function getLastBusinessDay(dateStr: string): string {
   const dow = d.getUTCDay(); // 0=Sun
   const diff = dow === 0 ? 2 : dow === 6 ? 1 : 0;
   return new Date(d.getTime() - diff * 86_400_000).toISOString().slice(0, 10);
-}
-
-/** overview 门：overviewLastUpdate 早于最近交易日 → 需刷新（对齐 Python
- *  `overview_last_update.date() < get_last_business_day(asia_today())`）。 */
-export function overviewNeedsRefresh(overviewLastUpdate: string | null, today: string): boolean {
-  if (overviewLastUpdate === null) return true;
-  return overviewLastUpdate < getLastBusinessDay(today);
 }
 
 /** 最近一个"已到截止日"的季度末（%Y%m%d 字符串；0331/0630/0930/1231）。 */
@@ -79,21 +72,4 @@ export function freshnessGates(
     dailyFresh: dailyFresh(lastDataUpdate, today),
     f10Fresh: reportsFresh(latestReportDate, today),
   };
-}
-
-/** FetchScope：单遍拉取去重——复用判定按**请求尺寸**（cached_bars ≥ 请求）
- *  而非实际行数（短历史股票 250 拉取返回 <250 行是完整数据，按 len 判定
- *  会错误重拉——对齐 Python spec）。 */
-export class FetchScope {
-  private cached = new Map<string, number>();
-
-  /** 记录某 key 已满足的**请求尺寸**（拉取时传请求的 max_bars，非实际行数）。 */
-  record(key: string, requestedBars: number): void {
-    this.cached.set(key, Math.max(this.cached.get(key) ?? 0, requestedBars));
-  }
-
-  /** 请求尺寸满足（cached ≥ requested）→ 可复用。 */
-  canReuse(key: string, requestedBars: number): boolean {
-    return (this.cached.get(key) ?? 0) >= requestedBars;
-  }
 }
