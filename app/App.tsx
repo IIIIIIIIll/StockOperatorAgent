@@ -145,8 +145,8 @@ function AppContent() {
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
         </View>
-        {/* 悬浮下拉:菜单为 absolute 浮层(zIndex 200),不透明,直接盖在下方内容上;
-            点击全屏透明点击层(下方,背景透明)关闭,内容保持可见 */}
+        {/* 悬浮下拉:菜单经下方 RN Modal portal 渲染(见 Modal 注释);与全屏点击层均未设
+            zIndex —— 命中顺序靠 DOM 顺序(点击层先渲染、菜单后渲染 → 菜单区域可命中) */}
         <View>
           {/* 市场徽标(S5):start() 归一化后 market 已知;有结果/错误/上次分析时展示 */}
           {a.lastRunAt || a.error || a.stockInformation ? (
@@ -194,7 +194,7 @@ function AppContent() {
               : null,
           ]}
         >
-          <Pressable style={styles.marketMenuInner} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.marketMenuInner}>
             {MARKET_CHOICES.map((c) => {
               const active = c.value === market;
               return (
@@ -211,7 +211,7 @@ function AppContent() {
                 </Pressable>
               );
             })}
-          </Pressable>
+          </View>
         </View>
       </Modal>
 
