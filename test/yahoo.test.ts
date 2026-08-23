@@ -253,6 +253,79 @@ describe('YahooClient.quoteSummary / crumb 流程', () => {
     expect(header(qsCall.init, 'Cookie')).toBe('A3=provider-a3');
   });
 
+  it('C3 吊销自愈:401 触发 invalidateA3 钩子 → getter 重读 null → fc 取新 A3 成功', async () => {
+    let providerCalls = 0;
+    let fcCalls = 0;
+    let crumbCalls = 0;
+    let qsCalls = 0;
+    let invalidated = 0;
+    const { fetchImpl, calls } = makeFetch([
+      {
+        match: (url) => url.startsWith('https://fc.yahoo.com'),
+        respond: () => {
+          fcCalls += 1;
+          return textResponse('', 404, { 'set-cookie': `A3=a3-fresh-${fcCalls}; Path=/` });
+        },
+      },
+      {
+        match: (url) => url.includes('/v1/test/getcrumb'),
+        respond: () => {
+          crumbCalls += 1;
+          return textResponse(`crumb-${crumbCalls}`);
+        },
+      },
+      {
+        match: (url) => url.includes('/v10/finance/quoteSummary/'),
+        respond: () => {
+          qsCalls += 1;
+          return qsCalls === 1 ? jsonResponse({ error: 'unauthorized' }, 401) : jsonResponse(QUOTE_BODY);
+        },
+      },
+    ]);
+    // getter 语义:首读返回旧值(模拟缓存命中),失效后重读 → null(C3 禁值闭包的根因)
+    const provider = (): string | null => {
+      providerCalls += 1;
+      return providerCalls === 1 ? 'a3-stale' : null;
+    };
+    const out = await new YahooClient(fetchImpl, provider, () => {
+      invalidated += 1;
+    }).quoteSummary('0700.HK', ['price']);
+    expect(out).toEqual(QUOTE_BODY); // 二次自愈成功
+    expect(invalidated).toBe(1); // 401 → 恰一次失效通知
+    const crumbCookies = calls
+      .filter((c) => c.url.includes('/v1/test/getcrumb'))
+      .map((c) => header(c.init, 'Cookie'));
+    expect(crumbCookies).toEqual(['A3=a3-stale', 'A3=a3-fresh-1']); // 刷新链用新 A3,非旧缓存值
+    expect(fcCalls).toBe(1); // 首链走 provider(零 fc);仅吊销后重取一次
+    const qsUrls = calls.filter((c) => c.url.includes('/v10/finance/quoteSummary/')).map((c) => c.url);
+    expect(qsUrls[0]).toContain('crumb=crumb-1');
+    expect(qsUrls[1]).toContain('crumb=crumb-2');
+  });
+
+  it('C3 刷新后仍 401 → 抛 crumb/401,invalidateA3 只触发一次且 getter 已被重读', async () => {
+    let providerCalls = 0;
+    let invalidated = 0;
+    const { fetchImpl } = makeFetch([
+      FC_ROUTE,
+      crumbRoute('crumb-x'),
+      {
+        match: (url) => url.includes('/v10/finance/quoteSummary/'),
+        respond: () => jsonResponse({ error: 'unauthorized' }, 401),
+      },
+    ]);
+    const provider = (): string | null => {
+      providerCalls += 1;
+      return providerCalls === 1 ? 'a3-stale' : null;
+    };
+    await expect(
+      new YahooClient(fetchImpl, provider, () => {
+        invalidated += 1;
+      }).quoteSummary('0700.HK', ['price']),
+    ).rejects.toMatchObject({ name: 'YahooApiError', code: 'crumb', status_code: 401 });
+    expect(invalidated).toBe(1); // 自愈路径单次进入,不重复失效
+    expect(providerCalls).toBeGreaterThanOrEqual(2); // 失效后 getter 被重读(返回 null → fc)
+  });
+
   it('YAHOO_HOSTS 白名单常量（S3 代理防 SSRF 用）', () => {
     expect(YAHOO_HOSTS).toEqual([
       'query1.finance.yahoo.com',

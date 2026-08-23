@@ -14,7 +14,7 @@ const { collectAll } = require('../../src/tdx/quoteClient.ts');
 const { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } = require('../../src/tdx/f10Client.ts');
 const { ddgSearcher } = require('../../src/webSearch.ts');
 const { YahooClient } = require('../../src/yahoo/yahooClient.ts');
-const { collectYahooPayload, obtainA3 } = require('../../src/yahoo/deviceYahooCollect.ts');
+const { collectYahooPayload, getCachedA3, invalidateA3Cache } = require('../../src/yahoo/deviceYahooCollect.ts');
 const { yahooMarketOfTicker } = require('../../src/yahoo/webYahooCollect.ts');
 const dns = require('node:dns');
 const net = require('node:net');
@@ -83,10 +83,11 @@ async function isPublicHost(u) {
 }
 
 // ─── LLM 同源代理(/llm-proxy/*)─────────────────────────────────────────────
-// 网页请求同源代理 → 转发浏览器配置的 LLM base(经 C2 SSRF 校验)→ 补 CORS 头
-// (绕开浏览器跨域,对齐 Streamlit 服务端调用 LLM 的架构)。dev(Metro)与生产
-// (server.mjs)共用。注意:R4 流式透传改造只改这一处(pipe upstream.body),
-// 双入口同步生效。
+// 网页请求同源代理 → 转发浏览器配置的 LLM base(经 C2 SSRF 校验;服务端转发
+// 调用 LLM,对齐 Streamlit 架构)。同源即免跨域:页面由本 server 托管(metro
+// dev 中间件/server.mjs 共用本 handler),/llm-proxy 与页面同 origin 不涉
+// CORS——全文件不设任何 Access-Control 头,响应仅透传上游 Content-Type。
+// 注意:R4 流式透传改造只改这一处(pipe upstream.body),双入口同步生效。
 async function handleLlmProxy(req, res, _fetch = fetch) {
   try {
     // W2:请求体超 MAX_BODY_BYTES,413 并终止读取(对齐 logs-server MAX_BODY_BYTES 模式)
@@ -263,11 +264,11 @@ function isYahooMarket(ticker) {
 async function doYahooCollect(ticker, opts = {}) {
   // 采集流共享 deviceYahooCollect.collectYahooPayload(候选试探/chart 分页/
   // quoteSummary 降级/合成,server/真机/探针三端单一实现)。
-  // 预取 A3 经 cookieProvider 注入(obtainA3 模块级缓存单源,避免重复 fc 请求;
-  // fc.yahoo.com 实测 404 亦回 Set-Cookie A3,状态码无关解析);失败 → YahooClient
-  // 回落自身 fc 请求解析(同款契约),确无 A3 才抛错。
-  const a3 = await obtainA3();
-  const client = new YahooClient(undefined, () => a3);
+  // cookieProvider 传 getter + 失效钩子(C3 方案 B′,无预取):quoteSummary 401
+  // 二次自愈时 invalidateA3Cache 清模块级缓存,getCachedA3 重读 → 下次 crumb
+  // 链取新 A3;缓存空 → YahooClient 自身 fc 请求状态码无关解析(fc.yahoo.com
+  // 实测 404 亦回 Set-Cookie A3),单请求路径。
+  const client = new YahooClient(undefined, getCachedA3, invalidateA3Cache);
   return collectYahooPayload(client, ticker, { skipDaily: opts.skipDaily === true });
 }
 
@@ -312,8 +313,12 @@ async function handleYahooCollect(req, res, _collect = doYahooCollect) {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(obj));
   };
-  // W4 同款:超时 timer 仅提前回 504 通知客户端,不打断采集(底层无
-  // AbortSignal 支持);锁保持到 _collect 真正 settle(下方 await 返回)才释放。
+  // W4 同款:超时 timer 仅提前回 504 通知客户端,不主动打断采集;锁保持到
+  // _collect 真正 settle(下方 await 返回)才释放。与 TDX(底层 client 无
+  // AbortSignal)不同,Yahoo 链每请求已带超时(U4 fetchWithTimeout,单请求
+  // 40s < 本定时器 45s;HK 候选试探/chart 分页为多请求串行,总时长 N×40s
+  // 仍有界)→ _collect 必在有限时间 settle,锁必然释放(429 窗口有界),
+  // 无需代理侧 abort。
   const timer = setTimeout(() => {
     send(504, { error: `Yahoo 采集超时(${YAHOO_COLLECT_TIMEOUT_MS / 1000}s),后台任务继续直至结束` });
   }, YAHOO_COLLECT_TIMEOUT_MS);

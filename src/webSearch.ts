@@ -2,10 +2,18 @@
 // 供应商：TAVILY_API_KEY 配置 → Tavily（可选主选）；未配置 → DuckDuckGo
 // html 端点（免 key，region cn-zh，对齐 Python ddgs 语义）。降级语义：
 // 查询失败/空结果 → 占位文本不 raise，图不中断。
+// 直连出网(Tavily/DDG)每请求 20s 超时(C6,fetchWithTimeout label 归一文案);
+// 浏览器同源代理分支(makeProxySearcher)不加超时——server /web-search race 兜底。
 import { detectPlatform } from './log.ts';
 import { envValue } from './env.ts';
 import { getCapabilitySwitches } from './switches.ts';
 import type { ToolLike } from './toolLoop.ts';
+import { fetchWithTimeout } from './yahoo/yahooClient.ts';
+
+/** 直连出网单请求超时(C6):20s/请求(html → vqd → news.js 最坏串行 3 请求,
+ *  全链上界 ~60s 仍有界);量级对齐 server /web-search 的整体 20s race
+ *  (app/lib/proxies.cjs SEARCH_TIMEOUT_MS)。 */
+const FETCH_TIMEOUT_MS = 20_000;
 
 export interface SearchResult {
   title: string;
@@ -42,11 +50,17 @@ export function summarizeResults(results: SearchResult[]): string {
 
 function tavilySearcher(apiKey: string): (query: string) => Promise<SearchResult[]> {
   return async (query: string) => {
-    const resp = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: apiKey, query, max_results: 5 }),
-    });
+    const resp = await fetchWithTimeout(
+      fetch,
+      'https://api.tavily.com/search',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey, query, max_results: 5 }),
+      },
+      FETCH_TIMEOUT_MS,
+      'Tavily',
+    );
     if (!resp.ok) throw new Error(`Tavily HTTP ${resp.status}`);
     const data = (await resp.json()) as { results?: Array<{ title: string; url: string; content: string }> };
     return (data.results ?? []).map((r) => ({ title: r.title, link: r.url, snippet: r.content }));
@@ -54,7 +68,8 @@ function tavilySearcher(apiKey: string): (query: string) => Promise<SearchResult
 }
 
 /** 同源代理 searcher（浏览器分支：fetch /web-search → {results} JSON；
- * 非 ok / results 缺失或空 → throw，由调用方降级（error-handling spec）。 */
+ * 非 ok / results 缺失或空 → throw，由调用方降级（error-handling spec）。
+ * 不加超时——server 端整体 race 兜底,C6 有意豁免的分支。 */
 export function makeProxySearcher(
   base: string,
   _fetch: typeof fetch = fetch,
@@ -140,7 +155,7 @@ export function parseDdgHtml(html: string): SearchResult[] {
 
 /** DDG 前端页 vqd 令牌（news.js JSON API 请求头所需；对齐 ddgs _get_vqd）。 */
 async function fetchVqd(query: string, _fetch: typeof fetch = fetch): Promise<string> {
-  const resp = await _fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`);
+  const resp = await fetchWithTimeout(_fetch, `https://duckduckgo.com/?q=${encodeURIComponent(query)}`, {}, FETCH_TIMEOUT_MS, 'DuckDuckGo');
   if (!resp.ok) throw new Error(`DuckDuckGo 前端 HTTP ${resp.status}`);
   const html = await resp.text();
   const m = /vqd="([^"]+)"/.exec(html);
@@ -154,7 +169,7 @@ async function fetchVqd(query: string, _fetch: typeof fetch = fetch): Promise<st
 async function ddgNewsSearcher(query: string, _fetch: typeof fetch = fetch): Promise<SearchResult[]> {
   const vqd = await fetchVqd(query, _fetch);
   const params = new URLSearchParams({ l: 'cn-zh', o: 'json', noamp: '1', q: query, vqd, p: '-1' });
-  const resp = await _fetch(`https://duckduckgo.com/news.js?${params.toString()}`);
+  const resp = await fetchWithTimeout(_fetch, `https://duckduckgo.com/news.js?${params.toString()}`, {}, FETCH_TIMEOUT_MS, 'DuckDuckGo');
   if (!resp.ok) throw new Error(`DuckDuckGo news HTTP ${resp.status}`);
   const data = (await resp.json()) as { results?: Array<{ title?: string; url?: string; excerpt?: string; date?: number }> };
   const results = (data.results ?? []).map((r) => ({
@@ -171,11 +186,17 @@ async function ddgNewsSearcher(query: string, _fetch: typeof fetch = fetch): Pro
  * 被反爬拦截（异常页无 result__a）→ 回退 vqd + news.js JSON API。 */
 export async function ddgSearcher(query: string): Promise<SearchResult[]> {
   const params = new URLSearchParams({ q: query, kl: 'cn-zh' });
-  const resp = await fetch('https://html.duckduckgo.com/html/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
+  const resp = await fetchWithTimeout(
+    fetch,
+    'https://html.duckduckgo.com/html/',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    },
+    FETCH_TIMEOUT_MS,
+    'DuckDuckGo',
+  );
   if (!resp.ok) throw new Error(`DuckDuckGo HTTP ${resp.status}`);
   const results = parseDdgHtml(await resp.text());
   if (!results.length) return ddgNewsSearcher(query); // 反爬异常页 → news.js 回退

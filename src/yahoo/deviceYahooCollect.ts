@@ -4,10 +4,13 @@
 // 限制,web 走同源代理(/yahoo-collect);RN fetch 无 CORS/禁读 set-cookie
 // 限制 → 直连。
 //
-// A3 cookie 手动脉冲:先 GET fc.yahoo.com 读 Set-Cookie 的 A3=(模块级缓存
-// firstSetCookie,免重复请求)。实测 fc.yahoo.com 2026-08-20 起回 HTTP 404
-// 但仍带 Set-Cookie A3(YahooClient 内部 fc 请求遇非 2xx 抛错)→ 预取后经
-// cookieProvider 注入(YahooClient 非空即直接用,免其内部 fc 网络请求)。
+// A3 cookie 缓存(C3 方案 B′):GET fc.yahoo.com 读 Set-Cookie 的 A3=(模块级
+// 缓存 firstSetCookie)。实测 fc.yahoo.com 2026-08-20 起回 HTTP 404 但仍带
+// Set-Cookie A3 → 状态码无关解析(U5)。采集注入点不再预取:cookieProvider
+// 传 getCachedA3 getter + invalidateA3Cache 失效钩子——缓存命中直接用作 A3
+// (命中仅发生于显式 obtainA3 预热后;生产链无预取也无回填,稳态每次采集 1 次
+// fc 请求),空/吊销 → YahooClient 自身 fc 请求解析(状态码无关,单请求路径,
+// 免预取双发)。
 // Hermes 零新 shim:纯 fetch + Intl,无 node: 导入(架构断言 #1)。
 //
 // 数据粒度实证(research 更新,2026-08-20):chart range=max&interval=1d 会被
@@ -48,18 +51,36 @@ const _CHART_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 /** 分页窗口 10 年(实测 range=10y 窗口保持日K 粒度)。 */
 const _PAGE_WINDOW_SEC = 10 * 365 * 24 * 3600;
 
-// ─── A3 cookie 手动脉冲(模块级缓存) ────────────────────────────────────────
+// ─── A3 cookie 缓存(getter + 失效钩子,C3 方案 B′) ──────────────────────────
 
 /** fetch 响应 → A3 cookie 值（Set-Cookie 多 cookie 逗号拼接容错；
  *  起始/分号/逗号后均可出现 A3=；解析单源 yahooClient.parseA3FromSetCookie）。 */
 const setCookie = (res: Response): string | null => parseA3FromSetCookie(res.headers.get('set-cookie') ?? '');
 
-/** 模块级缓存:首次 fc.yahoo.com 响应的 A3 值(后续请求复用,免重复网络)。 */
+/** 模块级缓存:obtainA3() 写入的最近一次 fc.yahoo.com A3 值(唯一写入入口;
+ *  显式预热/诊断/测试用,吊销/401 自愈场景经 invalidateA3Cache 清空)。生产
+ *  采集链无预取也无回填——YahooClient 内部 fc 取得的 A3 仅存实例(_a3)不写
+ *  回此处 → 稳态下每次采集 crumb 链各含 1 次 fc 请求(轻量,可接受);跨采集
+ *  复用需引入回填钩子(结构改动,C3 复核未做)。 */
 let firstSetCookie: string | null = null;
 
-/** 取 A3(模块级缓存;fc.yahoo.com 404 也带 Set-Cookie,状态码无关);
- *  失败/超时(40s,同 yahooClient 常量)→ null(YahooClient 回退自身解析,
- *  其 fc 请求同样受超时约束)。server/真机/探针共用。 */
+/** 缓存读取器(cookieProvider 注入用):同步 getter,每次调用重读模块级变量。
+ *  失效(invalidateA3Cache)后返回 null → YahooClient._obtainA3 回退自身 fc
+ *  请求解析取新 A3。禁止 `() => a3` 式值捕获闭包(C3:钉死旧值,失效无效)。 */
+export function getCachedA3(): string | null {
+  return firstSetCookie;
+}
+
+/** 缓存失效(A3 吊销/crumb 401 自愈):清模块级缓存;注入了本 getter 的
+ *  YahooClient 下次 ensureCrumb 即重取新值。由 YahooClient 第三参注入。 */
+export function invalidateA3Cache(): void {
+  firstSetCookie = null;
+}
+
+/** 加载并回填缓存(fc.yahoo.com 404 也带 Set-Cookie,状态码无关);失败/超时
+ *  (40s,同 yahooClient 常量)→ null 不缓存(YahooClient 回退自身解析,其 fc
+ *  请求同样受超时约束)。采集注入点已不预取(C3),保留为显式预热/诊断入口
+ *  (server/真机/探针共用同一解析契约)。 */
 export async function obtainA3(): Promise<string | null> {
   if (firstSetCookie !== null) return firstSetCookie;
   try {
@@ -391,10 +412,10 @@ export async function collectYahooForDevice(
   const store = requireYahooStore();
   const market = yahooMarketOfTicker(ticker);
   const { skipDaily } = resolveSkipGates(store, ticker, opts, market);
-  // A3 预取(模块级缓存)→ 同步 cookieProvider 注入(免 YahooClient 内部网络
-  // 请求;RN fetch 可读 set-cookie,浏览器禁读——故 web 走代理)
-  const a3 = await obtainA3();
-  const client = new YahooClient(undefined, () => a3);
+  // cookieProvider 注入 getter + 失效钩子(C3 B′,无预取):缓存命中 → 直接用作
+  // A3(免 client 内部 fc 请求);空/吊销 → client 自身 fc 状态码无关解析取新值。
+  // RN fetch 可读 set-cookie,浏览器禁读——故 web 走代理。
+  const client = new YahooClient(undefined, getCachedA3, invalidateA3Cache);
   const payload = await collectYahooPayload(client, ticker, { skipDaily: skipDaily === true });
   await mergeFinnhubIndustry(payload, market, finnhub ?? null);
   return applyYahooCollectedToStore(store, payload, market);

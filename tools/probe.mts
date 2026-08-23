@@ -18,7 +18,7 @@ import { composeOverview } from '../src/overview.ts';
 import { asiaToday } from '../src/gates.ts';
 import { detectMarket, type Market } from '../src/market.ts';
 import { YahooClient } from '../src/yahoo/yahooClient.ts';
-import { collectYahooPayload, obtainA3 } from '../src/yahoo/deviceYahooCollect.ts';
+import { collectYahooPayload, getCachedA3, invalidateA3Cache } from '../src/yahoo/deviceYahooCollect.ts';
 import { applyYahooCollectedToStore } from '../src/yahoo/applyYahooCollectedToStore.ts';
 
 async function fetchSection(client: TdxClient, ticker: string, namePart: string): Promise<string> {
@@ -149,10 +149,9 @@ async function collectCn(store: Store, runner: PipelineRunner, ticker: string, c
  *  跳过 F10/TdxClient 分支;putStock 等由 applyYahooCollectedToStore 处理)。
  *  SOA_COLLECT_ONLY → 摘要打印 + report.json 后退出;未设 → 全链(LLM 三键必需)。 */
 async function collectYahoo(store: Store, runner: PipelineRunner, ticker: string, market: Market, collectOnly: boolean): Promise<void> {
-  // fc.yahoo.com 实测 404 但仍回 Set-Cookie A3(2026-08-20):预取 A3 经
-  // cookieProvider 注入(YahooClient 自身 fc 请求遇非 2xx 会抛,crumb 链断)
-  const a3 = await obtainA3();
-  const client = new YahooClient(undefined, () => a3);
+  // cookieProvider 传 getter + 失效钩子(C3 方案 B′,无预取):缓存空/吊销 →
+  // YahooClient 自身 fc 请求状态码无关解析(fc.yahoo.com 实测 404 亦回 A3)。
+  const client = new YahooClient(undefined, getCachedA3, invalidateA3Cache);
   const payload = await collectYahooPayload(client, ticker);
   applyYahooCollectedToStore(store, payload, market);
   console.error(`  · 行情已入库(${payload.bars.length} 根日K)`);

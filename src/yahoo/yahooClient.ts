@@ -21,6 +21,9 @@
 //   仍失败抛 YahooApiError('crumb', 401, …)
 // - cookieProvider 注入（S3 RN 路径）：非空时 crumb 流程直接用其返回值作
 //   A3 值，不发 fc.yahoo.com 网络请求（fetchImpl 场景则从 Set-Cookie 解析）
+//   （须传重读缓存的 getter,C3:`() => a3` 值闭包在失效后仍返回旧值）
+// - invalidateA3 可选第三参(C3):quoteSummary 401 自愈刷新 crumb 前回调,
+//   通知 provider 层失效 A3 缓存(生产注入 deviceYahooCollect.invalidateA3Cache)
 // 纯 TS + fetch-only：零 node: 导入（架构断言 #1），进 metro 图安全。
 
 /** Yahoo API 调用失败（归一化错误，client 内唯一异常）。
@@ -58,23 +61,31 @@ const _CHART_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
 const _QUOTE_SUMMARY_BASE = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/';
 const _GETCRUMB_URL = 'https://query2.finance.yahoo.com/v1/test/getcrumb';
 const _FC_URL = 'https://fc.yahoo.com';
-/** Yahoo 链单次请求超时(ms):40s < 代理 504 定时器 45s(YAHOO_COLLECT_TIMEOUT_MS,
+/** 采集链单次请求超时(ms):40s < 代理 504 定时器 45s(YAHOO_COLLECT_TIMEOUT_MS,
  *  app/lib/proxies.cjs)→ 采集链任何单次请求最迟 40s 内 settle,代理锁必在
- *  有限时间释放(429 窗口有界;B1)。deviceYahooCollect 的裸 fetch 共用此常量
- *  (经 fetchWithTimeout 缺省参数),单一来源。 */
+ *  有限时间释放(429 窗口有界;B1)。deviceYahooCollect 的裸 fetch(缺省参数)与
+ *  FinnhubClient(C2,显式传参)共用此常量,单一来源。 */
 export const YAHOO_REQUEST_TIMEOUT_MS = 40_000;
 
-/** fetch + 超时(Hermes 兼容:AbortController 全局存在——app/lib/polyfill.ts
- *  已为 AbortSignal 补 throwIfAborted,证明其存在;AbortSignal.timeout 静态
- *  API 在 Hermes 未打补丁、不可靠 → 手写 setTimeout + controller.abort(),
- *  零新增 polyfill/依赖)。超时 abort → YahooApiError(code='timeout',
- *  status_code=null)——与其他网络异常同族(status_code=null),但 code 可辨;
- *  其余异常原样抛出,由调用方归一化(_request/fetchChartWindow)。 */
+/** fetch + 超时。手写 setTimeout + controller.abort(),不用 AbortSignal.timeout——
+ *  该静态 API 在 Hermes 并非缺失:expo SDK 57 winter 启动链 installAbortSignalPatch
+ *  已补齐 timeout/any(expo/src/winter/runtime.native.ts 启动期安装)。保留手写是
+ *  刻意冗余:①超时错误在此单点归一为 YahooApiError(code='timeout')且文案随
+ *  label 参数化,不经引擎 DOMException 二次映射;②不依赖各运行时的静态 API
+ *  补齐时机(Node 原生/Hermes expo 补丁行为一致)。超时 abort →
+ *  YahooApiError(code='timeout', status_code=null)——与其他网络异常同族
+ *  (status_code=null),但 code 可辨;
+ *  其余异常原样抛出,由调用方归一化(_request/fetchChartWindow)。
+ *  label(C2/C6):非 Yahoo 消费方(FinnhubClient/webSearch 直连链)传各自来源
+ *  名,超时文案随 label(如「Finnhub 请求超时(40s)」),避免误导性的
+ *  「Yahoo 请求超时」;缺省 'Yahoo' 保持既有文案逐字节不变。需要自有异常
+ *  类型的消费方自行映射(finnhubClient 先例:映射为 FinnhubApiError)。 */
 export async function fetchWithTimeout(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit = {},
   timeoutMs: number = YAHOO_REQUEST_TIMEOUT_MS,
+  label: string = 'Yahoo',
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -82,7 +93,7 @@ export async function fetchWithTimeout(
     return await fetchImpl(url, { ...init, signal: controller.signal });
   } catch (exc) {
     if (controller.signal.aborted) {
-      throw new YahooApiError('timeout', null, `Yahoo 请求超时(${timeoutMs / 1000}s)`);
+      throw new YahooApiError('timeout', null, `${label} 请求超时(${timeoutMs / 1000}s)`);
     }
     throw exc;
   } finally {
@@ -125,15 +136,24 @@ function extractErrorCode(body: unknown): string | null {
 export class YahooClient {
   private readonly _fetch: typeof fetch;
   private readonly _cookieProvider: (() => string | null) | null;
+  private readonly _invalidateA3: (() => void) | null;
   private _crumb: string | null = null;
   private _a3: string | null = null;
 
   /** @param fetchImpl 测试注入点（house style 无 mock 框架）；缺省全局 fetch
    *  @param cookieProvider S3 RN 路径注入：非空时其返回值直接作 A3 cookie
-   *    值（免 fc.yahoo.com 网络请求）；返回 null/空 → 回退 Set-Cookie 解析 */
-  constructor(fetchImpl?: typeof fetch, cookieProvider?: () => string | null) {
+   *    值（免 fc.yahoo.com 网络请求）；返回 null/空 → 回退 Set-Cookie 解析。
+   *    必须是重读缓存的 getter（C3：`() => a3` 值闭包失效后仍钉死旧值）
+   *  @param invalidateA3 失效钩子（C3）：quoteSummary 401 自愈刷新 crumb 前
+   *    回调,清 provider 层缓存(如 deviceYahooCollect.invalidateA3Cache) */
+  constructor(
+    fetchImpl?: typeof fetch,
+    cookieProvider?: () => string | null,
+    invalidateA3?: () => void,
+  ) {
     this._fetch = fetchImpl ?? globalThis.fetch;
     this._cookieProvider = cookieProvider ?? null;
+    this._invalidateA3 = invalidateA3 ?? null;
   }
 
   /** 全量日K（复权）+ meta + 分红/拆股事件。免 crumb。
@@ -153,8 +173,8 @@ export class YahooClient {
 
   /** 概览/财报模块查询（price/summaryDetail/defaultKeyStatistics/
    *  incomeStatementHistoryQuarterly 等，逗号分隔透传）。带 Cookie + crumb。
-   *  crumb 失效可自愈一次：401 → 清缓存刷新 crumb 重试；仍败抛
-   *  YahooApiError('crumb', 401, …)。
+   *  crumb 失效可自愈一次：401 → 清实例缓存 + 失效 provider 层 A3 缓存
+   *  （invalidateA3 钩子,C3）→ 刷新 crumb 重试；仍败抛 YahooApiError('crumb', 401, …)。
    * @return 解析后原始 JSON（结构见 research/yahoo-api-verified.md）
    * @throws YahooApiError 网络异常/HTTP 非 2xx/crumb 刷新后仍失败 */
   async quoteSummary(symbol: string, modules: string[]): Promise<unknown> {
@@ -162,13 +182,14 @@ export class YahooClient {
       `${_QUOTE_SUMMARY_BASE}${encodeURIComponent(symbol)}` +
       `?modules=${modules.join(',')}&crumb=${encodeURIComponent(crumb)}`;
     const cookie = () => (this._a3 !== null ? `A3=${this._a3}` : undefined);
-
     let crumb = await this.ensureCrumb();
     let resp = await this._request(url(crumb), cookie());
     if (resp.status === 401) {
-      // crumb 失效（A3/crumb 均可能过期）：清缓存 → 刷新 → 重试一次
+      // crumb 失效（A3/crumb 均可能过期）：清实例缓存 + 失效 provider 层
+      // A3 缓存（C3:getter 下次重读为 null → fc 取新 A3）→ 刷新 → 重试一次
       this._crumb = null;
       this._a3 = null;
+      this._invalidateA3?.();
       try {
         crumb = await this.ensureCrumb();
         resp = await this._request(url(crumb), cookie());

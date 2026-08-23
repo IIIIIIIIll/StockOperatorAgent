@@ -22,9 +22,11 @@ asiaToday(): string;                            // = marketToday('cn')，逐字�
 resolveSkipGates(store, ticker, opts?, market = 'cn');  // hk/us 恒 skipF10=false
 
 // src/yahoo/yahooClient.ts（S2）— YahooApiError(code, status_code, message)
-new YahooClient(fetchImpl?: typeof fetch, cookieProvider?: () => string | null);
+new YahooClient(fetchImpl?, cookieProvider?: () => string | null, invalidateA3?: () => void);
+fetchWithTimeout(fetchImpl, url, init?, timeoutMs = 40_000, label = 'Yahoo'): Promise<Response>;
+                                // 手写 setTimeout+abort(Hermes 兼容);超时 → YahooApiError('timeout');label 归一超时文案(Finnhub/webSearch 复用)
 chart(symbol, opts?): Promise<unknown>;         // range=max&interval=1d&events=div%2Csplit; 免 crumb
-quoteSummary(symbol, modules: string[]): Promise<unknown>;  // crumb: fc.yahoo.com A3 cookie → getcrumb; 401 刷新一次再败抛错
+quoteSummary(symbol, modules: string[]): Promise<unknown>;  // crumb: fc.yahoo.com A3 cookie → getcrumb; 401 → invalidateA3() + 刷新一次再败抛错
 YAHOO_HOSTS = ['query1.finance.yahoo.com','query2.finance.yahoo.com','fc.yahoo.com'];
 parseA3FromSetCookie(header: string | null): string | null;  // 单源
 
@@ -39,7 +41,7 @@ composeYahooReports(modules, sharesOutstanding, opts?: { ticker?: string; name?:
 
 // src/finnhub/finnhubClient.ts（S2）— FinnhubApiError；无 key → null 零网络
 new FinnhubClient(apiKey: string | null, fetchImpl?: typeof fetch);
-companyProfile2(symbol): Promise<unknown | null>;   // 仅 US；港股不调（覆盖不可验证）
+companyProfile2(symbol): Promise<unknown | null>;   // 仅 US；港股不调（覆盖不可验证）；单请求 40s 超时(label='Finnhub')
 
 // src/yahoo/applyYahooCollectedToStore.ts（S3）
 applyYahooCollectedToStore(store, payload: YahooCollectedPayload, market): WebCollectResult;
@@ -57,7 +59,7 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 - **市场选择**：UI 下拉三市场(沪深A股/港股/美股,默认沪深A股),无自动识别;normalizeTicker 按所选市场强制校验,格式不符 → null。
 - **HK 代码解析**：输入 → `hkSymbolCandidates` 逐个 chart 试探（404/`chart.error` 视为未命中继续，其余失败中止）；全败 → `无法解析港股代码`。US 无候选直接采。
 - **DailyBar**：date `YYYY-MM-DD` 升序；volume 原始股数（非手）；close 已前复权（Yahoo 服务端）；**10 年窗口 period1/period2 分页**（`range=max` 实测被降级为月K）。
-- **crumb**：fc.yahoo.com 现回 HTTP 404 但仍带 `A3=` Set-Cookie → Node 侧预取 + cookieProvider 注入（`obtainA3`），RN 手动取 set-cookie；quoteSummary 401 → 刷新一次 → 再败降级（overview 仅 chart meta 字段、reports 空，**不整体失败**；chart 失败才中止）。
+- **crumb**：fc.yahoo.com 现回 HTTP 404 但仍带 `A3=` Set-Cookie → 状态码无关解析（U5）；采集注入点传 `getCachedA3` getter + `invalidateA3Cache` 失效钩子（C3 方案 B′，无预取——缓存空/吊销 → YahooClient 自身 fc 取新 A3，单请求路径）；quoteSummary 401 → 失效 provider 层缓存 + 刷新一次 → 再败降级（overview 仅 chart meta 字段、reports 空，**不整体失败**；chart 失败才中止）。
 - **prevClose**：HK/US chart meta 无 previousClose（chartPreviousClose 是窗口前收盘不可用）→ 由 bars 推算（regularMarketTime 与末根同日 → 倒数第二根收盘）。
 - **HK 财报模块**：quoteSummary 需 `incomeStatementHistory` + quarterly 三模块共 8 模块（HK 的「季度」在 `incomeStatementHistory` 键下且仅 4 期；三源按 report_date 合并去重）。
 - **mcp 情报**：仅 cn 调用 makeMcpIntel；hk/us 输出占位 `（港股/美股暂无实时市场情报源，跳过）`。
@@ -90,7 +92,7 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 ## 6. Tests Required
 
 - `test/market.test.ts`：detect/normalize 全表 + 候选序（含 `09988`→`9988.HK` 首候选）。
-- `test/yahoo.test.ts`：URL/UA、crumb 401 刷新重试、cookieProvider、overview/reports 映射表（NaN/除零/半年报 QoQ/YoY/空模块/升序）。
+- `test/yahoo.test.ts`：URL/UA、crumb 401 刷新重试、cookieProvider、invalidateA3 钩子自愈（getter 重读 → 新 A3）、overview/reports 映射表（NaN/除零/半年报 QoQ/YoY/空模块/升序）。
 - `test/yahoo-collect.test.ts`：全链入库、crumb 降级、候选试探序、重叠期 PK 去重、skipDaily 保数据、代理 400/CN 拒、`collectForWeb` us 同日门 + finnhub 合并、跨日全量零 finnhub 请求。
 - `test/pipeline.test.ts`：hk 块 1 概览槽（PE/PB 实值 + 槽缺失回退 N/A）；`test/finnhub.test.ts`：无 key null/429。
 - CN 逐字节回归：prompt fixtures、chartData `亿元`/`元`、DataScreen `量(手)`、北交所文案。

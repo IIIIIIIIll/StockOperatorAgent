@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InMemoryStore } from '../src/store-memory.ts';
 import type { StoreLike } from '../src/store.ts';
 import { setYahooStore, applyYahooCollectedToStore, type YahooCollectedPayload } from '../src/yahoo/applyYahooCollectedToStore.ts';
-import { collectYahooForDevice, collectYahooPayload } from '../src/yahoo/deviceYahooCollect.ts';
+import { collectYahooForDevice, collectYahooPayload, obtainA3, getCachedA3, invalidateA3Cache } from '../src/yahoo/deviceYahooCollect.ts';
 import { YahooClient, YAHOO_REQUEST_TIMEOUT_MS } from '../src/yahoo/yahooClient.ts';
+import { FinnhubClient } from '../src/finnhub/finnhubClient.ts';
 import { collectYahooViaProxy } from '../src/yahoo/webYahooCollect.ts';
 import { marketToday } from '../src/gates.ts';
 import { collectForWeb, store as runnerStore } from '../app/lib/runner.ts';
@@ -414,6 +415,81 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
   });
 });
 
+describe('C3 A3 缓存对(getCachedA3/invalidateA3Cache)+ device 接线吊销自愈', () => {
+  let store: StoreLike;
+
+  beforeEach(() => {
+    invalidateA3Cache(); // 模块级缓存跨用例残留清零(隔离)
+    store = new InMemoryStore();
+    setYahooStore(store);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('obtainA3 回填缓存 → getCachedA3 命中;invalidate 后重读 null,下次加载取新值', async () => {
+    let fcCalls = 0;
+    makeGlobalFetch([
+      {
+        match: (u) => u.startsWith('https://fc.yahoo.com'),
+        respond: () => {
+          fcCalls += 1;
+          return jsonResponse({}, 200, { 'set-cookie': `A3=cached-${fcCalls}; Path=/` });
+        },
+      },
+    ]);
+    expect(await obtainA3()).toBe('cached-1');
+    expect(getCachedA3()).toBe('cached-1'); // 同步 getter 读到回填值
+    invalidateA3Cache();
+    expect(getCachedA3()).toBeNull(); // 失效即重读为 null(getter 语义)
+    expect(await obtainA3()).toBe('cached-2'); // 下次加载重新取新 A3
+    expect(fcCalls).toBe(2);
+  });
+
+  it('A3 吊销场景(device 接线):首链 401 → 失效钩子 → 刷新走新 A3 → 全链成功入库', async () => {
+    let fcCalls = 0;
+    let crumbCalls = 0;
+    let qsCalls = 0;
+    const calls = makeGlobalFetch([
+      {
+        match: (u) => u.startsWith('https://fc.yahoo.com'),
+        respond: () => {
+          fcCalls += 1;
+          return jsonResponse({}, 200, { 'set-cookie': `A3=device-${fcCalls}; Path=/` });
+        },
+      },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(chartBody('AAPL')) },
+      {
+        match: (u) => u.includes('/v1/test/getcrumb'),
+        respond: () => {
+          crumbCalls += 1;
+          return textResponse(`crumb-${crumbCalls}`);
+        },
+      },
+      {
+        match: (u) => u.includes('/v10/finance/quoteSummary/'),
+        respond: () => {
+          qsCalls += 1;
+          return qsCalls === 1 ? jsonResponse({ error: { code: 'Unauthorized' } }, 401) : jsonResponse(QUOTE_BODY);
+        },
+      },
+    ]);
+    await obtainA3(); // 预热缓存(模拟上一轮 collect 留下的旧 A3='device-1')
+    const out = await collectYahooForDevice('AAPL');
+    expect(out.name).toBe('腾讯控股有限公司'); // 吊销自愈后全链成功
+    const crumbCookies = calls
+      .filter((c) => c.url.includes('/v1/test/getcrumb'))
+      .map((c) => (c.init?.headers as Record<string, string> | undefined)?.['Cookie']);
+    // 首链用预热旧值;吊销失效后刷新链必须用重取的新 A3(B′ getter 语义钉死)
+    expect(crumbCookies).toEqual(['A3=device-1', 'A3=device-2']);
+    expect(fcCalls).toBe(2); // 预热 1 次 + 吊销后重取恰 1 次(无双发)
+    expect(qsCalls).toBe(2); // 401 → 刷新重试一次
+    expect(store.getStock('AAPL')?.overview?.currency).toBe('HKD');
+    expect(store.getPerformanceReports('AAPL')).toHaveLength(2);
+  });
+});
+
 describe('collectYahooViaProxy(浏览器 → /yahoo-collect)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -631,6 +707,34 @@ describe('Yahoo 链超时(B1:AbortController 40s < 代理 504 定时器 45s;Herm
     await vi.advanceTimersByTimeAsync(YAHOO_REQUEST_TIMEOUT_MS);
     await assertion;
     expect(recorder.current?.aborted).toBe(true);
+  });
+});
+
+describe('C2 Finnhub 单请求超时(fetchWithTimeout 复用,label=Finnhub)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('profile2 挂起 → 40s abort → FinnhubApiError(code=timeout, 文案归属 Finnhub)', async () => {
+    vi.useFakeTimers();
+    const recorder = { current: undefined as AbortSignal | undefined };
+    const fn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      recorder.current = init?.signal ?? undefined;
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    }) as unknown as typeof fetch;
+    const p = new FinnhubClient('k', fn).companyProfile2('AAPL');
+    const assertion = expect(p).rejects.toMatchObject({
+      name: 'FinnhubApiError',
+      code: 'timeout',
+      status_code: null,
+      message: 'Finnhub 请求超时(40s)',
+    });
+    await vi.advanceTimersByTimeAsync(YAHOO_REQUEST_TIMEOUT_MS);
+    await assertion;
+    expect(recorder.current?.aborted).toBe(true); // 请求被 abort,非回调竞速
   });
 });
 

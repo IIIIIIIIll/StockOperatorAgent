@@ -8,9 +8,11 @@
 // 约定：
 // - 无 key → companyProfile2 返回 null 且零网络（调用方按"无增强"降级）
 // - 失败归一化 FinnhubApiError(code, status_code, message)：网络异常
-//   （status_code=null）/ HTTP 非 2xx（429 配额不重试；code 取 body error）
+//   （status_code=null）/ HTTP 非 2xx（429 配额不重试；code 取 body error）/
+//   单请求超时(C2:fetchWithTimeout 40s 对齐采集链标准,label='Finnhub' 归一文案)
 // - 返回响应 JSON 原样（含 finnhubIndustry；字段提取由调用方做）
 // 纯 TS + fetch-only：零 node: 导入（架构断言 #1），进 metro 图安全。
+import { fetchWithTimeout, YAHOO_REQUEST_TIMEOUT_MS, YahooApiError } from '../yahoo/yahooClient.ts';
 
 /** Finnhub API 调用失败（归一化错误，client 内唯一异常）。
  *
@@ -45,8 +47,8 @@ export class FinnhubClient {
 
   /** 公司画像（美股增强用；含 finnhubIndustry）。
    *  无 key → null（零网络，不抛）。
-   * @throws FinnhubApiError 网络异常/HTTP 非 2xx（429 配额不重试，
-   *   调用方降级） */
+   * @throws FinnhubApiError 网络异常/单请求超时(40s)/HTTP 非 2xx（429 配额
+   *   不重试，调用方降级） */
   async companyProfile2(symbol: string): Promise<unknown | null> {
     if (!this._apiKey) return null;
     const url =
@@ -54,8 +56,12 @@ export class FinnhubClient {
       `&token=${encodeURIComponent(this._apiKey)}`;
     let resp: Response;
     try {
-      resp = await this._fetch(url);
+      // C2:裸 fetch → fetchWithTimeout(单请求 40s;label 使超时文案正确归属)
+      resp = await fetchWithTimeout(this._fetch, url, {}, YAHOO_REQUEST_TIMEOUT_MS, 'Finnhub');
     } catch (exc) {
+      // 超时归一化错误(YahooApiError('timeout'),message 已带正确 label)→
+      // 映射为本客户端唯一异常类型,不再二次包「请求失败」前缀
+      if (exc instanceof YahooApiError) throw new FinnhubApiError(exc.code, exc.status_code, exc.message);
       const detail = exc instanceof Error ? exc.message : String(exc);
       throw new FinnhubApiError(null, null, `Finnhub 请求失败：${detail}`);
     }
