@@ -137,6 +137,8 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
       if (disposed || !el) return;
       chart = createChart(el, {
         height: CHART_HEIGHT,
+        // autoSize:ResizeObserver 驱动,窗口缩放时 canvas 随容器宽度回流(高度仍由容器 style 固定)
+        autoSize: true,
         layout: {
           background: { type: ColorType.Solid, color: theme.colors.background },
           textColor: theme.colors.textSecondary,
