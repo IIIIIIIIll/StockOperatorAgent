@@ -32,7 +32,7 @@ function AppContent() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = makeStyles(theme, insets);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const [activeTab, setActiveTab] = React.useState<TabId>('data');
   const [ticker, setTicker] = React.useState(DEMO_TICKER);
   // 市场手动选择(输入框旁下拉):默认沪深A股;无自动识别
@@ -40,12 +40,23 @@ function AppContent() {
   const [showMarketMenu, setShowMarketMenu] = React.useState(false);
   // 下拉锚点:按钮在窗口中的位置(用于 Modal 全屏层里定位菜单浮层)
   const [menuAnchor, setMenuAnchor] = React.useState<{ x: number; y: number; width: number; bottom: number } | null>(null);
+  // 菜单浮层实测尺寸(onLayout):翻转/右缘 clamp 用真实宽高,避免估算漂移
+  const [menuSize, setMenuSize] = React.useState<{ width: number; height: number } | null>(null);
   const marketButtonRef = React.useRef<View>(null);
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
   const [showSettings, setShowSettings] = React.useState(false);
   React.useEffect(() => {
     if (width < 900) setShowSettings(false);
   }, [width]);
+  // D1:菜单打开期间窗口尺寸变化(web resize/zoom)→ 重测锚点;measureInWindow
+  // 是异步快照,尺寸变化后旧锚点即过期。native 旋转已锁 portrait(app.json),
+  // 此 effect 仅窗口尺寸真实变化时触发,无害
+  React.useEffect(() => {
+    if (!showMarketMenu) return;
+    marketButtonRef.current?.measureInWindow((x, y, w, h) => {
+      setMenuAnchor({ x, y, width: w, bottom: y + h });
+    });
+  }, [showMarketMenu, width, height]);
 
   const a = useAnalysis();
   // 恢复/上次运行后下拉跟随真实市场(a.market 仅 start()/恢复时变更,不影响运行中选择)
@@ -70,6 +81,9 @@ function AppContent() {
   );
   const activeRole = roles.find((r) => r.stateKey === activeTab);
   const progress = a.events.filter((e): e is Extract<PipelineEvent, { type: 'progress' }> => e.type === 'progress');
+  // 菜单定位:menuSize(onLayout 实测)齐备后经 menuGeometry 约束(右缘 clamp/
+  // 高度不足上翻);首帧未实测时退化为锚点原始定位,onLayout 随即回填
+  const menuPos = menuAnchor && menuSize ? menuGeometry(menuAnchor, menuSize, width, height) : null;
 
   // 调试/自动化钩子(headless 验证用;不参与正常交互)
   React.useEffect(() => {
@@ -162,12 +176,19 @@ function AppContent() {
       >
         {/* 全屏透明点击层:点菜单外区域关闭 */}
         <Pressable style={styles.marketModalRoot} onPress={() => setShowMarketMenu(false)} accessibilityLabel="关闭市场选择" />
-        {/* 菜单浮层:定位到按钮下方(受点击层 zIndex 之下,仍可点选) */}
+        {/* 菜单浮层:定位到按钮下方,尺寸不足时上翻(右缘 clamp/翻转见 menuGeometry) */}
         <View
           pointerEvents="box-none"
+          onLayout={(e) => setMenuSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
           style={[
             styles.marketModalMenu,
-            menuAnchor ? { left: menuAnchor.x, top: menuAnchor.bottom + 4, minWidth: menuAnchor.width } : null,
+            menuAnchor
+              ? {
+                  left: menuPos?.left ?? menuAnchor.x,
+                  top: menuPos?.top ?? menuAnchor.bottom + MENU_GAP,
+                  minWidth: menuAnchor.width,
+                }
+              : null,
           ]}
         >
           <Pressable style={styles.marketMenuInner} onPress={(e) => e.stopPropagation()}>
@@ -270,6 +291,31 @@ function AppContent() {
   );
 }
 
+// ── 市场菜单几何(D4/D5)───────────────────────────────────────
+// 菜单在透明 Modal 全屏层内绝对定位,坐标为窗口坐标(vw/vh 取 useWindowDimensions)。
+// 全部尺寸/位置计算集中于此:① 右缘 clamp(窄窗时菜单不右溢);② 视口高度不足
+// 时上翻到按钮上方。不选 maxHeight 截断:RNW Modal 无滚动条,截断会把选项裁掉
+// 不可选;上翻在常规短视口(按钮距顶 ≥ 菜单高 + 边距)下完整保留三个选项。
+const MENU_GAP = 4; // 菜单与按钮/视口边缘的间距(px),原内联字面量
+
+function menuGeometry(
+  anchor: { x: number; y: number; width: number; bottom: number },
+  menu: { width: number; height: number },
+  vw: number,
+  vh: number,
+): { left: number; top: number } {
+  // 右缘 clamp:left ≤ vw - 菜单宽 - 边距;菜单比视口还宽 → 退化贴左缘
+  const maxLeft = Math.max(MENU_GAP, vw - menu.width - MENU_GAP);
+  const left = Math.min(anchor.x, maxLeft);
+  // 默认放按钮下方;下方放不下 → 上翻;上方也不够(极端短视口)→ 贴顶,底部裁切可接受
+  const belowTop = anchor.bottom + MENU_GAP;
+  const top =
+    belowTop + menu.height <= vh
+      ? belowTop
+      : Math.max(MENU_GAP, anchor.y - menu.height - MENU_GAP);
+  return { left, top };
+}
+
 function makeStyles(theme: Theme, insets: EdgeInsets) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: theme.colors.background },
@@ -287,7 +333,8 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     marketSelectText: { fontSize: 13, color: theme.colors.text, fontWeight: '600' },
     marketSelectCaret: { fontSize: 10, color: theme.colors.textSecondary },
     marketModalRoot: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'transparent' },
-    marketModalMenu: { position: 'absolute' },
+    // D5:maxWidth 与右缘 clamp 同源;3 个短标签下菜单宽 ~110px < 280,无视觉变化
+    marketModalMenu: { position: 'absolute', maxWidth: 280 },
     marketMenuInner: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, paddingVertical: 2 },
     marketOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 9 },
     marketOptionActive: { backgroundColor: theme.colors.background },
