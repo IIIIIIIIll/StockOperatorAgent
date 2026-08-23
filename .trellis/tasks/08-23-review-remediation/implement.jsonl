@@ -1,0 +1,12 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/index.md", "reason": "验证 rubric"}
+{"file": ".trellis/spec/ts/index.md", "reason": "架构断言"}
+{"file": ".trellis/spec/testing.md", "reason": "测试约定"}
+{"file": ".trellis/spec/error-handling.md", "reason": "错误边界契约"}
+{"file": ".trellis/spec/ts/stores.md", "reason": "存储层契约"}
+{"file": ".trellis/spec/ts/events-streaming.md", "reason": "事件流契约"}
+{"file": ".trellis/spec/ts/hk-us-data.md", "reason": "港美股数据"}
+{"file": ".trellis/spec/ts/rn-runtime.md", "reason": "RN 运行时(Hermes fetch 约束)"}
+{"file": ".trellis/spec/ts/desktop-ci.md", "reason": "桌面与 CI 约定"}
+{"file": ".trellis/spec/ts/tools.md", "reason": "tools 约定"}
+{"file": ".trellis/tasks/08-23-full-repo-review/research/00-review-report.md", "reason": "评审汇总(发现锚点与修法)"}
