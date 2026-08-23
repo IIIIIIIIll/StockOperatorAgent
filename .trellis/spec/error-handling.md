@@ -87,6 +87,9 @@ graph never breaks:
 - `src/pipeline.ts`: pure functions degrade to placeholder text —
   `fallbackMarketIntel()` returns `（未配置 TDX_API_KEY，跳过实时市场情报）`; missing
   F10 -> `（无 ${ticker} 的盈利能力指标，跳过）`.
+- `src/pipeline.ts` `safe(updater, msg)`（图前 enrichment 的进度上报）与
+  `safeProgress`/`safePushDelta`/`safePushStatus` 家族（`src/progress.ts`）同一
+  契约：updater 缺失或抛错一律吞掉——丢一条进度行只是 UI 流水缺失，绝不阻断图。
 
 ## Store / bridge error shapes
 
