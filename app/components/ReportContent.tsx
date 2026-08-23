@@ -79,7 +79,7 @@ export default function ReportContent({
           if (!text) return null; // 槽位暂无内容(如修订尚未开始)
           const open = expanded[i] ?? streaming; // 流式中的槽位默认展开
           return (
-            <View key={i} style={styles.opinionCard}>
+            <View key={slot.title} style={styles.opinionCard}>
               <Pressable onPress={() => setExpanded((s) => ({ ...s, [i]: !open }))}>
                 <Text style={styles.opinionTitle}>{slot.title} {open ? '▾' : '▸'}</Text>
               </Pressable>

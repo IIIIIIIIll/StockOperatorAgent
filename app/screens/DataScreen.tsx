@@ -136,7 +136,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
             const pct = tailChangePct[i];
             const turnover = turnoverPct(b, capital, market);
             return (
-              <View key={i} style={styles.row}>
+              <View key={b.date} style={styles.row}>
                 <Text style={[styles.cell, styles.dateCell]}>{fmtDate(b.date)}</Text>
                 <Text style={styles.cell}>{b.open.toFixed(2)}</Text>
                 <Text style={[styles.cell, { color: b.close >= b.open ? theme.colors.up : theme.colors.down }]}>{b.close.toFixed(2)}</Text>
@@ -158,8 +158,8 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>盈利能力指标({latest})</Text>
           <View style={styles.chips}>
-            {profit.filter((r) => r.period === latest && !Number.isNaN(r.value_num)).map((r, i) => (
-              <View key={i} style={styles.chip}>
+            {profit.filter((r) => r.period === latest && !Number.isNaN(r.value_num)).map((r) => (
+              <View key={`${r.period}:${r.metric}`} style={styles.chip}>
                 <Text style={styles.chipLabel}>{r.metric}</Text>
                 <Text style={styles.chipValue}>{fmtNumber(r.value_num, 2)}%</Text>
               </View>
@@ -174,10 +174,10 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
         {reports.length === 0 ? (
           <Text style={styles.muted}>暂无业绩数据 —— 该股 F10 财务分析无可用指标。</Text>
         ) : (
-          reports.slice(-4).reverse().map((r, i) => {
+          reports.slice(-4).reverse().map((r) => {
             const f = r.fields as Record<string, unknown>;
             return (
-              <View key={i} style={styles.opinionCard}>
+              <View key={r.report_date} style={styles.opinionCard}>
                 <Text style={styles.opinionBody}>
                   {r.report_date} — EPS {fmtNumber(f.eps as number, 2)} | 净利润 {fmtNumber(f.net_profit as number, 0)} | YoY {fmtNumber(f.net_profit_YoY_rate as number, 2)}% | QoQ {fmtNumber(f.net_profit_QoQ_rate as number, 2)}% | 销售毛利率 {fmtNumber(salesGrossMargin(profit, r.report_date), 2)}% | ROE {fmtNumber(f.net_worth_return_rate as number, 2)}% | 每股净资产 {fmtNumber(f.net_worth_per_share as number, 2)} | 每股现金流 {fmtNumber(f.cash_flow_per_share as number, 2)}
                 </Text>
