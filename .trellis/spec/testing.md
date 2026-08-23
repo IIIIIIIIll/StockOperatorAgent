@@ -10,6 +10,8 @@ paths:
 ## Runner
 
 - Run everything: `npm test` (= `vitest run`, root `package.json`).
+- 单测超时:`vitest.config.ts` `testTimeout: 15s`(默认 5s 对 mock-LLM 编排
+  套件余量不足,高负载下批量假超时;上调不改变断言语义)。
 - Type check: `npm run typecheck` (= `tsc --noEmit`).
 - Targeted run: `npx vitest run test/log.test.ts`.
 - Live network integration is opt-in: `SOA_LIVE=1 npx vitest run
