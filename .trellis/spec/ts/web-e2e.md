@@ -32,3 +32,25 @@ paths:
   - **已知展示残留**:错误终态后角色 chips 停留「分析中」不复位
     (statuses 未随 error 重置)。不影响 D15 判据;读屏验证时勿把残留
     chips 误判为仍在运行。
+- **2026-08-24(e2e-real-analysis,真实 LLM 链)**:
+  - **凭证注入**:`loadSettings()` 分区浅合并 → 部分注入即可:web 直写
+    localStorage `soa:settings`(仅 keys 三键),安卓 `run-as` 写沙盒
+    `files/soa-settings.json`(expo-file-system `Paths.document`)。值取根
+    `.env` 运行时读取,档案只留掩码;`/data/local/tmp` 中转件用后即删。
+  - **判别真 stub**:终态横幅 `mode==='real'?'真实 LLM':'演示模式'`
+    (App.tsx lastRunAt 行)+ console「模式:真实 LLM」+ `/llm-proxy` 2xx
+    往返计数,三重佐证;demo stub 必带「演示模式」标签。
+  - **安卓 debug 包不内嵌 bundle**:冷启动「Unable to load script」→
+    起 Metro(8081)+ `adb reverse tcp:8081 tcp:8081`;首次加载可白屏
+    (惰性 chunk 构建中),force-stop 重启即正常。旧签名残留 → 先
+    `adb uninstall` 再装。
+  - **安卓驱动 gotcha**:系统通知权限弹窗会冻结底层窗口渲染,截屏前先关;
+    被遮挡时 `uiautomator dump` 是权威状态来源。`run-as sh -c 'a && b'`
+    复合命令引号易被 adb 剥层 → 拆单命令直传。
+  - **chrome-devtools MCP 串行队列**:单个 `wait_for` 长超时会堵死后续
+    全部请求(客户端 30s 超时不取消服务端执行)→ 长等待改轮询
+    `evaluate_script`;`take_screenshot` 支持 filePath 直接落盘。
+  - **双端实测基线(600036,deepseek-v4-flash)**:web 47 步/381.9s,
+    安卓 36 步/178.1s——步数差 = 工具轮重试非确定性,终态语义一致;
+    TDX 真实采集双端生效(web 5846 根日K);DDG 间歇 403/502 属
+    尽力而为路径,优雅降级不阻塞。
