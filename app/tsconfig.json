@@ -1,15 +1,41 @@
 {
-  "extends": "expo/tsconfig.base",
+  // 不再 extends "expo/tsconfig.base":vitest(vite:oxc)转换 app/**/*.ts 时按就近
+  // tsconfig 解析 extends,而 CI 只装根 lockfile、没有 app/node_modules/expo,
+  // 会报 [TSCONFIG_ERROR]。此处内联 expo SDK 57 tsconfig.base 全量选项;
+  // 升级 expo 模板时需手动同步本文件。
   "compilerOptions": {
-    "strict": true,
-    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "lib": [
+      "DOM",
+      "ESNext"
+    ],
+    "module": "preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "bundler",
+    "customConditions": [
+      "react-native"
+    ],
     "noEmit": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ESNext",
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     "**/*.d.ts",
     "../src/expo-file-system.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "babel.config.js",
+    "metro.config.js",
+    "jest.config.js",
+    "android",
+    "ios"
   ]
 }
