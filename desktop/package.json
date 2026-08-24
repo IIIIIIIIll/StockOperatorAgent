@@ -1,6 +1,6 @@
 {
   "name": "soa-desktop",
-  "version": "1.0.0",
+  "version": "0.1.3",
   "private": true,
   "description": "Electron desktop shell for StockOperatorAgent. Main process is plain JS with zero TS dependencies; the Node backend (strip-types TS) runs in a self-spawned child (ELECTRON_RUN_AS_NODE).",
   "author": "yh.t <21286615+IIIIIIIIll@users.noreply.github.com>",
