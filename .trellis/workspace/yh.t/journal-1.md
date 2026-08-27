@@ -1672,3 +1672,24 @@ Bucket C 30 项完成:测试卫生(F57 常量对齐 2004-06-16/F58-60)、元数�
 ### Next Steps
 
 - Go-live 发布流程:S4 轮换清单执行(keystore 轮换)→ 发布 0.1.4;后续可归档旧审计任务链
+
+
+## Session 60: Final pre-go-live review + fix pass
+
+**Date**: 2026-08-28
+**Task**: Final pre-go-live review + fix pass
+**Branch**: `master`
+
+### Summary
+
+5-subagent final review: 78/78 closure verified, gates green, READY verdict. Fix pass: SSRF mapped-IPv6, S6 X-SOA-Token client wiring, M2 502, CSP frame-ancestors, desktop effective-bind, v0.1.4 bump. 666 tests pass, tsc clean. S4 rotation remains manual.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fc583a0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
