@@ -2,7 +2,7 @@
 // + f10MarketFor(市场码 0=深 1=沪)。离线,无网络依赖。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InMemoryStore } from '../src/store-memory.ts';
-import { applyCollectedToStore, collectViaProxy } from '../src/webCollect.ts';
+import { applyCollectedToStore, CollectError, collectViaProxy } from '../src/webCollect.ts';
 import { f10MarketFor } from '../src/tdx/f10Client.ts';
 
 const payload = {
@@ -113,6 +113,40 @@ describe('collectViaProxy', () => {
       }),
     );
     await expect(collectViaProxy('002027', 'http://localhost:9')).rejects.toThrow(/不可达/);
+  });
+
+  it('F13 200 + 形状非法(bars 非数组)→ typed CollectError,不喂消费方', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ticker: '002027', bars: 'oops' }), { status: 200 })),
+    );
+    let thrown: unknown = null;
+    try {
+      await collectViaProxy('002027', 'http://x');
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(CollectError); // typed,非裸 TypeError
+    expect((thrown as CollectError).code).toBe('invalid_payload');
+    expect((thrown as CollectError).status_code).toBe(200);
+    expect((thrown as CollectError).message).toContain('非法载荷');
+  });
+
+  it('F13 200 + null 载荷(JSON null)→ typed CollectError(原 null-payload 崩溃类)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('null', { status: 200 })));
+    await expect(collectViaProxy('002027', 'http://x')).rejects.toMatchObject({
+      name: 'CollectError',
+      code: 'invalid_payload',
+      status_code: 200,
+    });
+  });
+
+  it('F13 200 + JSON 解析失败 → typed CollectError(代理崩溃残留路径)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>proxy crashed</html>', { status: 200 })));
+    await expect(collectViaProxy('002027', 'http://x')).rejects.toMatchObject({
+      name: 'CollectError',
+      code: 'invalid_payload',
+    });
   });
 });
 

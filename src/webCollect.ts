@@ -33,6 +33,26 @@ export interface WebCollectResult {
   capital: { zongguben: number; liutongguben: number } | null;
 }
 
+/** TDX web 采集失败(归一化错误,collectViaProxy 唯一异常;对齐 YahooApiError
+ *  数据源家族先例——每源一个自定义异常)。
+ *
+ * @param code 业务错误码:代理不可达 → 'proxy_unreachable';HTTP 非 2xx →
+ *   'http_<status>';2xx 但载荷形状非法 → 'invalid_payload'
+ * @param status_code HTTP 状态码(网络异常无响应 → null)
+ * @param message 人类可读错误信息
+ */
+export class CollectError extends Error {
+  readonly code: string | null;
+  readonly status_code: number | null;
+
+  constructor(code: string | null, status_code: number | null, message: string) {
+    super(message);
+    this.name = 'CollectError';
+    this.code = code;
+    this.status_code = status_code;
+  }
+}
+
 /** 代理载荷 → store(putStock/addDatas/per-ticker f10 meta);返回 run opts 用结果。
  *  C8 freshness：同日跳过（payload.skipDaily）时保留既有日K 与 lastDataUpdate
  *  （跳过返回现有数据不置空），快照/名称仍照常入库。 */
@@ -87,13 +107,30 @@ export async function collectViaProxy(
   try {
     res = await fetch(url);
   } catch (err) {
-    throw new Error(
+    throw new CollectError(
+      'proxy_unreachable',
+      null,
       `TDX 采集代理不可达(需用 npm run web 起的 server):${String((err as Error)?.message ?? err)}`,
     );
   }
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   if (!res.ok) {
-    throw new Error(`TDX 采集失败(${res.status}):${body?.error ?? '未知错误'}`);
+    const detail =
+      body !== null && typeof body === 'object' && !Array.isArray(body) && typeof body['error'] === 'string'
+        ? body['error']
+        : '未知错误';
+    throw new CollectError(`http_${res.status}`, res.status, `TDX 采集失败(${res.status}):${detail}`);
+  }
+  // F13:2xx 但载荷形状非法(非对象/无 bars 数组/JSON 解析失败)→ typed error。
+  // 原实现直接 cast 透传,消费方 applyCollectedToStore 首访 payload.ticker/
+  // payload.bars 即 TypeError(webCollect.ts:31/:51 崩溃类);此处形状门在
+  // 入 store 前拦截,调用方中止分析而非崩溃。
+  if (body === null || typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body['bars'])) {
+    throw new CollectError(
+      'invalid_payload',
+      res.status,
+      `TDX 采集代理返回非法载荷(200):需 {ticker, bars: [...], ...} 形状`,
+    );
   }
   return body as unknown as CollectedPayload;
 }
