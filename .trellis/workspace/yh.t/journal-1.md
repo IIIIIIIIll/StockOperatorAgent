@@ -1559,3 +1559,41 @@ Bucket A(P0)11 项全部完成:F01 start 重入守卫、F02 Buffer.concat 逐块
 ### Next Steps
 
 - mediums(37 项 Bucket B)start 审查 → G3-G12 pass 顺序执行
+
+
+## Session 57: golive-fix-mediums 完成:Bucket B 37 项全部修复并提交
+
+**Date**: 2026-08-27
+**Task**: golive-fix-mediums 完成:Bucket B 37 项全部修复并提交
+**Branch**: `master`
+
+### Summary
+
+Bucket B 37 项完成:测试隔离+卫生(F22-24/F55-56)、服务器/代理硬化(F28-30/S2/S3/M2/S5,含 Origin 白名单 5 端点、IPv6 块表扩展、重定向逐跳校验、CSP/安全头)、env 示例(F44-46,LANGSMITH 注释)、签名转义 F16、数据正确性(F14 TDX 本地日、F20 asiaToday 消费者侧、F25 uddg、F35 市场化消息、#96 chips 重置、#97 volume×price)、UI(F17/F18)、存储语义(F10 关闭排空、F11 SQLite 基线对齐、F12 非 ENOENT 重抛、H1 updateOverview 全量移除+spec stores.md 契约更新)、杂项(F15 缺口衰减、F19 JSON 标记、F27/F32/F33/F34/F37/#100)。check agent 独立复核 37/37 PASS 并修 3 缺陷(S3 死 lookup 移除、S5 413 头、stores.md 契约);649 pass/0 fail/1 skip,tsc 0 err。6 提交落地,任务归档。
+
+### Main Changes
+
+- 6 修复提交+1 归档;H1 净删 26 测试(-1 文件),新增 punycode-shim 套件
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d3bb75a` | (see git log) |
+| `11f2568` | (see git log) |
+| `80ad314` | (see git log) |
+| `ebada84` | (see git log) |
+| `53f6ba8` | (see git log) |
+| `c7b0f1e` | (see git log) |
+
+### Testing
+
+- [OK] vitest 649 passed/1 skipped(设计内)/0 failed;tsc 0 errors;architecture 9/9;check 复核 37/37
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- nits(30 项 Bucket C)start 审查 → 10 pass 顺序执行(含 F31 chart 镜像门禁)
