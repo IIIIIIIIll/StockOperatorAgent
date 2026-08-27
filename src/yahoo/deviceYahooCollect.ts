@@ -353,7 +353,10 @@ export async function collectYahooPayload(
       break;
     }
   }
-  if (symbol === null || result === null) throw new Error('无法解析港股代码');
+  if (symbol === null || result === null) {
+    // F35:候选试探全败 —— 共享链文案按市场区分(旧文恒写「港股」,US 探针误导)
+    throw new Error(`无法解析${detectMarket(ticker) === 'hk' ? '港股' : '美股'}代码`);
+  }
   const metaRaw = rec(result['meta']);
   const fmt = tzDateFmt(metaRaw);
   const skipDaily = opts?.skipDaily === true;

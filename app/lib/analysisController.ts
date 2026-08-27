@@ -22,6 +22,7 @@ import { marketOfStoreTicker, normalizeTicker } from '../../src/market.ts';
 import type { RoleStatus } from '../../src/progress.ts';
 import { enabledRoles } from '../../src/committee.ts';
 import { buildStockInformation } from '../../src/pipeline.ts';
+import { asiaToday } from '../../src/gates.ts';
 import type { WebCollectResult } from '../../src/webCollect.ts';
 import { loadLastRun, saveLastRun } from '../../src/lastRun.ts';
 import { DEMO_F10_KEY, DEMO_TICKER } from '../../src/metaKeys.ts';
@@ -256,14 +257,16 @@ export class AnalysisController {
       s.stockInformation = buildStockInformation(DEMO_TICKER, {
         store: d.store,
         f10Text: demoF10,
-        today: d.isoNow().slice(0, 10),
+        today: asiaToday(), // F20:北京日历日(pipeline 缺省同源;UTC 日清晨会差一天)
       });
     }
     this.notify();
     const loaded = d.loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
     s.settings = loaded;
     const miss = missingLlmKeys(loaded.keys);
-    if (miss.length) d.log.warn(`LLM 三键未配置——${describeLlmKeys(loaded.keys)};缺失键请见侧边栏「模型与密钥」或 app/.env 的 EXPO_PUBLIC_LLM_*`);
+    // F17:指向真实分节名(SettingsPanel「LLM(大模型)」/「外部服务密钥(可选)」;
+    // 旧文「模型与密钥」无此节)
+    if (miss.length) d.log.warn(`LLM 三键未配置——${describeLlmKeys(loaded.keys)};缺失键请见侧边栏「LLM(大模型)」/「外部服务密钥(可选)」或 app/.env 的 EXPO_PUBLIC_LLM_*`);
     else d.log.info(`LLM 已配置:${describeLlmKeys(loaded.keys)}`);
     d.log.info(`联网搜索供应商:${envValue('TAVILY_API_KEY') ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
     s.dataVersion = 1; // store 为模块级对象:显式触发重渲染
@@ -391,13 +394,13 @@ export class AnalysisController {
         name: stockName,
         capital,
         market: m,
-        today: d.isoNow().slice(0, 10),
+        today: asiaToday(), // F20:北京日历日,对齐 pipeline 缺省(原 UTC 日清晨差一天)
         ...(intel.billions ? { billions: intel.billions } : {}),
         ...(intel.mcp ? { mcp: intel.mcp } : {}),
       });
       this.notify();
       const report = await d.runner.run(nt, {
-        llm, f10Text, snapshot, name: stockName, capital, market: m, today: d.isoNow().slice(0, 10),
+        llm, f10Text, snapshot, name: stockName, capital, market: m, today: asiaToday(), // F20 同上
         tools: d.assembleTools(s.settings.keys, s.settings.caps),
         ...(intel.billions ? { billions: intel.billions } : {}),
         ...(intel.mcp ? { mcp: intel.mcp } : {}),
@@ -461,6 +464,8 @@ export class AnalysisController {
     } else if (e.type === 'error') {
       d.log.error(e.error);
       s.error = e.error;
+      // #96:error 终态清角色 chips(防「完成/分析中」残留)
+      s.statuses = {};
       s.hasDone = false; // D15:error 终态撤销完成标记
     }
     s.events.push(e);

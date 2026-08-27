@@ -130,7 +130,9 @@ export function decodeDdgUrl(href: string): string {
   try {
     const u = new URL(full);
     const uddg = u.searchParams.get('uddg');
-    if (uddg) return decodeURIComponent(uddg);
+    // F25:searchParams.get 已解码一层(表单解码);再 decodeURIComponent 是二次
+    // 解码——真实 URL 内含的 % 序列(如 %2F)会被毁成字面字符。直接返回。
+    if (uddg) return uddg;
   } catch {
     /* 保留原样 */
   }

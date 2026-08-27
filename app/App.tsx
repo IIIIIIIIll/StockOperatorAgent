@@ -67,7 +67,7 @@ function AppContent() {
 
   const missing = missingLlmKeys(a.settings.keys);
   const gateNotice = missing.length
-    ? `未配置 LLM 三键(${missing.join('/')})—— 将使用演示占位报告;在侧边栏「模型与密钥」填写后保存。`
+    ? `未配置 LLM 三键(${missing.join('/')})—— 将使用演示占位报告;在侧边栏「LLM(大模型)」填写后保存。`
     : null;
 
   // 主 Tab 列表:[采集数据] + 角色报告(与 Python tabs = [DATA_TAB_TITLE] + report_tabs() 同序)

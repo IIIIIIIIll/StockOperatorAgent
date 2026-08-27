@@ -72,6 +72,13 @@ describe('HTML 工具', () => {
     expect(decodeDdgUrl('//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fp%3Fx%3D1%26y%3D2')).toBe('https://a.com/p?x=1&y=2');
     expect(decodeDdgUrl('https://plain.example/2')).toBe('https://plain.example/2');
   });
+
+  it('F25:uddg 只解码一层(searchParams 已表单解码;二次 decode 毁 URL 内 % 序列)', () => {
+    // 目标 URL 自身含编码斜杠 %2F:旧实现二次 decodeURIComponent → '/x' 字面损坏
+    expect(decodeDdgUrl('//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com%2Fpath%252Fx')).toBe(
+      'https://a.com/path%2Fx',
+    );
+  });
 });
 
 describe('makeProxySearcher（同源 /web-search 代理 searcher）', () => {

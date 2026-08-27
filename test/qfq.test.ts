@@ -78,8 +78,10 @@ describe('qfq 生产接线（collectAll → xdxr → qfqAdjust）', () => {
         requestedCode = req.code;
         return {
           bars: [
-            { time: new Date('2026-08-07T00:00:00Z'), open: 1000, close: 1010, high: 1020, low: 990, volume: 1000, amount: 100000 },
-            { time: new Date('2026-08-10T00:00:00Z'), open: 1010, close: 1020, high: 1030, low: 1000, volume: 1100, amount: 110000 },
+            // F14:按 TDX 库同款姿势构 Date(本地 15:00)——本地历日即解码原始日,
+            // 断言与运行 TZ 无关(旧 fixture 用 UTC 零点,本地化格式化后西时区漂移)
+            { time: new Date(2026, 7, 7, 15, 0), open: 1000, close: 1010, high: 1020, low: 990, volume: 1000, amount: 100000 },
+            { time: new Date(2026, 7, 10, 15, 0), open: 1010, close: 1020, high: 1030, low: 1000, volume: 1100, amount: 110000 },
           ],
           count: 2,
         };
@@ -89,6 +91,24 @@ describe('qfq 生产接线（collectAll → xdxr → qfqAdjust）', () => {
     expect(requestedCode).toBe('sh600036'); // addPrefix
     expect(bars.map((b) => b.date)).toEqual(['2026-08-07', '2026-08-10']);
     expect(bars[0].close).toBe(1.01); // 分 → 元
+  });
+
+  it('F14:本地 15:00 的 Date 在 TZ=UTC-10 下日期不 +1(toISOString 是 UTC 历日)', async () => {
+    const savedTz = process.env.TZ;
+    try {
+      process.env.TZ = 'Etc/GMT+10'; // 夏威夷类时区:旧实现 toISOString → 次日
+      const fakeClient = {
+        getKline: async () => ({
+          bars: [{ time: new Date(2026, 7, 7, 15, 0), open: 1000, close: 1010, high: 1020, low: 990, volume: 1000, amount: 100000 }],
+          count: 1,
+        }),
+      } as unknown as TdxClient;
+      const bars = await fetchDailyBars(fakeClient, '600036');
+      expect(bars[0].date).toBe('2026-08-07'); // 本地历日 == 解码原始日
+    } finally {
+      if (savedTz === undefined) delete process.env.TZ;
+      else process.env.TZ = savedTz;
+    }
   });
 
   it('applyQfq：YYYY-MM-DD bars + YYYYMMDD 事件 → 复权 + 日期还原为 YYYY-MM-DD', () => {

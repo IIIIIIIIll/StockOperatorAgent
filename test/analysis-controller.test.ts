@@ -3,10 +3,11 @@
 // 覆盖:start 编排(runner.run 单次调用/参数正确、北交所拦截、市场归一文案、采集
 // 失败短路)、lastRun 恢复(bootstrap)、事件归约(token/retry/report/done)、
 // D9(运行中不清错误横幅)、D15(hasDone 生命周期)、C1 侧(失败不打印成功耗时)。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { InMemoryStore } from '../src/store-memory.ts';
 import { LAST_RUN_KEY } from '../src/lastRun.ts';
 import { DEMO_F10_KEY } from '../src/metaKeys.ts';
+import { asiaToday } from '../src/gates.ts';
 import type { FinalReport, PipelineEvent, PipelineRunner, RunOptions } from '../src/events.ts';
 import {
   AnalysisController,
@@ -221,6 +222,7 @@ describe('AnalysisController.start 编排', () => {
     const h = makeHarness({
       runnerImpl: async () => makeReport(),
     });
+    const expectedToday = asiaToday(); // F20:today 为北京日历日(断言前取值,防跨日边界)
 
     await h.ctrl.start(' 600036 ', 'cn'); // 首尾空白由 trim 归一
 
@@ -230,7 +232,7 @@ describe('AnalysisController.start 编排', () => {
     expect(opts?.market).toBe('cn');
     expect(opts?.llm).toEqual({ stub: 'llm' }); // 未配三键 → buildLlm(null) 分支产物
     expect(Array.isArray(opts?.tools)).toBe(true);
-    expect(opts?.today).toBe('2026-08-23');
+    expect(opts?.today).toBe(expectedToday);
     expect(opts?.name).toBe('测试股');
     expect(opts?.f10Text).toContain('主要财务指标');
     expect(opts?.snapshot).toEqual({ price: 38.8, high: 39.1, low: 38.48, open: 38.9, volume: 10000, amount: 380000 });
@@ -244,6 +246,26 @@ describe('AnalysisController.start 编排', () => {
     expect(h.keepAlive.stops).toBe(1);
     expect(h.snap().running).toBe(false);
     expect(h.log.info.some((m) => m.startsWith('分析结束:耗时'))).toBe(true);
+  });
+
+  it('F20:start 的 today 是北京日历日(非 UTC 日;清晨差一天场景钉死)', async () => {
+    vi.useFakeTimers();
+    try {
+      // 2026-08-22T20:30Z = 北京 2026-08-23 04:30:UTC 日 08-22,北京日 08-23
+      vi.setSystemTime(new Date('2026-08-22T20:30:00.000Z'));
+      const h = makeHarness({
+        overrides: {
+          // isoNow 保持 UTC 语义(lastRun 时间戳消费者);today 不再经它派生
+          isoNow: () => '2026-08-22T20:30:00.000Z',
+        },
+      });
+      await h.ctrl.start('600036', 'cn');
+      expect(h.runner.runs[0].opts?.today).toBe('2026-08-23'); // 北京日历日
+      // 旧实现(isoNow().slice(0,10))会给 UTC 日 08-22 —— 本断言钉死修复
+      expect(h.runner.runs[0].opts?.today).not.toBe('2026-08-22');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('us + finnhub key → collect 收到非空 finnhub 参数(空白 trim 后)', async () => {
@@ -326,6 +348,20 @@ describe('AnalysisController.start 编排', () => {
     expect(h.snap().hasDone).toBe(false); // D15:error 终态撤销 done 标记
     expect(h.log.error).toContain('LLM 重试耗尽:429'); // error 事件监听的日志面
     expect(h.log.info.some((m) => m.startsWith('分析结束:耗时'))).toBe(false); // C1 侧
+  });
+
+  it('#96:error 终态清空角色 chips(running/done 残留不挂 UI)', async () => {
+    const h = makeHarness({
+      runnerImpl: async () => {
+        h.runner.emit({ type: 'roleStatus', roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', status: 'running' });
+        h.runner.emit({ type: 'roleStatus', roleKey: 'bullish_opinions', node: 'bullish_trader', status: 'done' });
+        h.runner.emit({ type: 'error', error: 'LLM 重试耗尽:429' });
+        return undefined;
+      },
+    });
+    await h.ctrl.start('600036', 'cn');
+    expect(h.snap().error).toBe('LLM 重试耗尽:429');
+    expect(h.snap().statuses).toEqual({}); // chips 复位(修复前残留 running/done)
   });
 
   it('成功路径(done 事件 + resolve 报告)→ 打印耗时 + hasDone=true + lastRun 写缓存', async () => {

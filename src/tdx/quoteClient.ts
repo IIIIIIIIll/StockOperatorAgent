@@ -25,6 +25,15 @@ export interface CollectedData {
 
 const KLINE_PAGE = 800;
 
+/** YYYY-MM-DD(本地历日)。F14:toISOString 是 UTC 历日——TDX 库按本地时区
+ *  15:00 构 Date,在 TZ≤UTC-9(夏威夷等)会 +1 天;本地历日 == 解码出的原始日。 */
+function formatLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** 分页拉全部日K（start 步进，count<800 停止），升序返回（对齐 live 探针）。 */
 export async function fetchDailyBars(client: TdxClient, ticker: string): Promise<DailyBar[]> {
   const code = addPrefix(ticker);
@@ -36,7 +45,7 @@ export async function fetchDailyBars(client: TdxClient, ticker: string): Promise
   }
   return all
     .map((b) => ({
-      date: b.time.toISOString().slice(0, 10), // YYYY-MM-DD（store 契约；W9 修复 overview volume/amount 恒 NaN）
+      date: formatLocalDate(b.time), // YYYY-MM-DD（store 契约；F14 本地历日,不绕 UTC）
       open: b.open / 1000,
       close: b.close / 1000,
       high: b.high / 1000,

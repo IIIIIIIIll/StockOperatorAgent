@@ -100,7 +100,10 @@ export function composeYahooOverview(
   const high = firstFinite(metaRec['regularMarketDayHigh'], price['regularMarketDayHigh'], summaryDetail['regularMarketDayHigh']);
   const low = firstFinite(metaRec['regularMarketDayLow'], price['regularMarketDayLow'], summaryDetail['regularMarketDayLow']);
   const volume = firstFinite(metaRec['regularMarketVolume'], price['regularMarketVolume'], summaryDetail['regularMarketVolume']);
-  const amount = firstFinite(metaRec['regularMarketDayVolume']);
+  // #97:Yahoo chart meta/quoteSummary 无成交额标准字段(no-standard-source,见
+  // 文件头);旧实现误读 regularMarketDayVolume(量字段)→ 成交额显示成股数。
+  // 决策:近似 volume×最新价(有标准源后替换);任一缺失/NaN → NaN。
+  const amount = Number.isFinite(volume) && Number.isFinite(priceNum) ? volume * priceNum : NaN;
 
   const changePctRaw = rawNum(price['regularMarketChangePercent']);
   const changePercent = Number.isFinite(changePctRaw)

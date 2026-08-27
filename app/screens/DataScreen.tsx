@@ -44,7 +44,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
   const capital = React.useMemo(() => {
     const text = store.getMeta(capitalKey(ticker));
     return text ? parseCapitalStructure(text) : null;
-  }, [ticker]);
+  }, [ticker, dataVersion]); // F18:重采集后 meta 更新 → 换手率列不再 stale
   // 涨跌幅:由 bars 现算(复用 pipeline changePercentSeries 公式;首根 NaN → N/A)
   const changePct = React.useMemo(() => changePercentSeries(bars), [bars]);
   // 财务跨期趋势:净利润/每股收益取自 performance_reports,销售毛利率取自

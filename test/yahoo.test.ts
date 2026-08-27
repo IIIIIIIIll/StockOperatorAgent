@@ -391,7 +391,9 @@ describe('composeYahooOverview', () => {
     expect(overview.change_percent).toBeCloseTo(-0.59, 2); // raw 小数 ×100
     expect(overview.change_amount).toBe(-2.2);
     expect(overview.volume).toBe(15_000_000);
-    expect(overview.amount).toBe(5_550_000_000);
+    // #97:成交额 = 量×最新价近似(Yahoo 无标准成交额源;旧实现读 regularMarketDayVolume
+    // 量字段 → 成交额显示成股数)。15_000_000 × 370.4 = 5_556_000_000。
+    expect(overview.amount).toBe(15_000_000 * 370.4);
     expect(overview.amplitude).toBeCloseTo(((375.2 - 368.8) / 372.6) * 100, 6);
     expect(overview.turnover_rate).toBeCloseTo((15_000_000 / 8_900_000_000) * 100, 6);
     expect(overview.pe_dynamic).toBe(14.8);
