@@ -2,6 +2,7 @@
 // 网络依赖——默认跳过，SOA_LIVE=1 时运行：
 //   SOA_LIVE=1 npx vitest run test/live.integration.test.ts
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { TdxClient, KlineCategory } from 'node-tdx-market';
 import { getXdxrInfo, parseXdxrResponse } from '../src/tdx/xdxr.ts';
 import { getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client.ts';
@@ -68,7 +69,8 @@ describe.skipIf(!LIVE)('live TDX integration (AC7)', () => {
         peigu: r.peigu, suogu: r.suogu,
       }));
       const adj = qfqAdjust(bars, events);
-      const fixture = JSON.parse(require('node:fs').readFileSync('test/fixtures/600036_daily.json', 'utf8'));
+      // F23:ESM 无裸 require —— 顶层 import readFileSync(fixture 块此前恒 ReferenceError)
+      const fixture = JSON.parse(readFileSync('test/fixtures/600036_daily.json', 'utf8'));
       for (let i = 0; i < 250; i++) {
         const a = adj[adj.length - 250 + i];
         const e = fixture.adjusted[fixture.adjusted.length - 250 + i];

@@ -42,7 +42,7 @@ describe('llm factory (AC1)', () => {
     expect(config.baseURL).toBe('https://api.example.com/v1');
   });
 
-  it('createLlm rejects without config', () => {
+  it('createLlm accepts minimal config (validation lives in readLlmEnv, not constructor)', () => {
     expect(() => createLlm({ apiKey: '', model: 'm', baseUrl: 'https://x' })).not.toThrow();
   });
 });

@@ -86,7 +86,10 @@ describe('collectForDevice', () => {
 
     // TdxClient 构造参数(显式 host,顺序尝试首个)+ 生命周期(单连接,结束 disconnect)
     expect(mocks.TdxClient).toHaveBeenCalledWith(
-      expect.objectContaining({ connectTimeout: 8000, requestTimeout: 12000, host: expect.stringMatching(/^\d+\.\d+\.\d+\.\d+$/) }),
+      // F56:host 是模块加载期 env 固化的 DEVICE_TDX_HOSTS[0](开发机设
+      // TDX_HOST=hostname 时 IPv4 断言困惑性失败)——改为精确引用常量本身;
+      // env 键位优先级已由 rn-env-keys.test.ts 覆盖。
+      expect.objectContaining({ connectTimeout: 8000, requestTimeout: 12000, host: DEVICE_TDX_HOSTS[0] }),
     );
     expect(client.on).toHaveBeenCalledWith('error', expect.any(Function));
     expect(client.connect).toHaveBeenCalledTimes(1);
@@ -179,5 +182,28 @@ describe('collectForDevice', () => {
     client.connect.mockRejectedValue(new Error('connect ECONNREFUSED 1.2.3.4:7709'));
     await expect(collectForDevice(TICKER)).rejects.toThrow('TDX 采集失败:connect ECONNREFUSED 1.2.3.4:7709');
     expect(client.disconnect).toHaveBeenCalledTimes(DEVICE_TDX_HOSTS.length);
+  });
+
+  it('TDX_HOST=hostname → host 原样传 TdxClient(模块加载期 env 固化 → resetModules+动态 import 重载)', async () => {
+    // F56:DEVICE_TDX_HOSTS 是模块加载期顶层 const,静态 import 求值即固定;
+    // 伪造 env 后须 resetModules + 动态 import 重求值(与 rn-env-keys.test.ts
+    // 同款模式;vi.mock 工厂按文件生效,新实例仍走同一假客户端)。
+    const saved = { ...process.env };
+    try {
+      process.env.TDX_HOST = 'tdx.example.com';
+      delete process.env.EXPO_PUBLIC_TDX_HOST;
+      vi.resetModules();
+      const mod = await import('../src/tdx/deviceCollect.ts');
+      mod.setDeviceStore(store);
+      await mod.collectForDevice(TICKER);
+      expect(mocks.TdxClient).toHaveBeenCalledWith(
+        expect.objectContaining({ host: 'tdx.example.com' }),
+      );
+    } finally {
+      if (saved.TDX_HOST === undefined) delete process.env.TDX_HOST;
+      else process.env.TDX_HOST = saved.TDX_HOST;
+      if (saved.EXPO_PUBLIC_TDX_HOST === undefined) delete process.env.EXPO_PUBLIC_TDX_HOST;
+      else process.env.EXPO_PUBLIC_TDX_HOST = saved.EXPO_PUBLIC_TDX_HOST;
+    }
   });
 });

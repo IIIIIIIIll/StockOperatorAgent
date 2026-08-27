@@ -12,6 +12,8 @@ import { FinnhubClient } from '../src/finnhub/finnhubClient.ts';
 import { collectYahooViaProxy } from '../src/yahoo/webYahooCollect.ts';
 import { marketToday } from '../src/gates.ts';
 import { collectForWeb, store as runnerStore } from '../app/lib/runner.ts';
+import { setStore } from '../app/lib/runner.ts';
+import { FileStore } from '../src/store-file.ts';
 
 interface FetchCall {
   url: string;
@@ -189,9 +191,14 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers(); // F55:分页用例钉死时钟(vi.useFakeTimers 同文件其余 describe 亦复用)
   });
 
   it('0700.HK 全链:候选 chart → 市场时区 bars/快照/quoteSummary 合成 → 入库(名称/概览/报告/日期戳)', async () => {
+    // F55:分页窗口数由 now-firstTradeDate 推导(10 年窗口),真实时钟 ~2034-06 翻
+    // 4 窗口 → 断言失效;钉死 2026-08-20(与下方 collectForWeb 用例同款)。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
     const calls = makeGlobalFetch([
       { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
       {
@@ -280,6 +287,14 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(3);
   });
 
+  it('F35:US 候选全败 → 抛 无法解析美股代码(共享链文案按市场区分)', async () => {
+    const calls = makeGlobalFetch([
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(ERROR_CHART_BODY) },
+    ]);
+    await expect(collectYahooForDevice('ZZZZ')).rejects.toThrow('无法解析美股代码');
+    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(1); // US 无候选试探
+  });
+
   it('HK 形状收入表(quarterly 键名 incomeStatementHistory + 年度模块)→ 合并入 payload;store PK 去重后唯一', async () => {
     const store = new InMemoryStore();
     setYahooStore(store);
@@ -304,6 +319,8 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
   });
 
   it('HK 5 位输入:09988 → 首候选 9988.HK(官方 4 位码)命中;5 位原样形不再试探', async () => {
+    vi.useFakeTimers(); // F55:同 0700.HK 全链用例,分页窗口数钉死于 2026-08-20
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
     const store = new InMemoryStore();
     setYahooStore(store);
     const calls = makeGlobalFetch([
@@ -355,6 +372,8 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(before.getStock('0700.HK')?.lastDataUpdate).toBe(marketToday('hk'));
   });
   it('E4 device×finnhub:us 全链 + profile2 合并 industry 入库(finnhub 为第三位置参数,非 opts 内嵌)', async () => {
+    vi.useFakeTimers(); // F55:同 0700.HK 全链用例,分页窗口数钉死于 2026-08-20
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
     const calls = makeGlobalFetch([
       { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
       {
@@ -568,7 +587,10 @@ describe('collectYahooViaProxy(浏览器 → /yahoo-collect)', () => {
 
 describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同日跳过门 + finnhub 合并)', () => {
   beforeEach(() => {
+    // F10:close() 为终态(排空 pending 写 + 禁后续写穿)——复位须换新实例;
+    // setStore live binding:runnerStore 绑定同步指向新实例,与 yahoo store 同实例
     runnerStore.close();
+    setStore(new FileStore());
     setYahooStore(runnerStore); // 与 runner 模块级 store 同实例(生产接线一致)
   });
 

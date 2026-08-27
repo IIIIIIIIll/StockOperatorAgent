@@ -134,9 +134,11 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
       // (undefined)——不越过事件边界抛错
       result = await runner.run('600036', { today: '2026-08-09' });
     } finally {
-      process.env.LLM_API_KEY = saved.LLM_API_KEY;
-      process.env.LLM_MODEL = saved.LLM_MODEL;
-      process.env.LLM_BASE_URL = saved.LLM_BASE_URL;
+      // F22:恢复缺失键必须 delete(直接赋 undefined 会写入字符串 "undefined")
+      for (const key of ['LLM_API_KEY', 'LLM_MODEL', 'LLM_BASE_URL'] as const) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
     }
     expect(result).toBeUndefined();
     expect(events.some((e) => e.type === 'error')).toBe(true);
