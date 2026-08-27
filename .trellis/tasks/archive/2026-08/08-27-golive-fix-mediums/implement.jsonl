@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/08-27-golive-fix-backlog/research/fix-backlog.md", "reason": "Master backlog record: evidence + fix method for all 37 Bucket B items"}
+{"file": ".trellis/spec/ts/index.md", "reason": "TS layer conventions, architecture assertions, verification gates"}
+{"file": ".trellis/spec/testing.md", "reason": "Test conventions: deterministic offline tests, suite isolation rules"}
+{"file": ".trellis/spec/logging.md", "reason": "src/log.ts unified logging rule (F37 pre-check)"}
+{"file": ".trellis/spec/error-handling.md", "reason": "Typed error patterns (F10, F12, F13 contract work)"}
