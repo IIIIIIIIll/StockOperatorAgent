@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleLlmProxy, handleTdxCollect, handleWebSearch, handleYahooCollect } from './lib/proxies.cjs';
 import { handleLogs } from './lib/logs-server.cjs';
+import { envValue } from '../src/env.ts';
 
 const PORT = Number(process.env.PORT || 8090);
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -169,6 +170,17 @@ export function createAppServer() {
       res.end('Forbidden');
       return;
     }
+    // S6:非回环监听(HOST 显式覆盖)时,代理/日志端点要求
+    // Authorization: Bearer <SOA_ACCESS_TOKEN>;未设 token → 恒 401(安全默认:
+    // 宁缺勿开)。回环监听(默认)保持原行为,无需 token。
+    if (isProxyPath && requireToken) {
+      const auth = req.headers.authorization || '';
+      if (!ACCESS_TOKEN || auth !== `Bearer ${ACCESS_TOKEN}`) {
+        res.writeHead(401, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+        res.end(JSON.stringify({ error: '未授权:非回环监听需 Bearer token(SOA_ACCESS_TOKEN)' }));
+        return;
+      }
+    }
     if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {
       void handleLlmProxy(req, res);
       return;
@@ -196,7 +208,11 @@ export function createAppServer() {
 // 监听默认仅回环 127.0.0.1(HOST env 可覆盖):同源代理/日志端点不暴露到局域网
 // (SSRF/日志注入面收敛);生产远程访问显式设 HOST=0.0.0.0。
 // isMain 守卫:vitest 单测 import 本模块(测 serveStatic)时跳过 listen 副作用。
-const HOST = process.env.HOST || '127.0.0.1';
+// env 读取统一经 src/env.ts(envValue;server.mjs 为 Node-only 服务端,不入
+// metro 图,但保持同一读取纪律)。
+const HOST = envValue('HOST') || '127.0.0.1';
+const ACCESS_TOKEN = envValue('SOA_ACCESS_TOKEN') ?? '';
+const requireToken = !isLoopbackHostHeader(HOST);
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   createAppServer().listen(PORT, HOST, () => {

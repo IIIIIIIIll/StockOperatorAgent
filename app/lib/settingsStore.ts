@@ -106,6 +106,9 @@ export function createSettingsStore(
   }
 
   return {
+    // S7:设置(含 LLM/亿信 API key)以明文存于 localStorage(web)/soa-settings.json
+    // (RN/Node 桌面)——本地优先设计使然,无服务端兜底;系统安全存储(Keychain/
+    // KeyStore)为后续工作,启用前不承诺密钥落盘加密。
     load(): string | null {
       if (web !== undefined) {
         try {

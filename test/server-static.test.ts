@@ -1,6 +1,6 @@
 // server.mjs serveStatic 单测(C1:畸形 URL → 400 不崩)。serveStatic 已导出,
 // import 侧跳过 listen 副作用(见 server.mjs 底部 isMain 守卫)。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { serveStatic, createAppServer } from '../app/server.mjs';
 
 interface StaticRes {
@@ -117,5 +117,69 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
       const getProxy = await fetch(`${base}/llm-proxy/whatever`, { method: 'GET' });
       expect(getProxy.status).not.toBe(403);
     });
+  });
+});
+
+describe('server.mjs S6(非回环监听 Bearer token 门)', () => {
+  // HOST/SOA_ACCESS_TOKEN 在模块加载期读入(requireToken 模块级常量)——
+  // 每次用例 resetModules + stubEnv 后动态 import,取全新模块实例。
+  async function withFreshServer(env: Record<string, string>, fn: (base: string) => Promise<void>): Promise<void> {
+    vi.resetModules();
+    vi.stubEnv('HOST', '0.0.0.0');
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    const mod = await import('../app/server.mjs');
+    const server = mod.createAppServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (server.address() as { port: number }).port;
+      await fn(`http://127.0.0.1:${port}`);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      vi.unstubAllEnvs();
+    }
+  }
+
+  it('非回环监听 + 未设 token → 代理端点 401(安全默认:宁缺勿开)', async () => {
+    await withFreshServer({}, async (base) => {
+      const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+      expect(res.status).toBe(401);
+      expect(await res.text()).toContain('Bearer');
+    });
+  });
+
+  it('非回环监听 + token 不匹配 → 401;匹配 → 放行到路由', async () => {
+    await withFreshServer({ SOA_ACCESS_TOKEN: 'sekrit' }, async (base) => {
+      const bad = await fetch(`${base}/tdx-collect?ticker=bad`, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer wrong' },
+      });
+      expect(bad.status).toBe(401);
+
+      // 过门后进路由:非法 ticker → 400(而非 401,证明门已放行)
+      const good = await fetch(`${base}/tdx-collect?ticker=bad`, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer sekrit' },
+      });
+      expect(good.status).toBe(400);
+    });
+  });
+
+  it('非回环监听:静态面不要求 token(仅代理/日志端点设门)', async () => {
+    await withFreshServer({}, async (base) => {
+      const res = await fetch(`${base}/index.html`, { method: 'GET' });
+      expect(res.status).not.toBe(401); // 无 dist → SPA fallback 面,非 401
+    });
+  });
+
+  it('回环监听(默认)不要求 token:代理端点无 token 直接进路由', async () => {
+    const server = createAppServer(); // 顶层实例:HOST 未设 → 回环,requireToken=false
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (server.address() as { port: number }).port;
+      const res = await fetch(`http://127.0.0.1:${port}/tdx-collect?ticker=bad`, { method: 'GET' });
+      expect(res.status).toBe(400); // 非法 ticker 判定,而非 401
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

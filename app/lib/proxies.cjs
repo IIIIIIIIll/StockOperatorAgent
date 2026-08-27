@@ -265,6 +265,9 @@ async function doCollect(ticker, opts = {}) {
     const collected = await collectAll(
       client,
       ticker,
+      // H2:meta 读写为无操作(有意为之):代理无状态,不做名称等缓存——与真机
+      // deviceCollect 的 nameKey 持久缓存不同,名称随每次采集重拉;浏览器侧入库
+      // 时(applyCollectedToStore)再写入自己的 store meta,不在此引入存储面。
       { get: () => null, set: () => {} },
       { skipDaily: opts.skipDaily === true },
     );

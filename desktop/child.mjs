@@ -76,6 +76,8 @@ function send(msg) {
 let shuttingDown = false;
 let store = null;
 let server = null;
+// S7:settings 明文落盘(soa-settings.json,与 settingsStore.ts node 分支同形状,
+// 含 LLM/亿信 key)——本地优先设计,系统安全存储(Keychain/KeyStore)为后续工作。
 let settingsFs = null;
 
 // Flush pending writes, close store + server, then exit. Used by both the

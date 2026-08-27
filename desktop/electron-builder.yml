@@ -52,13 +52,16 @@ win:
   target:
     - nsis
   artifactName: ${productName}-Setup-${version}.${ext}
+  icon: build/icon.png
 linux:
   target:
     - AppImage
     - deb
   category: Utility
   artifactName: ${productName}-${version}-${arch}.${ext}
+  icon: build/icon.png
 mac:
   target:
     - dmg
   artifactName: ${productName}-${version}-${arch}.${ext}
+  icon: build/icon.png
