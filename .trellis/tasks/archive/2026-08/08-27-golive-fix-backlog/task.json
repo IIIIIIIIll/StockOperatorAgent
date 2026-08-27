@@ -1,0 +1,30 @@
+{
+  "id": "golive-fix-backlog",
+  "name": "golive-fix-backlog",
+  "title": "Go-live fix backlog (父任务): 78 项修复任务树",
+  "description": "Remediate full 08-26 audit backlog via 3 ordered children",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "yh.t",
+  "assignee": "yh.t",
+  "createdAt": "2026-08-27",
+  "completedAt": "2026-08-27",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-27-golive-fix-majors",
+    "08-27-golive-fix-mediums",
+    "08-27-golive-cleanup-nits"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
