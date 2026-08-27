@@ -40,34 +40,40 @@ let expoBackendPromise: Promise<ExpoBackend> | null = null;
 
 function getExpoBackend(relBaseDir: string): Promise<ExpoBackend> {
   expoBackendPromise ??= (async () => {
-    // 动态 import 边界(类型见 expo-file-system.d.ts):web/Node 包不含该模块,
-    // 仅 RN 运行时触发;vitest(ts/ 根)解析失败 → 上层 catch 降级
-    const { File, Directory, Paths } = await import('expo-file-system');
-    const root = new Directory(Paths.document, relBaseDir);
-    if (!root.exists) root.create({ intermediates: true, idempotent: true });
-    const baseDir = root.uri;
-    return {
-      baseDir,
-      fs: {
-        async readFile(path: string): Promise<string | null> {
-          const f = new File(path);
-          return f.exists ? await f.text() : null;
+    try {
+      // 动态 import 边界(类型见 expo-file-system.d.ts):web/Node 包不含该模块,
+      // 仅 RN 运行时触发;vitest(ts/ 根)解析失败 → 上层 catch 降级
+      const { File, Directory, Paths } = await import('expo-file-system');
+      const root = new Directory(Paths.document, relBaseDir);
+      if (!root.exists) root.create({ intermediates: true, idempotent: true });
+      const baseDir = root.uri;
+      return {
+        baseDir,
+        fs: {
+          async readFile(path: string): Promise<string | null> {
+            const f = new File(path);
+            return f.exists ? await f.text() : null;
+          },
+          async writeFile(path: string, data: string): Promise<void> {
+            // 原子写:先写同目录 tmp(后缀不以 .json 结尾 → hydrate 扫描天然跳过
+            // 崩溃残留),再 moveSync 原子替换目标。SDK 57 moveSync 默认不覆盖已存在
+            // 目标(RelocationOptions.overwrite 默认 false),必须显式传 overwrite:true。
+            const dest = new File(path);
+            const tmp = new File(`${path}.tmp.${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+            if (!tmp.exists) tmp.create();
+            tmp.write(data);
+            tmp.moveSync(dest, { overwrite: true });
+          },
+          async listDir(): Promise<string[]> {
+            return new Directory(baseDir).list().map((e: { name: string }) => e.name);
+          },
         },
-        async writeFile(path: string, data: string): Promise<void> {
-          // 原子写:先写同目录 tmp(后缀不以 .json 结尾 → hydrate 扫描天然跳过
-          // 崩溃残留),再 moveSync 原子替换目标。SDK 57 moveSync 默认不覆盖已存在
-          // 目标(RelocationOptions.overwrite 默认 false),必须显式传 overwrite:true。
-          const dest = new File(path);
-          const tmp = new File(`${path}.tmp.${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-          if (!tmp.exists) tmp.create();
-          tmp.write(data);
-          tmp.moveSync(dest, { overwrite: true });
-        },
-        async listDir(): Promise<string[]> {
-          return new Directory(baseDir).list().map((e: { name: string }) => e.name);
-        },
-      },
-    };
+      };
+    } catch (err) {
+      // F04:动态 import/初始化失败清 memo——拒绝不永久缓存,后续可重试
+      expoBackendPromise = null;
+      throw err;
+    }
   })();
   return expoBackendPromise;
 }
@@ -90,8 +96,14 @@ export class FileStore implements StoreLike {
 
   /** 读全部文件 hydrate 内存镜像(内存已有键优先——先写后 ready 的变更不丢)。 */
   async ready(): Promise<void> {
-    this.readyPromise ??= this.hydrate();
-    return this.readyPromise;
+    // F04:hydrate 失败清 memo——拒绝不永久缓存(如后端 fs 暂时不可用),可重试
+    try {
+      this.readyPromise ??= this.hydrate();
+      return await this.readyPromise;
+    } catch (err) {
+      this.readyPromise = null;
+      throw err;
+    }
   }
 
   /** 等待写队列排空(测试断言前调用;失败仅记录不抛出,排空即返回)。 */

@@ -139,8 +139,15 @@ export class IdbStore implements StoreLike {
 
   /** 打开 DB + 从落盘 hydrate 内存镜像(内存已有键优先——先写后 ready 的变更不丢)。 */
   async ready(): Promise<void> {
-    this.readyPromise ??= this.open().then(() => undefined);
-    return this.readyPromise;
+    // F04:打开失败清 memo——拒绝不永久缓存(如 IndexedDB blocked/upgrade 失败后
+    // 可重试),成功则持久缓存
+    try {
+      this.readyPromise ??= this.open().then(() => undefined);
+      return await this.readyPromise;
+    } catch (err) {
+      this.readyPromise = null;
+      throw err;
+    }
   }
 
   /** 等待写穿透队列排空(测试断言前调用;失败仅记录不抛出,排空即返回)。 */
@@ -149,11 +156,17 @@ export class IdbStore implements StoreLike {
   }
 
   private async open(): Promise<IdbDatabaseLike> {
-    this.dbPromise ??= openDb(this.factory, this.dbName).then(async (db) => {
-      await this.hydrate(db);
-      return db;
-    });
-    return this.dbPromise;
+    // F04:与 ready() 同款 memo 复位——open 失败可重试,不缓存拒绝
+    try {
+      this.dbPromise ??= openDb(this.factory, this.dbName).then(async (db) => {
+        await this.hydrate(db);
+        return db;
+      });
+      return await this.dbPromise;
+    } catch (err) {
+      this.dbPromise = null;
+      throw err;
+    }
   }
 
   private async hydrate(db: IdbDatabaseLike): Promise<void> {

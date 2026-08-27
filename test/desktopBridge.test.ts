@@ -26,10 +26,14 @@ class FakeBridge implements SoaDesktopBridge {
   settingsValue: string | null = null;
   private settlers: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
 
-  constructor(private readonly autoResolve = true) {}
+  constructor(private readonly autoResolve = true, private storeInitFailures = 0) {}
 
   storeInit(): Promise<StoreSnapshot> {
     this.storeInitCalls += 1;
+    if (this.storeInitFailures > 0) {
+      this.storeInitFailures -= 1;
+      return Promise.reject(new Error('fake storeInit failure'));
+    }
     return Promise.resolve(this.snapshot);
   }
 
@@ -91,6 +95,16 @@ afterEach(() => {
 // ─── ready 快照 hydrate ─────────────────────────────────────────────────────
 
 describe('DesktopStore 镜像(ready 快照 hydrate)', () => {
+  it('F04 ready 失败清 memo:storeInit 首调 reject → 重试成功,镜像/队列照常', async () => {
+    const bridge = new FakeBridge(true, 1);
+    const store = new DesktopStore(bridge);
+    await expect(store.ready()).rejects.toThrow('fake storeInit failure');
+    await store.ready(); // 重试:拒绝未被永久缓存,hydrate 成功
+    store.putStock(rec('T'));
+    await until(() => bridge.ops.length === 1, 'storeOp enqueued');
+    expect(store.getStock('T')?.ticker).toBe('T');
+  });
+
   it('ready() 后读方法返回与快照一致;缺失 ticker 返回空/缺省', async () => {
     const bridge = new FakeBridge();
     bridge.snapshot = {

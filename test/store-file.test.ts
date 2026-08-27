@@ -45,6 +45,24 @@ afterEach(async () => {
 });
 
 describe('FileStore 内存镜像语义(对齐 InMemoryStore/Store)', () => {
+  it('F04 ready 失败清 memo:listDir 首调抛错 → 重试成功,写入照常落盘', async () => {
+    let calls = 0;
+    const flaky: FileFsAdapter = {
+      ...nodeAdapter(baseDir),
+      async listDir() {
+        calls += 1;
+        if (calls === 1) throw new Error('fs listDir boom');
+        return readdir(baseDir);
+      },
+    };
+    const s = new FileStore(baseDir, flaky);
+    await expect(s.ready()).rejects.toThrow('fs listDir boom');
+    await s.ready(); // 重试:拒绝未被永久缓存,hydrate 成功
+    s.putStock({ ticker: 'T', name: 'n', overview: null, overviewLastUpdate: null, lastDataUpdate: null });
+    await s.flush(); // 写队列照常排空
+    expect(s.getStock('T')?.ticker).toBe('T');
+  });
+
   it('addDatas:增量去重(date<=last 拒绝) + lastDataUpdate 更新', async () => {
     await store.ready();
     expect(store.addDatas('T', bars(['2026-01-01', '2026-01-02']))).toBe(2);

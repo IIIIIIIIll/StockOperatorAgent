@@ -24,7 +24,31 @@ function newStore(factory: IdbFactoryLike = makeIdbFactory()): IdbStore {
   return new IdbStore(factory, dbName);
 }
 
+/** F04:首次 open 抛错(factory.open 同步抛 → openDb Promise 拒绝),此后正常。 */
+function flakyFactory(): IdbFactoryLike {
+  const real = makeIdbFactory();
+  let failures = 1;
+  return {
+    open(name, version) {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error('IndexedDB blocked (fake)');
+      }
+      return real.open(name, version);
+    },
+  };
+}
+
 describe('IdbStore 内存镜像语义(对齐 InMemoryStore/Store)', () => {
+  it('F04 ready 打开失败清 memo:首次 reject → 重试成功,写入照常落盘', async () => {
+    const s = newStore(flakyFactory());
+    await expect(s.ready()).rejects.toThrow('IndexedDB blocked (fake)');
+    await s.ready(); // 重试:拒绝未被永久缓存,新 open 成功
+    s.putStock({ ticker: 'T', name: 'n', overview: null, overviewLastUpdate: null, lastDataUpdate: null });
+    await s.flush(); // 写穿透队列照常排空
+    expect(s.getStock('T')?.ticker).toBe('T');
+  });
+
   it('addDatas:增量去重(date<=last 拒绝) + lastDataUpdate 更新', async () => {
     const s = newStore();
     await s.ready();

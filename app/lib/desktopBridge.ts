@@ -72,9 +72,15 @@ export class DesktopStore implements StoreLike {
   constructor(private readonly bridge: SoaDesktopBridge) {}
 
   /** 拉全量快照 hydrate 镜像(内存已有键优先——先写后 ready 的变更不丢,同 FileStore)。 */
-  ready(): Promise<void> {
-    this.readyPromise ??= this.hydrate();
-    return this.readyPromise;
+  async ready(): Promise<void> {
+    // F04:storeInit 失败清 memo——拒绝不永久缓存(桥未就绪时可重试)
+    try {
+      this.readyPromise ??= this.hydrate();
+      return await this.readyPromise;
+    } catch (err) {
+      this.readyPromise = null;
+      throw err;
+    }
   }
 
   private async hydrate(): Promise<void> {
