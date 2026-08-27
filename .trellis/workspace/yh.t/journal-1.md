@@ -1597,3 +1597,44 @@ Bucket B 37 项完成:测试隔离+卫生(F22-24/F55-56)、服务器/代理硬�
 ### Next Steps
 
 - nits(30 项 Bucket C)start 审查 → 10 pass 顺序执行(含 F31 chart 镜像门禁)
+
+
+## Session 58: golive-cleanup-nits 完成:Bucket C 30 项全部修复并提交
+
+**Date**: 2026-08-27
+**Task**: golive-cleanup-nits 完成:Bucket C 30 项全部修复并提交
+**Branch**: `master`
+
+### Summary
+
+Bucket C 30 项完成:测试卫生(F57 常量对齐 2004-06-16/F58-60)、元数据(F47 死依赖+lock、F50 双 TS 说明、F51、F48 .aab 行、R2 CHANGELOG 决策、R6 本地工具说明)、CI(#99 9 处 SHA 固定、F49 缓存、R5)、tools(F53/F54 probe 锚定)、src(F26 万/亿 NaN、F36 nameKey 元键、F39 setYahooStore)、UI(F40 主题令牌、F41 a11y 实浏览器验证、F42 cap 早退、F43 expander key、F38 演示日志)、chart(F31 图例提升+镜像重建,chart:build/check 通过)、server(S6 token 门禁+4 测试、H2 注释、S7 文档、#98 图标 512px)、release(F52 soa-app/0.1.3、#101 暗色分支移除)。check agent 复核 30/30 PASS 并修 4 缺陷(F26 空前缀 NaN、f10 断言、META_PATTERNS、spec 双 TS 行);653 pass/0 fail,chart 门禁过。9 提交落地,任务归档。树 3/3 子任务完成。
+
+### Main Changes
+
+- 9 修复提交+1 归档;desktop/build/icon.png 新增资产
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bbaa223` | (see git log) |
+| `9007185` | (see git log) |
+| `8681d76` | (see git log) |
+| `9c01996` | (see git log) |
+| `dbd13a2` | (see git log) |
+| `a5d4bcf` | (see git log) |
+| `b426e3e` | (see git log) |
+| `560688d` | (see git log) |
+| `5138465` | (see git log) |
+
+### Testing
+
+- [OK] vitest 653 passed/0 failed/1 skip(设计内);tsc 0 errors;chart:build+check PASS;architecture 9/9
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 父任务集成审查:全门禁复跑+78 项闭包审计+抽查 → 归档父任务
