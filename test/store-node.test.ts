@@ -86,10 +86,13 @@ describe('runner.setStore ESM live binding', () => {
       setMeta() {},
     };
     setStore(fake);
-    // live binding:同一绑定(已 import 方)同步读到新值,且按新 store 行为工作
-    expect(store).toBe(fake);
-    expect(store.getMeta('anything')).toBe('fake-meta');
-    setStore(original); // 还原,不污染同文件其他用例
+    try {
+      // live binding:同一绑定(已 import 方)同步读到新值,且按新 store 行为工作
+      expect(store).toBe(fake);
+      expect(store.getMeta('anything')).toBe('fake-meta');
+    } finally {
+      setStore(original); // 还原,不污染同文件其他用例
+    }
     expect(store).toBe(original);
   });
 });

@@ -60,7 +60,7 @@ function chartBody(symbol: string): unknown {
             regularMarketVolume: 12_345_678,
             currency: 'HKD',
             exchangeTimezoneName: 'Asia/Hong_Kong',
-            firstTradeDate: 1_087_929_600, // 2004-06-16 → 分页 3 个 10 年窗口
+            firstTradeDate: 1_087_344_000, // 2004-06-16(腾讯 IPO 日)→ 分页 3 个 10 年窗口
             regularMarketTime: 1_700_086_400, // 与末根同日 → prevClose 取倒数第二根
           },
           timestamp: [1_700_000_000, 1_700_086_400],

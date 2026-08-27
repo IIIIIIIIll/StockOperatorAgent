@@ -62,7 +62,6 @@ describe('macdVhState / momentumZone (对齐 extra_indicators)', () => {
 
 describe('formatStockOutput (StockOutputFormatter 移植)', () => {
   it('overview 首块字段与格式', () => {
-    const store = makeStore();
     const text = formatStockOutput('600036', '招商银行', { latest_price: 38.8, pe_dynamic: 13.2, pb: 0.84, momentum: NaN }, bars, []);
     expect(text.startsWith('\n-----------\nStock: 招商银行 (600036)\n')).toBe(true);
     expect(text).toContain('Latest price: 38.80\n');
