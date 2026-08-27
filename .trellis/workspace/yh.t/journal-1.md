@@ -1480,3 +1480,38 @@ web+安卓以 .env 三键(deepseek-v4-flash)完成 600036 真实分析全链路:
 ### Next Steps
 
 - 整改未启动:用户选择暂不修。下次从归档任务 research/00-findings.md 的优先级清单起任务(P0=F01-F06 六个 major,修法与复核修正已内联)
+
+
+## Session 55: Go-live readiness audit 完成 + 修复任务树建立(78 项)
+
+**Date**: 2026-08-27
+**Task**: Go-live readiness audit 完成 + 修复任务树建立(78 项)
+**Branch**: `master`
+
+### Summary
+
+审计任务归档:0 硬阻塞,门禁全绿(vitest 627 pass,tsc 0 err),go-live 缺口=未整改 backlog。82 条记录对抗复核 0 refuted,主记录 fix-backlog.md 作为唯一权威索引。建立父任务 golive-fix-backlog(P0)+3 子任务树:fix-majors(11 项 Bucket A,P0)、fix-mediums(37 项 B,P1)、cleanup-nits(30 项 C,P2),严格串行顺序(共享文件冲突矩阵见父 design.md),每子任务 prd/design/implement 齐备 + jsonl 清单已策划。决策默认:F52 对齐 0.1.3、#101 删暗色分支、R2 不建 CHANGELOG。
+
+### Main Changes
+
+- 归档审计任务,提交工件 0cf4909 + archive c0c5c6f
+- 创建 4 任务树:parent + majors/mediums/nits,78 fixable items 全量入树
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0cf4909` | (see git log) |
+| `c0c5c6f` | (see git log) |
+
+### Testing
+
+- [OK] 审计门禁(审计任务内):vitest 627 pass / tsc 0 err / chart 门禁 N/A
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 设计校验(并行 check agents)通过后 start golive-fix-majors:11 项 Bucket A 修复,门禁复跑
