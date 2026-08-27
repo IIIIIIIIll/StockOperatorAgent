@@ -272,9 +272,11 @@ function stmtDateKey(stmt: unknown): string | null {
 
 /** summary 归一化(收入表语句源):US 标准形 quarterly.incomeStatementStatements
  *  直接可用;HK 实测 quarterly 模块仅 4 期(键名 incomeStatementHistory,且
- *  balance/cashflow 亦仅 4 期)而年度模块 incomeStatementHistory 另 4 期——
- *  三源合并(不去重:store 按 report_date PK 幂等去重,payload 行数 = 可用期数
- *  上限)写入 incomeStatementStatements 供 composeYahooReports 读取。
+ *  balance/cashflow 亦仅 4 期)——两季度源合并(不去重:store 按 report_date
+ *  PK 幂等去重,payload 行数 = 可用期数上限)写入 incomeStatementStatements 供
+ *  composeYahooReports 读取。
+ *  F06:年度语句(incomeStatementHistory 模块)不再混入季度池——composeYahooReports
+ *  按年度源单独读取成行(率恒 NaN),绝不与季度行互比;此处保留原样,供其直读。
  *  无任何收入表 → 原样返回(compose 返回 [])。 */
 function normalizeIncomeStatements(summary: unknown): unknown {
   const s = rec(summary);
@@ -284,9 +286,8 @@ function normalizeIncomeStatements(summary: unknown): unknown {
   const q = rec(r['incomeStatementHistoryQuarterly']);
   const standard = q['incomeStatementStatements'];
   const hkQuarterly = q['incomeStatementHistory'];
-  const annual = rec(r['incomeStatementHistory'])['incomeStatementHistory'];
   const merged: unknown[] = [];
-  for (const arr of [standard, hkQuarterly, annual]) {
+  for (const arr of [standard, hkQuarterly]) {
     if (!Array.isArray(arr)) continue;
     for (const stmt of arr) {
       if (stmtDateKey(stmt) !== null) merged.push(stmt); // 无 endDate 的语句行丢弃

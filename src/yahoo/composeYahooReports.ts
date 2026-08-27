@@ -77,8 +77,16 @@ export function composeYahooReports(
   opts: YahooReportsOptions = {},
 ): PerformanceReport[] {
   const r = quoteSummaryResult(modules);
-  const incomeStatements = rec(r['incomeStatementHistoryQuarterly'])['incomeStatementStatements'];
-  if (!Array.isArray(incomeStatements) || incomeStatements.length === 0) return [];
+  const quarterlyArr = rec(r['incomeStatementHistoryQuarterly'])['incomeStatementStatements'];
+  // F06:年度语句(incomeStatementHistory 模块)独立读取,不混入季度池——年度行
+  // 只落库不带率(YoY/QoQ 恒 NaN),且绝不与季度行互比(原合并池中季度行会把
+  // 相邻年度行当 QoQ 基数、同月日年度行当 YoY 基数,持久化错误比率)
+  const annualArr = rec(r['incomeStatementHistory'])['incomeStatementHistory'];
+  const statements: Array<{ stmt: unknown; annual: boolean }> = [
+    ...(Array.isArray(quarterlyArr) ? quarterlyArr : []).map((stmt) => ({ stmt, annual: false })),
+    ...(Array.isArray(annualArr) ? annualArr : []).map((stmt) => ({ stmt, annual: true })),
+  ];
+  if (statements.length === 0) return [];
 
   // 资产负债表/现金流量表按 endDate 键对齐（缺失对齐 → 对应字段 NaN）
   const balanceByKey = new Map<string, number>();
@@ -106,18 +114,23 @@ export function composeYahooReports(
   const name = opts.name ?? '';
   const industry = opts.industry ?? '';
 
-  const rows: PerformanceReport[] = [];
-  for (const stmt of incomeStatements) {
+  // origin 随行携带(而非按 report_date 标记——HK Q4 季度行与年度行同以 12-31
+  // 收尾,日期相同但起源不同,按日期归类会误伤季度行)
+  type RowWithOrigin = PerformanceReport & { origin: 'quarterly' | 'annual' };
+  const rows: RowWithOrigin[] = [];
+  for (const { stmt, annual } of statements) {
     const key = statementDateKey(stmt);
     if (key === null) continue; // 无 endDate 的语句行丢弃
     const stmtRec = rec(stmt);
     const totalRevenue = rawNum(stmtRec['totalRevenue']);
     const netIncome = rawNum(stmtRec['netIncome']);
     const grossProfit = rawNum(stmtRec['grossProfit']);
-    const equity = balanceByKey.get(key) ?? NaN;
-    const opCashFlow = cashflowByKey.get(key) ?? NaN;
+    // F06:年度行不取季度资产负债/现金流对齐值(不同基),→ NaN
+    const equity = annual ? NaN : (balanceByKey.get(key) ?? NaN);
+    const opCashFlow = annual ? NaN : (cashflowByKey.get(key) ?? NaN);
     rows.push({
       report_date: key.replace(/-/g, ''), // 'YYYY-MM-DD' → '%Y%m%d'
+      origin: annual ? 'annual' : 'quarterly',
       fields: {
         ticker,
         name,
@@ -139,11 +152,18 @@ export function composeYahooReports(
   rows.sort((a, b) => (a.report_date < b.report_date ? -1 : a.report_date > b.report_date ? 1 : 0));
 
   // YoY：同月日上年同季（endDate 年-1 且月日相同；无上年同季 → NaN）
-  const byDate = new Map(rows.map((row) => [row.report_date, row]));
+  // F06：年度行恒 NaN；上年同季若是年度行也跳过（同日季度+年度并存时优先季度行）
+  const byDate = new Map<string, RowWithOrigin>();
   for (const row of rows) {
+    const existing = byDate.get(row.report_date);
+    if (existing && existing.origin === 'quarterly') continue; // 季度行优先作比对基
+    byDate.set(row.report_date, row);
+  }
+  for (const row of rows) {
+    if (row.origin !== 'quarterly') continue;
     const prevKey = `${Number(row.report_date.slice(0, 4)) - 1}${row.report_date.slice(4)}`;
     const prevRow = byDate.get(prevKey);
-    if (!prevRow) continue;
+    if (!prevRow || prevRow.origin !== 'quarterly') continue;
     const f = row.fields;
     const prevF = prevRow.fields;
     f.total_income_YoY_rate =
@@ -152,16 +172,22 @@ export function composeYahooReports(
       divide(f.net_profit as number - (prevF.net_profit as number), prevF.net_profit as number) * 100;
   }
 
-  // QoQ：相邻报告期直算（无 88~93 天间隔门槛——港股半年报），首期 NaN
-  rows.forEach((row, i) => {
-    if (i === 0) return;
-    const f = row.fields;
-    const prevF = rows[i - 1].fields;
-    f.total_income_QoQ_rate =
-      divide(f.total_income as number - (prevF.total_income as number), prevF.total_income as number) * 100;
-    f.net_profit_QoQ_rate =
-      divide(f.net_profit as number - (prevF.net_profit as number), prevF.net_profit as number) * 100;
-  });
+  // QoQ：相邻季度行直算（无 88~93 天间隔门槛——港股半年报），首个季度行 NaN。
+  // F06：年度行跳过——季度序列不因年度行插入而断裂,也不与年度行互比
+  let prevQuarterly: RowWithOrigin | undefined;
+  for (const row of rows) {
+    if (row.origin !== 'quarterly') continue;
+    if (prevQuarterly !== undefined) {
+      const f = row.fields;
+      const prevF = prevQuarterly.fields;
+      f.total_income_QoQ_rate =
+        divide(f.total_income as number - (prevF.total_income as number), prevF.total_income as number) * 100;
+      f.net_profit_QoQ_rate =
+        divide(f.net_profit as number - (prevF.net_profit as number), prevF.net_profit as number) * 100;
+    }
+    prevQuarterly = row;
+  }
 
-  return rows;
+  // 剥离内部 origin 标记(调用方只见 PerformanceReport 契约)
+  return rows.map(({ origin: _origin, ...rest }) => rest);
 }

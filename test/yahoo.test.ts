@@ -529,6 +529,58 @@ describe('composeYahooReports', () => {
     expect(rows[1].fields.cash_flow_per_share).toBeNaN();
   });
 
+  it('F06 年度行与季度行分离:年度行 YoY/QoQ 恒 NaN,季度行不与年度行互比', () => {
+    const modules = wrap({
+      incomeStatementHistoryQuarterly: {
+        incomeStatementStatements: [
+          // Q4 季度行与年度行同 endDate(2025-12-31)——两行并存,互不污染
+          q('2025-12-31', { totalRevenue: { raw: 5200 }, netIncome: { raw: 1100 }, grossProfit: { raw: 2000 } }),
+          q('2025-09-30', { totalRevenue: { raw: 4800 }, netIncome: { raw: 1000 } }),
+        ],
+      },
+      incomeStatementHistory: {
+        incomeStatementHistory: [
+          q('2025-12-31', { totalRevenue: { raw: 19_800 }, netIncome: { raw: 4100 } }),
+          q('2024-12-31', { totalRevenue: { raw: 17_500 }, netIncome: { raw: 3600 } }),
+        ],
+      },
+      balanceSheetHistoryQuarterly: {
+        balanceSheetStatements: [q('2025-12-31', { totalStockholderEquity: { raw: 50_000 } })],
+      },
+      cashflowStatementHistoryQuarterly: {
+        cashflowStatements: [q('2025-12-31', { operatingCashFlow: { raw: 7000 } })],
+      },
+    });
+    const rows = composeYahooReports(modules, 10_000, { ticker: '0700.HK', name: 'Tencent' });
+    expect(rows.map((r) => r.report_date)).toEqual(['20241231', '20250930', '20251231', '20251231']);
+    // 年度行(20241231):率恒 NaN,且不取季度资产负债/现金流对齐值
+    expect(rows[0].fields.total_income).toBe(17_500);
+    expect(rows[0].fields.total_income_YoY_rate).toBeNaN();
+    expect(rows[0].fields.total_income_QoQ_rate).toBeNaN();
+    expect(rows[0].fields.net_profit_YoY_rate).toBeNaN();
+    expect(rows[0].fields.net_profit_QoQ_rate).toBeNaN();
+    expect(rows[0].fields.net_worth_per_share).toBeNaN(); // 季度权益不混入年度行
+    // 季度行 20250930:首个季度行 QoQ NaN;上年同季(20240930)缺失 → YoY NaN
+    expect(rows[1].fields.total_income).toBe(4800);
+    expect(rows[1].fields.total_income_QoQ_rate).toBeNaN();
+    expect(rows[1].fields.total_income_YoY_rate).toBeNaN();
+    // 季度行 20251231(Q4):QoQ 只对上一季度行(20250930)算——年度行 20241231 不插入;
+    // YoY 上年同季 20241231 是年度行 → 跳过 NaN
+    expect(rows[2].fields.total_income).toBe(5200);
+    expect(rows[2].fields.total_income_QoQ_rate).toBeCloseTo(((5200 - 4800) / 4800) * 100, 6);
+    expect(rows[2].fields.net_profit_QoQ_rate).toBeCloseTo(((1100 - 1000) / 1000) * 100, 6);
+    expect(rows[2].fields.total_income_YoY_rate).toBeNaN();
+    expect(rows[2].fields.net_profit_YoY_rate).toBeNaN();
+    expect(rows[2].fields.net_worth_per_share).toBe(50_000 / 10_000); // 季度行照常对齐季度权益
+    // 年度行 20251231(与季度 Q4 同日期):率恒 NaN,权益不取季度值
+    expect(rows[3].fields.total_income).toBe(19_800);
+    expect(rows[3].fields.total_income_YoY_rate).toBeNaN();
+    expect(rows[3].fields.total_income_QoQ_rate).toBeNaN();
+    expect(rows[3].fields.net_worth_per_share).toBeNaN();
+    expect(rows[3].fields.ticker).toBe('0700.HK');
+    expect(rows[3].fields.name).toBe('Tencent');
+  });
+
   it('除零/缺失 → NaN；负上期净利 → YoY/QoQ NaN（overview divide 语义：分母≤0）', () => {
     const modules = wrap({
       incomeStatementHistoryQuarterly: {
