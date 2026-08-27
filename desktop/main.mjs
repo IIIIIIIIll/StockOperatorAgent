@@ -46,13 +46,12 @@ const CHILD_READY_TIMEOUT_MS = 15000;
 const CHILD_KILL_GRACE_MS = 3000;
 const QUIT_FALLBACK_MS = 5000;
 
-// The 6 store mutators the renderer may forward (renderer input is not
+// The 5 store mutators the renderer may forward (renderer input is not
 // trusted: anything else is rejected before reaching the child).
 const STORE_OPS = new Set([
   'putStock',
   'addDatas',
   'addPerformanceReports',
-  'updateOverview',
   'replaceDatas',
   'setMeta',
 ]);
@@ -284,13 +283,16 @@ function createWindow(port) {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      // F09:打包版禁用 DevTools(F12/Ctrl+Shift+I 与默认菜单项均失效);
+      // 开发运行(app.isPackaged=false)保留,便于调试。
+      devTools: !app.isPackaged,
     },
   });
   // Security baseline: the SPA must never navigate away from the app origin
   // and must not open any new windows (only the initial loadURL is allowed).
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  // Relay renderer console to stdout (desktop has no visible devtools by default).
+  // Relay renderer console to stdout (packaged app has devtools disabled — F09).
   win.webContents.on('console-message', (_e, level, message) => {
     console.log(`[renderer:${level}] ${message}`);
   });

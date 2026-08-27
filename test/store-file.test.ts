@@ -63,6 +63,28 @@ describe('FileStore 内存镜像语义(对齐 InMemoryStore/Store)', () => {
     expect(s.getStock('T')?.ticker).toBe('T');
   });
 
+  it('F10:close 排空 pending 写(不丢已 ack 变更);幂等;close 后写穿不排队', async () => {
+    const s = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s.ready();
+    s.putStock({ ticker: 'T', name: 'n', overview: null, overviewLastUpdate: null, lastDataUpdate: null });
+    s.addDatas('T', bars(['2026-01-01', '2026-01-02']));
+    s.close(); // 立即返回;清理挂队列尾 —— 先排空 pending 写,不丢已 ack 变更
+    s.close(); // 幂等
+    await s.flush(); // 队列排空(含 close 清理),无悬挂 promise
+    // 落盘已排空 → 新实例 hydrate 读回全部变更(旧实现 close 丢弃队列 → 部分/全丢)
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    expect(s2.getStock('T')?.ticker).toBe('T');
+    expect(s2.getDatas('T')).toHaveLength(2);
+    // close 后 mutator:内存镜像仍同步更新(读面可用),写穿不排队 → 不落盘
+    s.putStock({ ticker: 'B', name: 'n2', overview: null, overviewLastUpdate: null, lastDataUpdate: null });
+    expect(s.getStock('B')?.ticker).toBe('B');
+    await s.flush();
+    const s3 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s3.ready();
+    expect(s3.getStock('B')).toBeNull(); // close 后写穿禁用 → B 未落盘
+  });
+
   it('addDatas:增量去重(date<=last 拒绝) + lastDataUpdate 更新', async () => {
     await store.ready();
     expect(store.addDatas('T', bars(['2026-01-01', '2026-01-02']))).toBe(2);

@@ -35,4 +35,19 @@ describe('indicators (AC3)', () => {
     }
     expect(checked).toBe(expected.length * keys.length);
   });
+
+  it('F15:rsv 中段 NaN(一字板 9 窗高低相等)→ K 按 gap 计衰减(pandas ignore_na=False)', () => {
+    // bars 0-3 正常(high10/low8/close9);bars 4-12 一字板(high=low=close=9);
+    // bars 13-14 恢复(high10/low8/close9.5)。rsv[8..11]=50(close=9),
+    // rsv[12] 一字板窗 → NaN,rsv[13]=75。
+    // K(alpha=1/3):K[12]=50(carry);K[13] 旧实现 gap=1 → 2/3·50+1/3·75=58.33,
+    // 新实现 gap=2 → (2/3)²·50+1/3·75=47.22。
+    const bars: Array<{ open: number; high: number; low: number; close: number; vol: number }> = [];
+    for (let t = 0; t < 4; t++) bars.push({ open: 9, high: 10, low: 8, close: 9, vol: 100 });
+    for (let t = 4; t < 13; t++) bars.push({ open: 9, high: 9, low: 9, close: 9, vol: 100 });
+    for (let t = 13; t < 15; t++) bars.push({ open: 9, high: 10, low: 8, close: 9.5, vol: 100 });
+    const rows = computeAll(bars);
+    expect(rows[12].K).toBe(50); // NaN 位 carry(无新值,输出不变)
+    expect(rows[13].K).toBeCloseTo((2 / 3) ** 2 * 50 + (1 / 3) * 75, 6); // gap=2 衰减
+  });
 });

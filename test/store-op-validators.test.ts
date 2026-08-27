@@ -40,7 +40,7 @@ function stock(overrides: Record<string, unknown> = {}): Record<string, unknown>
 
 const report = { report_date: '20260630', fields: { eps: '1.23' } };
 
-describe('六 op 合法形状全过(null = 放行)', () => {
+describe('五 op 合法形状全过(null = 放行)', () => {
   it('putStock:minimal 全空可选 + overview 对象与字符串戳全填两形态', () => {
     expect(checkStoreOpArgs('putStock', [stock()])).toBeNull();
     expect(
@@ -60,11 +60,16 @@ describe('六 op 合法形状全过(null = 放行)', () => {
     expect(checkStoreOpArgs('addDatas', [TICKER, [barWithout('amount')]])).toBeNull();
   });
 
-  it('addPerformanceReports / updateOverview / setMeta 合法形状(含空串 value)', () => {
+  it('addPerformanceReports / setMeta 合法形状(含空串 value)', () => {
     expect(checkStoreOpArgs('addPerformanceReports', [TICKER, [report]])).toBeNull();
-    expect(checkStoreOpArgs('updateOverview', [TICKER, { pe: 5 }, STAMP])).toBeNull();
     expect(checkStoreOpArgs('setMeta', ['demo:f10', '{}'])).toBeNull();
     expect(checkStoreOpArgs('setMeta', ['k', ''])).toBeNull(); // 空串是合法存储值(getMeta 返回面)
+  });
+
+  it('H1:updateOverview 已从 IPC 白名单移除(零生产调用者)→ 拒', () => {
+    expect(checkStoreOpArgs('updateOverview', [TICKER, { pe: 5 }, STAMP])).toBe(
+      'unknown store op: updateOverview',
+    );
   });
 });
 
@@ -102,8 +107,6 @@ describe('ticker 路径分隔符拒(FileStore 以 <ticker>.json 落盘,分隔符
       .toBe('replaceDatas ticker must be a non-empty string without path separators');
     expect(checkStoreOpArgs('addPerformanceReports', ['700.HK/', [report]]))
       .toBe('addPerformanceReports ticker must be a non-empty string without path separators');
-    expect(checkStoreOpArgs('updateOverview', ['.\\.', { pe: 5 }, STAMP]))
-      .toBe('updateOverview ticker must be a non-empty string without path separators');
   });
 });
 
@@ -171,15 +174,6 @@ describe('逐字段类型错拒', () => {
     expect(checkStoreOpArgs('addPerformanceReports', [TICKER, [{ report_date: '20260630', fields: [] }]])).toBe(REPORTS_MSG);
   });
 
-  it('updateOverview:arity/overview 非 plain 对象(null、数组)/stamp 类型', () => {
-    expect(checkStoreOpArgs('updateOverview', [TICKER, { pe: 5 }])).toBe(
-      'updateOverview expects 3 arguments (ticker, overview, stamp)',
-    );
-    expect(checkStoreOpArgs('updateOverview', [TICKER, null, STAMP])).toBe('updateOverview overview must be an object');
-    expect(checkStoreOpArgs('updateOverview', [TICKER, [], STAMP])).toBe('updateOverview overview must be an object');
-    expect(checkStoreOpArgs('updateOverview', [TICKER, { pe: 5 }, 20260823])).toBe('updateOverview stamp must be a string');
-    expect(checkStoreOpArgs('updateOverview', [TICKER, { pe: 5 }, null])).toBe('updateOverview stamp must be a string');
-  });
 
   it('setMeta:key 空/非串,value 非串(含 null)', () => {
     expect(checkStoreOpArgs('setMeta', ['k'])).toBe('setMeta expects 2 arguments (key, value)');

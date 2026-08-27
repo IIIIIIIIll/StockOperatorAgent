@@ -28,8 +28,13 @@ export function nodeFsAdapter(baseDir: string): FileFsAdapter {
     async readFile(path) {
       try {
         return await fsReadFile(path, 'utf8');
-      } catch {
-        return null;
+      } catch (err) {
+        // F12:仅 ENOENT(文件不存在)视为「缺文件」→ null;其余 fs 错误(权限
+        // EACCES/目录 EISDIR 等)上抛 —— 裸 catch→null 会把「读不了」伪装成
+        // 「没有」:hydrate 得到近空镜像,后续整文件重写近空覆盖丢数据。
+        // 上抛由 FileStore.hydrate 逐文件 catch 兜底(记 logError 并跳过该文件)。
+        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+        throw err;
       }
     },
     async writeFile(path, data) {

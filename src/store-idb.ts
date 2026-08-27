@@ -355,14 +355,6 @@ export class IdbStore implements StoreLike {
     return fresh.length;
   }
 
-  updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void {
-    const stock = this.stocks.get(ticker);
-    if (!stock) return;
-    const updated = { ...stock, overview, overviewLastUpdate: stamp };
-    this.stocks.set(ticker, updated);
-    this.enqueuePersistStock(updated);
-  }
-
   getDatas(ticker: string): DailyBar[] {
     return (this.bars.get(ticker) ?? []).map((b) => ({ ...b }));
   }

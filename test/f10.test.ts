@@ -30,6 +30,22 @@ describe('f10 parser dual format (AC6)', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
+  it('F27:数据行短于期数列 → value_raw 空串而非 undefined(undefined 进 string 字段)', () => {
+    const text = [
+      '【主要财务指标】',
+      '2026-06-30｜2026-03-31',
+      '净资产收益率｜15.2｜14.1',
+      '营业总收入｜1234', // 缺 2026-03-31 列
+      '扣非净利润｜', // 全空
+    ].join('\n');
+    const rows = parseFinanceIndicatorsAllTables(text);
+    const rev = rows.find((r) => r.metric === '净资产收益率');
+    expect(rev?.value_raw).toBe('15.2');
+    const short = rows.find((r) => r.metric === '营业总收入' && r.period === '2026-03-31');
+    expect(short?.value_raw).toBe(''); // 旧实现:undefined 进 string 字段
+    expect(Number.isNaN(short?.value_num)).toBe(true);
+  });
+
   it('toNum normalizes 亿/万 and bad values', () => {
     expect(toNum('12.5亿')).toBe(12.5e8);
     expect(toNum('3.2万')).toBe(3.2e4);

@@ -3,10 +3,10 @@
 // 语义断言同 store-file.test.ts(node fs 适配器注入先例)与 settings-store.test.ts
 // (_fs 注入先例);测试后清理目录。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createNodeFileStore, nodeSettingsFileSystem } from '../src/store-node.ts';
+import { createNodeFileStore, nodeFsAdapter, nodeSettingsFileSystem } from '../src/store-node.ts';
 import type { StoreLike } from '../src/store.ts';
 import { setStore, store } from '../app/lib/runner.ts';
 import { createSettingsStore } from '../app/lib/settingsStore.ts';
@@ -59,6 +59,15 @@ describe('createNodeFileStore round-trip(node:fs 落盘)', () => {
     await s2.ready();
     expect(s2.getDatas('T').map((x) => x.date)).toEqual(['2026-01-01', '2026-01-02']);
   });
+
+  it('F12:readFile 仅 ENOENT → null;目录(EISDIR)等错误上抛不吞', async () => {
+    const dir = join(baseDir, 'store-f12');
+    await mkdir(dir, { recursive: true });
+    await mkdir(join(dir, 'is-a-dir.json'), { recursive: true }); // 目录伪装 ticker 文件
+    const adapter = nodeFsAdapter(dir);
+    await expect(adapter.readFile(join(dir, 'missing.json'))).resolves.toBeNull();
+    await expect(adapter.readFile(join(dir, 'is-a-dir.json'))).rejects.toThrow(); // EISDIR 上抛
+  });
 });
 
 describe('runner.setStore ESM live binding', () => {
@@ -70,7 +79,6 @@ describe('runner.setStore ESM live binding', () => {
       putStock() {},
       addDatas: () => 0,
       addPerformanceReports: () => 0,
-      updateOverview() {},
       getDatas: () => [],
       replaceDatas: () => 0,
       getPerformanceReports: () => [],

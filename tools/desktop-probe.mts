@@ -2,10 +2,10 @@
 // 设置存储经 node fs 适配器 save/load round-trip;桌面桥 store-op 分发语义
 // ({op,args} 依次调用 == 直接调用)与快照 round-trip(枚举 + 逐字段读回)。
 // 运行:node --experimental-transform-types tools/desktop-probe.mts
-// 验证:① 6 mutator 写入 → listStocks/listMetaKeys 枚举 + 跨实例 hydrate 读回;
+// 验证:① 5 mutator 写入 → listStocks/listMetaKeys 枚举 + 跨实例 hydrate 读回;
 //       ② 快照 round-trip:listStocks+getStock/getDatas/getPerformanceReports、
 //          listMetaKeys+getMeta 序列化 → 新实例 hydrate 逐字段一致;
-//       ③ store-op 语义:6 mutator 以 {op,args} 依次调用 == 直接调用
+//       ③ store-op 语义:5 mutator 以 {op,args} 依次调用 == 直接调用
 //          (桌面桥 renderer → child IPC 的 store-op 分派执行语义);
 //       ④ runner.setStore 注入 → ESM live binding(store 导出同步新值);
 //       ⑤ settingsStore node 分支(注入 node fs 适配)save/load round-trip。
@@ -22,8 +22,9 @@ function check(name: string, cond: boolean): void {
   if (!cond) throw new Error(`${name} 失败`);
 }
 
-// ─── 夹具:6 个 mutator 各至少一次(putStock/addDatas/addPerformanceReports/
-//      updateOverview/replaceDatas/setMeta;顺序与 ③ 的 ops 序列一致)───────────
+// ─── 夹具:5 个 mutator 各至少一次(putStock/addDatas/addPerformanceReports/
+//      replaceDatas/setMeta;顺序与 ③ 的 ops 序列一致;updateOverview 已随
+//      H1 从 StoreLike+IPC 移除,零生产调用者)───────────────────────────────
 const STOCK_600036: StockRecord = {
   ticker: '600036',
   name: '招商银行',
@@ -50,7 +51,6 @@ const REPORTS: PerformanceReport[] = [
   { report_date: '20260331', fields: { revenue: 980000000, net_profit: 280000000 } },
   { report_date: '20260630', fields: { revenue: 1000000000, net_profit: 300000000 } },
 ];
-const OVERVIEW = { latest_price: 39.2, pct_chg: 1.03 };
 const META = [
   ['soa:probe', 'desktop-ok'],
   ['capital:600036', '总股本: 1000000.0万股'],
@@ -59,14 +59,13 @@ const META = [
 async function main(): Promise<void> {
   const baseDir = mkdtempSync(join(tmpdir(), 'soa-desktop-probe-'));
   try {
-    // ── ① FileStore(node:fs 适配器):6 mutator 写入 + 枚举 + 跨实例读回 ──
+    // ── ① FileStore(node:fs 适配器):5 mutator 写入 + 枚举 + 跨实例读回 ──
     const dir = join(baseDir, 'store');
     const store = createNodeFileStore(dir);
     await store.ready();
     store.putStock(STOCK_600036);
     store.addDatas('600036', BARS_A);
     store.addPerformanceReports('600036', REPORTS);
-    store.updateOverview('600036', OVERVIEW, '2026-08-14');
     store.replaceDatas('600036', BARS_B); // 全量替换:清掉 BARS_A 旧根
     store.putStock(STOCK_000001);
     store.setMeta(META[0][0], META[0][1]);
@@ -77,7 +76,6 @@ async function main(): Promise<void> {
     check('FileStore replaceDatas 全量替换(旧根清除)', store.getDatas('600036').map((b) => b.date).join(',') === '2026-08-14,2026-08-15');
     check('FileStore addDatas 增量去重(重复日 0 根)', store.addDatas('600036', [BARS_B[0]]) === 0);
     check('FileStore addPerformanceReports 去重(重复期 0 份)', store.addPerformanceReports('600036', [REPORTS[1]]) === 0);
-    check('FileStore updateOverview 生效', store.getStock('600036')?.overview?.latest_price === 39.2 && store.getStock('600036')?.overviewLastUpdate === '2026-08-14');
     check('FileStore lastDataUpdate 随 replaceDatas 更新', store.getStock('600036')?.lastDataUpdate === '2026-08-15');
     // ① 枚举:listStocks/listMetaKeys 覆盖全部已写键(顺序无关,排序比对)
     check('FileStore listStocks 枚举', [...store.listStocks()].sort().join(',') === '000001,600036');
@@ -114,13 +112,12 @@ async function main(): Promise<void> {
     }
     s2.close();
 
-    // ── ③ store-op 语义:6 mutator 以 {op,args} 依次调用 == 直接调用 ──
+    // ── ③ store-op 语义:5 mutator 以 {op,args} 依次调用 == 直接调用 ──
     const ops: Array<{ op: string; args: unknown[] }> = [
       { op: 'putStock', args: [STOCK_600036] },
       { op: 'putStock', args: [STOCK_000001] },
       { op: 'addDatas', args: ['600036', BARS_A] },
       { op: 'addPerformanceReports', args: ['600036', REPORTS] },
-      { op: 'updateOverview', args: ['600036', OVERVIEW, '2026-08-14'] },
       { op: 'replaceDatas', args: ['600036', BARS_B] },
       { op: 'addDatas', args: ['600036', [BARS_B[0]]] }, // 重复日 → 0
       { op: 'addPerformanceReports', args: ['600036', [REPORTS[1]]] }, // 重复期 → 0
@@ -135,7 +132,6 @@ async function main(): Promise<void> {
     directResults.push(direct.putStock(STOCK_000001));
     directResults.push(direct.addDatas('600036', BARS_A));
     directResults.push(direct.addPerformanceReports('600036', REPORTS));
-    directResults.push(direct.updateOverview('600036', OVERVIEW, '2026-08-14'));
     directResults.push(direct.replaceDatas('600036', BARS_B));
     directResults.push(direct.addDatas('600036', [BARS_B[0]]));
     directResults.push(direct.addPerformanceReports('600036', [REPORTS[1]]));

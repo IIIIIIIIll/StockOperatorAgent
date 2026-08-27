@@ -54,8 +54,9 @@ function checkTickerAndBars(op: string, args: unknown[]): string | null {
 type OpValidator = (args: unknown[]) => string | null;
 
 // One validator per StoreLike mutator signature (src/store.ts StoreLike /
-// src/store-file.ts FileStore) — exactly the 6 ops main.mjs STORE_OPS
+// src/store-file.ts FileStore) — exactly the 5 ops main.mjs STORE_OPS
 // forwards. Returns null when args match the contract, else the reason.
+// (H1:updateOverview 已从 StoreLike+IPC 移除 —— 零生产调用者。)
 const STORE_OP_VALIDATORS: Record<string, OpValidator> = {
   putStock(args) {
     if (args.length !== 1) return 'putStock expects 1 argument (StockRecord)';
@@ -81,13 +82,6 @@ const STORE_OP_VALIDATORS: Record<string, OpValidator> = {
     if (!isTicker(args[0])) return 'addPerformanceReports ticker must be a non-empty string without path separators';
     if (!Array.isArray(args[1]) || !args[1].every(isReport))
       return 'addPerformanceReports reports must be an array of PerformanceReport objects';
-    return null;
-  },
-  updateOverview(args) {
-    if (args.length !== 3) return 'updateOverview expects 3 arguments (ticker, overview, stamp)';
-    if (!isTicker(args[0])) return 'updateOverview ticker must be a non-empty string without path separators';
-    if (!isPlainObject(args[1])) return 'updateOverview overview must be an object';
-    if (typeof args[2] !== 'string') return 'updateOverview stamp must be a string';
     return null;
   },
   setMeta(args) {

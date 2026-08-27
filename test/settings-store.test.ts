@@ -212,4 +212,53 @@ describe('settings.ts 经 settingsStore 路由(web 分支)', () => {
     expect(s.caps.fetchMax).toBe(7);
     expect(s.keys.llmModel).toBe('gpt-x');
   });
+
+  it('F19:代理回 HTML(纯静态托管)→ 回退直连;代理回 JSON 404(上游真实应答)→ classify 不误判', async () => {
+    const { checkLlmReachability } = await import('../app/lib/settings.ts');
+    const keys = defaultSettings().keys;
+    keys.llmApiKey = 'k';
+    keys.llmModel = 'm';
+    keys.llmBaseUrl = 'https://api.example.com/v1';
+
+    // 场景 1:代理存在、上游 404(JSON 透传)→ 直接 classify(旧实现按状态码 404
+    // 回退直连,把真实 LLM 应答误判成「代理缺失」)
+    const fetch1 = vi.fn(async () =>
+      new Response(JSON.stringify({ error: 'not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetch1);
+    const r1 = await checkLlmReachability(keys);
+    expect(r1.ok).toBe(false);
+    expect(r1.message).toContain('404');
+    expect(fetch1).toHaveBeenCalledTimes(1); // JSON = 代理产物 → 不回退
+
+    // 场景 2:代理缺失(静态托管 SPA fallback 200 HTML)→ 回退直连;直连 fetch
+    // 拒绝 → 浏览器失败文案(fetch 拒绝是仅有的回退触发之一)
+    const fetch2 = vi.fn(async (url: string) => {
+      if (url === '/llm-proxy/chat/completions') {
+        return new Response('<!DOCTYPE html><html></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+      throw new Error('fetch failed'); // Node 标准 fetch 失败文案(含 'fetch' → 浏览器失败提示)
+    });
+    vi.stubGlobal('fetch', fetch2);
+    const r2 = await checkLlmReachability(keys);
+    expect(r2.ok).toBe(false);
+    expect(r2.message).toContain('浏览器请求失败');
+    expect(fetch2).toHaveBeenCalledTimes(2); // 代理 1 次 + 直连 1 次(回退发生)
+  });
+
+  it('#100:describeLlmKeys 恒掩码(≤8 字符键不整键泄露)', async () => {
+    const { describeLlmKeys } = await import('../app/lib/settings.ts');
+    const base = { ...defaultSettings().keys };
+    const short = describeLlmKeys({ ...base, llmApiKey: 'abcd', llmModel: 'm', llmBaseUrl: 'https://x' });
+    expect(short).toContain('LLM_API_KEY=ab… ✓'); // 短键也掩码(前 2 字符 + …)
+    expect(short).not.toContain('LLM_API_KEY=abcd ✓');
+    const long = describeLlmKeys({ ...base, llmApiKey: 'sk-1234567890abcdef', llmModel: 'm', llmBaseUrl: 'https://x' });
+    expect(long).toContain('LLM_API_KEY=sk-1…cdef ✓');
+  });
 });

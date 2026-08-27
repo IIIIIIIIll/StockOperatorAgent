@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, type DailyBar } from '../src/store.ts';
+import { FileStore } from '../src/store-file.ts';
 import {
   dailyFresh,
   freshnessGates,
@@ -9,7 +10,7 @@ import {
 } from '../src/gates.ts';
 import { InMemoryStore } from '../src/store-memory.ts';
 import { applyCollectedToStore, collectViaProxy, type CollectedPayload } from '../src/webCollect.ts';
-import { collectForWeb, store } from '../app/lib/runner.ts';
+import { collectForWeb, setStore, store } from '../app/lib/runner.ts';
 
 function bars(dates: string[]): DailyBar[] {
   return dates.map((date) => ({ date, open: 1, close: 2, high: 3, low: 0.5, volume: 100 }));
@@ -47,6 +48,23 @@ describe('store (AC4)', () => {
     expect(s.addDatas('T', bars(['2026-01-01', '2026-01-02']))).toBe(0);
     expect(s.getDatas('T')).toHaveLength(2);
     // 部分新增
+    expect(s.addDatas('T', bars(['2026-01-02', '2026-01-03']))).toBe(1);
+    expect(s.getDatas('T')).toHaveLength(3);
+    expect(s.getStock('T')?.lastDataUpdate).toBe('2026-01-03');
+    s.close();
+  });
+
+  it('F11:lastDataUpdate 被 putStock 覆盖成旧值 → 重复批次仍 0(基线 = 表内既有末根日期)', () => {
+    const s = new Store();
+    s.putStock({ ticker: 'T', name: 'n', overview: null, overviewLastUpdate: null, lastDataUpdate: null });
+    s.addDatas('T', bars(['2026-01-01', '2026-01-02']));
+    // 模拟采集链 putStock 以旧戳覆盖(同日跳过/概览刷新路径常规操作)
+    s.putStock({ ticker: 'T', name: 'n', overview: null, overviewLastUpdate: null, lastDataUpdate: '2025-12-31' });
+    // 全部重复 → 0 不写(旧实现按 lastDataUpdate 过滤 → 重写 2 根且返回 2)
+    expect(s.addDatas('T', bars(['2026-01-01', '2026-01-02']))).toBe(0);
+    expect(s.getDatas('T')).toHaveLength(2);
+    expect(s.getStock('T')?.lastDataUpdate).toBe('2025-12-31'); // 纯重复批次不动戳
+    // 部分新增:仅新日期计入
     expect(s.addDatas('T', bars(['2026-01-02', '2026-01-03']))).toBe(1);
     expect(s.getDatas('T')).toHaveLength(3);
     expect(s.getStock('T')?.lastDataUpdate).toBe('2026-01-03');
@@ -196,7 +214,12 @@ describe('freshness 接线（C8：同日跳过日K / 同季跳过 F10）', () =>
   });
 
   describe('collectForWeb 端到端(自动门判定)', () => {
-    beforeEach(() => store.close());
+    // F10:close() 为终态(排空 pending 写 + 禁后续写穿)——「close 即重置再复用」
+    // 语义不再成立;复位须换新实例(setStore live binding 同步)
+    beforeEach(() => {
+      store.close();
+      setStore(new FileStore());
+    });
     afterEach(() => {
       vi.unstubAllGlobals();
       vi.useRealTimers();

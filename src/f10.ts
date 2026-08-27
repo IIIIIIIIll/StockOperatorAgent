@@ -69,7 +69,7 @@ export function parseSectionBlock(text: string, sectionName: string): F10Record[
     if (periods === null || cells.length < 2) continue;
     const metric = cells[0];
     periods.forEach((period, i) => {
-      const raw = cells[1 + i];
+      const raw = cells[1 + i] ?? ''; // F27:行短于 period 数时 undefined 不得进 string 字段
       records.push({ metric, period, value_raw: raw, value_num: toNum(raw) });
     });
   }

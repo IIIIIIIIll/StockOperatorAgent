@@ -87,6 +87,7 @@ export class FileStore implements StoreLike {
   private readonly fs: FileFsAdapter | undefined;
   private queue: Promise<void> = Promise.resolve();
   private readyPromise: Promise<void> | null = null;
+  private closed = false;
 
   /** baseDir:测试传 os.tmpdir 子目录;生产省略 → 'soa-store' 由 expo 适配器在 documentDirectory 下解析。 */
   constructor(baseDir?: string, fs?: FileFsAdapter) {
@@ -149,13 +150,16 @@ export class FileStore implements StoreLike {
           }
         }
       } catch (err) {
-        logError(`FileStore 跳过损坏文件:${name}(${err instanceof Error ? err.message : String(err)})`);
+        // F12:hydrate 逐文件兜底 —— 损坏 JSON 或不可读(EACCES 等,store-node
+        // 适配器上抛非 ENOENT 错误)都只跳过该文件并记录,不中断其余文件
+        logError(`FileStore 跳过文件(损坏或不可读):${name}(${err instanceof Error ? err.message : String(err)})`);
       }
     }
   }
 
   /** 串行写队列:整文件重写(执行时读内存最新态 → 幂等);失败仅记录不阻断(决策 C)。 */
   private enqueue(op: () => Promise<void>): void {
+    if (this.closed) return; // F10:close 后写穿禁用(与 IdbStore 同款 fail-fast)
     this.queue = this.queue
       .then(() => this.ready())
       .then(op)
@@ -183,13 +187,21 @@ export class FileStore implements StoreLike {
     });
   }
 
+  /** F10:关闭仓储 —— 先排空 pending 写(队列尾追加清理,等效先 flush 后清内存)
+   *  再清内存镜像、复位 memo(对齐 IdbStore :262-285 先例)。旧实现直接丢弃
+   *  队列 + 清内存:已 ack 的写(如 addDatas 已返回计数但整文件重写仍 pending)
+   *  永久丢失;且无 closed 标志 → close 后仍可排队、ready() 从半落盘状态复活。
+   *  close() 幂等;close 后的 mutator 仍同步更新内存镜像(读面可用),写穿不排队。 */
   close(): void {
-    this.stocks.clear();
-    this.bars.clear();
-    this.reports.clear();
-    this.meta.clear();
-    this.queue = Promise.resolve();
-    this.readyPromise = null;
+    if (this.closed) return;
+    this.closed = true;
+    this.queue = this.queue.then(async () => {
+      this.stocks.clear();
+      this.bars.clear();
+      this.reports.clear();
+      this.meta.clear();
+      this.readyPromise = null;
+    });
   }
 
   getStock(ticker: string): StockRecord | null {
@@ -250,13 +262,6 @@ export class FileStore implements StoreLike {
     );
     this.enqueuePersistTicker(ticker);
     return fresh.length;
-  }
-
-  updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void {
-    const stock = this.stocks.get(ticker);
-    if (!stock) return;
-    this.stocks.set(ticker, { ...stock, overview, overviewLastUpdate: stamp });
-    this.enqueuePersistTicker(ticker);
   }
 
   getDatas(ticker: string): DailyBar[] {

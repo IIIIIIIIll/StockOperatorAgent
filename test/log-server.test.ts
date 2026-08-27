@@ -71,6 +71,22 @@ describe('server /logs 端点(logs-server.cjs,注入 tmp SOA_LOG_DIR)', () => {
     expect(content).toContain(message); // 中文消息完整落盘
   });
 
+  it('F34:消息上限按字节计(CJK 消息 UTF-16 单元 ≈ 3× 字节,0.5M 字符 = 1.5MB 字节须截断)', async () => {
+    const res = fakeRes();
+    // 0.5M 个 CJK 字符 = 1.5MB UTF-8 字节 > 1MB 上限;旧实现按单元数 0.5M < 1M
+    // 不截断 → 落盘 1.5MB 行(上限名不符实)
+    const msg = '汉'.repeat(Math.floor(MAX_MESSAGE_BYTES / 2));
+    await handleLogs(fakeReq(JSON.stringify({ level: 'info', message: msg, platform: 'web' })), res);
+    expect(res.calls[0].status).toBe(200);
+    const content = readFileSync(path.join(dir, 'soa-ts.log'), 'utf8');
+    const line = content.split('\n').find((l) => l.includes('汉'));
+    expect(line).toBeTruthy();
+    const msgPart = line!.split('[soa] ')[1]!.split(' (platform:web)')[0];
+    const bytes = Buffer.byteLength(msgPart, 'utf8');
+    expect(bytes).toBeLessThanOrEqual(MAX_MESSAGE_BYTES); // 字节上限恒守
+    expect(bytes).toBeGreaterThan(MAX_MESSAGE_BYTES - 3); // 最多截掉一个多字节字符
+  });
+
   it('ts 缺省 → 用当前时间;多次 append 追加不覆盖', async () => {
     for (let i = 0; i < 2; i++) {
       const res = fakeRes();

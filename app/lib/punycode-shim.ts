@@ -130,7 +130,9 @@ function mapDomain(string: string, fn: (label: string) => string): string {
     result = parts[0] + '@';
     string = parts[1];
   }
-  return result + string.split('.').map(fn).join('.');
+  // F32:IDNA 分隔符归一化 —— 全角句点 。(U+3002)/．(U+FF0E)/｡(U+FF61) 也是
+  // 域名分隔符;只按 '.' 切分时整串当单 label 编码,链接损坏。
+  return result + string.split(/[.\u3002\uFF0E\uFF61]/).map(fn).join('.');
 }
 
 /** IDNA toASCII:非 ASCII label 编码为 xn-- 前缀 punycode。 */

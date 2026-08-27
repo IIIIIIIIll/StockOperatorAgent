@@ -99,7 +99,8 @@ export function loadSettings(): SettingsState {
 
 /** 三键状态摘要(日志用):掩码展示已配置值,点名缺失键。 */
 export function describeLlmKeys(keys: KeysState): string {
-  const mask = (v: string): string => (v.length > 8 ? `${v.slice(0, 4)}…${v.slice(-4)}` : v);
+  // #100:恒掩码 —— ≤8 字符键整体打印等于明文泄露;短键取前 2 字符 + 省略号
+  const mask = (v: string): string => (v.length > 8 ? `${v.slice(0, 4)}…${v.slice(-4)}` : `${v.slice(0, 2)}…`);
   const parts = [
     `LLM_API_KEY=${keys.llmApiKey ? `${mask(keys.llmApiKey)} ✓` : '✗ 缺失'}`,
     `LLM_MODEL=${keys.llmModel ? `${keys.llmModel} ✓` : '✗ 缺失'}`,
@@ -185,10 +186,14 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${keys.llmApiKey.trim()}` },
       body: JSON.stringify(payload),
     });
-    if (viaProxy.status !== 502 && viaProxy.status !== 404) {
+    // F19:仅当代理「缺失/不可达」才回退直连 —— 判据:fetch 拒绝(无服务),或
+    // 响应非代理产物(纯静态托管:SPA fallback 200 HTML / 404 文本;代理恒回
+    // JSON)。上游 401/404/429/502 的 JSON 透传是**真实 LLM 应答**,必须
+    // classify 展示(如 404 → 「Base URL 缺 /v1」),不再误判为「代理缺失」。
+    if ((viaProxy.headers.get('content-type') ?? '').includes('application/json')) {
       return await classifyChatResponse(viaProxy, host, keys, Date.now() - t0);
     }
-    warn(`LLM 代理不可用(HTTP ${viaProxy.status})——回退浏览器直连`);
+    warn(`LLM 代理不可用(HTTP ${viaProxy.status} 非 JSON 响应)——回退浏览器直连`);
   } catch {
     warn('LLM 代理不可达——回退浏览器直连');
   }

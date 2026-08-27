@@ -151,10 +151,10 @@ describe('DesktopStore 镜像(ready 快照 hydrate)', () => {
   });
 });
 
-// ─── 6 个 mutator:本地生效 + 队列按序 ───────────────────────────────────────
+// ─── 5 个 mutator:本地生效 + 队列按序(H1:updateOverview 已移除)──────────────
 
 describe('DesktopStore mutator:本地镜像 + 写穿队列', () => {
-  it('6 个 mutator 按调用序发 op(args 逐字段断言)且本地同步生效', async () => {
+  it('5 个 mutator 按调用序发 op(args 逐字段断言)且本地同步生效', async () => {
     const bridge = new FakeBridge();
     const store = new DesktopStore(bridge);
     await store.ready();
@@ -165,18 +165,16 @@ describe('DesktopStore mutator:本地镜像 + 写穿队列', () => {
     store.addDatas('000001', bars);
     const reports = [report('20260810')];
     store.addPerformanceReports('000001', reports);
-    store.updateOverview('000001', { pe: 6 }, '2026-08-16');
     const bars2 = [bar('2026-08-20')];
     store.replaceDatas('000001', bars2);
     store.setMeta('k1', 'v1');
 
-    await until(() => bridge.ops.length === 6, '6 个 op 全部发出');
+    await until(() => bridge.ops.length === 5, '5 个 op 全部发出');
 
     expect(bridge.ops.map((o) => o.op)).toEqual([
       'putStock',
       'addDatas',
       'addPerformanceReports',
-      'updateOverview',
       'replaceDatas',
       'setMeta',
     ]);
@@ -184,16 +182,12 @@ describe('DesktopStore mutator:本地镜像 + 写穿队列', () => {
     expect(bridge.ops[0].args).toEqual([stock]);
     expect(bridge.ops[1].args).toEqual(['000001', bars]);
     expect(bridge.ops[2].args).toEqual(['000001', reports]);
-    expect(bridge.ops[3].args).toEqual(['000001', { pe: 6 }, '2026-08-16']);
-    expect(bridge.ops[4].args).toEqual(['000001', bars2]);
-    expect(bridge.ops[5].args).toEqual(['k1', 'v1']);
+    expect(bridge.ops[3].args).toEqual(['000001', bars2]);
+    expect(bridge.ops[4].args).toEqual(['k1', 'v1']);
 
-    // 本地镜像同步生效(putStock 后 updateOverview 合并进 overview;
-    // replaceDatas 同步 lastDataUpdate,同 FileStore)
+    // 本地镜像同步生效(replaceDatas 同步 lastDataUpdate,同 FileStore)
     expect(store.getStock('000001')).toEqual({
       ...stock,
-      overview: { pe: 6 },
-      overviewLastUpdate: '2026-08-16',
       lastDataUpdate: '2026-08-20',
     });
     expect(store.getDatas('000001')).toEqual(bars2);
@@ -294,22 +288,16 @@ describe('DesktopStore 镜像语义(与 FileStore 逐项核对)', () => {
     expect(bridge.ops[0].op).toBe('addPerformanceReports');
   });
 
-  it('putStock 整记录替换;updateOverview 仅对既有 stock 生效', async () => {
+  it('putStock 整记录替换(旧 overview/盖章位被整条覆盖)', async () => {
     const bridge = new FakeBridge();
     const store = new DesktopStore(bridge);
     await store.ready();
 
-    // 无 stock → updateOverview 空操作不排队(同 FileStore)
-    store.updateOverview('600036', { pe: 1 }, '2026-08-16');
-    expect(bridge.ops).toHaveLength(0);
-
     store.putStock({ ...rec('600036'), overview: { pe: 0 }, overviewLastUpdate: '2026-08-10' });
     store.putStock(rec('600036')); // 整记录替换
     expect(store.getStock('600036')).toEqual(rec('600036'));
-    store.updateOverview('600036', { pe: 2 }, '2026-08-16');
-    expect(store.getStock('600036')).toEqual({ ...rec('600036'), overview: { pe: 2 }, overviewLastUpdate: '2026-08-16' });
-    await until(() => bridge.ops.length === 3, '3 次排队');
-    expect(bridge.ops.map((o) => o.op)).toEqual(['putStock', 'putStock', 'updateOverview']);
+    await until(() => bridge.ops.length === 2, '2 次排队');
+    expect(bridge.ops.map((o) => o.op)).toEqual(['putStock', 'putStock']);
   });
 
   it('replaceDatas:空输入早退不清库;非空全量替换并更新 lastDataUpdate', async () => {

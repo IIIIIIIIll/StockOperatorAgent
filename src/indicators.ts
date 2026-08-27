@@ -14,8 +14,11 @@ export type IndicatorRow = IndicatorInput & Record<string, number | null>;
 
 const NAN = NaN;
 
-/** ewm(alpha=a, adjust=False).mean()：跳过前导 NaN（pandas 从首个非 NaN
- *  开始），中间 NaN 传前值；y[t]=(1-a)y[t-1]+a·x[t] */
+/** ewm(alpha=a, adjust=False).mean() —— pandas 默认 ignore_na=False 语义(F15):
+ *  跳过前导 NaN(pandas 从首个非 NaN 开始);中间 NaN 按位置计衰减:
+ *  新值到达时 y[t] = (1-a)^gap · y_prev + a·x[t],gap = t - lastValid
+ *  (旧实现恒 gap=1 的 NaN 直传,实为 ignore_na=True,与声明的 pandas 语义
+ *  不符;触达点 calcKdj rsv 的 9 窗高低相等(连续一字板)会偏离 Python 参考)。 */
 function ewmAlpha(arr: number[], alpha: number): number[] {
   const out = new Array<number>(arr.length).fill(NAN);
   let t0 = 0;
@@ -23,8 +26,12 @@ function ewmAlpha(arr: number[], alpha: number): number[] {
   if (t0 >= arr.length) return out;
   let y = arr[t0];
   out[t0] = y;
+  let lastValid = t0;
   for (let t = t0 + 1; t < arr.length; t++) {
-    y = Number.isNaN(arr[t]) ? y : (1 - alpha) * y + alpha * arr[t];
+    if (!Number.isNaN(arr[t])) {
+      y = Math.pow(1 - alpha, t - lastValid) * y + alpha * arr[t];
+      lastValid = t;
+    }
     out[t] = y;
   }
   return out;

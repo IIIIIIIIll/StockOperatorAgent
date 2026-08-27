@@ -16,7 +16,8 @@ paths:
 
 ## StoreLike 同步契约(src/store.ts)
 
-业务层只依赖 `StoreLike` 接口面(**11 个同步方法**):
+业务层只依赖 `StoreLike` 接口面(**10 个同步方法**;H1 已移除零生产调用者的
+`updateOverview`):
 
 ```ts
 export interface StoreLike {
@@ -25,7 +26,6 @@ export interface StoreLike {
   putStock(record): void;
   addDatas(ticker, bars): number;                 // 拒绝 date <= lastDataUpdate
   addPerformanceReports(ticker, reports): number; // report_date 去重,单事务
-  updateOverview(ticker, overview, stamp): void;
   getDatas(ticker): DailyBar[];                   // 每次返回新数组
   replaceDatas(ticker, bars): number;             // 全量替换(web 采集 IPO 全量语义)
   getPerformanceReports(ticker): PerformanceReport[];

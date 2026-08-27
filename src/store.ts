@@ -63,7 +63,6 @@ export interface StoreLike {
   putStock(record: StockRecord): void;
   addDatas(ticker: string, bars: DailyBar[]): number;
   addPerformanceReports(ticker: string, reports: PerformanceReport[]): number;
-  updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void;
   getDatas(ticker: string): DailyBar[];
   /** 全量替换该 ticker 日K(单事务)——web 采集语义:代理返回 IPO 全量历史。 */
   replaceDatas(ticker: string, bars: DailyBar[]): number;
@@ -128,8 +127,14 @@ export class Store implements StoreLike {
    */
   addDatas(ticker: string, bars: DailyBar[]): number {
     if (!bars.length) return 0;
-    const stock = this.getStock(ticker);
-    const last = stock?.lastDataUpdate ?? null;
+    // F11:去重基线 = 表内既有末根日期(与 memory/file/idb 四族一致)。旧实现
+    // 用 stocks.last_data_update —— 该戳可被 putStock 覆盖成旧值/置空(采集链
+    // 常规操作),重复批次会被 INSERT OR REPLACE 重写且返回 >0,违背
+    // 「全部重复 → 0,不写」契约(store-gates.test.ts 钉死)。
+    const row = this.db.prepare('SELECT MAX(date) AS last FROM daily_bars WHERE ticker = ?').get(ticker) as
+      | { last: string | null }
+      | undefined;
+    const last = row?.last ?? null;
     const fresh = bars.filter((b) => last === null || b.date > last);
     if (!fresh.length) return 0;
     const insert = this.db.prepare(
@@ -169,12 +174,6 @@ export class Store implements StoreLike {
     });
     tx();
     return fresh.length;
-  }
-
-  updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void {
-    this.db
-      .prepare('UPDATE stocks SET overview_json = ?, overview_last_update = ? WHERE ticker = ?')
-      .run(JSON.stringify(overview), stamp, ticker);
   }
 
   /**

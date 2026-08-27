@@ -58,15 +58,28 @@ interface HuffmanTable {
   symbols: Int32Array; // 按(码长, 符号)序排列的符号
 }
 
-function buildHuffman(lengths: Uint8Array): HuffmanTable {
+/** 码表构建。kind 对齐 zlib inflate_table 的 type 语义(F33):'codes'(码长编码
+ *  表)incomplete 允许;'lens'/'dists'(字面/长度与距离表)incomplete 拒绝,仅
+ *  单符号(maxLen==1)例外 —— RFC 1951 §3.2.7 允许 distance 单码长 1 的合法流。
+ *  旧实现无条件放行 incomplete 且注释误称 zlib 同款 —— 行为现对齐 zlib
+ *  inflate_table 的 `if (left > 0 && type != CODES && max != 1) return -1`。 */
+function buildHuffman(lengths: Uint8Array, kind: 'codes' | 'lens' | 'dists' = 'lens'): HuffmanTable {
   const counts = new Int32Array(16);
-  for (let i = 0; i < lengths.length; i++) counts[lengths[i]]++;
+  let maxLen = 0;
+  for (let i = 0; i < lengths.length; i++) {
+    counts[lengths[i]]++;
+    if (lengths[i] > maxLen) maxLen = lengths[i];
+  }
   counts[0] = 0; // 长度为 0 的符号不参与编码
-  // 码长分布合法性:over-subscribed(码字不够分)报错;incomplete 允许(zlib 同款)。
+  // 码长分布合法性:over-subscribed(码字不够分)报错;incomplete(码字有剩余)
+  // 亦报错 —— 例外:CODES 表与单符号表(zlib 同款)。
   let left = 1;
   for (let len = 1; len <= 15; len++) {
     left = (left << 1) - counts[len];
     if (left < 0) throw new Error('inflate: invalid code lengths (over-subscribed)');
+  }
+  if (left > 0 && kind !== 'codes' && maxLen !== 1) {
+    throw new Error('inflate: invalid code lengths (incomplete set)');
   }
   const firstCode = new Int32Array(16);
   let code = 0;
@@ -183,7 +196,7 @@ function inflateBlock(r: BitReader, out: number[]): void {
     const hclen = r.bits(4) + 4;
     const clenLengths = new Uint8Array(19);
     for (let i = 0; i < hclen; i++) clenLengths[CLEN_ORDER[i]] = r.bits(3);
-    const clenTable = buildHuffman(clenLengths);
+    const clenTable = buildHuffman(clenLengths, 'codes'); // zlib CODES 表:incomplete 允许
     const lengths = new Uint8Array(hlit + hdist);
     let i = 0;
     while (i < lengths.length) {
@@ -210,8 +223,8 @@ function inflateBlock(r: BitReader, out: number[]): void {
     }
     inflateSymbols(
       r,
-      buildHuffman(lengths.subarray(0, hlit)),
-      buildHuffman(lengths.subarray(hlit)),
+      buildHuffman(lengths.subarray(0, hlit), 'lens'),
+      buildHuffman(lengths.subarray(hlit), 'dists'),
       out
     );
     return;

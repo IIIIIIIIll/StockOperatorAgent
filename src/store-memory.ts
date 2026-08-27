@@ -58,13 +58,6 @@ export class InMemoryStore implements StoreLike {
     return fresh.length;
   }
 
-  updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void {
-    const stock = this.stocks.get(ticker);
-    if (stock) {
-      this.stocks.set(ticker, { ...stock, overview, overviewLastUpdate: stamp });
-    }
-  }
-
   getDatas(ticker: string): DailyBar[] {
     return (this.bars.get(ticker) ?? []).map((b) => ({ ...b }));
   }

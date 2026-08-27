@@ -3,7 +3,7 @@
 // 写穿串行队列)+ settingsStore 桥接(bridgeStorage)。
 // 镜像语义与 src/store-file.ts FileStore 完全一致(addDatas 增量去重、
 // replaceDatas 空输入早退、业绩 report_date 去重、getDatas/getPerformanceReports
-// 返回副本、updateOverview 仅对既有 stock 生效);mutator 本地应用后按调用序
+// 返回副本);mutator 本地应用后按调用序
 // 入队列逐条 invoke desktop:store-op(前一个完成后才发下一个),失败仅
 // console.error 不抛、不阻断后续(对齐 FileStore 写穿队列语义)。
 // 平台安全:不做任何 declare global(architecture 测试禁 DOM 名 global 增强;
@@ -12,6 +12,7 @@
 // 等价;Node/RN/vitest 无 window 成员 → 探针 false,web/Android 路径零行为变化。
 import type { DailyBar, PerformanceReport, StockRecord, StoreLike } from '../../src/store.ts';
 import type { SettingsStorageLike } from './settingsStore.ts';
+import { error as logError } from '../../src/log.ts';
 
 /** 桌面壳全量快照(child 侧经 FileStore getter 序列化;JSON 安全,均纯对象)。 */
 export interface StoreSnapshot {
@@ -110,7 +111,8 @@ export class DesktopStore implements StoreLike {
       .then(() => this.ready())
       .then(() => this.bridge.storeOp(op, args))
       .catch((err: unknown) => {
-        console.error(`DesktopStore ${op} 写穿失败:${err instanceof Error ? err.message : String(err)}`);
+        // F37:全端日志统一经 src/log.ts(禁 console 直出)
+        logError(`DesktopStore ${op} 写穿失败:${err instanceof Error ? err.message : String(err)}`);
       });
   }
 
@@ -181,14 +183,6 @@ export class DesktopStore implements StoreLike {
     return fresh.length;
   }
 
-  /** 合并进 overview(替换 overview/overviewLastUpdate;仅对既有 stock 生效,同 FileStore)。 */
-  updateOverview(ticker: string, overview: Record<string, unknown>, stamp: string): void {
-    const stock = this.stocks.get(ticker);
-    if (!stock) return;
-    this.stocks.set(ticker, { ...stock, overview, overviewLastUpdate: stamp });
-    this.enqueueOp('updateOverview', [ticker, overview, stamp]);
-  }
-
   getDatas(ticker: string): DailyBar[] {
     return (this.datas.get(ticker) ?? []).map((b) => ({ ...b }));
   }
@@ -223,7 +217,7 @@ export function bridgeStorage(): SettingsStorageLike {
     setItem(_key: string, value: string): void {
       mirror = value;
       void bridge.settingsSaveAsync(value).catch((err) => {
-        console.error(`[desktop] settings 异步落盘失败: ${String(err)}`);
+        logError(`[desktop] settings 异步落盘失败: ${String(err)}`); // F37 同上
       });
     },
   };
