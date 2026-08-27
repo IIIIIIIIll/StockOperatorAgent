@@ -1,22 +1,18 @@
 {
   "name": "soa-ts-prototype",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "probe": "node --experimental-transform-types tools/probe.mts"
   },
-  "keywords": [],
   "type": "module",
   "dependencies": {
     "@langchain/core": "^1.2.5",
     "@langchain/langgraph": "^1.4.9",
     "@langchain/openai": "^1.5.6",
     "iconv-lite": "^0.7.3",
-    "node-tdx-market": "^0.2.1",
-    "string_decoder": "^1.3.0"
+    "node-tdx-market": "^0.2.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
@@ -25,5 +21,6 @@
     "fake-indexeddb": "^6.2.5",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
-  }
+  },
+  "//": "双 TS 大版本(root ^7.0.2 vs app ~6.0.3):根层 web/node 用 TS 原生编译器 + DOM 单源类型;app 层为 Expo SDK 57 模板钉版,RN/metro 工具链需与 SDK 匹配勿升主版本——详见 .trellis/spec/ts/index.md「全局约定」"
 }

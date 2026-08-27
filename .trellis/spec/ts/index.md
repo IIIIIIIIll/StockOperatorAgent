@@ -73,6 +73,10 @@ paths:
 - **双 tsconfig**:根 `lib=["ES2024","DOM"]`(fetch/AbortSignal 等 web 平台
   类型取 DOM 单源;@types/node 26.2 web-globals AbortSignal 形状错位曾触发
   TS 原生编译器误报——模块级 `typeof` 守卫声明不受影响,08-16 实证)。
+- **双 TS 大版本**:根 `typescript ^7.0.2`(web/node 层,TS 原生编译器);
+  app 层 `~6.0.3` 为 Expo SDK 57 模板钉版,RN/metro 工具链需与 SDK 匹配,
+  勿升主版本——两套 tsconfig 互不兼容,故 CI 的 app 编译门由 release.yml
+  expo export 兜底(见 ci.yml 顶部 R5 注释)。
 - **CJS 边界**:proxies.cjs / logs-server.cjs 用 CJS(metro.config.js 是 CJS,
   server.mjs 是 ESM,两者都能 require);proxies.cjs `require('../../src/*.ts')`
   依赖 Node `--experimental-strip-types`(node ≥23.6 默认开启)。

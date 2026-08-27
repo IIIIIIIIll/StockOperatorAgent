@@ -93,6 +93,13 @@ npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
 dmg）与 Android APK，产物自动挂到 GitHub Release；手动触发（无 tag）时产物改传
 Actions artifact 供自测。
 
+### 发布说明（CHANGELOG 决策）
+
+本仓库不维护独立 CHANGELOG.md：每次发版的说明写在对应 GitHub Release body
+（release.yml 自动填充安装/签名提示，变更点手动补充），README 发布章节同步
+维护产物清单与流程。三份文档源（CHANGELOG / Release / README）易漂移，故
+不再引入第三份——后续发版只在 Release body 记录变更，勿新建 CHANGELOG。
+
 ### 发版步骤
 
 1. 更新 `desktop/package.json` 的 `version`（如 `1.1.0`）。
@@ -115,6 +122,7 @@ git push origin master --tags
 | Linux | `StockOperatorAgent-<version>-<arch>.AppImage`、`StockOperatorAgent-<version>-<arch>.deb` | 便携 / 安装包 |
 | macOS | `StockOperatorAgent-<version>-<arch>.dmg` | 磁盘映像 |
 | Android | `soa-<version>.apk` | 可直接安装 |
+| Android (Play) | `soa-<version>.aab` | Google Play 上架包(与 APK 同一签名密钥) |
 
 ### 手动触发（CI 自测）
 
