@@ -1638,3 +1638,37 @@ Bucket C 30 项完成:测试卫生(F57 常量对齐 2004-06-16/F58-60)、元数�
 ### Next Steps
 
 - 父任务集成审查:全门禁复跑+78 项闭包审计+抽查 → 归档父任务
+
+
+## Session 59: golive-fix-backlog 全树完成:78/78 项修复,集成审查通过,父任务归档
+
+**Date**: 2026-08-27
+**Task**: golive-fix-backlog 全树完成:78/78 项修复,集成审查通过,父任务归档
+**Branch**: `master`
+
+### Summary
+
+父任务集成审查(最后门禁,非假设):vitest 653 passed/0 failed/1 skip(设计内),tsc 0 errors,chart:build+chart:check 通过,工作树干净;闭包审计 78/78 item ID 全部出现在提交消息(0 missing);抽查 F01(重入守卫)/S2(5 端点 Origin 白名单)与修法一致。spec 更新已随检查落地(stores.md StoreLike 11→10 H1 契约、ts/index.md 双 TS 行)。全树归档:3 子任务(majors 11/mediums 37/nits 30)+父任务,25 修复提交+5 归档+3 journal。go-live 就绪缺口已清零(78 项可修全闭,S1/H3 信息记录保留)。
+
+### Main Changes
+
+- 父任务归档;树 3/3 完成
+- 25 修复提交覆盖 78 项;门禁基线 627→653(+26 净新增测试,H1 净删 26)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e4119b` | (see git log) |
+
+### Testing
+
+- [OK] 集成门禁复跑:vitest 653/0/1skip;tsc 0;chart 门禁过;闭包 78/78;抽查 2 项
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Go-live 发布流程:S4 轮换清单执行(keystore 轮换)→ 发布 0.1.4;后续可归档旧审计任务链
