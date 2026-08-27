@@ -357,10 +357,41 @@ describe('AnalysisController.start 编排', () => {
     expect(raw).toBeTruthy();
     expect(JSON.parse(raw!).final_decision).toBe('持有观察');
   });
+
+  it('F01 重入守卫:运行中再次 start 为 no-op(状态不重置/不重复采集/不重复 run)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const entered = Promise.withResolvers<void>();
+    const h = makeHarness({
+      runnerImpl: async () => {
+        entered.resolve(); // 确定性信号:start 已推进到 runner.run 内部,running=true
+        await gate; // 挂起,维持运行中
+        return undefined;
+      },
+    });
+    const p = h.ctrl.start('600036', 'cn');
+    await entered.promise;
+    expect(h.snap().running).toBe(true);
+
+    // 运行中注入事件态,随后重入(不同参数)——不得被清空/改写
+    h.runner.emit({ type: 'token', roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', delta: '部分' });
+    await h.ctrl.start('0700.HK', 'hk');
+
+    expect(h.runner.runs).toHaveLength(1); // 未发起第二次 run
+    expect(h.collectCalls).toHaveLength(1); // 未重复采集
+    expect(h.keepAlive.starts).toHaveLength(1); // 未重启保活
+    expect(h.snap().events.some((e) => e.type === 'token')).toBe(true); // 事件流未被清空
+    expect(h.snap().partials.fundamental_analysis_expert).toBe('部分'); // partial 未被清空
+    expect(h.snap().market).toBe('cn'); // 未被重入参数改写
+    expect(h.snap().lastRunTicker).toBe('600036');
+
+    release();
+    await p;
+    expect(h.snap().running).toBe(false);
+  });
 });
-
-// ─── runner 事件归约(token/retry/report)─────────────────────────────────────
-
 describe('AnalysisController 事件归约', () => {
   it('token 追加 partial / retry 清空该节点 / report 清空启用角色双节点', () => {
     const h = makeHarness();

@@ -283,6 +283,9 @@ export class AnalysisController {
   /** 分析编排(ticker 由调用方传入,market 由下拉选择):重置 → 北交所拦截 →
    *  市场归一校验 → 保活 → 采集 → intel 预查询 → 上下文组装 → runner.run。 */
   async start(ticker: string, market: Market): Promise<void> {
+    // F01 重入守卫:运行中再次 start 直接返回——不清已运行状态
+    // (events/decision/statuses/hasDone),不重复启保活/采集/run
+    if (this.st.running) return;
     const d = this.deps;
     const s = this.st;
     // 新分析开始:全量重置(R4:lastRun 标记清除;hasDone 撤销——D15)
