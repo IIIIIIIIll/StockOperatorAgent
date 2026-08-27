@@ -55,6 +55,22 @@ describe('server /logs 端点(logs-server.cjs,注入 tmp SOA_LOG_DIR)', () => {
     expect(content).toBe('2026-08-11 12:00:00 | ERROR | [soa] smoke (platform:test)\n');
   });
 
+  it('F02 两段式请求体:CJK 消息跨块边界 → 落盘内容完整(逐块拼接会乱码)', async () => {
+    const message = '采集失败:连接超时,重试中(中文日志)';
+    const body = JSON.stringify({ level: 'warn', message, platform: 'rn' });
+    const cutAt = Buffer.byteLength(body.slice(0, body.indexOf('重'))) + 1; // 从「重」第二字节切开
+    const buf = Buffer.from(body, 'utf8');
+    const chunks = [buf.subarray(0, cutAt), buf.subarray(cutAt)];
+    const req = (async function* () {
+      for (const c of chunks) yield c;
+    })();
+    const res = fakeRes();
+    await handleLogs(req, res);
+    expect(res.calls).toEqual([{ status: 200, body: JSON.stringify({ ok: true }) }]);
+    const content = readFileSync(path.join(dir, 'soa-ts.log'), 'utf8');
+    expect(content).toContain(message); // 中文消息完整落盘
+  });
+
   it('ts 缺省 → 用当前时间;多次 append 追加不覆盖', async () => {
     for (let i = 0; i < 2; i++) {
       const res = fakeRes();

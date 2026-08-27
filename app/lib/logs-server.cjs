@@ -58,7 +58,7 @@ function appendLogLine(line) {
  * (对齐 llmProxy try/catch 风格,不崩 server)。 */
 async function handleLogs(req, res) {
   try {
-    let body = '';
+    const parts = [];
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
@@ -67,8 +67,11 @@ async function handleLogs(req, res) {
         res.end(JSON.stringify({ error: '日志请求体超过 64KB 限制' }));
         return;
       }
-      body += chunk;
+      parts.push(chunk);
     }
+    // F02:分块 Buffer 收集 + 一次性 decode(同 proxies.cjs;CJK 消息跨块不乱码;
+    // 不用 setEncoding——保持 MAX_BODY_BYTES 字节计数语义)
+    const body = Buffer.concat(parts).toString('utf8');
     let data;
     try {
       data = body ? JSON.parse(body) : {};

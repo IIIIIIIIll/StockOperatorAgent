@@ -91,7 +91,7 @@ async function isPublicHost(u) {
 async function handleLlmProxy(req, res, _fetch = fetch) {
   try {
     // W2:请求体超 MAX_BODY_BYTES,413 并终止读取(对齐 logs-server MAX_BODY_BYTES 模式)
-    let body = '';
+    const parts = [];
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
@@ -100,8 +100,12 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
         res.end(JSON.stringify({ error: 'LLM 代理请求体超过 1MB 限制' }));
         return;
       }
-      body += chunk;
+      parts.push(chunk);
     }
+    // F02:分块 Buffer 收集 + 一次性 decode——逐块 `body += chunk` 按块独立 UTF-8
+    // 解码,多字节 CJK 跨块边界即乱码;concat 后单次 toString 保完整。不用
+    // setEncoding('utf8')(会把 1MB 上限从字节数变成字符数,F34 类问题)。
+    const body = Buffer.concat(parts).toString('utf8');
     const { base, ...payload } = JSON.parse(body);
     // C2:base 仅 http(s) + 公网 host;X-LLM-Base 头优先,其次 body.base
     // (浏览器端用户配置透传是设计意图,保留机制、加 SSRF 防线)
@@ -274,7 +278,7 @@ async function doYahooCollect(ticker, opts = {}) {
 
 async function handleYahooCollect(req, res, _collect = doYahooCollect) {
   // body JSON {ticker}(对齐 MAX_BODY_BYTES 上限;非法/空 body → ticker '' → 400)
-  let body = '';
+  const parts = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
@@ -283,8 +287,10 @@ async function handleYahooCollect(req, res, _collect = doYahooCollect) {
       res.end(JSON.stringify({ error: 'Yahoo 采集请求体超过 1MB 限制' }));
       return;
     }
-    body += chunk;
+    parts.push(chunk);
   }
+  // F02:分块 Buffer 收集 + 一次性 decode(同 handleLlmProxy;不用 setEncoding)
+  const body = Buffer.concat(parts).toString('utf8');
   let ticker = '';
   try {
     const parsed = JSON.parse(body || '{}');

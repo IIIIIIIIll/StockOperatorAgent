@@ -49,6 +49,16 @@ function fakeReq(body: string, headers: Record<string, string> = {}, url = '/llm
   return { url, headers, [Symbol.asyncIterator]: () => it };
 }
 
+/** F02:两段式请求体——cutAt 为字节偏移,可从多字节字符中间切开(模拟 TCP 分包)。 */
+function fakeReqSplit(body: string, cutAt: number, headers: Record<string, string> = {}, url = '/llm-proxy/chat/completions') {
+  const buf = Buffer.from(body, 'utf8');
+  const chunks = [buf.subarray(0, cutAt), buf.subarray(cutAt)];
+  const it = (async function* () {
+    for (const c of chunks) yield c;
+  })();
+  return { url, headers, [Symbol.asyncIterator]: () => it };
+}
+
 function fakeUpstream(status = 200) {
   return {
     status,
@@ -170,6 +180,27 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     );
     expect(res.calls[0].status).toBe(200);
     expect(targets).toEqual(['https://8.8.8.8/v1/chat/completions']);
+  });
+
+  it('F02 两段式请求体:CJK 多字节字符跨块边界 → 转发内容完整(逐块拼接会乱码)', async () => {
+    const res = fakeRes();
+    const content = '分析 你好世界 股票走势';
+    const body = JSON.stringify({ base: 'https://8.8.8.8/v1', messages: [{ role: 'user', content }] });
+    // 从「好」的第二字节切开:UTF-8 单字 3 字节,indexOf 是字符下标,前缀字节数
+    // 即「好」首字节偏移,+1 落到其中间
+    const cutAt = Buffer.byteLength(body.slice(0, body.indexOf('好'))) + 1;
+    let sentBody = '';
+    await handleLlmProxy(
+      fakeReqSplit(body, cutAt),
+      res,
+      async (_url: string, init?: unknown) => {
+        sentBody = (init as { body?: string } | undefined)?.body ?? '';
+        return fakeUpstream();
+      },
+    );
+    expect(res.calls[0].status).toBe(200);
+    const forwarded = JSON.parse(sentBody) as { messages: Array<{ content: string }> };
+    expect(forwarded.messages[0].content).toBe(content); // CJK 完整往返
   });
 });
 
