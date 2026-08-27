@@ -83,91 +83,9 @@ export const CHART_HTML: string = `<!DOCTYPE html>
         if (sers[si].data && sers[si].data.length) { hasData = true; break; }
       }
     }
-    if (!hasData || !LWC) {
-      // 空 series/空 panes:仅渲染图例,不建图(空数据不崩)
-      chartEl.style.display = 'none';
-      emptyEl.style.display = 'none';
-      return;
-    }
-    emptyEl.style.display = 'none';
-    chartEl.style.display = 'block';
     var height = typeof data.height === 'number' ? data.height : 400;
-    chartEl.style.height = height + 'px';
-
-    // 重复渲染(流式数据更新)时先移除旧图表实例与其 canvas,防多次建图堆积
-    if (currentChart) { currentChart.remove(); currentChart = null; }
-    chartEl.innerHTML = '';
-    var chart;
-    try {
-      chart = LWC.createChart(chartEl, {
-        height: height,
-        layout: {
-          background: { type: LWC.ColorType.Solid, color: layout.background || '#FFFFFF' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
-          textColor: textColor,
-        },
-        grid: {
-          vertLines: { color: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
-          horzLines: { color: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
-        },
-        timeScale: { borderColor: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
-        rightPriceScale: { borderColor: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
-        crosshair: { mode: LWC.CrosshairMode.Normal }, // 默认即开启;显式声明(缩放/平移不关闭)
-      });
-    } catch (err) {
-      // 建图失败:退回图例-only(不抛给 WebView 宿主)
-      chartEl.style.display = 'none';
-      return;
-    }
-    currentChart = chart;
-
-    var totalPoints = 0;
-    for (var pi2 = 0; pi2 < panes.length; pi2++) {
-      var pane = panes[pi2];
-      var sers2 = pane.series || [];
-      for (var si2 = 0; si2 < sers2.length; si2++) {
-        var def = sers2[si2];
-        var pts = def.data || [];
-        if (!pts.length) continue; // 空序列跳过(不建 series)
-        totalPoints += pts.length;
-        var opts = {};
-        if (def.type === 'candles') {
-          opts = {
-            upColor: def.upColor,
-            downColor: def.downColor,
-            borderVisible: false,
-            wickUpColor: def.upColor,
-            wickDownColor: def.downColor,
-          };
-        } else if (def.type === 'histogram') {
-          opts = { base: typeof def.base === 'number' ? def.base : 0, color: def.color };
-          if (def.priceFormat === 'volume') opts.priceFormat = { type: 'volume' };
-        } else {
-          opts = { color: def.color, lineWidth: 1, lineStyle: lineStyleValue(def.lineStyle) };
-        }
-        var s = chart.addSeries(seriesCtor(def.type), opts, pi2);
-        s.setData(pts);
-      }
-    }
-
-    // 数据点少(稀疏季度轴,如财务趋势 9 期):lightweight-charts 默认按固定
-    // barSpacing 布局,不会自动铺满 —— 少量点会挤在时间轴一侧留大片空白
-    // (用户 2026-08-15 反馈)。显式 fitContent 铺满;K线(数千点)不触发,
-    // 保持滚动窗口默认行为。
-    if (totalPoints > 0 && totalPoints <= 200) {
-      chart.timeScale().fitContent();
-    }
-
-    // 面板比例:全部 series 建完后设置 stretch(比例布局,与 web 分支同序;禁 setHeight)
-    var paneApis = chart.panes();
-    for (var k = 0; k < paneApis.length; k++) {
-      paneApis[k].setStretchFactor(typeof panes[k].stretch === 'number' ? panes[k].stretch : 70);
-    }
-
-    // 面板标题叠加:每 pane 顶部左上角(标题 + 系列名);top 用**纯比例**定位
-    // (stretch/总和 × 总高,与 setStretchFactor 布局语义一致)。不用
-    // paneApis[k].getHeight()——真实 lightweight-charts v5.2 在 createChart 后
-    // 立即读取返回未布局值(≈全高,2026-08-15 真机/Chromium 实测),导致附图
-    // 标签全部堆到图表底部不可见。
+    // ── 图例渲染(F31):提到 empty-series early return 之前 —— 空 series/空
+    // panes、建图失败时也要渲染图例(「仅渲染图例,不建图」的注释承诺真正兑现)──
     var sumStretch = 0;
     for (var k3 = 0; k3 < panes.length; k3++) {
       sumStretch += typeof panes[k3].stretch === 'number' ? panes[k3].stretch : 70;
@@ -229,6 +147,84 @@ export const CHART_HTML: string = `<!DOCTYPE html>
         lab.style.top = tops[pi3] + 'px';
         labelsEl.appendChild(lab);
       }
+    }
+    if (!hasData || !LWC) {
+      // 空 series/空 panes:图例已在上方渲染,仅不建图(空数据不崩)
+      chartEl.style.display = 'none';
+      emptyEl.style.display = 'none';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    chartEl.style.display = 'block';
+    chartEl.style.height = height + 'px';
+
+    // 重复渲染(流式数据更新)时先移除旧图表实例与其 canvas,防多次建图堆积
+    if (currentChart) { currentChart.remove(); currentChart = null; }
+    chartEl.innerHTML = '';
+    var chart;
+    try {
+      chart = LWC.createChart(chartEl, {
+        height: height,
+        layout: {
+          background: { type: LWC.ColorType.Solid, color: layout.background || '#FFFFFF' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
+          textColor: textColor,
+        },
+        grid: {
+          vertLines: { color: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
+          horzLines: { color: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
+        },
+        timeScale: { borderColor: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
+        rightPriceScale: { borderColor: layout.border || '#e5e7eb' }, // 与 theme.ts light 对齐(theme.ts:31,28,32)
+        crosshair: { mode: LWC.CrosshairMode.Normal }, // 默认即开启;显式声明(缩放/平移不关闭)
+      });
+    } catch (err) {
+      // 建图失败:退回图例-only(图例已在上方渲染;不抛给 WebView 宿主)
+      chartEl.style.display = 'none';
+      return;
+    }
+    currentChart = chart;
+
+    var totalPoints = 0;
+    for (var pi2 = 0; pi2 < panes.length; pi2++) {
+      var pane = panes[pi2];
+      var sers2 = pane.series || [];
+      for (var si2 = 0; si2 < sers2.length; si2++) {
+        var def = sers2[si2];
+        var pts = def.data || [];
+        if (!pts.length) continue; // 空序列跳过(不建 series)
+        totalPoints += pts.length;
+        var opts = {};
+        if (def.type === 'candles') {
+          opts = {
+            upColor: def.upColor,
+            downColor: def.downColor,
+            borderVisible: false,
+            wickUpColor: def.upColor,
+            wickDownColor: def.downColor,
+          };
+        } else if (def.type === 'histogram') {
+          opts = { base: typeof def.base === 'number' ? def.base : 0, color: def.color };
+          if (def.priceFormat === 'volume') opts.priceFormat = { type: 'volume' };
+        } else {
+          opts = { color: def.color, lineWidth: 1, lineStyle: lineStyleValue(def.lineStyle) };
+        }
+        var s = chart.addSeries(seriesCtor(def.type), opts, pi2);
+        s.setData(pts);
+      }
+    }
+
+    // 数据点少(稀疏季度轴,如财务趋势 9 期):lightweight-charts 默认按固定
+    // barSpacing 布局,不会自动铺满 —— 少量点会挤在时间轴一侧留大片空白
+    // (用户 2026-08-15 反馈)。显式 fitContent 铺满;K线(数千点)不触发,
+    // 保持滚动窗口默认行为。
+    if (totalPoints > 0 && totalPoints <= 200) {
+      chart.timeScale().fitContent();
+    }
+
+    // 面板比例:全部 series 建完后设置 stretch(比例布局,与 web 分支同序;禁 setHeight)
+    var paneApis = chart.panes();
+    for (var k = 0; k < paneApis.length; k++) {
+      paneApis[k].setStretchFactor(typeof panes[k].stretch === 'number' ? panes[k].stretch : 70);
     }
   }
 
