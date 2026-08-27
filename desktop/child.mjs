@@ -85,12 +85,14 @@ function gracefulShutdown() {
   shuttingDown = true;
   void (async () => {
     try {
-      await store.flush();
+      await store?.flush();
     } catch {
       /* drain failure must not block exit */
     }
-    store.close();
-    server.close();
+    // F07:启动窗口期(store/server 尚未就绪)父进程死亡 → 各句柄为 null,
+    // 空守卫后直接退出,不产生未处理异常
+    store?.close();
+    server?.close();
     process.exit(0);
   })();
 }
@@ -119,31 +121,12 @@ function saveSettings(json) {
 }
 
 async function main() {
-  store = createNodeFileStore(storeDir);
-  await store.ready();
-  setLogDir(logDir);
-
-  settingsFs = nodeSettingsFileSystem(settingsDir);
-  let settings = null;
-  try {
-    const file = new settingsFs.File(settingsFs.Paths.document, SETTINGS_FILE);
-    settings = file.exists ? file.textSync() : null;
-  } catch {
-    settings = null; // unreadable settings -> null (settingsStore silent-degrade parity)
-  }
-
-  server = createAppServer();
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const port = server.address().port;
-
-  send({ type: 'ready', port, settings });
-  console.log(`[child] ready: http://127.0.0.1:${port} (store=${storeDir}, settings=${settingsDir}, logs=${logDir})`);
-
+  // F07:IPC 监听先于任何 await 注册——启动窗口期(store ready/端口监听)到达的
+  // 消息不丢失;父进程在窗口期死亡时 disconnect/信号即时收尾,不留孤儿。
+  // 处理器内对尚未就绪的 store/settingsFs 全部走既有 try/catch → error 回包。
   process.on('message', (msg) => {
     if (!msg || typeof msg !== 'object') return;
+    if (shuttingDown) return; // F08:关停窗口期消息直接忽略——不做 applied-then-dropped
     if (msg.type === 'op') {
       // Whitelist + arg-shape gate before dispatch; always ack after settle,
       // error message first on failure — the process must never crash on a
@@ -191,6 +174,29 @@ async function main() {
   // shuttingDown flag).
   process.on('SIGTERM', gracefulShutdown);
   process.on('SIGINT', gracefulShutdown);
+
+  store = createNodeFileStore(storeDir);
+  await store.ready();
+  setLogDir(logDir);
+
+  settingsFs = nodeSettingsFileSystem(settingsDir);
+  let settings = null;
+  try {
+    const file = new settingsFs.File(settingsFs.Paths.document, SETTINGS_FILE);
+    settings = file.exists ? file.textSync() : null;
+  } catch {
+    settings = null; // unreadable settings -> null (settingsStore silent-degrade parity)
+  }
+
+  server = createAppServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const port = server.address().port;
+
+  send({ type: 'ready', port, settings });
+  console.log(`[child] ready: http://127.0.0.1:${port} (store=${storeDir}, settings=${settingsDir}, logs=${logDir})`);
 }
 
 main().catch((err) => {
