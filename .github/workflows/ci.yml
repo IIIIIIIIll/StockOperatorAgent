@@ -1,7 +1,9 @@
 # CI 测试门:typecheck + vitest(push master / PR)。
 # push 必须 branches 过滤:裸 on:push 对 tag push 同样触发,v* tag 推送会与
 # release.yml 并行双跑(审计裁定);branch 过滤天然排除 tag ref。
-# 可选增强(本轮不做,防遗忘):app 层 tsc、expo export 编译门。
+# 可选增强(本轮不做,防遗忘):app 层 tsc、expo export 编译门——app 用独立
+# tsconfig(Expo SDK 模板钉版 typescript ~6.0.3,见 app/package.json 注释),与根
+# 门(TS 7)互不兼容;发布链路(release.yml)的 expo export 已兜底编译 app 层。
 name: ci
 
 on:
@@ -21,10 +23,10 @@ jobs:
       CI: 1
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 → 49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm

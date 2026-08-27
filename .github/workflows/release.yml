@@ -24,10 +24,10 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 → 49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             desktop/dist/*.exe
@@ -88,7 +88,7 @@ jobs:
 
       - name: Upload build artifacts (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 → ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-${{ matrix.os }}
           if-no-files-found: ignore
@@ -105,12 +105,16 @@ jobs:
       CI: 1
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 → 49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
 
       - name: Verify desktop version matches release tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -127,7 +131,7 @@ jobs:
           echo "Release gate OK: desktop/package.json ${pkg_version} matches tag v${tag_version}"
 
       - name: Setup Java 17 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4 → cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
           java-version: "17"
@@ -162,7 +166,7 @@ jobs:
 
       - name: Upload APK/AAB to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             soa-*.apk
@@ -181,7 +185,7 @@ jobs:
 
       - name: Upload APK/AAB artifact (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 → ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: soa-android
           path: |
