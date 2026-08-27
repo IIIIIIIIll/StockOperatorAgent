@@ -19,18 +19,18 @@ const {
 
 interface FakeRes {
   headersSent: boolean;
-  calls: Array<{ status: number; body: string }>;
+  calls: Array<{ status: number; body: string; headers?: Record<string, string> }>;
   writeHead(status: number, headers?: Record<string, string>): void;
   end(body?: unknown): void;
 }
 function fakeRes(): FakeRes {
-  const calls: Array<{ status: number; body: string }> = [];
+  const calls: Array<{ status: number; body: string; headers?: Record<string, string> }> = [];
   const res = {
     headersSent: false,
     calls,
-    writeHead(status: number) {
+    writeHead(status: number, headers?: Record<string, string>) {
       res.headersSent = true;
-      calls.push({ status, body: '' });
+      calls.push(headers ? { status, body: '', headers } : { status, body: '' });
     },
     end(body?: unknown) {
       if (calls.length === 0) calls.push({ status: 200, body: '' });
@@ -202,6 +202,96 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     const forwarded = JSON.parse(sentBody) as { messages: Array<{ content: string }> };
     expect(forwarded.messages[0].content).toBe(content); // CJK 完整往返
   });
+
+  it('S3:重定向目标内网(302 → 127.0.0.1)→ 502 拒发,不跟随', async () => {
+    const res = fakeRes();
+    const targets: string[] = [];
+    await handleLlmProxy(
+      fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' })),
+      res,
+      async (url: string) => {
+        targets.push(url);
+        return {
+          status: 302,
+          headers: { get: (name: string) => (name === 'location' ? 'http://127.0.0.1:11434/v1/chat' : null) },
+          body: null,
+        } as Response;
+      },
+    );
+    expect(res.calls[0].status).toBe(502);
+    expect(res.calls[0].body).toContain('重定向目标被拒');
+    expect(targets).toHaveLength(1); // 未跟随到内网
+  });
+
+  it('M2:3xx → redirect:manual + 公网目标手动跟随(单跳,302 → 200)', async () => {
+    const res = fakeRes();
+    const redirects: Array<string | undefined> = [];
+    let calls = 0;
+    await handleLlmProxy(
+      fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' })),
+      res,
+      async (url: string, init?: unknown) => {
+        calls += 1;
+        const initObj = init as { redirect?: string } | undefined;
+        redirects.push(initObj?.redirect);
+        if (calls === 1) {
+          return {
+            status: 302,
+            headers: { get: (name: string) => (name === 'location' ? 'https://9.9.9.9/v1/chat' : null) },
+            body: null,
+          } as Response;
+        }
+        return fakeUpstream();
+      },
+    );
+    expect(res.calls[0].status).toBe(200);
+    expect(calls).toBe(2);
+    expect(redirects).toEqual(['manual', 'manual']); // 每跳都禁自动跟随
+  });
+
+  it('S5:代理响应带 CSP/nosniff/no-store 头(400 与 200 路径)', async () => {
+    const res400 = fakeRes();
+    await handleLlmProxy(fakeReq(JSON.stringify({ base: 'ftp://x.com/v1' })), res400, async () => fakeUpstream());
+    const h400 = res400.calls[0].headers ?? {};
+    expect(h400['X-Content-Type-Options']).toBe('nosniff');
+    expect(h400['Cache-Control']).toBe('no-store');
+    expect(h400['Content-Security-Policy']).toContain("default-src 'self'");
+    expect(h400['Content-Security-Policy']).toContain("connect-src 'self' https:");
+
+    const res200 = fakeRes();
+    await handleLlmProxy(
+      fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' })),
+      res200,
+      async () => fakeUpstream(),
+    );
+    const h200 = res200.calls[0].headers ?? {};
+    expect(h200['X-Content-Type-Options']).toBe('nosniff');
+    expect(h200['Cache-Control']).toBe('no-store');
+  });
+});
+
+describe('proxies.cjs F30(畸形 req.url → 400 不崩)', () => {
+  it('handleTdxCollect:new URL 抛错 → 400,不触采集', async () => {
+    const res = fakeRes();
+    let called = false;
+    await handleTdxCollect({ url: 'http://[::1' }, res, async () => {
+      called = true;
+      return {};
+    });
+    expect(res.calls[0].status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  it('handleWebSearch:new URL 抛错 → 400,不触 searcher', async () => {
+    const res = fakeRes();
+    let called = false;
+    await proxies.handleWebSearch({ url: 'http://[::1' }, res, async () => {
+      called = true;
+      return { results: [] };
+    });
+    expect(res.calls[0].status).toBe(400);
+    expect(called).toBe(false);
+  });
 });
 
 describe('proxies.cjs /tdx-collect(W4 互斥)', () => {
@@ -312,10 +402,20 @@ describe('proxies.cjs C2 校验工具', () => {
       'fc00::1',
       'fd12::1',
       '::ffff:127.0.0.1',
+      // S3:隧道/保留段扩展 —— 6to4 2002::/16、Teredo 2001::/32(含压缩形)、
+      // 文档 2001:db8::/32、NAT64 64:ff9b::/96
+      '2002::1',
+      '2002:c000:201::1',
+      '2001::1',
+      '2001:0:4136:e378:8000:63bf:3fff:fdd2',
+      '2001::4136:e378:8000:63bf:3fff:fdd2', // 压缩形(第二组 0 被压缩)
+      '2001:db8::1',
+      '64:ff9b::1',
+      '64:ff9b:1::8080',
     ];
     for (const ip of priv) expect(isPrivateAddress(ip), ip).toBe(true);
     expect(isPrivateAddress('172.32.0.1')).toBe(false); // 172.32 不在 172.16-31 段
-    for (const ip of ['8.8.8.8', '1.1.1.1', '114.114.114.114', '2606:4700:4700::1111']) {
+    for (const ip of ['8.8.8.8', '1.1.1.1', '114.114.114.114', '2606:4700:4700::1111', '2001:4860:4860::8888']) {
       expect(isPrivateAddress(ip), ip).toBe(false);
     }
   });

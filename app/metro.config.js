@@ -76,8 +76,32 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
 const { handleLlmProxy, handleTdxCollect, handleWebSearch, handleYahooCollect } = require('./lib/proxies.cjs');
 const { handleLogs } = require('./lib/logs-server.cjs');
 
+// S2:代理端点 Origin 允许列表(与 server.mjs createAppServer 同款)——仅接受
+// 无 Origin / null / 本站 origin;跨站 fetch → 403 零 CORS 头。GET 简单请求
+// (script/img 导航不带 Origin)不受影响。
+function isOriginAllowed(req) {
+  const origin = req.headers.origin;
+  if (origin === undefined || origin === null || origin === 'null') return true;
+  const host = req.headers.host;
+  if (typeof host !== 'string' || host === '') return false;
+  const o = String(origin).toLowerCase();
+  const h = host.toLowerCase();
+  return o === `http://${h}` || o === `https://${h}`;
+}
+
 config.server.enhanceMiddleware = (middleware, _server) => {
   return (req, res, next) => {
+    const isProxyPath =
+      req.url.startsWith('/llm-proxy/') ||
+      req.url.startsWith('/tdx-collect') ||
+      req.url.startsWith('/yahoo-collect') ||
+      req.url.startsWith('/web-search') ||
+      req.url === '/logs';
+    if (isProxyPath && !isOriginAllowed(req)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
     if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {
       void handleLlmProxy(req, res);
       return;

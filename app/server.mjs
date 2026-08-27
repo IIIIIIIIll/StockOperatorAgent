@@ -29,6 +29,14 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
+// S5:CSP 静态面(与 proxies.cjs SEC_HEADERS 同值,单份策略防漂移;style-src
+// 'unsafe-inline' 为 expo-reset 内联 <style>,img-src data: 供内联图元)。
+const SEC_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+  'X-Content-Type-Options': 'nosniff',
+};
+
 /** C1:畸形 URL(如 /%ZZ)decodeURIComponent 抛 URIError → 400 不崩 server。
  *  导出供 vitest 单测;本模块 import 侧无副作用(listen 仅主入口执行)。 */
 export function serveStatic(req, res) {
@@ -40,18 +48,41 @@ export function serveStatic(req, res) {
     res.end('Bad Request');
     return;
   }
-  let file = path.join(DIST, urlPath === '/' ? 'index.html' : urlPath);
-  if (!file.startsWith(DIST)) {
-    res.writeHead(403);
-    res.end('Forbidden');
-    return;
+  try {
+    // F29:existsSync→statSync 竞态/读流异常同步抛出会击穿 listener → 整块
+    // try/catch(500 兜底,进程存活);下面 stream 'error' 异步路径同样兜底。
+    let file = path.join(DIST, urlPath === '/' ? 'index.html' : urlPath);
+    // F28:锚定 DIST+sep —— 裸 startsWith 会放行 path.join 归一化后逃逸到
+    // 兄弟目录的路径(如 '/a/distX/…' 共享 '/a/dist' 字符串前缀)
+    if (!file.startsWith(DIST + path.sep)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+    if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+      file = path.join(DIST, 'index.html'); // SPA fallback
+    }
+    const ext = path.extname(file);
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] ?? 'application/octet-stream',
+      ...SEC_HEADERS,
+      // S5:index.html no-cache(SPA 每次校验);内容哈希命名的静态资源可长缓存
+      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+    });
+    const stream = fs.createReadStream(file);
+    stream.on('error', () => {
+      // 读流中途失败(文件被删/IO 错):连接终止,不抛未处理 error 崩进程
+      res.destroy();
+    });
+    stream.pipe(res);
+  } catch {
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end('Internal Server Error');
+    } else {
+      res.destroy();
+    }
   }
-  if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-    file = path.join(DIST, 'index.html'); // SPA fallback
-  }
-  const ext = path.extname(file);
-  res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream' });
-  fs.createReadStream(file).pipe(res);
 }
 
 /** A6:Host 头判定(DNS rebinding 硬化)——仅接受 loopback:localhost /
@@ -93,6 +124,20 @@ function isLoopbackBind(addr) {
   );
 }
 
+/** S2:代理端点 Origin 允许列表 —— 仅接受 无 Origin / null / 本站 origin
+ *  (scheme+host 取自 Host 头,大小写不敏感)。跨站 fetch(带 Origin)→ 403 且
+ *  零 CORS 头(读不到响应);表单 POST 同被拦。GET 简单请求(script/img 导航
+ *  不带 Origin)不受影响。与 metro.config.js enhanceMiddleware 同款。 */
+function isOriginAllowed(req) {
+  const origin = req.headers.origin;
+  if (origin === undefined || origin === null || origin === 'null') return true;
+  const host = req.headers.host;
+  if (typeof host !== 'string' || host === '') return false;
+  const o = String(origin).toLowerCase();
+  const h = host.toLowerCase();
+  return o === `http://${h}` || o === `https://${h}`;
+}
+
 /** 生产 web server 工厂:静态服务 dist + 同源代理路由。导出供桌面主进程复用
  *  (返回 http.Server,监听与否由调用方决定)。路由体与旧模块级 createServer
  *  完全一致,行为零变化。 */
@@ -108,6 +153,18 @@ export function createAppServer() {
     // 注意: 仅 http://localhost / 127.0.0.0/8 / [::1] 可直接访问;自定 hostname
     // 或反向代理(nginx → 127.0.0.1)需将入站 Host 改写为 127.0.0.1:port。
     if (isLoopbackBind(req.socket.localAddress) && !isLoopbackHostHeader(req.headers.host)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+    // S2:全部 5 个代理端点统一 Origin 门(无 Origin/null/本站放行;跨站 → 403)
+    const isProxyPath =
+      req.url.startsWith('/llm-proxy/') ||
+      req.url.startsWith('/tdx-collect') ||
+      req.url.startsWith('/yahoo-collect') ||
+      req.url.startsWith('/web-search') ||
+      req.url === '/logs';
+    if (isProxyPath && !isOriginAllowed(req)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;

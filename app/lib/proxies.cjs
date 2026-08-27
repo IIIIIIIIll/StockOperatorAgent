@@ -19,6 +19,17 @@ const { yahooMarketOfTicker } = require('../../src/yahoo/webYahooCollect.ts');
 const dns = require('node:dns');
 const net = require('node:net');
 
+// ─── S5:代理响应安全头(CSP 供参考/文档面;JSON 响应核心是 nosniff+no-store;
+// 静态面 CSP 同值,见 server.mjs serveStatic)──────────────────────────────
+// style-src 'unsafe-inline' 为 expo-reset 内联 <style>(dist/index.html 实测),
+// img-src data: 供内联图元;script-src 由 default-src 'self' 继承(无内联脚本)。
+const SEC_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+  'X-Content-Type-Options': 'nosniff',
+  'Cache-Control': 'no-store', // 代理响应永不缓存(含 SSRF 判定后的敏感载荷)
+};
+
 // ─── 请求体上限(W2,对齐 logs-server MAX_BODY_BYTES)────────────────────────
 // 64KB → 1MB(2026-08-16 desktop-app 实证:投资经理终审上下文 = 6 份报告 +
 // 修订轮 + 联网搜索结果,真实全链 >64KB 撞 413;1MB 仍挡滥用,文本 JSON 无
@@ -66,20 +77,56 @@ function isPrivateAddress(ip) {
     const low = ip.toLowerCase();
     if (low === '::' || low === '::1') return true;
     if (/^fe[89a-f]/.test(low) || /^f[cd]/.test(low)) return true; // fe80::/10 链路本地 + fc00::/7 ULA
+    // S3:隧道/保留段(前缀按展开组比较,容忍 RFC5952 压缩形)——
+    // 6to4 2002::/16、Teredo 2001::/32、文档 2001:db8::/32、NAT64 64:ff9b::/96。
+    // 注意不可整段封 2001::/16(2001:4860:: 是 Google Public DNS)。
+    const g = expandIpv6Groups(low);
+    if (g[0] === '2002') return true;
+    if (g[0] === '2001' && g[1] === '0000') return true;
+    if (g[0] === '2001' && g[1] === '0db8') return true;
+    if (g[0] === '0064' && g[1] === 'ff9b') return true;
     return false;
   }
   return true; // 无法识别 → 保守拒绝
 }
 
-/** host 解析后任一地址私网 → false(防 hostname 指向内网/DNS 重绑定的 SSRF)。 */
-async function isPublicHost(u) {
+/** IPv6 展开为 8 组定宽 4 位十六进制(处理 :: 压缩;供前缀比较)。 */
+function expandIpv6Groups(ip) {
+  const dc = ip.indexOf('::');
+  let groups;
+  if (dc === -1) {
+    groups = ip.split(':');
+  } else {
+    const head = dc === 0 ? [] : ip.slice(0, dc).split(':');
+    const tailPart = ip.slice(dc + 2);
+    const tail = tailPart === '' ? [] : tailPart.split(':');
+    groups = [...head, ...Array(8 - head.length - tail.length).fill('0'), ...tail];
+  }
+  return groups.map((s) => s.padStart(4, '0'));
+}
+
+/** S3:host 全地址公网校验 —— 解析一次,任一地址私网/解析失败 → null(保守拒发);
+ *  全部公网 → 返回地址列表(调用方仅判 null)。
+ *  注(TOCTOU 残余,2026-08-27 实证):全局 fetch(undici 6.x)不接受 init 里的
+ *  lookup 选项(实测忽略,仍自行解析),且仓库无独立 undici 包可构造 dispatcher
+ *  注入 connect.lookup —— 「把已校验 IP 钉进建连」在当前栈不可实现,故此处只
+ *  校验不固定;校验与建连之间的 DNS 翻转窗口需攻击者控制宿主 DNS,记录为接受
+ *  的残余(重定向逐跳重新解析+校验,见 handleLlmProxy M2 循环)。 */
+async function pinPublicHost(u) {
   let addrs;
   try {
     addrs = await dns.promises.lookup(u.hostname, { all: true, verbatim: true });
   } catch {
-    return false; // 解析失败 → 保守拒绝(不发)
+    return null; // 解析失败 → 保守拒绝(不发)
   }
-  return addrs.length > 0 && addrs.every(({ address }) => !isPrivateAddress(address));
+  if (addrs.length === 0 || addrs.some(({ address }) => isPrivateAddress(address))) return null;
+  return addrs;
+}
+
+/** host 解析后任一地址私网 → false(防 hostname 指向内网/DNS 重绑定的 SSRF;
+ *  判定与 pinPublicHost 单源)。 */
+async function isPublicHost(u) {
+  return (await pinPublicHost(u)) !== null;
 }
 
 // ─── LLM 同源代理(/llm-proxy/*)─────────────────────────────────────────────
@@ -96,7 +143,7 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
     for await (const chunk of req) {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS });
         res.end(JSON.stringify({ error: 'LLM 代理请求体超过 1MB 限制' }));
         return;
       }
@@ -111,27 +158,65 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
     // (浏览器端用户配置透传是设计意图,保留机制、加 SSRF 防线)
     const baseUrl = normalizeBaseUrl(req.headers['x-llm-base'] || base);
     if (!baseUrl) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
       res.end(JSON.stringify({ error: 'LLM 代理目标 base 非法(需 http(s):// 且不含 userinfo)' }));
       return;
     }
-    if (!(await isPublicHost(baseUrl))) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
+    // S3:全地址公网校验(任一私网/解析失败 → 403;固定查询器不可用见 pinPublicHost 注)
+    const pinned = await pinPublicHost(baseUrl);
+    if (!pinned) {
+      res.writeHead(403, { 'Content-Type': 'application/json', ...SEC_HEADERS });
       res.end(JSON.stringify({ error: 'LLM 代理目标被拒:仅允许公网 host(拒绝内网/环回地址)' }));
       return;
     }
     // 尾斜杠归一,避免 base 带 / 时拼出双斜杠
-    const target = `${baseUrl.origin}${baseUrl.pathname.replace(/\/+$/, '')}/${req.url.slice('/llm-proxy/'.length)}`;
-    const upstream = await _fetch(target, {
+    let target = `${baseUrl.origin}${baseUrl.pathname.replace(/\/+$/, '')}/${req.url.slice('/llm-proxy/'.length)}`;
+    const forwardOpts = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: req.headers.authorization || '',
       },
       body: JSON.stringify(payload),
-    });
+      // M2:SSRF 3xx 绕过防护 —— 绝不自动跟随(307/308 会原样带 method+body
+      // 转发到内网);逐跳手动校验见下方循环
+      redirect: 'manual',
+    };
+    let upstream = await _fetch(target, forwardOpts);
+    // M2:逐跳重定向处理 —— location 解析 → 新 host 重新解析+公网校验 → 手动跟随;
+    // 目标私网/非法 location/非 http(s)/超 5 跳 → 拒发。
+    const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
+    let hops = 0;
+    while (REDIRECT_CODES.has(upstream.status)) {
+      const location = upstream.headers.get('location');
+      await upstream.body?.cancel?.(); // 3xx body 不消费 → 释放连接
+      if (!location || hops >= 5) break;
+      let next;
+      try {
+        next = new URL(location, target);
+      } catch {
+        break;
+      }
+      if (next.protocol !== 'http:' && next.protocol !== 'https:') break;
+      if (next.hostname !== baseUrl.hostname) {
+        const hop = await pinPublicHost(next);
+        if (!hop) {
+          if (res.headersSent) {
+            res.destroy();
+            return;
+          }
+          res.writeHead(502, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+          res.end(JSON.stringify({ error: { message: 'LLM 代理转发失败:重定向目标被拒(仅允许公网 host)' } }));
+          return;
+        }
+      }
+      target = next.href;
+      hops += 1;
+      upstream = await _fetch(target, forwardOpts);
+    }
     res.writeHead(upstream.status, {
       'Content-Type': upstream.headers.get('content-type') || 'application/json',
+      ...SEC_HEADERS,
     });
     // R4 流式透传:pipe upstream.body 分块转发,不整体缓冲(await text 曾致
     // 浏览器一次性收到 SSE);upstream 断开 → for-await 抛错,走下方兜底 destroy。
@@ -148,7 +233,7 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
       res.destroy();
       return;
     }
-    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.writeHead(502, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify({ error: { message: `LLM 代理转发失败:${String(err?.message ?? err)}` } }));
   }
 }
@@ -198,18 +283,26 @@ async function doCollect(ticker, opts = {}) {
 }
 
 async function handleTdxCollect(req, res, _collect = doCollect) {
-  const url = new URL(req.url, 'http://x');
+  let url;
+  try {
+    url = new URL(req.url, 'http://x');
+  } catch {
+    // F30:畸形 req.url(如非法 IPv6 字面)new URL 抛错 → 400,不崩进程
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: '非法请求 URL' }));
+    return;
+  }
   const ticker = url.searchParams.get('ticker') ?? '';
   // C8 freshness:浏览器按 store 现有数据判定后传跳过标记(仅 '1' 生效,其余按全量)
   const skipDaily = url.searchParams.get('skipDaily') === '1';
   const skipF10 = url.searchParams.get('skipF10') === '1';
   if (!/^\d{6}$/.test(ticker)) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify({ error: `无效 ticker:${ticker}(需 6 位数字)` }));
     return;
   }
   if (collecting) {
-    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.writeHead(429, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify({ error: '已有采集进行中,请稍后重试' }));
     return;
   }
@@ -218,7 +311,7 @@ async function handleTdxCollect(req, res, _collect = doCollect) {
   const send = (status, obj) => {
     if (settled) return;
     settled = true;
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.writeHead(status, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify(obj));
   };
   // W4:超时 timer 仅提前回 504 通知客户端,不打断 doCollect(底层 TdxClient
@@ -283,7 +376,7 @@ async function handleYahooCollect(req, res, _collect = doYahooCollect) {
   for await (const chunk of req) {
     size += chunk.length;
     if (size > MAX_BODY_BYTES) {
-      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS });
       res.end(JSON.stringify({ error: 'Yahoo 采集请求体超过 1MB 限制' }));
       return;
     }
@@ -299,15 +392,23 @@ async function handleYahooCollect(req, res, _collect = doYahooCollect) {
     ticker = '';
   }
   // C8 freshness:浏览器按 store 现有数据判定后传跳过标记(仅 '1' 生效,缺省全量)
-  const url = new URL(req.url, 'http://x');
+  let url;
+  try {
+    url = new URL(req.url, 'http://x');
+  } catch {
+    // F30:畸形 req.url → 400,不崩进程
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: '非法请求 URL' }));
+    return;
+  }
   const skipDaily = url.searchParams.get('skipDaily') === '1';
   if (!YAHOO_TICKER_RE.test(ticker) || !isYahooMarket(ticker)) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify({ error: '非法代码' }));
     return;
   }
   if (collectingYahoo) {
-    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.writeHead(429, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify({ error: '已有采集进行中,请稍后重试' }));
     return;
   }
@@ -316,7 +417,7 @@ async function handleYahooCollect(req, res, _collect = doYahooCollect) {
   const send = (status, obj) => {
     if (settled) return;
     settled = true;
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.writeHead(status, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify(obj));
   };
   // W4 同款:超时 timer 仅提前回 504 通知客户端,不主动打断采集;锁保持到
@@ -346,13 +447,21 @@ async function handleYahooCollect(req, res, _collect = doYahooCollect) {
 const SEARCH_TIMEOUT_MS = 20_000;
 
 async function handleWebSearch(req, res, _ddg = ddgSearcher) {
-  const url = new URL(req.url, 'http://x');
+  let url;
+  try {
+    url = new URL(req.url, 'http://x');
+  } catch {
+    // F30:畸形 req.url → 400,不崩进程
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: '非法请求 URL' }));
+    return;
+  }
   const q = url.searchParams.get('q') ?? '';
   // q 校验:非空 + ≤200 字符 + 无控制字符。禁空白是错的——分析师自身查询
   // 模板含空格("600036 最新新闻",src/agents.ts _QUERY_TEMPLATES),曾致
   // DDG 回退恒 400(08-16-desktop-app 实证:web/桌面同路径)。
   if (!q || q.length > 200 || /[\x00-\x1f\x7f]/.test(q)) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify({ error: `无效 q 参数:${q}(需非空、≤200 字符、无控制字符)` }));
     return;
   }
@@ -360,7 +469,7 @@ async function handleWebSearch(req, res, _ddg = ddgSearcher) {
   const send = (status, obj) => {
     if (settled) return;
     settled = true;
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.writeHead(status, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify(obj));
   };
   try {
