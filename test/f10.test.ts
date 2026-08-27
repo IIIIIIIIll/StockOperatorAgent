@@ -51,5 +51,8 @@ describe('f10 parser dual format (AC6)', () => {
     expect(toNum('3.2万')).toBe(3.2e4);
     expect(Number.isNaN(toNum('-'))).toBe(true);
     expect(Number.isNaN(toNum('null'))).toBe(true);
+    // F26:裸「万」/「亿」(无数值前缀)→ NaN,不得乘出 0
+    expect(Number.isNaN(toNum('万'))).toBe(true);
+    expect(Number.isNaN(toNum('亿'))).toBe(true);
   });
 });

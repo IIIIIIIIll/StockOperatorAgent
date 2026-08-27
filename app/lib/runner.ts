@@ -41,6 +41,10 @@ export let store: StoreLike = detectPlatform() === 'web' ? new IdbStore() : new 
  *  ESM live binding:export let 使已 import 方(useAnalysis/DataScreen)同步看到新值。 */
 export function setStore(s: StoreLike): void {
   store = s;
+  // Yahoo 采集链入库面与 runner 同一 store 实例:晚注入(setStore)时同步重绑,
+  // 否则仅模块加载期的绑定会把 hk/us 采集写进被丢弃的初始实例(见文件底
+  // setYahooStore(store) 模块级初始绑定)。
+  setYahooStore(s);
 }
 
 // 桌面壳桥注入:renderer 内 window.__soaDesktop 存在时,用 DesktopStore
@@ -61,8 +65,9 @@ export function storeReady(): Promise<void> {
 
 // 演示数据载入(demo.ticker:250 根日K + 指标 + F10;仅预览/未起 server 时的占位视图)
 // 仅空库(getStock/getDatas 全空)时载入——有跨会话持久化数据则跳过
-export function loadDemoData(): void {
-  if (store.getStock(demo.ticker) !== null || store.getDatas(demo.ticker).length > 0) return;
+/** 演示数据载入;返回是否真正写入(空库才载入,已有持久化数据 → false)。 */
+export function loadDemoData(): boolean {
+  if (store.getStock(demo.ticker) !== null || store.getDatas(demo.ticker).length > 0) return false;
   store.putStock({
     ticker: demo.ticker,
     name: demo.name,
@@ -72,6 +77,7 @@ export function loadDemoData(): void {
   });
   store.addDatas(demo.ticker, demo.bars as never);
   store.setMeta(DEMO_F10_KEY, demo.f10_text);
+  return true;
 }
 
 export const runner = createPipelineRunner(store);

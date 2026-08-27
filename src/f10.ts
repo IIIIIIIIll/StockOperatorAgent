@@ -16,9 +16,18 @@ export interface F10Record {
 export function toNum(s: string): number {
   const t = (s ?? '').trim();
   if (['', '-', '--', '—', 'null', 'NULL'].includes(t)) return NaN;
-  let mult = 1;
-  if (t.endsWith('亿')) { mult = 1e8; return Number(t.slice(0, -1)) * mult; }
-  if (t.endsWith('万')) { mult = 1e4; return Number(t.slice(0, -1)) * mult; }
+  if (t.endsWith('亿')) {
+    const prefix = t.slice(0, -1);
+    // 裸「亿」(无数值前缀):Number('')===0,须显式判空 → NaN,不乘出 0
+    const v = prefix === '' ? NaN : Number(prefix);
+    return Number.isNaN(v) ? NaN : v * 1e8; // 裸「亿」→ NaN,不乘出 0
+  }
+  if (t.endsWith('万')) {
+    const prefix = t.slice(0, -1);
+    // 裸「万」同上:空前缀 → NaN
+    const v = prefix === '' ? NaN : Number(prefix);
+    return Number.isNaN(v) ? NaN : v * 1e4; // 裸「万」→ NaN,不乘出 0
+  }
   const v = Number(t);
   return Number.isNaN(v) ? NaN : v;
 }

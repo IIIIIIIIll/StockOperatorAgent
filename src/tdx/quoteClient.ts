@@ -3,6 +3,7 @@
 // name 经 getStockList 全量拉取(失败回退 null,调用方用 ticker 兜底)。
 import { TdxClient, KlineCategory, addPrefix, inferExchange, Exchange } from 'node-tdx-market';
 import type { DailyBar } from '../store.ts';
+import { nameKey } from '../metaKeys.ts';
 import { qfqAdjust, type Bar, type XdxrEventLike } from '../adjust.ts';
 import { getXdxrInfo, toXdxrEventLike } from './xdxr.ts';
 
@@ -83,7 +84,7 @@ export async function fetchStockName(
   metaGet: (key: string) => string | null,
   metaSet: (key: string, value: string) => void,
 ): Promise<string | null> {
-  const key = `name:${ticker}`;
+  const key = nameKey(ticker);
   const cached = metaGet(key);
   if (cached) return cached;
   try {

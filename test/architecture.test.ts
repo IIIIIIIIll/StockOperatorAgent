@@ -223,15 +223,17 @@ describe('契约 4:src 无 declare global 含 DOM 全局名(允许自定义名)'
 // ─── 断言 5:src+app 无 meta 键裸字面量 ─────────────────────────────────────
 // 白名单:
 // - src/metaKeys.ts:键名/模板的**唯一定义面**(08-16-audit-remediation 契约:
-//   demo:f10 / f10:${ticker} / capital:${ticker} / DEMO_TICKER 全部 const/
-//   模板化于此;换键名/换 demo 票只改一处)。整文件豁免(注释也在解释这些键)。
+//   demo:f10 / f10:${ticker} / capital:${ticker} / name:${ticker} /
+//   DEMO_TICKER 全部 const/模板化于此;换键名/换 demo 票只改一处)。整文件豁免
+//   (注释也在解释这些键)。name:${ticker} 于 08-27-golive-cleanup-nits F36 并入
+//   (quoteClient 曾裸写该模板,META_PATTERNS 原为 4 条不覆盖 → 审计漏网)。
 // - app/data/demo.json:demo 数据集文件(ticker 数据本身,非代码字面量)。
 // 断言:src/app 其余文件不得再裸写这些跨会话持久化键(键漂移 → 旧数据读不到)。
 const META_WHITELIST: Whitelist = { 'src/metaKeys.ts': true, 'app/data/demo.json': true };
-const META_PATTERNS = [/demo:f10/, /f10:\$\{/, /capital:\$\{/, /600036/];
+const META_PATTERNS = [/demo:f10/, /f10:\$\{/, /capital:\$\{/, /name:\$\{/, /600036/];
 
 describe('契约 5:src+app 无 meta 键裸字面量(metaKeys.ts 定义面 + demo.json 白名单)', () => {
-  it('src/app 其余文件禁裸写 demo:f10 / f10:${ / capital:${ / 600036', () => {
+  it('src/app 其余文件禁裸写 demo:f10 / f10:${ / capital:${ / name:${ / 600036', () => {
     const files = [...SRC_TS, ...APP_TS, 'app/data/demo.json'].filter((f) => fs.existsSync(f));
     const violations = scan(
       files,
