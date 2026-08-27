@@ -26,11 +26,19 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
   const styles = makeStyles(theme);
   const bars = React.useMemo(() => store.getDatas(ticker), [ticker, dataVersion]);
   const stock = store.getStock(ticker);
-  const f10Text = store.getMeta(f10Key(ticker)) ?? (ticker === DEMO_TICKER ? (store.getMeta(DEMO_F10_KEY) ?? '') : '');
-  const profit = f10Text ? parseIndicatorSection(f10Text, '【盈利能力指标】') : [];
+  // F05:reports/profit 派生 memo 化(ticker+dataVersion 变化才重算)——原每渲染
+  // 重建,financialSeriesData 依赖引用不稳 → FinancialTrendChart 全图重建/闪烁
+  const f10Text = React.useMemo(
+    () => store.getMeta(f10Key(ticker)) ?? (ticker === DEMO_TICKER ? (store.getMeta(DEMO_F10_KEY) ?? '') : ''),
+    [ticker, dataVersion],
+  );
+  const profit = React.useMemo(
+    () => (f10Text ? parseIndicatorSection(f10Text, '【盈利能力指标】') : []),
+    [ticker, dataVersion],
+  );
   const periods = [...new Set(profit.map((r) => r.period))].sort();
   const latest = periods[periods.length - 1] ?? '';
-  const reports = store.getPerformanceReports(ticker);
+  const reports = React.useMemo(() => store.getPerformanceReports(ticker), [ticker, dataVersion]);
   // 股本结构:web 采集经 webCollect 持久化 meta capitalKey(ticker)(股本结构节文本);
   // demo/未采集 → null(换手率列显示 N/A,与 Python 缺股本语义一致)
   const capital = React.useMemo(() => {
