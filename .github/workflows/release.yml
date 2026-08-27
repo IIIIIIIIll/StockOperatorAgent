@@ -116,19 +116,23 @@ jobs:
             package-lock.json
             app/package-lock.json
 
-      - name: Verify desktop version matches release tag
+      - name: Verify desktop and android versions match release tag
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           tag_version="${GITHUB_REF_NAME#v}"
           pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
-          if [ "$pkg_version" != "$tag_version" ]; then
-            echo "Release gate failed: desktop/package.json version does not match tag version"
-            echo "expected: v${tag_version}"
-            echo "actual:   ${pkg_version}"
-            echo "Bump desktop/package.json to ${tag_version} and re-tag, or delete this tag and create v${pkg_version}."
+          app_pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('app/package.json','utf8')).version")"
+          app_json_version="$(node -p "JSON.parse(require('fs').readFileSync('app/app.json','utf8')).expo.version")"
+          if [ "$pkg_version" != "$tag_version" ] || [ "$app_pkg_version" != "$tag_version" ] || [ "$app_json_version" != "$tag_version" ]; then
+            echo "Release gate failed: desktop/app version does not match tag version"
+            echo "expected:             v${tag_version}"
+            echo "desktop/package.json: ${pkg_version}"
+            echo "app/package.json:     ${app_pkg_version}"
+            echo "app/app.json:         ${app_json_version}"
+            echo "Bump desktop/package.json, app/package.json and app/app.json to ${tag_version} and re-tag, or delete this tag and create v${tag_version}."
             exit 1
           fi
-          echo "Release gate OK: desktop/package.json ${pkg_version} matches tag v${tag_version}"
+          echo "Release gate OK: desktop/package.json ${pkg_version}, app/package.json ${app_pkg_version}, app/app.json ${app_json_version} match tag v${tag_version}"
 
       - name: Setup Java 17 (Temurin)
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4 → cf277c60eb25467037889841efdb72551f06f6c3

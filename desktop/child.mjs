@@ -190,7 +190,9 @@ async function main() {
     settings = null; // unreadable settings -> null (settingsStore silent-degrade parity)
   }
 
-  server = createAppServer();
+  // S6:显式传有效监听地址 127.0.0.1 —— requireToken 按 host 选项判定,
+  // ambient HOST=0.0.0.0 无法让回环监听要求 token(渲染器发不了也无需发)。
+  server = createAppServer({ host: '127.0.0.1' });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);

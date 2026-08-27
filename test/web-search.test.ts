@@ -111,6 +111,30 @@ describe('makeProxySearcher（同源 /web-search 代理 searcher）', () => {
     const search = makeProxySearcher('http://x', fakeFetch);
     await expect(search('q')).rejects.toThrow(/无返回结果/);
   });
+
+  it('S6:EXPO_PUBLIC_SOA_ACCESS_TOKEN 已设 → /web-search 请求带 X-SOA-Token;未设 → 无 init', async () => {
+    const inits: Array<RequestInit | undefined> = [];
+    const fn = (async (_url: string, init?: RequestInit) => {
+      inits.push(init);
+      return {
+        ok: true,
+        json: async () => ({ results: [{ title: 't', link: 'l', snippet: 's' }] }),
+      } as Response;
+    }) as unknown as typeof fetch;
+    const old = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    try {
+      process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'sekrit';
+      await makeProxySearcher('http://x', fn)('q');
+      expect((inits[0]?.headers as Record<string, string> | undefined)?.['X-SOA-Token']).toBe('sekrit');
+    } finally {
+      if (old === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = old;
+    }
+    // 未设 token → 单参调用,不带头(回环逐字节不变)
+    inits.length = 0;
+    await makeProxySearcher('http://x', fn)('q');
+    expect(inits[0]).toBeUndefined();
+  });
 });
 
 describe('defaultSearcher 惰性(调用时重读 env,非模块级单例)', () => {

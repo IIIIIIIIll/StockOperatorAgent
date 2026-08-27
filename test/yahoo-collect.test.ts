@@ -565,6 +565,31 @@ describe('collectYahooViaProxy(浏览器 → /yahoo-collect)', () => {
     expect(calls[0].url).toBe('http://localhost:8090/yahoo-collect');
   });
 
+  it('S6:EXPO_PUBLIC_SOA_ACCESS_TOKEN 已设 → /yahoo-collect 带 X-SOA-Token(Content-Type 不变)', async () => {
+    const store = new InMemoryStore();
+    setYahooStore(store);
+    const calls: FetchCall[] = [];
+    const fakeFetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return jsonResponse({
+        ticker: 'AAPL', name: null, bars: [], snapshot: null, overview: { ticker: 'AAPL', currency: 'USD' },
+        reports: [], capital: { zongguben: NaN, liutongguben: NaN },
+      });
+    }) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fakeFetch);
+    const old = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    try {
+      process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'sekrit';
+      await collectYahooViaProxy('AAPL', 'http://localhost:8090');
+      const headers = (calls[0].init?.headers ?? {}) as Record<string, string>;
+      expect(headers['X-SOA-Token']).toBe('sekrit');
+      expect(headers['Content-Type']).toBe('application/json');
+    } finally {
+      if (old === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = old;
+    }
+  });
+
   it('HTTP 非 2xx → 解析 {error} 抛 Error(对齐 collectViaProxy 语义)', async () => {
     vi.stubGlobal(
       'fetch',

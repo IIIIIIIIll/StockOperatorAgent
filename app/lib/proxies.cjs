@@ -23,9 +23,10 @@ const net = require('node:net');
 // 静态面 CSP 同值,见 server.mjs serveStatic)──────────────────────────────
 // style-src 'unsafe-inline' 为 expo-reset 内联 <style>(dist/index.html 实测),
 // img-src data: 供内联图元;script-src 由 default-src 'self' 继承(无内联脚本)。
+// frame-ancestors 'self' 防本地 SPA 被第三方 iframe 嵌入(clickjacking,2026-08-27 note)。
 const SEC_HEADERS = {
   'Content-Security-Policy':
-    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'",
   'X-Content-Type-Options': 'nosniff',
   'Cache-Control': 'no-store', // 代理响应永不缓存(含 SSRF 判定后的敏感载荷)
 };
@@ -77,10 +78,34 @@ function isPrivateAddress(ip) {
     const low = ip.toLowerCase();
     if (low === '::' || low === '::1') return true;
     if (/^fe[89a-f]/.test(low) || /^f[cd]/.test(low)) return true; // fe80::/10 链路本地 + fc00::/7 ULA
+    const g = expandIpv6Groups(low);
+    // S3 补漏(2026-08-27 实证):hex 形 IPv4-mapped —— 原实现只认顶部 dotted-quad
+    // 正则,`::ffff:7f00:1`(=127.0.0.1)等 hex 形落入本分支被放行。::ffff:0:0/96
+    // 的标准形(g[5]=ffff,内嵌 32 位在末两组)与宽容变体 `::ffff:0:X:Y`
+    // (g[4]=ffff、g[5]=0,内嵌位同样在末两组)一律提取内嵌 IPv4 为 dotted quad,
+    // 递归复用上方同一 IPv4 黑名单(单源判定,与 dotted-quad 形等价)。
+    const mappedStd =
+      g[0] === '0000' && g[1] === '0000' && g[2] === '0000' && g[3] === '0000' && g[4] === '0000' && g[5] === 'ffff';
+    const mappedLoose =
+      g[0] === '0000' && g[1] === '0000' && g[2] === '0000' && g[3] === '0000' && g[4] === 'ffff' && g[5] === '0000';
+    if (mappedStd || mappedLoose) {
+      // S3 补漏(2026-08-28 实证):dotted-quad 全写形 —— `0:0:0:0:0:ffff:8.8.8.8`
+      // (=公网 8.8.8.8)末组含 '.',旧 hex 路径 parseInt('8.8.8.8',16)=NaN →
+      // 0.0.0.0 误封。末组(内嵌 32 位的两种落点)含 '.' 时按 dotted-quad
+      // 直接复用上方同一 IPv4 黑名单;纯 hex 保持原提取;含 '.' 但非合法
+      // IPv4 → 保守拒绝。
+      const dotted = [g[6], g[7]].find((s) => typeof s === 'string' && s.includes('.'));
+      if (dotted !== undefined) {
+        if (!net.isIPv4(dotted)) return true;
+        return isPrivateAddress(dotted);
+      }
+      const hi = parseInt(g[6], 16);
+      const lo = parseInt(g[7], 16);
+      return isPrivateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
     // S3:隧道/保留段(前缀按展开组比较,容忍 RFC5952 压缩形)——
     // 6to4 2002::/16、Teredo 2001::/32、文档 2001:db8::/32、NAT64 64:ff9b::/96。
     // 注意不可整段封 2001::/16(2001:4860:: 是 Google Public DNS)。
-    const g = expandIpv6Groups(low);
     if (g[0] === '2002') return true;
     if (g[0] === '2001' && g[1] === '0000') return true;
     if (g[0] === '2001' && g[1] === '0db8') return true;
@@ -173,6 +198,9 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
     let target = `${baseUrl.origin}${baseUrl.pathname.replace(/\/+$/, '')}/${req.url.slice('/llm-proxy/'.length)}`;
     const forwardOpts = {
       method: 'POST',
+      // S6:转发头白名单(仅透传 Content-Type + Authorization)。X-SOA-Token 是
+      // server 端 S6 gate 专用头,白名单天然排除、绝不可随转发泄漏给 LLM 上游
+      // (回归测试见 test/proxies.test.ts)。
       headers: {
         'Content-Type': 'application/json',
         Authorization: req.headers.authorization || '',
@@ -186,27 +214,41 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
     // M2:逐跳重定向处理 —— location 解析 → 新 host 重新解析+公网校验 → 手动跟随;
     // 目标私网/非法 location/非 http(s)/超 5 跳 → 拒发。
     const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
+    // M2 补漏(2026-08-27 实证):断链路径(缺 Location/超 5 跳/Location 非法/非
+    // http(s))此前 break 后照常透传无 Location 的 3xx,再 pipe 已 cancel 的
+    // upstream.body 抛错 → res.destroy() 半截响应,浏览器拿不到承诺的 502 JSON。
+    // 现统一 rejectRedirect:与下方「重定向目标被拒」同一 502 JSON 形态。
+    const rejectRedirect = (msg) => {
+      if (res.headersSent) {
+        res.destroy();
+        return;
+      }
+      res.writeHead(502, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+      res.end(JSON.stringify({ error: { message: msg } }));
+    };
     let hops = 0;
     while (REDIRECT_CODES.has(upstream.status)) {
       const location = upstream.headers.get('location');
       await upstream.body?.cancel?.(); // 3xx body 不消费 → 释放连接
-      if (!location || hops >= 5) break;
+      if (!location || hops >= 5) {
+        rejectRedirect('LLM 代理转发失败:重定向链无效(缺 Location 或超 5 跳)');
+        return;
+      }
       let next;
       try {
         next = new URL(location, target);
       } catch {
-        break;
+        rejectRedirect('LLM 代理转发失败:重定向 Location 非法');
+        return;
       }
-      if (next.protocol !== 'http:' && next.protocol !== 'https:') break;
+      if (next.protocol !== 'http:' && next.protocol !== 'https:') {
+        rejectRedirect('LLM 代理转发失败:重定向目标协议非法(仅支持 http/https)');
+        return;
+      }
       if (next.hostname !== baseUrl.hostname) {
         const hop = await pinPublicHost(next);
         if (!hop) {
-          if (res.headersSent) {
-            res.destroy();
-            return;
-          }
-          res.writeHead(502, { 'Content-Type': 'application/json', ...SEC_HEADERS });
-          res.end(JSON.stringify({ error: { message: 'LLM 代理转发失败:重定向目标被拒(仅允许公网 host)' } }));
+          rejectRedirect('LLM 代理转发失败:重定向目标被拒(仅允许公网 host)');
           return;
         }
       }

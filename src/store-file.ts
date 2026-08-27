@@ -191,7 +191,8 @@ export class FileStore implements StoreLike {
    *  再清内存镜像、复位 memo(对齐 IdbStore :262-285 先例)。旧实现直接丢弃
    *  队列 + 清内存:已 ack 的写(如 addDatas 已返回计数但整文件重写仍 pending)
    *  永久丢失;且无 closed 标志 → close 后仍可排队、ready() 从半落盘状态复活。
-   *  close() 幂等;close 后的 mutator 仍同步更新内存镜像(读面可用),写穿不排队。 */
+   *  close() 幂等;close 后 mutator 写穿 fail-fast 不再排队(enqueue 直接 return),
+   *  drain 排空已 ack 的排队写后清空内存镜像 —— close 后的内存更新不再承诺生效。 */
   close(): void {
     if (this.closed) return;
     this.closed = true;

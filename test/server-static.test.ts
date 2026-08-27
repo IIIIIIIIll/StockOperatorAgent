@@ -63,12 +63,16 @@ describe('server.mjs serveStatic(C1 畸形 URL)', () => {
     expect(h['Cache-Control']).toBe('no-cache');
     expect(h['Content-Security-Policy']).toContain("default-src 'self'");
     expect(h['Content-Security-Policy']).toContain("connect-src 'self' https:");
+    // 与 proxies.cjs SEC_HEADERS 同值防漂移:frame-ancestors 'self'(clickjacking)
+    expect(h['Content-Security-Policy']).toContain("frame-ancestors 'self'");
   });
 });
 
 describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
   async function withServer(fn: (base: string) => Promise<void>): Promise<void> {
-    const server = createAppServer();
+    // host 选项回环 → 无 token 门(S6 契约),不受 ambient HOST(如 dev shell
+    // 导出 HOST=0.0.0.0)影响;本 describe 只测 Origin 门,不依赖模块级 HOST。
+    const server = createAppServer({ host: '127.0.0.1' });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     try {
       const port = (server.address() as { port: number }).port;
@@ -120,15 +124,21 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
   });
 });
 
-describe('server.mjs S6(非回环监听 Bearer token 门)', () => {
-  // HOST/SOA_ACCESS_TOKEN 在模块加载期读入(requireToken 模块级常量)——
+describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
+  // HOST/SOA_ACCESS_TOKEN 在模块加载期读入(模块级 HOST 常量)——
   // 每次用例 resetModules + stubEnv 后动态 import,取全新模块实例。
-  async function withFreshServer(env: Record<string, string>, fn: (base: string) => Promise<void>): Promise<void> {
+  // createAppServer({host}) 选项按**有效监听地址**判定 requireToken(缺省回退
+  // 模块级 HOST env),host 选项可经第三参注入。
+  async function withFreshServer(
+    env: Record<string, string>,
+    fn: (base: string) => Promise<void>,
+    createOpts: { host?: string } = {},
+  ): Promise<void> {
     vi.resetModules();
     vi.stubEnv('HOST', '0.0.0.0');
     for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
     const mod = await import('../app/server.mjs');
-    const server = mod.createAppServer();
+    const server = mod.createAppServer(createOpts);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     try {
       const port = (server.address() as { port: number }).port;
@@ -143,25 +153,65 @@ describe('server.mjs S6(非回环监听 Bearer token 门)', () => {
     await withFreshServer({}, async (base) => {
       const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
       expect(res.status).toBe(401);
-      expect(await res.text()).toContain('Bearer');
+      expect(await res.text()).toContain('X-SOA-Token');
+      // 5 个代理端点统一设门:/logs 同样 401
+      const logs = await fetch(`${base}/logs`, { method: 'POST', body: '{}' });
+      expect(logs.status).toBe(401);
     });
   });
 
-  it('非回环监听 + token 不匹配 → 401;匹配 → 放行到路由', async () => {
+  it('非回环监听 + X-SOA-Token 缺失/不匹配 → 401;匹配 → 放行到路由', async () => {
     await withFreshServer({ SOA_ACCESS_TOKEN: 'sekrit' }, async (base) => {
+      // 头缺失 → 401(裸 Authorization 不算数,见下一条)
+      const none = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+      expect(none.status).toBe(401);
+
       const bad = await fetch(`${base}/tdx-collect?ticker=bad`, {
         method: 'GET',
-        headers: { Authorization: 'Bearer wrong' },
+        headers: { 'X-SOA-Token': 'wrong' },
       });
       expect(bad.status).toBe(401);
 
       // 过门后进路由:非法 ticker → 400(而非 401,证明门已放行)
       const good = await fetch(`${base}/tdx-collect?ticker=bad`, {
         method: 'GET',
-        headers: { Authorization: 'Bearer sekrit' },
+        headers: { 'X-SOA-Token': 'sekrit' },
       });
       expect(good.status).toBe(400);
     });
+  });
+
+  it('门不消费 Authorization(LLM 供应商 key 槽位):仅 Bearer 无 X-SOA-Token → 401', async () => {
+    await withFreshServer({ SOA_ACCESS_TOKEN: 'sekrit' }, async (base) => {
+      // Authorization 头是 /llm-proxy 上游透传的 LLM key,与门头互不干扰:
+      // 只有 Authorization、没有 X-SOA-Token → 仍 401
+      const authOnly = await fetch(`${base}/llm-proxy/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer sekrit' },
+        body: 'not-json',
+      });
+      expect(authOnly.status).toBe(401);
+      // 双头齐备 → 过门进 llm-proxy 路由(body 非法 JSON → 502,证明门放行且
+      // Authorization 透传路径未被门改动)
+      const both = await fetch(`${base}/llm-proxy/chat/completions`, {
+        method: 'POST',
+        headers: { 'X-SOA-Token': 'sekrit', Authorization: 'Bearer llm-key' },
+        body: 'not-json',
+      });
+      expect(both.status).toBe(502);
+    });
+  });
+
+  it('有效监听地址决定门:createAppServer({host: 127.0.0.1}) 在 HOST=0.0.0.0 env 下不要求 token', async () => {
+    await withFreshServer(
+      { SOA_ACCESS_TOKEN: 'sekrit' },
+      async (base) => {
+        // host 选项回环 → 无门:无 token 直接进路由(非法 ticker → 400,而非 401)
+        const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+        expect(res.status).toBe(400);
+      },
+      { host: '127.0.0.1' },
+    );
   });
 
   it('非回环监听:静态面不要求 token(仅代理/日志端点设门)', async () => {
@@ -172,14 +222,19 @@ describe('server.mjs S6(非回环监听 Bearer token 门)', () => {
   });
 
   it('回环监听(默认)不要求 token:代理端点无 token 直接进路由', async () => {
-    const server = createAppServer(); // 顶层实例:HOST 未设 → 回环,requireToken=false
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    try {
-      const port = (server.address() as { port: number }).port;
-      const res = await fetch(`http://127.0.0.1:${port}/tdx-collect?ticker=bad`, { method: 'GET' });
+    // 显式 HOST=127.0.0.1 走 withFreshServer(resetModules + stubEnv 后动态
+    // import):不依赖 dev shell 的 ambient HOST(如 HOST=0.0.0.0 导出会使旧
+    // 顶层实例 requireToken=true → 误 401)。
+    await withFreshServer({ HOST: '127.0.0.1' }, async (base) => {
+      const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
       expect(res.status).toBe(400); // 非法 ticker 判定,而非 401
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
+    });
+  });
+
+  it('bind host ::1(IPv6 回环)同样不要求 token', async () => {
+    await withFreshServer({ HOST: '::1' }, async (base) => {
+      const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+      expect(res.status).toBe(400); // 裸 IPv6 回环 bind 串不入门(2026-08-28)
+    });
   });
 });

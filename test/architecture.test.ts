@@ -249,9 +249,12 @@ describe('契约 5:src+app 无 meta 键裸字面量(metaKeys.ts 定义面 + demo
 // - src/env.ts:envValue 守卫单点(契约 2,自 log.ts 提升;typeof process 守卫,
 //   web 无 process 返回 undefined)。src 下非 EXPO_PUBLIC 读取一律经它。
 // - process.env.EXPO_PUBLIC_* 直接成员访问:任意文件豁免(babel-preset-expo
-//   只静态内联**直接成员访问**,别名读取逃逸 → release 运行时缺失;现行三处:
+//   只静态内联**直接成员访问**,别名读取逃逸 → release 运行时缺失;现行九处:
 //   settings.ts loadSettings / webSearch.defaultSearcher / deviceCollect.
-//   DEVICE_TDX_HOSTS——env.ts 头注释同述)。其余任意读取 = 违规。
+//   DEVICE_TDX_HOSTS / 08-28 S6 客户端 token 接线:webCollect.collectViaProxy /
+//   webYahooCollect.collectYahooViaProxy / webSearch.makeProxySearcher /
+//   llm.createLlm / log.makeReporter / settings.checkLlmReachability
+//   (EXPO_PUBLIC_SOA_ACCESS_TOKEN)——env.ts 头注释同述)。其余任意读取 = 违规。
 // - 扫描面 = src/**/*.ts + app/**/*.{ts,tsx}(metro 图可达代码)。app/*.mjs 与
 //   app/lib/*.cjs(server.mjs / logs-server.cjs 等)是 Node-only 服务端基建,
 //   不入 metro 图,读 PORT/HOST/SOA_LOG_DIR 属合法 Node 配置,不在断言面。

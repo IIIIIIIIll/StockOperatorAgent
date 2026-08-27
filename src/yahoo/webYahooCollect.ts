@@ -65,9 +65,15 @@ export async function collectYahooViaProxy(
   if (opts?.skipDaily) url += '?skipDaily=1';
   let res: Response;
   try {
+    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
+    // 直接成员访问(EXPO_PUBLIC_* 内联契约,architecture 契约 6 豁免);未设 → 不带头。
+    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(soaToken ? { 'X-SOA-Token': soaToken } : {}),
+      },
       body: JSON.stringify({ ticker }),
     });
   } catch (err) {

@@ -249,6 +249,74 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     expect(redirects).toEqual(['manual', 'manual']); // 每跳都禁自动跟随
   });
 
+  it('M2 补漏:重定向断链(缺 Location/Location 非法/非 http(s))→ 502 JSON,不透传 3xx', async () => {
+    const cases: Array<[string, string | null]> = [
+      ['缺 Location', null],
+      ['Location 非法', 'http://[::1'],
+      ['非 http(s) 协议', 'ftp://8.8.8.8/v1/chat'],
+    ];
+    for (const [name, location] of cases) {
+      const res = fakeRes();
+      let calls = 0;
+      await handleLlmProxy(
+        fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' })),
+        res,
+        async () => {
+          calls += 1;
+          return {
+            status: 302,
+            headers: { get: (h: string) => (h === 'location' ? location : null) },
+            body: null,
+          } as Response;
+        },
+      );
+      expect(res.calls[0].status, name).toBe(502);
+      expect(JSON.parse(res.calls[0].body), name).toHaveProperty('error.message');
+      expect(calls, name).toBe(1); // 未跟随
+    }
+  });
+
+  it('M2 补漏:超 5 跳 → 502 JSON(不再透传无 Location 的 3xx 后 destroy 半截响应)', async () => {
+    const res = fakeRes();
+    let calls = 0;
+    await handleLlmProxy(
+      fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' })),
+      res,
+      async () => {
+        calls += 1;
+        return {
+          status: 302,
+          headers: { get: (h: string) => (h === 'location' ? 'https://8.8.8.8/v1/chat' : null) },
+          body: null,
+        } as Response;
+      },
+    );
+    expect(res.calls[0].status).toBe(502);
+    expect(res.calls[0].body).toContain('超 5 跳');
+    expect(calls).toBe(6); // 初始 + 5 跳后仍 302,第 6 次进循环判 hops>=5 拒发
+  });
+
+  it('S6:X-SOA-Token 不随转发携带(forwardOpts 白名单仅 Content-Type/Authorization,不泄漏给 LLM 上游)', async () => {
+    const res = fakeRes();
+    let sentInit: { headers?: Record<string, string> } | undefined;
+    await handleLlmProxy(
+      fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' }), {
+        'x-soa-token': 'soa-gate-secret',
+      }),
+      res,
+      async (_url: string, init?: unknown) => {
+        sentInit = init as { headers?: Record<string, string> } | undefined;
+        return fakeUpstream();
+      },
+    );
+    expect(res.calls[0].status).toBe(200);
+    const forwarded = Object.fromEntries(
+      Object.entries(sentInit?.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
+    );
+    expect(forwarded['x-soa-token']).toBeUndefined();
+    expect(forwarded['authorization']).toBe(''); // 白名单本身仅 Content-Type/Authorization 两键
+  });
+
   it('S5:代理响应带 CSP/nosniff/no-store 头(400 与 200 路径)', async () => {
     const res400 = fakeRes();
     await handleLlmProxy(fakeReq(JSON.stringify({ base: 'ftp://x.com/v1' })), res400, async () => fakeUpstream());
@@ -257,6 +325,7 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     expect(h400['Cache-Control']).toBe('no-store');
     expect(h400['Content-Security-Policy']).toContain("default-src 'self'");
     expect(h400['Content-Security-Policy']).toContain("connect-src 'self' https:");
+    expect(h400['Content-Security-Policy']).toContain("frame-ancestors 'self'");
 
     const res200 = fakeRes();
     await handleLlmProxy(
@@ -418,6 +487,25 @@ describe('proxies.cjs C2 校验工具', () => {
     for (const ip of ['8.8.8.8', '1.1.1.1', '114.114.114.114', '2606:4700:4700::1111', '2001:4860:4860::8888']) {
       expect(isPrivateAddress(ip), ip).toBe(false);
     }
+  });
+
+  it('S3 补漏:hex 形 IPv4-mapped IPv6(::ffff:0:0/96)按内嵌 IPv4 判定,不再只认 dotted-quad', () => {
+    const priv = [
+      '::ffff:7f00:1', // 127.0.0.1
+      '::ffff:0:7f00:1', // 宽容变体(内嵌位仍在末 32 位)
+      '::ffff:a00:1', // 10.0.0.1
+      '::ffff:c0a8:101', // 192.168.1.1
+      '::ffff:a9fe:a9fe', // 169.254.169.254(云 metadata)
+      '::ffff:0:0', // 0.0.0.0
+      '0:0:0:0:0:ffff:7f00:1', // 未压缩全写形同样在内
+      '0:0:0:0:0:ffff:127.0.0.1', // 全写形 + 内嵌 dotted-quad 私网(2026-08-28)
+    ];
+    for (const ip of priv) expect(isPrivateAddress(ip), ip).toBe(true);
+    // 内嵌公网 IPv4 不得误封:8.8.8.8 的 hex/dotted-quad/全写形
+    for (const ip of ['::ffff:808:808', '::ffff:8.8.8.8', '0:0:0:0:0:ffff:808:808', '0:0:0:0:0:ffff:8.8.8.8']) {
+      expect(isPrivateAddress(ip), ip).toBe(false);
+    }
+    expect(isPrivateAddress('2002::1')).toBe(true); // 原生 IPv6 前缀回归不受影响
   });
 
   it('isPublicHost:localhost → false;公网 IP 字面 → true(不触网)', async () => {

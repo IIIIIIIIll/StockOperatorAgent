@@ -75,7 +75,14 @@ export function makeProxySearcher(
   _fetch: typeof fetch = fetch,
 ): (query: string) => Promise<SearchResult[]> {
   return async (query: string) => {
-    const resp = await _fetch(`${base}/web-search?q=${encodeURIComponent(query)}`);
+    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
+    // 直接成员访问(EXPO_PUBLIC_* 内联契约,见 defaultSearcher 注释);未设 → 不带头。
+    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    const resp = soaToken
+      ? await _fetch(`${base}/web-search?q=${encodeURIComponent(query)}`, {
+          headers: { 'X-SOA-Token': soaToken },
+        })
+      : await _fetch(`${base}/web-search?q=${encodeURIComponent(query)}`);
     if (!resp.ok) throw new Error(`web-search 代理 HTTP ${resp.status}`);
     const data = (await resp.json()) as { results?: SearchResult[] };
     const results = data.results;

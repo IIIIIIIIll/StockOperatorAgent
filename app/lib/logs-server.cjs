@@ -99,8 +99,8 @@ async function handleLogs(req, res) {
     // W3:message/platform 先净化换行(防注入伪造行),再截断 4KB
     const cleanMessage = sanitizeLine(message);
     const cleanPlatform = sanitizeLine(platform);
-    // F34:1MB 上限按**字节**计(cleanMessage.length 是 UTF-16 单元,CJK 消息
-    // 约 3× 膨胀,曾把 1MB 上限变成 ~3MB);超限时二分找 ≤ 上限的最大字符前缀,
+    // F34:4KB 上限按**字节**计(cleanMessage.length 是 UTF-16 单元,CJK 消息
+    // 约 3× 膨胀,曾把 4KB 上限变成 ~12KB);超限时二分找 ≤ 上限的最大字符前缀,
     // 不截断在多字节字符中间(避免 U+FFFD 落盘)。ASCII 行为与旧实现逐字节一致。
     let truncated = cleanMessage;
     if (Buffer.byteLength(truncated, 'utf8') > MAX_MESSAGE_BYTES) {

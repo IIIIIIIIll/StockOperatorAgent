@@ -105,7 +105,13 @@ export async function collectViaProxy(
   if (opts?.skipF10) url += '&skipF10=1';
   let res: Response;
   try {
-    res = await fetch(url);
+    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
+    // EXPO_PUBLIC_SOA_ACCESS_TOKEN 必须**直接成员访问**(babel-preset-expo 仅内联
+    // 直接访问,architecture 契约 6 豁免);未设 → 不带头,回环行为逐字节不变。
+    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    res = soaToken
+      ? await fetch(url, { headers: { 'X-SOA-Token': soaToken } })
+      : await fetch(url);
   } catch (err) {
     throw new CollectError(
       'proxy_unreachable',

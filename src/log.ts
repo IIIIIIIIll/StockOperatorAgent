@@ -88,11 +88,18 @@ export function makeReporter(
     const endpoint = _endpoint();
     if (!endpoint) return;
     const doFetch = _fetch ?? globalThis.fetch;
+    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN
+    // (web 同源 /logs 与 RN EXPO_PUBLIC_LOG_ENDPOINT 均可能指向非回环 server)。
+    // 直接成员访问(EXPO_PUBLIC_* 内联契约,architecture 契约 6 豁免);未设 → 不带头。
+    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
     const payload: ReportPayload = { ts: new Date().toISOString(), level, message, platform };
     void doFetch(endpoint, {
       method: 'POST',
       keepalive: true,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(soaToken ? { 'X-SOA-Token': soaToken } : {}),
+      },
       body: JSON.stringify(payload),
     }).catch(() => {});
   };

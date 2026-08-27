@@ -248,6 +248,27 @@ describe('上报 transport(payload 形状 + 降级)', () => {
     expect(Number.isNaN(new Date(String(payload.ts)).getTime())).toBe(false);
   });
 
+  it('S6:EXPO_PUBLIC_SOA_ACCESS_TOKEN 已设 → 上报带 X-SOA-Token(Content-Type 不变)', () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fakeFetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init: init ?? {} });
+      return { ok: true } as Response;
+    }) as unknown as typeof fetch;
+    const reporter = makeReporter(fakeFetch, () => 'http://logs.test/logs');
+    const old = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    try {
+      process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'sekrit';
+      reporter('error', 'boom', 'web');
+      expect(calls).toHaveLength(1);
+      const headers = (calls[0].init.headers ?? {}) as Record<string, string>;
+      expect(headers['X-SOA-Token']).toBe('sekrit');
+      expect(headers['Content-Type']).toBe('application/json');
+    } finally {
+      if (old === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = old;
+    }
+  });
+
   it('endpoint 为空 → 不上报(不上报风暴)', () => {
     const calls: string[] = [];
     const fakeFetch = (async (url: string) => {

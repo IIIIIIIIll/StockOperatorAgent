@@ -93,3 +93,41 @@ found. 0 blocker / 1 should-fix (S6, above) / 3 notes (above).
 6. (notes, optional) CSP frame-ancestors · M2 502-on-exhaust · F34 comment
    4KB · FileStore drain comment · HOST-env contamination guard · android
    version gate · root private:true.
+
+## Fix-pass closure (2026-08-27, committed after review)
+
+All findings above fixed in one pass (4 parallel slices + 1 note-fix agent),
+trellis-check APPROVE (0 blocker / 0 should-fix / 3 notes, all closed):
+
+- **SSRF mapped-IPv6** — isPrivateAddress now extracts embedded IPv4 from any
+  `::ffff:0:0/96` form (dotted/hex/full-form), re-runs IPv4 blocklist
+  (proxies.cjs:81-101); public `::ffff:808:808` NOT over-blocked; tests
+  proxies.test.ts:492-508 + full-form cases :500-505.
+- **S6 client wiring** — gate on raw `X-SOA-Token` (server.mjs:183-184);
+  Authorization stays LLM-key slot (proxies.cjs allowlist + strip test);
+  token requirement from effective bind via createAppServer({host}),
+  `::1` bind loopback (isLoopbackBindHost server.mjs:132-136); desktop child
+  passes loopback host; all 6 client call sites wired conditionally
+  (webCollect/webYahooCollect/webSearch/log/llm/settings); .env.example
+  pairs SOA_ACCESS_TOKEN + EXPO_PUBLIC_SOA_ACCESS_TOKEN.
+- **M2 redirect-exhaustion** — all break paths → shared rejectRedirect 502
+  JSON, no Location-less 3xx + destroy (proxies.cjs:206-247).
+- **CSP frame-ancestors 'self'** — both SEC_HEADERS, parity kept
+  (server.mjs:36-37, proxies.cjs:27-29; tests pin it).
+- **Desktop HOST-env contamination** — child uses effective-bind decision;
+  verified live under HOST=0.0.0.0 + token env.
+- **Docs/nits** — README dark-theme claim removed, 发版步骤 documents
+  three-file version alignment; F34 comment 4KB; root private:true;
+  FileStore close() comment truthful (fail-fast + drain); release.yml
+  android gate now checks app/app.json + app/package.json vs tag.
+- **Version** — v0.1.3 tag is PUSHED (3eda58e) → bumped to **v0.1.4** in
+  desktop/app package.json + app.json + both lockfiles (desktop lock was
+  stale 1.0.0); tag v0.1.4 created at HEAD after commit.
+
+**Remaining (process-only, not code):** S4 keystore rotation must be executed
+on the release machine per rotation-checklist.md before the first signed
+build. Nothing else open.
+
+Final gates after fix pass: `npx vitest run` **666 passed / 1 skipped** ·
+`npx tsc --noEmit` **0 errors** · chart gate N/A (no chart assets touched) ·
+tree clean after commit.

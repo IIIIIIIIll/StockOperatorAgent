@@ -58,6 +58,9 @@ export function readLlmEnv(env?: Record<string, string | undefined>): LlmConfig 
  *  真实端点经 X-LLM-Base 头透传(绕开 CORS;Node/真机不传则直连)。 */
 export function createLlm(cfg: LlmConfig, opts?: { proxyBase?: string }): ChatOpenAI {
   const viaProxy = !!opts?.proxyBase;
+  // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
+  // 直接成员访问(EXPO_PUBLIC_* 内联契约,architecture 契约 6 豁免);未设 → 不带头。
+  const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
   return new ChatOpenAI({
     model: cfg.model,
     apiKey: cfg.apiKey,
@@ -65,7 +68,14 @@ export function createLlm(cfg: LlmConfig, opts?: { proxyBase?: string }): ChatOp
       baseURL: viaProxy ? opts.proxyBase : cfg.baseUrl,
       // 不设 timeout:基本面分析师长 prompt/长生成可达数分钟(Python 版
       // 同语义);超时会误杀正常生成
-      ...(viaProxy ? { defaultHeaders: { 'X-LLM-Base': cfg.baseUrl } } : {}),
+      ...(viaProxy
+        ? {
+            defaultHeaders: {
+              'X-LLM-Base': cfg.baseUrl,
+              ...(soaToken ? { 'X-SOA-Token': soaToken } : {}),
+            },
+          }
+        : {}),
     },
     // Python 侧 seed=114514 为供应商兼容参数;JS ChatOpenAIFields 无 seed,
     // 经 modelKwargs 透传 OpenAISDK 自定义字段

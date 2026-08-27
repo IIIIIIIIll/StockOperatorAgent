@@ -58,7 +58,7 @@ npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
 
 1. 基于真实市场数据，提供基本面、趋势、技术指标与信息面分析报告
 2. 支持多智能体协作决策（专家初稿 → 多空对抗修订 → 投资经理终审）
-3. 提供可视化的交易决策界面（报告 Tab、采集数据表格与图表、暗色主题）
+3. 提供可视化的交易决策界面（报告 Tab、采集数据表格与图表）
 4. 侧边栏设置面板：模型/密钥/能力开关/亿信调用上限全部可在网页修改
 
 ## 数据源
@@ -102,8 +102,9 @@ Actions artifact 供自测。
 
 ### 发版步骤
 
-1. 更新 `desktop/package.json` 的 `version`（如 `1.1.0`）。
-2. 打 tag 并推送（tag 必须为 `v<version>`，与 `desktop/package.json` 的 version 对齐）：
+1. 更新 `desktop/package.json`、`app/package.json` 与 `app/app.json` 的
+   `version`（如 `1.1.0`；Android 产物版本取自 `app/app.json`，三处需一致）。
+2. 打 tag 并推送（tag 必须为 `v<version>`，与上述三处 version 对齐）：
 
 ```bash
 git tag v1.1.0

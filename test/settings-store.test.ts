@@ -252,6 +252,38 @@ describe('settings.ts 经 settingsStore 路由(web 分支)', () => {
     expect(fetch2).toHaveBeenCalledTimes(2); // 代理 1 次 + 直连 1 次(回退发生)
   });
 
+  it('S6:EXPO_PUBLIC_SOA_ACCESS_TOKEN 已设 → /llm-proxy 探测带 X-SOA-Token;Authorization 仍为 LLM key', async () => {
+    const { checkLlmReachability } = await import('../app/lib/settings.ts');
+    const keys = defaultSettings().keys;
+    keys.llmApiKey = 'llm-key';
+    keys.llmModel = 'm';
+    keys.llmBaseUrl = 'https://api.example.com/v1';
+
+    const fetch1 = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/llm-proxy/chat/completions') {
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        expect(headers['X-SOA-Token']).toBe('sekrit'); // 门头
+        expect(headers['Authorization']).toBe('Bearer llm-key'); // LLM key 槽位不变
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'pong' } }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected url: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch1);
+    const old = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    try {
+      process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'sekrit';
+      const r = await checkLlmReachability(keys);
+      expect(r.ok).toBe(true);
+      expect(fetch1).toHaveBeenCalledTimes(1); // JSON = 代理产物 → 不回退直连
+    } finally {
+      if (old === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = old;
+    }
+  });
+
   it('#100:describeLlmKeys 恒掩码(≤8 字符键不整键泄露)', async () => {
     const { describeLlmKeys } = await import('../app/lib/settings.ts');
     const base = { ...defaultSettings().keys };

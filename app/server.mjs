@@ -34,7 +34,7 @@ const MIME = {
 // 'unsafe-inline' 为 expo-reset 内联 <style>,img-src data: 供内联图元)。
 const SEC_HEADERS = {
   'Content-Security-Policy':
-    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:",
+    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'",
   'X-Content-Type-Options': 'nosniff',
 };
 
@@ -125,6 +125,16 @@ function isLoopbackBind(addr) {
   );
 }
 
+/** S6:bind host 串是否回环(决定 token 门启停)。host 选项 / HOST env 的合法
+ *  回环写法:'localhost'、127.0.0.0/8、'[::1]'(经 isLoopbackHostHeader)与
+ *  裸 IPv6 回环 '::1' / '::ffff:127.0.0.1'(bind 串无方括号,isLoopbackHostHeader
+ *  只认方括号形,需单列);其余('0.0.0.0'、网卡 IP 等)→ false。 */
+function isLoopbackBindHost(h) {
+  if (typeof h !== 'string' || h === '') return false;
+  if (h === '::1' || h === '::ffff:127.0.0.1') return true;
+  return isLoopbackHostHeader(h);
+}
+
 /** S2:代理端点 Origin 允许列表 —— 仅接受 无 Origin / null / 本站 origin
  *  (scheme+host 取自 Host 头,大小写不敏感)。跨站 fetch(带 Origin)→ 403 且
  *  零 CORS 头(读不到响应);表单 POST 同被拦。GET 简单请求(script/img 导航
@@ -141,8 +151,14 @@ function isOriginAllowed(req) {
 
 /** 生产 web server 工厂:静态服务 dist + 同源代理路由。导出供桌面主进程复用
  *  (返回 http.Server,监听与否由调用方决定)。路由体与旧模块级 createServer
- *  完全一致,行为零变化。 */
-export function createAppServer() {
+ *  完全一致,行为零变化。
+ *  @param opts.host 有效监听 bind host(如 '127.0.0.1')——S6 按**有效监听地址**
+ *  判定是否要求 token;缺省取模块级 HOST env(直跑入口语义不变)。桌面 child
+ *  显式传 '127.0.0.1',ambient HOST=0.0.0.0 无法污染回环监听。 */
+export function createAppServer({ host } = {}) {
+  // S6:token 要求派生自有效监听地址而非环境:host 选项优先,缺省回退 HOST env。
+  // 回环判定用 isLoopbackBindHost(覆盖 '::1' 等裸 IPv6 回环 bind 串,2026-08-28)。
+  const requireToken = !isLoopbackBindHost(host ?? HOST);
   return http.createServer((req, res) => {
     // A6:DNS rebinding 硬化 —— 连接经 loopback 到达时(默认 127.0.0.1 监听、
     // 桌面随机回环端口)校验入站 Host 头:攻击者域名解析到 127.0.0.1 后浏览器
@@ -170,14 +186,15 @@ export function createAppServer() {
       res.end('Forbidden');
       return;
     }
-    // S6:非回环监听(HOST 显式覆盖)时,代理/日志端点要求
-    // Authorization: Bearer <SOA_ACCESS_TOKEN>;未设 token → 恒 401(安全默认:
-    // 宁缺勿开)。回环监听(默认)保持原行为,无需 token。
+    // S6:非回环监听(有效 bind host 非 loopback)时,代理/日志端点要求
+    // X-SOA-Token == SOA_ACCESS_TOKEN(原始串比对,无 "Bearer " 前缀);
+    // 未设 token → 恒 401(安全默认:宁缺勿开)。回环监听保持原行为,无需 token。
+    // Authorization 头保留给 LLM 供应商 key(/llm-proxy 上游透传),本门不消费。
     if (isProxyPath && requireToken) {
-      const auth = req.headers.authorization || '';
-      if (!ACCESS_TOKEN || auth !== `Bearer ${ACCESS_TOKEN}`) {
+      const token = req.headers['x-soa-token'];
+      if (!ACCESS_TOKEN || token !== ACCESS_TOKEN) {
         res.writeHead(401, { 'Content-Type': 'application/json', ...SEC_HEADERS });
-        res.end(JSON.stringify({ error: '未授权:非回环监听需 Bearer token(SOA_ACCESS_TOKEN)' }));
+        res.end(JSON.stringify({ error: '未授权:非回环监听需 X-SOA-Token(SOA_ACCESS_TOKEN)' }));
         return;
       }
     }
@@ -212,7 +229,6 @@ export function createAppServer() {
 // metro 图,但保持同一读取纪律)。
 const HOST = envValue('HOST') || '127.0.0.1';
 const ACCESS_TOKEN = envValue('SOA_ACCESS_TOKEN') ?? '';
-const requireToken = !isLoopbackHostHeader(HOST);
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   createAppServer().listen(PORT, HOST, () => {

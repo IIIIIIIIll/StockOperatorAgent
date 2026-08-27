@@ -1,6 +1,7 @@
 {
   "name": "soa-ts-prototype",
   "version": "1.0.0",
+  "private": true,
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

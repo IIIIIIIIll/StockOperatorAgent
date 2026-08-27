@@ -181,9 +181,17 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   // 1) 同源代理优先(dev server / server.mjs 都有 /llm-proxy)——绕开浏览器
   //    CORS,拿到真实服务端响应;代理本身不可用(纯静态 server)再回退直连
   try {
+    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
+    // 直接成员访问(EXPO_PUBLIC_* 内联契约,loadSettings 同款);未设 → 不带头。
+    // Authorization 仍是 LLM 供应商 key(代理透传上游),与门头互不干扰。
+    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
     const viaProxy = await fetch('/llm-proxy/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${keys.llmApiKey.trim()}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${keys.llmApiKey.trim()}`,
+        ...(soaToken ? { 'X-SOA-Token': soaToken } : {}),
+      },
       body: JSON.stringify(payload),
     });
     // F19:仅当代理「缺失/不可达」才回退直连 —— 判据:fetch 拒绝(无服务),或

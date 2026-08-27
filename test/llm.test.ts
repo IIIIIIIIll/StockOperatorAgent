@@ -45,4 +45,25 @@ describe('llm factory (AC1)', () => {
   it('createLlm accepts minimal config (validation lives in readLlmEnv, not constructor)', () => {
     expect(() => createLlm({ apiKey: '', model: 'm', baseUrl: 'https://x' })).not.toThrow();
   });
+
+  it('S6:proxyBase + EXPO_PUBLIC_SOA_ACCESS_TOKEN 已设 → defaultHeaders 含 X-SOA-Token(X-LLM-Base 不变)', () => {
+    const cfg = { apiKey: 'k', model: 'm', baseUrl: 'https://api.example.com/v1' };
+    const old = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    try {
+      process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'sekrit';
+      const llm = createLlm(cfg, { proxyBase: '/llm-proxy/v1' });
+      const config = (llm as unknown as { clientConfig: { defaultHeaders?: Record<string, string> } }).clientConfig;
+      expect(config.defaultHeaders).toEqual({
+        'X-LLM-Base': 'https://api.example.com/v1',
+        'X-SOA-Token': 'sekrit',
+      });
+    } finally {
+      if (old === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = old;
+    }
+    // 未设 token → 仅 X-LLM-Base(回环逐字节不变)
+    const llm2 = createLlm(cfg, { proxyBase: '/llm-proxy/v1' });
+    const config2 = (llm2 as unknown as { clientConfig: { defaultHeaders?: Record<string, string> } }).clientConfig;
+    expect(config2.defaultHeaders).toEqual({ 'X-LLM-Base': 'https://api.example.com/v1' });
+  });
 });

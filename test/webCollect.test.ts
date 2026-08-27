@@ -89,6 +89,27 @@ describe('collectViaProxy', () => {
     expect(got.f10Text).toContain('主要财务指标');
   });
 
+  it('S6:EXPO_PUBLIC_SOA_ACCESS_TOKEN 已设 → 请求带 X-SOA-Token;未设 → 单参(回环逐字节不变)', async () => {
+    const old = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    try {
+      process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'sekrit';
+      const withToken = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }));
+      vi.stubGlobal('fetch', withToken);
+      await collectViaProxy('002027', 'http://localhost:8090');
+      expect(withToken).toHaveBeenCalledWith('http://localhost:8090/tdx-collect?ticker=002027', {
+        headers: { 'X-SOA-Token': 'sekrit' },
+      });
+    } finally {
+      if (old === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = old;
+    }
+    // 未设 token → 与旧实现逐字节一致:单参调用,不带头
+    const noToken = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }));
+    vi.stubGlobal('fetch', noToken);
+    await collectViaProxy('002027', 'http://localhost:8090');
+    expect(noToken).toHaveBeenCalledWith('http://localhost:8090/tdx-collect?ticker=002027');
+  });
+
   it('5xx → 抛错并带服务端原因', async () => {
     vi.stubGlobal(
       'fetch',
