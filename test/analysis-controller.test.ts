@@ -78,6 +78,7 @@ function makeHarness(
     storeReady: async () => {},
     loadDemoData: () => {
       demoLoaded += 1;
+      return true;
     },
     loadSettings: () => opts.settings ?? defaultSettings(),
     saveSettings: () => {},

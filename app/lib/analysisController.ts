@@ -89,7 +89,7 @@ export interface AnalysisDeps {
   readonly platform: ControllerPlatform;
   // ── 启动链(bootstrap)───────────────────────────────────────────────
   readonly storeReady: () => Promise<void>;
-  readonly loadDemoData: () => void;
+  readonly loadDemoData: () => boolean;
   /** native 启动链设备注入(setDeviceStore(store);web 不调用;缺省 no-op)。 */
   readonly injectDeviceStore?: () => Promise<void> | void;
   // ── 设置 ────────────────────────────────────────────────────────────
@@ -218,8 +218,11 @@ export class AnalysisController {
     // native(RN 真机)采集注入先于任何采集(保持原时序:setDeviceStore 在
     // start() 采集前完成);web 不使用。
     if (d.platform !== 'web') await d.injectDeviceStore?.();
-    d.loadDemoData(); // 仅空库时载入 demo(有跨会话持久化数据则跳过)
-    d.log.info(`演示数据载入:${d.store.getDatas(DEMO_TICKER).length} 根日K + F10,耗时 ${d.nowMs() - t0}ms`);
+    // 仅空库时载入 demo(有跨会话持久化数据则跳过);日志只在真正写入时打
+    // (旧实现无论是否载入都打,真实库下数字误导)。
+    if (d.loadDemoData()) {
+      d.log.info(`演示数据载入:${d.store.getDatas(DEMO_TICKER).length} 根日K + F10,耗时 ${d.nowMs() - t0}ms`);
+    }
     // 上次分析缓存恢复:有缓存 → 恢复展示(报告 Tab/最终决策/采集数据/状态 chips),
     // 不再展示 demo 占位;无缓存 → 现状 demo 上下文(loadDemoData 已无条件调用)
     const last = loadLastRun(d.store);

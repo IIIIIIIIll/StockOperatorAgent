@@ -182,6 +182,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
               value={String(settings.caps[row.key])}
               keyboardType="numeric"
               onChangeText={(v) => {
+                if (v.trim() === '') return; // 清空不提交 0(字段保持空,不闪回 "0")
                 const n = Math.max(0, Math.floor(Number(v)));
                 if (Number.isFinite(n)) updateCap(row.key, n);
               }}
@@ -206,7 +207,7 @@ function makeStyles(theme: Theme) {
     buttonPrimary: { backgroundColor: theme.colors.primary },
     buttonError: { backgroundColor: theme.colors.error, opacity: 0.7 },
     buttonDisabled: { opacity: 0.5 },
-    buttonText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+    buttonText: { color: theme.colors.onPrimary, fontWeight: '600', fontSize: 14 },
     toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 },
     rowDisabled: { opacity: 0.4 },
     capRow: { flexDirection: 'row', alignItems: 'center', marginTop: theme.spacing.sm },

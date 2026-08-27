@@ -41,6 +41,7 @@ export default function ReportContent({
 }: Props) {
   const theme = useTheme();
   const styles = makeStyles(theme);
+  // 展开态按槽位索引记录;跨角色泄漏由 App.tsx 的 key={stateKey} remount 兜底
   const [expanded, setExpanded] = React.useState<Record<number, boolean>>({});
 
   if (roleKey === 'final_decision') {
@@ -80,7 +81,7 @@ export default function ReportContent({
           const open = expanded[i] ?? streaming; // 流式中的槽位默认展开
           return (
             <View key={slot.title} style={styles.opinionCard}>
-              <Pressable onPress={() => setExpanded((s) => ({ ...s, [i]: !open }))}>
+              <Pressable onPress={() => setExpanded((s) => ({ ...s, [i]: !open }))} accessibilityRole="button" aria-expanded={open}>
                 <Text style={styles.opinionTitle}>{slot.title} {open ? '▾' : '▸'}</Text>
               </Pressable>
               {open ? <MarkdownText content={text} /> : null}

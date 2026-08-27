@@ -102,7 +102,7 @@ function AppContent() {
       {/* 标题行:☰ 汉堡按钮(抽屉开关)+ 标题 */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Pressable style={styles.hamburger} onPress={() => setShowSettings((v) => !v)} hitSlop={8} accessibilityLabel="切换设置侧边栏">
+          <Pressable style={styles.hamburger} onPress={() => setShowSettings((v) => !v)} hitSlop={8} accessibilityLabel="切换设置侧边栏" accessibilityRole="button">
             <Text style={styles.hamburgerIcon}>☰</Text>
           </Pressable>
           <Text style={styles.heading}>{THEME_HEADING}</Text>
@@ -228,7 +228,7 @@ function AppContent() {
           <View style={styles.sidebar}>
             <View style={styles.sidebarHeader}>
               <Text style={styles.sidebarTitle}>设置</Text>
-              <Pressable onPress={() => setShowSettings(false)} hitSlop={8} accessibilityLabel="关闭设置侧边栏">
+              <Pressable onPress={() => setShowSettings(false)} hitSlop={8} accessibilityLabel="关闭设置侧边栏" accessibilityRole="button">
                 <Text style={styles.sidebarClose}>✕</Text>
               </Pressable>
             </View>
@@ -241,7 +241,7 @@ function AppContent() {
             {tabs.map((t) => {
               const active = t.id === activeTab;
               return (
-                <Pressable key={t.id} style={[styles.tab, active && styles.tabActive]} onPress={() => setActiveTab(t.id)}>
+                <Pressable key={t.id} style={[styles.tab, active && styles.tabActive]} onPress={() => setActiveTab(t.id)} accessibilityRole="tab" accessibilityState={{ selected: active }}>
                   <Text style={[styles.tabText, active && styles.tabTextActive]}>{t.label}</Text>
                 </Pressable>
               );
@@ -285,6 +285,7 @@ function AppContent() {
               <DataScreen stockInformation={a.stockInformation} dataVersion={a.dataVersion} ticker={a.lastRunTicker} market={a.market} />
             ) : activeRole ? (
               <ReportContent
+                key={activeRole.stateKey!} // F43:按角色 remount → 展开态不跨 看涨/看跌 tab 泄漏
                 roleKey={activeRole.stateKey!}
                 opinion={activeRole.opinion === true}
                 tabTitle={activeRole.tabTitle!}
@@ -348,18 +349,18 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     marketModalRoot: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'transparent' },
     // D5:maxWidth 与右缘 clamp 同源;3 个短标签下菜单宽 ~110px < 280,无视觉变化
     marketModalMenu: { position: 'absolute', maxWidth: 280 },
-    marketMenuInner: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, paddingVertical: 2 },
+    marketMenuInner: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, elevation: 4, shadowColor: theme.colors.shadow, shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, paddingVertical: 2 },
     marketOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 9 },
     marketOptionActive: { backgroundColor: theme.colors.background },
     marketOptionText: { fontSize: 13, color: theme.colors.text },
     marketOptionTextActive: { color: theme.colors.primary, fontWeight: '700' },
     marketOptionCheck: { fontSize: 12, color: theme.colors.primary, fontWeight: '700' },
     startButton: { backgroundColor: theme.colors.primary, borderRadius: theme.radius.sm, paddingHorizontal: 24, justifyContent: 'center' },
-    startButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    startButtonText: { color: theme.colors.onPrimary, fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },
     warn: { color: theme.colors.warn, fontSize: 12, marginTop: theme.spacing.sm },
     marketBadgeRow: { flexDirection: 'row', marginTop: theme.spacing.sm },
-    marketBadge: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, color: '#fff', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
+    marketBadge: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, color: theme.colors.onPrimary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
     info: { color: theme.colors.textSecondary, fontSize: 12, marginTop: theme.spacing.sm },
     error: { color: theme.colors.error, fontSize: 12, marginTop: theme.spacing.sm },
     sidebarTab: { width: 44, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },

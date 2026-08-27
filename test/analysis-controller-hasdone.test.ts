@@ -52,7 +52,7 @@ function makeHarness(opts: { runnerImpl?: RunnerImpl } = {}) {
     runner,
     platform: 'native',
     storeReady: async () => {},
-    loadDemoData: () => {},
+    loadDemoData: () => false,
     loadSettings: () => defaultSettings(),
     saveSettings: () => {},
     applyCapabilitySwitches: () => {},
