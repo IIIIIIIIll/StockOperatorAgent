@@ -1,8 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { AIMessage } from '@langchain/core/messages';
 import { Store, type DailyBar } from '../src/store.ts';
 import { createPipelineRunner, describeError, type PipelineEvent } from '../src/events.ts';
+import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
+
+// F21 离线隔离(本文件此前零 env 治理):联网搜索强制关 + 亿信 key 删除
+// (client 主闸关)——防本机 env 残留触真网(20s fetch vs 15s testTimeout
+// 抖动窗;CI 亦无网)。信息面角色仍运行,素材落固定回退文本(零网络)。
+beforeEach(() => {
+  process.env.WEB_SEARCH_DISABLED = '1';
+  delete process.env.BILLIONS_API_KEY;
+  setCapabilitySwitches(fromEnv()); // env 修改后配置面反推同步(agents.test 同款)
+});
 
 const fixtureRaw = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')).raw as DailyBar[];
 const bars = fixtureRaw.map((b) => ({ ...b, date: b.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') }));

@@ -6,6 +6,7 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { AIMessage, type BaseMessage } from '@langchain/core/messages';
 import { makeInvestmentCommittee } from '../src/committee.ts';
+import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
 
 const STOCK_INFO = 'MARKET_DATA_BLOCK_600036【技术指标】MA5=10.5 MACD=0.3';
 const TICKER = '600036';
@@ -74,6 +75,11 @@ describe('role query 数据注入契约（修复:分析师拿不到数据）', (
     delete process.env.BILLIONS_ANALYST_DISABLED;
     delete process.env.BILLIONS_SEARCH_DISABLED;
     delete process.env.BILLIONS_TWITTER_DISABLED;
+    // F21 离线隔离:联网搜索强制关 + 亿信 key 删除(懒加载 client 主闸关闭),
+    // 防本机 env 残留触真网(20s fetch vs 15s testTimeout 抖动窗;CI 亦无网)
+    process.env.WEB_SEARCH_DISABLED = '1';
+    delete process.env.BILLIONS_API_KEY;
+    setCapabilitySwitches(fromEnv()); // env 修改后配置面反推同步(agents.test 同款)
   });
 
   it('专家 query 嵌入 stock_information(基本面/趋势/技术指标)', async () => {
