@@ -135,9 +135,18 @@ function patchBuildGradle(gradle) {
   return changed ? lines.join("\n") : gradle;
 }
 
-/** Java properties 值转义：反斜杠与换行（secret 单行，只需处理反斜杠） */
+/** Java properties 值转义(F16):反斜杠/换行 + 非 Latin-1 字符 + 前导空白。
+ *  keystore.properties 以 ISO-8859-1 落盘:[\u0080-\uFFFF] 直接写会 mojibake,
+ *  须转 \uXXXX(Properties.load 原生解码,含代理对——两半各自转义即还原);
+ *  行首空白会被 loader 丢弃,须反斜杠转义保真。顺序:先 \\ 再新增转义,
+ *  避免二次处理自己产出的反斜杠。 */
 function escapePropertyValue(value) {
-  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/[\u0080-\uFFFF]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`)
+    .replace(/^[\t ]+/, (ws) => ws.replace(/[\t ]/g, (w) => `\\${w}`));
 }
 
 /**
