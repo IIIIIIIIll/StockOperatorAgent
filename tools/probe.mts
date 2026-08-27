@@ -1,11 +1,14 @@
-// SOA_LIVE 端到端探针:真 TDX/真 Yahoo + 真 LLM 完成一次全分析 → probe-output/report.json
-// 运行:SOA_LIVE=1 npm run probe -- 600036(A 股)/ 00700(港股)/ AAPL(美股)
+// 端到端探针:真 TDX/真 Yahoo + 真 LLM 完成一次全分析 → probe-output/report.json
+// 运行:npm run probe -- 600036(A 股)/ 00700(港股)/ AAPL(美股)(探针本身即 live,
+// 无需 SOA_LIVE 开关——该开关是 test/live.integration.test.ts 的约定,与本脚本无关)
 // 依赖环境:LLM_API_KEY / LLM_MODEL / LLM_BASE_URL(三键,全链模式必需);TDX
 // 直连行情无需 key(A 股);Yahoo 直连免 key(港股/美股)。
 // SOA_COLLECT_ONLY=1:仅采集入库 → 打印 行情已入库/业绩报告/概览键摘要 →
 // 写 probe-output/report.json {ticker, bars, reports, overview} → 退出
 // (不要求 LLM 三键、不跑委员会);未设 → 现有全链逻辑(LLM 三键必需,失败经 error 事件上报)。
 import fs from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TdxClient } from 'node-tdx-market';
 import { Store } from '../src/store.ts';
 import { createPipelineRunner, type PipelineRunner } from '../src/events.ts';
@@ -20,6 +23,9 @@ import { detectMarket, type Market } from '../src/market.ts';
 import { YahooClient } from '../src/yahoo/yahooClient.ts';
 import { collectYahooPayload, getCachedA3, invalidateA3Cache } from '../src/yahoo/deviceYahooCollect.ts';
 import { applyYahooCollectedToStore } from '../src/yahoo/applyYahooCollectedToStore.ts';
+
+/** 探针输出根目录:锚定本文件(仓库根),与 build-chart-view.mts 等兄弟脚本一致,不随 cwd 漂移。 */
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 async function fetchSection(client: TdxClient, ticker: string, namePart: string): Promise<string> {
   // market 按交易所推断(0=深 1=沪)——旧硬编码 1 只对 6xxxxx 正确
@@ -77,7 +83,7 @@ async function runFullAnalysis(
     opinions: report.opinions.map((o) => ({ key: o.key, tabTitle: o.tabTitle, length: o.content.length })),
     stock_information_head: report.stock_information.slice(0, 3000),
   };
-  fs.writeFileSync('probe-output/report.json', JSON.stringify(out, null, 2));
+  fs.writeFileSync(resolve(ROOT, 'probe-output/report.json'), JSON.stringify(out, null, 2));
   console.error('  已落盘 probe-output/report.json');
 }
 
@@ -133,7 +139,7 @@ async function collectCn(store: Store, runner: PipelineRunner, ticker: string, c
       });
       console.error(`  · 概览键摘要(前 8 键):${overviewKeys(overview)}`);
       fs.writeFileSync(
-        'probe-output/report.json',
+        resolve(ROOT, 'probe-output/report.json'),
         JSON.stringify({ ticker, bars: collected.bars, reports, overview }, null, 2),
       );
       console.error('  已落盘 probe-output/report.json(SOA_COLLECT_ONLY,跳过 LLM 全链)');
@@ -164,7 +170,7 @@ async function collectYahoo(store: Store, runner: PipelineRunner, ticker: string
   }
   if (collectOnly) {
     fs.writeFileSync(
-      'probe-output/report.json',
+      resolve(ROOT, 'probe-output/report.json'),
       JSON.stringify(
         { ticker: payload.ticker, bars: payload.bars, reports: payload.reports, overview: payload.overview },
         null,
@@ -190,8 +196,8 @@ async function collectYahoo(store: Store, runner: PipelineRunner, ticker: string
 
 async function main(): Promise<void> {
   const ticker = (process.argv[2] ?? '600036').trim();
-  fs.mkdirSync('probe-output', { recursive: true });
-  const store = new Store('probe-output/soa.sqlite');
+  fs.mkdirSync(resolve(ROOT, 'probe-output'), { recursive: true });
+  const store = new Store(resolve(ROOT, 'probe-output/soa.sqlite'));
   const market = detectMarket(ticker);
   const collectOnly = (process.env.SOA_COLLECT_ONLY ?? '') === '1';
   const runner = createPipelineRunner(store);
