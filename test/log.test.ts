@@ -115,7 +115,11 @@ class FakeFile {
   textSync(): string {
     return this.state().content;
   }
-  moveSync(destination: FakeFile): void {
+  moveSync(destination: FakeFile, options?: { overwrite?: boolean }): void {
+    // F03:对齐 expo-file-system 真实语义——目标已存在且未显式 overwrite → 抛错
+    if (destination.exists && !options?.overwrite) {
+      throw new Error(`moveSync: destination ${destination.name} already exists (overwrite: false)`);
+    }
     const s = this.state();
     s.moves++;
     this.movedTo = destination.name;
@@ -341,6 +345,25 @@ describe('RN 沙盒文件 transport(注入 fake file API)', () => {
     expect(store.get(`${RN_LOG_FILE}.1`)!.content).toBe('x'.repeat(5 * 1024 * 1024)); // 旧文件整体 → .1
     expect(s.creates).toBe(1); // 轮转后新文件 create
     expect(s.content).toContain('| ERROR | [soa] after (platform:rn)');
+  });
+
+  it('F03 二次轮转:上一代 .1 已存在 → overwrite 覆盖成功,日志仍续写', () => {
+    const { fs, store } = fakeFs();
+    const write = makeRnFileTransport(fs, () => false);
+    const oldFile = new fs.File('doc', RN_LOG_FILE);
+    oldFile.write('gen1\n');
+    store.get(RN_LOG_FILE)!.content = 'g1'.repeat(5 * 1024 * 1024); // 撑到 ≥5MB → 首次轮转
+    write('error', 'first');
+    expect(store.get(`${RN_LOG_FILE}.1`)!.content).toBe('g1'.repeat(5 * 1024 * 1024)); // 首次轮转:无 .1 冲突
+
+    // 首次轮转后主文件 exists=false(已移走);模拟再次写满:恢复 exists + 内容
+    const gen2 = store.get(RN_LOG_FILE)!;
+    gen2.exists = true;
+    gen2.content = 'g2'.repeat(5 * 1024 * 1024);
+    write('info', 'second');
+    expect(store.get(`${RN_LOG_FILE}.1`)!.content).toBe('g2'.repeat(5 * 1024 * 1024)); // 旧 .1 被覆盖
+    expect(store.get(RN_LOG_FILE)!.moves).toBe(2); // 两次轮转都成功
+    expect(store.get(RN_LOG_FILE)!.content).toContain('| INFO | [soa] second (platform:rn)'); // 新文件续写
   });
 
   it('NODE_ENV=test → 不写文件(默认门控)', () => {

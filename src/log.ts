@@ -113,7 +113,7 @@ export interface RnFileLike {
   create(): void;
   write(contents: string): void;
   textSync(): string;
-  moveSync(destination: RnFileLike): void;
+  moveSync(destination: RnFileLike, options?: { overwrite?: boolean }): void;
 }
 export interface RnFileSystem {
   File: new (...uris: unknown[]) => RnFileLike;
@@ -134,7 +134,8 @@ export function makeRnFileTransport(
     try {
       let file = new _fs.File(_fs.Paths.document, RN_LOG_FILE);
       if (file.exists && file.size >= RN_LOG_MAX_BYTES) {
-        file.moveSync(new _fs.File(_fs.Paths.document, `${RN_LOG_FILE}.1`)); // 轮转:旧文件 → .1
+        // F03:二次轮转时 .1 已存在——必须 overwrite,否则 moveSync 抛错 → 日志中断
+        file.moveSync(new _fs.File(_fs.Paths.document, `${RN_LOG_FILE}.1`), { overwrite: true });
         file = new _fs.File(_fs.Paths.document, RN_LOG_FILE); // 新句柄指向新文件
       }
       if (!file.exists) file.create();
