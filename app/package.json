@@ -2,7 +2,7 @@
   "name": "soa-app",
   "description": "做个好人AI股票分析系统 —— Expo web/RN 客户端(投资委员会多角色分析)",
   "license": "UNLICENSED",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "main": "index.ts",
   "dependencies": {
     "buffer": "^6.0.3",
