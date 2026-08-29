@@ -8,9 +8,11 @@
 // dependency-free of TS and merely relays IPC between renderer and child.
 //
 // Lifecycle: spawn child -> wait ready (port + settings) -> create window
-// loading http://127.0.0.1:<port>/ ; window-all-closed -> send shutdown ->
-// child flushes + exits -> app.quit(); 3s SIGKILL fallback; unexpected child
-// exit -> console.error + app.quit().
+// loading http://127.0.0.1:<port>/ ; window-all-closed (non-darwin) -> send
+// shutdown -> child flushes + exits -> app.quit(); 3s SIGKILL fallback;
+// unexpected child exit -> console.error + app.quit(). macOS: closing the
+// window keeps app + backend child alive so dock 'activate' can re-create the
+// window instantly; Cmd+Q takes the child down via 'before-quit'.
 // Single instance: requestSingleInstanceLock() runs at import time, before any
 // mkdir/spawn. A second launch quits immediately; the running instance focuses
 // its window on 'second-instance'. Without the lock, two children would each
@@ -293,7 +295,9 @@ function createWindow(port) {
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // Relay renderer console to stdout (packaged app has devtools disabled — F09).
-  win.webContents.on('console-message', (_e, level, message) => {
+  // Electron 43 emits (event, messageDetails: {level, message, ...}) — the old
+  // positional (event, level, message) signature is gone (electron.d.ts).
+  win.webContents.on('console-message', (_e, { level, message }) => {
     console.log(`[renderer:${level}] ${message}`);
   });
   win.on('closed', () => {
@@ -334,7 +338,24 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  shutdownChild();
+  // macOS keeps the app (and its backend child) alive with no windows so the
+  // dock 'activate' below can re-create the window instantly; everywhere else
+  // the close of the last window starts the graceful shutdown -> quit path.
+  if (process.platform !== 'darwin') shutdownChild();
+});
+
+// macOS Cmd+Q must still take the backend down — window close no longer does
+// on darwin. Flush + exit the child before the app quits, or it would orphan
+// and keep racing userData writes across app restarts. No-op on non-darwin,
+// where every quit path already ran shutdownChild (idempotent via `quitting`).
+app.on('before-quit', () => {
+  if (process.platform === 'darwin') shutdownChild();
+});
+
+// macOS: clicking the dock icon re-creates the window if it was closed. The
+// child kept running, so childPort is intact and the window loads instantly.
+app.on('activate', () => {
+  if (mainWindow === null && childPort !== null) createWindow(childPort);
 });
 
 // Termination signals: route into the same graceful path (flush + close +

@@ -103,6 +103,24 @@ function isPrivateAddress(ip) {
       const lo = parseInt(g[7], 16);
       return isPrivateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
     }
+    // N-12(2026-08-29 终审):RFC 4291 弃用的 IPv4-compatible ::/96 —— `::7f00:1`
+    // (=127.0.0.1)等内嵌 IPv4 原实现(仅 ffff 标记形走 mapped)落入下方被判公网,
+    // 放行私网目标。前 6 组全 0 即 ::/96(本处可达时 mappedStd/mappedLoose 均未
+    // 命中,不遮蔽);末两组 hex 即内嵌 IPv4,提取后递归复用上方同一 IPv4 黑名单
+    // (单源判定,与 mapped 路径等价)。不整段封 ::/96:`::808:808`(=8.8.8.8)等
+    // 公网内嵌地址经提取自然放行。dotted-quad 尾形(`::192.168.1.1`)与 mapped
+    // 分支同款处理:Node isIPv6 接受该形,纯 hex 路径 parseInt 得 NaN → 0.0.0.0
+    // 会误封公网 `::8.8.8.8`。'::'/'::1' 已在上方提前返回,不落入本分支。
+    if (g[0] === '0000' && g[1] === '0000' && g[2] === '0000' && g[3] === '0000' && g[4] === '0000' && g[5] === '0000') {
+      const dotted = [g[6], g[7]].find((s) => typeof s === 'string' && s.includes('.'));
+      if (dotted !== undefined) {
+        if (!net.isIPv4(dotted)) return true;
+        return isPrivateAddress(dotted);
+      }
+      const hi = parseInt(g[6], 16);
+      const lo = parseInt(g[7], 16);
+      return isPrivateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
     // S3:隧道/保留段(前缀按展开组比较,容忍 RFC5952 压缩形)——
     // 6to4 2002::/16、Teredo 2001::/32、文档 2001:db8::/32、NAT64 64:ff9b::/96。
     // 注意不可整段封 2001::/16(2001:4860:: 是 Google Public DNS)。

@@ -15,6 +15,15 @@ import { defaultSettings } from '../app/lib/settings.ts';
 
 type RunnerImpl = (ticker: string, opts?: RunOptions) => Promise<FinalReport | undefined>;
 
+/** 可手动放行的 Promise(bootstrap/start 交错用例:storeReady/runner 挂起控制)。 */
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 function makeFakeRunner(impl?: RunnerImpl) {
   const listeners = new Set<(e: PipelineEvent) => void>();
   const runs: Array<{ ticker: string; opts?: RunOptions }> = [];
@@ -44,14 +53,14 @@ function makeFakeRunner(impl?: RunnerImpl) {
   return fake;
 }
 
-function makeHarness(opts: { runnerImpl?: RunnerImpl } = {}) {
+function makeHarness(opts: { runnerImpl?: RunnerImpl; storeReady?: () => Promise<void> } = {}) {
   const store = new InMemoryStore();
   const runner = makeFakeRunner(opts.runnerImpl);
   const deps: AnalysisDeps = {
     store,
     runner,
     platform: 'native',
-    storeReady: async () => {},
+    storeReady: opts.storeReady ?? (async () => {}),
     loadDemoData: () => false,
     loadSettings: () => defaultSettings(),
     saveSettings: () => {},
@@ -173,5 +182,52 @@ describe('AnalysisController.restore hasDone(D15 置位点)', () => {
     const h = makeHarness();
     await h.ctrl.bootstrap();
     expect(h.snap().hasDone).toBe(false);
+  });
+});
+
+describe('AnalysisController bootstrap/start 交错(N-2)', () => {
+  it('storeReady 挂起期间 start() 先行:bootstrap 恢复段跳过,不覆盖运行中会话', async () => {
+    const storeReadyGate = deferred<void>();
+    const runnerGate = deferred<void>();
+    const runnerEntered = deferred<void>();
+    const h = makeHarness({
+      storeReady: () => storeReadyGate.promise,
+      runnerImpl: async () => {
+        // 运行保持 in-flight:先发一个活运行事件,再挂起到测试放行
+        h.runner.emit({ type: 'progress', message: '正在采集行情' });
+        runnerEntered.resolve();
+        await runnerGate.promise;
+        return undefined;
+      },
+    });
+    // 预置上次分析缓存:若无 N-2 守卫,恢复块会把旧会话报告/标记/状态写回
+    h.store.setMeta(
+      LAST_RUN_KEY,
+      JSON.stringify({
+        ticker: '0700.HK',
+        stock_information: '【采集数据】腾讯',
+        final_decision: '持有',
+        opinions: [{ key: 'bullish_opinions', tabTitle: '看涨观点', content: 'BULL' }],
+        at: '2026-08-22T10:00:00.000Z',
+        mode: 'real',
+      }),
+    );
+    const boot = h.ctrl.bootstrap(); // 挂起在 storeReady
+    const startPromise = h.ctrl.start('600036', 'cn'); // start() 内部 await runner.run → 挂起
+    await runnerEntered.promise; // 确定 start() 已进入 runner(running=true)
+    expect(h.snap().running).toBe(true);
+
+    storeReadyGate.resolve(); // bootstrap 恢复 → 守卫(running)应跳过 demo/lastRun 恢复块
+    await boot;
+    const s = h.snap();
+    expect(s.running).toBe(true); // 运行未被 bootstrap 干扰
+    expect(s.events.map((e) => e.type)).toEqual(['progress']); // 无上次会话 report 事件混入
+    expect(s.lastRunTicker).toBe('600036'); // 未恢复旧 ticker(0700.HK)
+    expect(s.statuses).toEqual({}); // 未恢复旧角色完成 chips
+    expect(s.hasDone).toBe(false); // 恢复块未置 hasDone
+
+    runnerGate.resolve(); // 放行运行 → start() 正常收尾
+    await startPromise;
+    expect(h.snap().running).toBe(false);
   });
 });

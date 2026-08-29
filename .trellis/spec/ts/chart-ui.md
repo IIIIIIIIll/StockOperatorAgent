@@ -90,6 +90,13 @@ IndicatorChart 同约定);pane 顶 y 坐标经 chartLayout `paneTops` 计算。
   不回流 App.tsx。
 - **约束**:`start(ticker, market)` 参数化(ticker 输入框与市场下拉均在 App;
   市场手动选择,默认沪深A股;lastRun 恢复按 ticker 反推市场)。
+- **启动链与 start 的优先级(N-2 教训,08-29 上线前复审)**:bootstrap 的
+  lastRun/demo 恢复块是**异步恢复**(await storeReady 之后),而 start 的重入
+  守卫只挡 start-vs-start——storeReady 未决时用户点「开始分析」,start 已
+  running=true,bootstrap 恢复块随后覆写共享状态会把上一会话报告事件/状态
+  chip 污染进行中的 run。守则:bootstrap 在 await storeReady(+设备注入)之后、
+  恢复块之前必须 `if (s.running) return;`(start 优先),防交错窗口。任何新增
+  的异步启动链步骤都要保持该守卫在恢复写共享状态之前。
 - **D15**:hasDone(done → true;start/error → false;恢复按 final_decision
   非空同步)由控制器维护;App 进度区整体门消费——运行中显最新进度行,仅
   !running && hasDone 显「✓ 分析完成」,失败终态整块不渲染防空横条

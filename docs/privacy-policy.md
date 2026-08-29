@@ -3,7 +3,7 @@
   1. 本政策需托管在活跃 URL 上(例如 GitHub Pages 或任意静态托管),并在 Play Console
      "App content → Privacy Policy" 填入该 URL。
   2. 若应用申请敏感权限/数据或面向儿童,还需在应用内提供隐私政策链接。
-     当前应用权限仅含通知(POST_NOTIFICATIONS)与前台服务,无敏感权限;
+     当前应用不申请任何 Android 权限(无通知/前台服务/敏感权限);
      应用内链接属后续任务,如需可另开任务添加。
   3. 如发布英文商店页,建议同步提供英文版政策。
 -->
@@ -90,13 +90,11 @@
 
 ## 5. 权限说明
 
-Android 版申请以下权限,均仅用于核心功能:
-
-- **通知权限(POST_NOTIFICATIONS)**:用于在分析任务进行时向您展示进度通知。
-- **前台服务(FOREGROUND_SERVICE / FOREGROUND_SERVICE_DATA_SYNC)**:用于在
-  分析任务进行中维持后台数据同步任务。
-
-我们不会申请定位、通讯录、短信、通话、相机、麦克风等任何敏感权限。
+Android 版**不申请任何 Android 权限**:应用清单未声明 `android.permissions`,
+也不包含通知(POST_NOTIFICATIONS)、前台服务(FOREGROUND_SERVICE /
+FOREGROUND_SERVICE_DATA_SYNC)、定位、通讯录、短信、通话、相机、麦克风等
+任何权限声明。本应用的全部功能(AI 分析、行情采集、本地存储与日志)均在不
+申请任何特殊权限的前提下运行。
 
 ---
 

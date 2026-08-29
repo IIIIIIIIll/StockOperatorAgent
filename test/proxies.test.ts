@@ -508,6 +508,26 @@ describe('proxies.cjs C2 校验工具', () => {
     expect(isPrivateAddress('2002::1')).toBe(true); // 原生 IPv6 前缀回归不受影响
   });
 
+  it('N-12:IPv4-compatible ::/96 按内嵌 IPv4 判定,不再是公网放行缺口', () => {
+    const priv = [
+      '::7f00:1', // 127.0.0.1
+      '::a00:1', // 10.0.0.1
+      '::c0a8:101', // 192.168.1.1
+      '::a9fe:a9fe', // 169.254.169.254(云 metadata)
+      '0:0:0:0:0:0:7f00:1', // 未压缩全写形同样在内
+      '::192.168.1.1', // dotted-quad 尾形(N-12 同款,防 NaN→0.0.0.0 兜底误判)
+    ];
+    for (const ip of priv) expect(isPrivateAddress(ip), ip).toBe(true);
+    // 公网内嵌地址不得误封 —— 不整段封 ::/96(hex + dotted-quad 尾形)
+    for (const ip of ['::808:808', '::101:101', '::8.8.8.8']) {
+      expect(isPrivateAddress(ip), ip).toBe(false);
+    }
+    // 回归:mappedStd/mappedLoose 仍按内嵌 IPv4 判定,不被 ::/96 分支遮蔽
+    expect(isPrivateAddress('::ffff:7f00:1')).toBe(true);
+    expect(isPrivateAddress('::ffff:0:7f00:1')).toBe(true);
+    expect(isPrivateAddress('::ffff:808:808')).toBe(false);
+  });
+
   it('isPublicHost:localhost → false;公网 IP 字面 → true(不触网)', async () => {
     expect(await isPublicHost(new URL('http://localhost/v1'))).toBe(false);
     expect(await isPublicHost(new URL('https://8.8.8.8/v1'))).toBe(true);

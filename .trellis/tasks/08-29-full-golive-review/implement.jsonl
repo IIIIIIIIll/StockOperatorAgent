@@ -1,0 +1,19 @@
+{"file": ".trellis/spec/ts/index.md", "reason": "TS layer entry: repo structure, pre-dev checks, 7 architecture assertions, theme routing"}
+{"file": ".trellis/spec/guides/index.md", "reason": "Thinking guides: cross-layer/cross-platform triggers + ~35% AI-review false-positive verification rule"}
+{"file": ".trellis/spec/architecture.md", "reason": "Runtime layers, entry points, data flow, EXPO_PUBLIC secrets handling"}
+{"file": ".trellis/spec/logging.md", "reason": "src/log.ts unified logging contract (no second exit)"}
+{"file": ".trellis/spec/error-handling.md", "reason": "Error handling conventions"}
+{"file": ".trellis/spec/testing.md", "reason": "Test conventions and meaningfulness rules"}
+{"file": ".trellis/spec/ts/events-streaming.md", "reason": "Event protocol/streaming/retry/proxies review criteria"}
+{"file": ".trellis/spec/ts/stores.md", "reason": "Store family contracts, close/drain, freshness"}
+{"file": ".trellis/spec/ts/env-switches.md", "reason": "env/switches/EXPO_PUBLIC key handling"}
+{"file": ".trellis/spec/ts/agents-tools.md", "reason": "Agent/toolLoop/llm/mcp/webSearch/billions review criteria"}
+{"file": ".trellis/spec/ts/chart-ui.md", "reason": "Chart mirror contract (build/check), UI orchestration"}
+{"file": ".trellis/spec/ts/tdx-data.md", "reason": "TDX collection chain, qfq, gates"}
+{"file": ".trellis/spec/ts/hk-us-data.md", "reason": "HK/US data chains: Yahoo/Finnhub/market model"}
+{"file": ".trellis/spec/ts/desktop-ci.md", "reason": "Electron shell + packaging layout + CI/release contract"}
+{"file": ".trellis/spec/ts/rn-runtime.md", "reason": "RN/Hermes runtime compat, polyfill/shim boundaries"}
+{"file": ".trellis/spec/ts/tools.md", "reason": "Probe/build scripts contract"}
+{"file": ".trellis/spec/ts/web-e2e.md", "reason": "Web/Android manual E2E verification paths"}
+{"file": ".trellis/tasks/archive/2026-08/08-27-final-golive-review/research/findings.md", "reason": "Prior review context: known bug areas, fix shapes, residual process items (context only, not acceptance)"}
+{"file": ".trellis/tasks/archive/2026-08/08-27-golive-fix-backlog/research/fix-backlog.md", "reason": "Fix methods for the 78-item backlog (context for known-areas re-examination)"}

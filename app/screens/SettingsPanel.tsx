@@ -153,10 +153,10 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         <TextInput style={styles.input} value={settings.keys.langsmithProject} onChangeText={(v) => updateKey('langsmithProject', v)} placeholder="soa-ts" autoCapitalize="none" />
       </View>
 
-      {/* ── 4. 能力开关(会话级)────────────────────────────────── */}
+      {/* ── 4. 能力开关────────────────────────────────────────── */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>能力开关(会话级)</Text>
-        <Text style={styles.muted}>下次分析生效;重新加载后恢复默认。</Text>
+        <Text style={styles.sectionTitle}>能力开关</Text>
+        <Text style={styles.muted}>下次分析生效;设置自动保存,重启后保留。</Text>
         {!settings.keys.billionsApiKey.trim() ? <Text style={styles.warn}>未配置亿信 API Key —— 亿信能力不可用,能力开关置灰。</Text> : null}
         {settings.keys.billionsApiKey.trim() && !settings.switches.billionsMaster ? <Text style={styles.warn}>亿信总闸已关 —— 能力开关置灰。</Text> : null}
         {SWITCH_ROWS.map((row) => {
@@ -170,10 +170,10 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         })}
       </View>
 
-      {/* ── 5. 亿信调用上限(会话级)────────────────────────────── */}
+      {/* ── 5. 亿信调用上限────────────────────────────────────── */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>亿信调用上限(会话级)</Text>
-        <Text style={styles.muted}>单次分析内工具调用上限;重新加载后恢复默认。</Text>
+        <Text style={styles.sectionTitle}>亿信调用上限</Text>
+        <Text style={styles.muted}>单次分析内工具调用上限;设置自动保存,重启后保留。</Text>
         {CAP_ROWS.map((row) => (
           <View key={row.key} style={styles.capRow}>
             <Text style={[styles.label, { flex: 1 }]}>{row.label}</Text>

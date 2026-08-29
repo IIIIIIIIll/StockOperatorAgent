@@ -8,8 +8,10 @@
 
 ## 安装
 
-请确保你已经安装了 **Node.js ≥ 22**（Node 探针需 `--experimental-transform-types`；
-生产 server 走 `--experimental-strip-types`，Node ≥ 23.6 默认开启）。然后：
+请确保你已经安装了 **Node.js ≥ 23.6**（Node 探针需 `--experimental-transform-types`
+旗标；生产 server 直接 `node server.mjs` 即可——TS 类型剥离自 Node 23.6 起默认
+开启；若在 Node 22.x 上运行，需给 server 命令加 `--experimental-strip-types`
+旗标）。然后：
 
 ```bash
 npm install      # 业务层 + 测试（vitest / tsc / probe）
@@ -18,7 +20,7 @@ cd app && npm install     # web 应用（Expo / React Native Web）
 
 ## 使用
 
-1. **配置 LLM**：在网页**侧边栏「设置」面板**的「模型与密钥」填写三个必填键
+1. **配置 LLM**：在网页**侧边栏「设置」面板**的「LLM(大模型)」填写三个必填键
    （OpenAI 兼容，任意供应商）——`LLM_API_KEY`（API Key）、`LLM_MODEL`（模型名，
    如 `deepseek-v4-flash`、`gpt-4o`）、`LLM_BASE_URL`（endpoint，如
    `https://api.deepseek.com`、OpenCode Zen 网关 `https://opencode.ai/zen/go/v1`、
@@ -40,10 +42,13 @@ cd app && npx expo export --platform web && node server.mjs
 ```
 
    开发模式：`cd app && npm start`（Expo dev server）。
-3. Node 探针（真 TDX 直连完成一次全分析 → `probe-output/report.json`）：
+3. Node 探针（真数据直连完成一次全分析 → `probe-output/report.json`；沪深 A 股走
+   TDX 直连、港股/美股走 Yahoo 直连，均免 key）：
 
 ```bash
-node --experimental-transform-types tools/probe.mts 600036
+node --experimental-transform-types tools/probe.mts 600036    # 沪深A股
+node --experimental-transform-types tools/probe.mts 00700     # 港股
+node --experimental-transform-types tools/probe.mts AAPL      # 美股
 ```
 
 4. 测试与类型检查：
@@ -60,6 +65,8 @@ npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
 2. 支持多智能体协作决策（专家初稿 → 多空对抗修订 → 投资经理终审）
 3. 提供可视化的交易决策界面（报告 Tab、采集数据表格与图表）
 4. 侧边栏设置面板：模型/密钥/能力开关/亿信调用上限全部可在网页修改
+5. 支持三市场分析：沪深 A 股（TDX 直连）/ 港股 / 美股（Yahoo Finance 免 key），
+   输入框旁下拉手动选择市场（无自动识别），报告/图表/采集表格按市场时区与币种呈现
 
 ## 数据源
 
@@ -68,6 +75,18 @@ npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
   派生/涨跌幅）、**业绩报告**（F10 财务分析节解析 + 环比自算）与**技术指标**
   全部由 TDX 提供；web 端经同源 `/tdx-collect` 代理采集（Node 探针直连）。
   个股数据**按需单股采集**（分析哪只采集哪只，不做全市场扫描）。
+- **港美股（Yahoo Finance，免 key）**：`src/yahoo/`——`yahooClient.ts` 为 Yahoo
+  chart / quoteSummary REST 薄包装（A3 cookie + crumb 两跳鉴权，401 自动自愈），
+  `deviceYahooCollect.ts` 为三端共用的统一采集流（候选符号试探 → 全量日 K 按
+  10 年窗口分页 → 快照 → 概览/业绩报告合成）；浏览器经同源 `/yahoo-collect`
+  代理采集（代理 gate 只放行港美股符号），真机与 Node 探针 Yahoo 直连。市场在
+  UI 输入框旁下拉**手动选择**（沪深A股 / 港股 / 美股，无自动识别），代码格式：
+  港股输入 1-5 位数字，归一化为 Yahoo 符号（≤4 位左补零 + `.HK`，如 `700` →
+  `0700.HK`；5 位前导 0 优先取 4 位形，如 `09988` → `9988.HK`）；美股输入大写
+  ticker（≤10 字符，可含 `.`/`-`，如 `AAPL`、`BRK.B`）。概览合成与 CN 22 键
+  对齐并附股息率/EPS/52 周高低/币种；业绩报告为原币季度财报（港股半年报语义）。
+  可选 Finnhub API Key（设置面板「外部服务密钥(可选)」填写）做美股公司画像增强
+  （行业字段），未配置时零网络降级。
 - **亿信 Fin（可选）**：`src/billionsClient.ts` REST 薄包装——公告/研报/新闻/
   推特检索（信息面分析师预抓 + agent 的 LLM 工具）+ 自然语言金融问数（采集数据
   的「亿信金融数据库」段）。`BILLIONS_API_KEY` 为主闸（web 端在设置面板填写），

@@ -8,6 +8,7 @@ import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vi
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import ReportContent from './components/ReportContent';
+import ErrorBoundary from './components/ErrorBoundary';
 import DataScreen from './screens/DataScreen';
 import SettingsPanel from './screens/SettingsPanel';
 import { THEME_HEADING, useTheme, type Theme } from './theme';
@@ -279,25 +280,28 @@ function AppContent() {
             </View>
           ) : null}
 
-          {/* 内容 */}
-          <View style={styles.content}>
-            {activeTab === 'data' ? (
-              <DataScreen stockInformation={a.stockInformation} dataVersion={a.dataVersion} ticker={a.lastRunTicker} market={a.market} />
-            ) : activeRole ? (
-              <ReportContent
-                key={activeRole.stateKey!} // F43:按角色 remount → 展开态不跨 看涨/看跌 tab 泄漏
-                roleKey={activeRole.stateKey!}
-                opinion={activeRole.opinion === true}
-                tabTitle={activeRole.tabTitle!}
-                reports={activeReports.map((e) => ({ key: e.key, content: e.content }))}
-                finalDecision={a.finalDecision}
-                partials={a.partials}
-                statuses={a.statuses}
-                nodeName={activeRole.nodeName}
-                reviseNodeName={activeRole.reviseNodeName}
-              />
-            ) : null}
-          </View>
+          {/* 内容(N-3:错误边界仅包内容区——DataScreen/ReportContent 渲染崩溃降级
+              为错误卡+重试;App 壳/设置侧边栏不被边界捕获) */}
+          <ErrorBoundary theme={theme}>
+            <View style={styles.content}>
+              {activeTab === 'data' ? (
+                <DataScreen stockInformation={a.stockInformation} dataVersion={a.dataVersion} ticker={a.lastRunTicker} market={a.market} />
+              ) : activeRole ? (
+                <ReportContent
+                  key={activeRole.stateKey!} // F43:按角色 remount → 展开态不跨 看涨/看跌 tab 泄漏
+                  roleKey={activeRole.stateKey!}
+                  opinion={activeRole.opinion === true}
+                  tabTitle={activeRole.tabTitle!}
+                  reports={activeReports.map((e) => ({ key: e.key, content: e.content }))}
+                  finalDecision={a.finalDecision}
+                  partials={a.partials}
+                  statuses={a.statuses}
+                  nodeName={activeRole.nodeName}
+                  reviseNodeName={activeRole.reviseNodeName}
+                />
+              ) : null}
+            </View>
+          </ErrorBoundary>
         </View>
 
       </View>

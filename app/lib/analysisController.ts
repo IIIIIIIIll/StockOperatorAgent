@@ -198,7 +198,8 @@ export class AnalysisController {
   }
 
   /** 启动链:storeReady → (native 设备注入)→ demo 载入 → lastRun 恢复/演示上下文
-   *  → 设置加载 → dataVersion=1。时序与抽取前逐点等价。 */
+   *  → 设置加载 → dataVersion=1。时序与抽取前逐点等价;storeReady 挂起期间
+   *  start() 已启动时,恢复段整体跳过(N-2,start() 优先)。 */
   async bootstrap(): Promise<void> {
     const d = this.deps;
     const s = this.st;
@@ -218,6 +219,12 @@ export class AnalysisController {
     // native(RN 真机)采集注入先于任何采集(保持原时序:setDeviceStore 在
     // start() 采集前完成);web 不使用。
     if (d.platform !== 'web') await d.injectDeviceStore?.();
+    // N-2:start() 优先 —— storeReady 挂起期间用户已点「开始分析」(UI 仅按
+    // running 禁用按钮),若继续载入 demo / 恢复 lastRun 缓存,会把上次会话的
+    // events/statuses/hasDone 覆盖进运行中的会话。守卫:运行中 → bootstrap 到此
+    // 为止(设置/数据版本由 start()/构造路径负责);bootstrap 先行完成时 running
+    // 恒 false,恢复行为与抽取前逐点等价。
+    if (s.running) return;
     // 仅空库时载入 demo(有跨会话持久化数据则跳过);日志只在真正写入时打
     // (旧实现无论是否载入都打,真实库下数字误导)。
     if (d.loadDemoData()) {
