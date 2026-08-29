@@ -78,6 +78,11 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
       const port = (server.address() as { port: number }).port;
       await fn(`http://127.0.0.1:${port}`);
     } finally {
+      // 全局 undici fetch 池会 keep-alive 复用本 server 的 socket;仅 close()
+      // 不销毁空闲连接——下一用例 listen(0) 拿到同端口时池内旧 socket 已死
+      // (UND_ERR_SOCKET: other side closed,CI 慢机偶发,08-29 实证)。先
+      // closeAllConnections 强制断开,池内条目作废,下用例必然新建连接。
+      server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   }
@@ -144,6 +149,7 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
       const port = (server.address() as { port: number }).port;
       await fn(`http://127.0.0.1:${port}`);
     } finally {
+      server.closeAllConnections(); // 同上:销毁 keep-alive 空闲连接,防池复用死 socket
       await new Promise<void>((resolve) => server.close(() => resolve()));
       vi.unstubAllEnvs();
     }
