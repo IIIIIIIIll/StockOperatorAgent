@@ -7,6 +7,7 @@ import {
   TdxMcpClient,
   TdxQueryResult,
   getMarketIntel,
+  makeProxyMcpFetch,
   mcpDisabled,
   rowToText,
 } from '../src/mcp.ts';
@@ -354,5 +355,55 @@ describe('rowToText', () => {
 
   it('全过滤 → 空串', () => {
     expect(rowToText({ a: null, b: '', c: undefined })).toBe('');
+  });
+});
+
+describe('makeProxyMcpFetch（F2 同源代理 fetch）', () => {
+  it('URL 拼 `${base}/tdx-mcp`；白名单头透传、非白名单过滤；init 其余字段原样展开', async () => {
+    const original = globalThis.fetch;
+    const captured: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      captured.push({ url: String(url), init });
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    try {
+      const proxyFetch = makeProxyMcpFetch('https://app.example.com');
+      const resp = await proxyFetch('https://unused.example/mcp', {
+        method: 'POST',
+        headers: {
+          'tdx-api-key': 'secret-key',
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'Mcp-Session-Id': 'sess-9',
+          Authorization: 'Bearer x',
+          'X-Random': 'no',
+        },
+        body: '{"jsonrpc":"2.0","method":"tools/call"}',
+      });
+      expect(resp.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0].url).toBe('https://app.example.com/tdx-mcp');
+      // Headers 统一解析后键名归一化为小写(服务端/上游大小写不敏感,语义等价)
+      const headers = (captured[0].init?.headers ?? {}) as Record<string, string>;
+      expect(headers).toMatchObject({
+        'tdx-api-key': 'secret-key',
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': 'sess-9',
+      });
+      // 非白名单头(含密钥类 Authorization)被过滤
+      expect(headers['authorization']).toBeUndefined();
+      expect(headers['x-random']).toBeUndefined();
+      // 其余 init 字段原样展开
+      expect(captured[0].init?.method).toBe('POST');
+      expect(captured[0].init?.body).toBe('{"jsonrpc":"2.0","method":"tools/call"}');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('平台无关：不读 window/location（Node 环境直接可用）', () => {
+    const proxyFetch = makeProxyMcpFetch('http://mcp.local');
+    expect(typeof proxyFetch).toBe('function');
   });
 });

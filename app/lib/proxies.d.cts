@@ -24,6 +24,28 @@ declare const proxies: {
     res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
     _ddg?: (q: any) => Promise<any>,
   ): Promise<void>;
+  handleTdxMcp(
+    req: unknown,
+    res: {
+      writeHead(status: number, headers?: Record<string, string>): void;
+      end(body?: unknown): void;
+      write?(chunk: unknown): void;
+      destroy?(): void;
+    },
+    _fetch?: (input: any, init?: any) => Promise<any>,
+  ): Promise<void>;
+  handleBillionsProxy(
+    req: unknown,
+    res: {
+      writeHead(status: number, headers?: Record<string, string>): void;
+      end(body?: unknown): void;
+      destroy?(): void;
+    },
+    _fetch?: (input: any, init?: any) => Promise<any>,
+  ): Promise<void>;
+  TDX_MCP_TARGET: string;
+  TDX_MCP_TIMEOUT_MS: number;
+  BILLIONS_TARGET_ORIGIN: string;
   MAX_BODY_BYTES: number;
   COLLECT_TIMEOUT_MS: number;
   YAHOO_COLLECT_TIMEOUT_MS: number;

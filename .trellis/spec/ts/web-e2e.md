@@ -58,14 +58,16 @@ paths:
   - **基线(全功能全开,deepseek-v4-flash)**:web cn 64 步/1029.7s、
     hk 56 步/896.8s、us 66 步/1169.8s;安卓 cn 52 步/700.6s、us 56 步/
     868.5s——5/5 D15 终态全过;步数/耗时随工具轮重试非确定性浮动。
-  - **亿信平台差异(重要)**:web 端亿信**全灭**——`billionsClient`
-    `this._fetch = globalThis.fetch` 后方法调用,Chrome 强制 fetch
-    this===Window → Illegal invocation(08-29 实证,待修复);安卓 RN
-    fetch 不检查 this → 正常(报告引用「基于本次联网/亿信验证」)。
-    验证亿信功能以安卓为实证面。
-  - **TDX MCP 平台差异**:web 浏览器直连 mcp.tdx.com.cn:3001 被 CORS
-    阻断(预检无 Access-Control-Allow-Origin)→ 情报段降级文案;安卓
-    直连无 CORS → 正常执行。web 如需 MCP 需 server 同源代理(未实现)。
+  - **亿信平台差异(08-29 修复)**:web 端曾因 `billionsClient` fetch 方法调用
+    Illegal invocation 全灭 → 已修(裸调用包装);随后暴露亿信**实际响应无 CORS
+    头**(预检有、响应无)→ 已修(同源 /billions-proxy,固定 host + path 白名单,
+    见 proxies.cjs handleBillionsProxy)。安卓 RN fetch 不检查 this/CORS →
+    直连正常。
+  - **TDX MCP 平台差异(08-29 修复)**:web 浏览器直连 mcp.tdx.com.cn:3001 被
+    CORS 阻断 → 已修(同源 /tdx-mcp 代理:initialize 握手 + 会话 ID 透传 +
+    SSE 流式,curl 端到端实证 wenda-mcp-server 200);安卓直连无 CORS 正常。
+    客户端 web 分支经 makeProxyMcpFetch/makeProxyBillionsFetch(runner.ts
+    webBillionsFetch 单点判定),Node/RN 直连不变。
   - **安卓输入 gotcha**:RN TextInput 对 `adb input text`(commitText
     通道)不响应,逐键 `input keyevent KEYCODE_*` 有效(先 tap 聚焦、
     MOVE_END 后 DEL 清空,再逐键输入);模拟器 stylus 手写引导弹窗会

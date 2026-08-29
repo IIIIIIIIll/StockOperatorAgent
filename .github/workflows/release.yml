@@ -62,6 +62,7 @@ jobs:
         run: |
           npm ci
           npx expo export --platform web
+          node ../tools/restore-app-tsconfig.mjs
 
       - name: Package desktop installers (electron-builder)
         working-directory: desktop

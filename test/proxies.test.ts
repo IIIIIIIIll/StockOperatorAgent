@@ -9,8 +9,11 @@ const {
   handleLlmProxy,
   handleTdxCollect,
   handleYahooCollect,
+  handleTdxMcp,
   MAX_BODY_BYTES,
   COLLECT_TIMEOUT_MS,
+  TDX_MCP_TARGET,
+  TDX_MCP_TIMEOUT_MS,
   normalizeBaseUrl,
   isPrivateAddress,
   isPublicHost,
@@ -21,6 +24,7 @@ interface FakeRes {
   headersSent: boolean;
   calls: Array<{ status: number; body: string; headers?: Record<string, string> }>;
   writeHead(status: number, headers?: Record<string, string>): void;
+  write(chunk: unknown): void;
   end(body?: unknown): void;
 }
 function fakeRes(): FakeRes {
@@ -32,9 +36,15 @@ function fakeRes(): FakeRes {
       res.headersSent = true;
       calls.push(headers ? { status, body: '', headers } : { status, body: '' });
     },
+    // R4 流式透传:writeHead 后逐块累积(对齐真实 res.write 语义)
+    write(chunk: unknown) {
+      const last = calls[calls.length - 1];
+      if (last) last.body += String(chunk);
+    },
+    // body 为 undefined(end() 空参,流式路径)时保留已 write 内容
     end(body?: unknown) {
       if (calls.length === 0) calls.push({ status: 200, body: '' });
-      calls[calls.length - 1].body = body === undefined ? '' : String(body);
+      if (body !== undefined) calls[calls.length - 1].body = String(body);
     },
   };
   return res;
@@ -627,5 +637,202 @@ describe('proxies.cjs /yahoo-collect gate(E9:isYahooMarket 与 yahooMarketOfTick
     );
     expect(resOk.calls[0].status).toBe(200);
     expect(argsOk).toEqual(['AAPL', { skipDaily: false }]);
+  });
+});
+
+describe('proxies.cjs /tdx-mcp(F2 同源代理)', () => {
+  it('固定目标转发:URL 恒为 TDX_MCP_TARGET,POST + redirect manual + body Buffer 原样', async () => {
+    const res = fakeRes();
+    let sentUrl = '';
+    let sentInit: { method?: string; redirect?: string; body?: unknown; headers?: Record<string, string> } | undefined;
+    const body = JSON.stringify({ jsonrpc: '2.0', method: 'tools/call' });
+    await handleTdxMcp(
+      fakeReq(body, { 'tdx-api-key': 'k' }, '/tdx-mcp'),
+      res,
+      async (url: string, init?: unknown) => {
+        sentUrl = url;
+        // 注入的 fake fetch 第二参即我们自己的 forwardOpts(结构已知,非外部数据)
+        const initObj = init as { method?: string; redirect?: string; body?: unknown; headers?: Record<string, string> } | undefined;
+        sentInit = initObj;
+        return fakeUpstream();
+      },
+    );
+    expect(res.calls[0].status).toBe(200);
+    expect(sentUrl).toBe(TDX_MCP_TARGET);
+    expect(sentUrl).toContain('mcp.tdx.com.cn:3001/mcp'); // 固定目标(零 SSRF 面)
+    expect(sentInit?.method).toBe('POST');
+    expect(sentInit?.redirect).toBe('manual');
+    expect(Buffer.isBuffer(sentInit?.body)).toBe(true);
+    expect(String(sentInit?.body)).toBe(body); // Buffer 原样转发
+  });
+
+  it('请求头白名单:tdx-api-key/content-type/accept/mcp-session-id 透传;authorization/x-soa-token/x-random 不转发', async () => {
+    const res = fakeRes();
+    let sentHeaders: Record<string, string> = {};
+    await handleTdxMcp(
+      fakeReq('{}', {
+        'tdx-api-key': 'secret-key',
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        'Mcp-Session-Id': 'sess-1',
+        Authorization: 'Bearer xyz',
+        'X-SOA-Token': 'soa-gate',
+        'X-Random': 'nope',
+      }, '/tdx-mcp'),
+      res,
+      async (_url: string, init?: unknown) => {
+        // 同上:fake fetch 捕获 handler 构造的 forwardOpts,形状受控
+        const initObj = init as { headers?: Record<string, string> } | undefined;
+        sentHeaders = initObj?.headers ?? {};
+        return fakeUpstream();
+      },
+    );
+    expect(res.calls[0].status).toBe(200);
+    const forwarded = Object.fromEntries(
+      Object.entries(sentHeaders).map(([k, v]) => [k.toLowerCase(), v]),
+    );
+    expect(forwarded['tdx-api-key']).toBe('secret-key');
+    expect(forwarded['content-type']).toBe('application/json');
+    expect(forwarded['accept']).toBe('text/event-stream');
+    expect(forwarded['mcp-session-id']).toBe('sess-1');
+    expect(forwarded['authorization']).toBeUndefined();
+    expect(forwarded['x-soa-token']).toBeUndefined();
+    expect(forwarded['x-random']).toBeUndefined();
+  });
+
+  it('SSE 流式透传:upstream body 两段 async iterable → 逐块 res.write;Content-Type 透传', async () => {
+    const res = fakeRes();
+    const chunks = [Buffer.from('data: {"a":1}\n\n'), Buffer.from('data: {"b":2}\n\n')];
+    const it = (async function* () {
+      for (const c of chunks) yield c;
+    })();
+    const upstream = {
+      status: 200,
+      headers: { get: (name: string) => (name === 'content-type' ? 'text/event-stream' : null) },
+      body: it,
+    };
+    await handleTdxMcp(fakeReq('{}', {}, '/tdx-mcp'), res, async () => upstream);
+    expect(res.calls[0].status).toBe(200);
+    expect(res.calls[0].headers?.['Content-Type']).toBe('text/event-stream');
+    expect(res.calls[0].body).toBe('data: {"a":1}\n\ndata: {"b":2}\n\n'); // 逐块内容完整
+  });
+
+  it('Mcp-Session-Id 响应头透传(有则带,无则不带)', async () => {
+    const resWith = fakeRes();
+    await handleTdxMcp(
+      fakeReq('{}', {}, '/tdx-mcp'),
+      resWith,
+      async () => ({
+        status: 200,
+        headers: {
+          get: (name: string) =>
+            name === 'content-type' ? 'application/json' : name === 'Mcp-Session-Id' ? 'sess-42' : null,
+        },
+        body: null,
+      }),
+    );
+    expect(resWith.calls[0].headers?.['Mcp-Session-Id']).toBe('sess-42');
+
+    const resWithout = fakeRes();
+    await handleTdxMcp(fakeReq('{}', {}, '/tdx-mcp'), resWithout, async () => fakeUpstream());
+    expect(resWithout.calls[0].headers?.['Mcp-Session-Id']).toBeUndefined();
+  });
+
+  it('body > 1MB → 413,不转发', async () => {
+    const res = fakeRes();
+    let called = false;
+    await handleTdxMcp(fakeReq('x'.repeat(MAX_BODY_BYTES + 1), {}, '/tdx-mcp'), res, async () => {
+      called = true;
+      return fakeUpstream();
+    });
+    expect(res.calls[0].status).toBe(413);
+    expect(JSON.parse(res.calls[0].body)).toHaveProperty('error');
+    expect(called).toBe(false);
+  });
+
+  it('upstream 抛错(网络失败)→ 502 TDX MCP 转发失败', async () => {
+    const res = fakeRes();
+    await handleTdxMcp(fakeReq('{}', {}, '/tdx-mcp'), res, async () => {
+      throw new TypeError('fetch failed');
+    });
+    expect(res.calls[0].status).toBe(502);
+    expect(JSON.parse(res.calls[0].body)).toHaveProperty('error.message');
+    expect(res.calls[0].body).toContain('TDX MCP 转发失败');
+  });
+
+  it('60s 超时:未 writeHead → 提前回 504,不打断 in-flight(真正 settle 后不再 writeHead)', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveUpstream!: (v: unknown) => void;
+      const pending = new Promise<unknown>((r) => {
+        resolveUpstream = r;
+      });
+      const res = fakeRes();
+      const p = handleTdxMcp(fakeReq('{}', {}, '/tdx-mcp'), res, () => pending);
+      await vi.advanceTimersByTimeAsync(TDX_MCP_TIMEOUT_MS);
+      expect(res.calls[0].status).toBe(504); // 60s 超时已回包
+      resolveUpstream(fakeUpstream()); // in-flight 不被取消,后台真正 settle
+      await p;
+      expect(res.calls).toHaveLength(1); // 504 已回,不再 writeHead 透传
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('proxies.cjs /billions-proxy(F5 亿信 CORS 根治)', () => {
+  const { handleBillionsProxy, BILLIONS_TARGET_ORIGIN } = proxies;
+
+  it('固定 host + 白名单 path 转发:POST/头白名单/body 原样', async () => {
+    const res = fakeRes();
+    let captured: { url: string; init: RequestInit } | null = null;
+    await handleBillionsProxy(
+      fakeReq('{"keyword":"600036"}', { 'x-api-key': 'k123', authorization: 'Bearer secret', 'content-type': 'application/json' }, '/billions-proxy/api/v2/search'),
+      res,
+      async (url: unknown, init: unknown) => {
+        captured = { url: String(url), init: init as RequestInit };
+        return { status: 200, headers: { get: (n: string) => (n === 'content-type' ? 'application/json' : null) }, body: null, text: async () => '{"ok":true}' };
+      },
+    );
+    expect(captured!.url).toBe(`${BILLIONS_TARGET_ORIGIN}/api/v2/search`);
+    const fwd = captured!.init.headers as Record<string, string>;
+    expect(fwd['x-api-key']).toBe('k123');
+    expect(fwd['content-type']).toBe('application/json');
+    expect(fwd['authorization']).toBeUndefined(); // 白名单外拒绝
+    expect(String(captured!.init.body)).toBe('{"keyword":"600036"}');
+    expect(res.calls[0].status).toBe(200);
+    expect(res.calls[0].body).toBe('{"ok":true}');
+  });
+
+  it('非白名单 path → 403 不触网', async () => {
+    const res = fakeRes();
+    let called = false;
+    await handleBillionsProxy(fakeReq('{}', {}, '/billions-proxy/api/v9/admin'), res, async () => {
+      called = true;
+      return { status: 200, headers: { get: () => null }, body: null, text: async () => '' };
+    });
+    expect(res.calls[0].status).toBe(403);
+    expect(called).toBe(false);
+  });
+
+  it('body > 1MB → 413 不触网', async () => {
+    const res = fakeRes();
+    let called = false;
+    await handleBillionsProxy(fakeReq('x'.repeat(MAX_BODY_BYTES + 1), {}, '/billions-proxy/api/v2/search'), res, async () => {
+      called = true;
+      return { status: 200, headers: { get: () => null }, body: null, text: async () => '' };
+    });
+    expect(res.calls[0].status).toBe(413);
+    expect(called).toBe(false);
+  });
+
+  it('upstream 抛错 → 502 归一化', async () => {
+    const res = fakeRes();
+    await handleBillionsProxy(fakeReq('{}', {}, '/billions-proxy/api/v1/fin_db'), res, async () => {
+      throw new Error('ECONNREFUSED');
+    });
+    expect(res.calls[0].status).toBe(502);
+    expect(JSON.parse(res.calls[0].body)).toHaveProperty('error.message');
+    expect(res.calls[0].body).toContain('亿信代理转发失败');
   });
 });

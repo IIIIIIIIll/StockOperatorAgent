@@ -74,6 +74,31 @@ export interface FetchDocOptions {
 
 export const BILLIONS_BASE = 'https://openapi.billionsintelligence.com/api';
 
+/** 同源代理 fetch(web 端亿信 CORS 根治):亿信实际 POST 响应不带
+ *  Access-Control-Allow-Origin(预检 204 有、响应 401/2xx 无,08-29 实证),
+ *  浏览器直连被 CORS 拦截 → 改经同源 /billions-proxy 转发(server 固定 host
+ *  + path 白名单,见 proxies.cjs handleBillionsProxy)。Node/RN 无 CORS,
+ *  不走此分支,维持直连。base 由调用方传(web 取 location.origin),函数惰性
+ *  ——对齐 makeProxySearcher/makeProxyMcpFetch 先例。头白名单仅透传
+ *  x-api-key/content-type/accept(密钥只经白名单头),其余头拒绝。 */
+export function makeProxyBillionsFetch(base: string): typeof fetch {
+  const FORWARD: Record<string, true> = {
+    'x-api-key': true,
+    'content-type': true,
+    accept: true,
+  };
+  return (input, init) => {
+    // input 三形态(string URL / URL / Request)统一取 href;白名单头组装。
+    const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+    const url = new URL(raw);
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers).forEach((v, k) => {
+      if (Object.hasOwn(FORWARD, k.toLowerCase())) headers[k] = v;
+    });
+    return fetch(`${base}/billions-proxy${url.pathname}${url.search}`, { ...init, headers });
+  };
+}
+
 const _FIN_DB_PATH = '/v1/fin_db';
 const _SEARCH_PATH = '/v2/search';
 const _TWITTER_PATH = '/v2/twitter/search';
@@ -91,7 +116,12 @@ export class BillionsClient {
   private readonly _baseUrl: string;
 
   constructor(opts: BillionsClientOptions = {}) {
-    this._fetch = opts.fetch ?? globalThis.fetch;
+    // F1:Chrome 强制 fetch 的 this 须为 undefined/Window,方法形式调用
+    // `this._fetch(...)`(this=实例)会抛 Illegal invocation(08-29-e2e 实证)。
+    // 缺省包装为裸调用 fetch(...):ESM 严格模式 this === undefined,满足
+    // Chrome 约束;箭头函数无 this 依赖,方法调用不受影响。注入的 fake fetch
+    // (opts.fetch)优先,行为零变化。
+    this._fetch = opts.fetch ?? ((input: URL | RequestInfo, init?: RequestInit) => fetch(input, init));
     this._apiKey = opts.apiKey ?? envValue('BILLIONS_API_KEY');
     this._baseUrl = opts.baseUrl ?? BILLIONS_BASE;
   }

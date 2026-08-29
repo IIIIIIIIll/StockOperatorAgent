@@ -12,8 +12,8 @@ import { setYahooStore } from '../../src/yahoo/applyYahooCollectedToStore.ts';
 import { resolveSkipGates } from '../../src/collector.ts';
 import type { Market } from '../../src/market.ts';
 import { detectPlatform } from '../../src/log.ts';
-import { getMarketIntel } from '../../src/mcp.ts';
-import { BillionsClient } from '../../src/billionsClient.ts';
+import { getMarketIntel, makeProxyMcpFetch } from '../../src/mcp.ts';
+import { BillionsClient, makeProxyBillionsFetch } from '../../src/billionsClient.ts';
 import { billionsEnabled } from '../../src/committee.ts';
 import { makeBillionsTools } from '../../src/billionsTools.ts';
 import { DEMO_F10_KEY, f10Key } from '../../src/metaKeys.ts';
@@ -189,7 +189,9 @@ export async function makeBillionsIntel(
   apiKey: string | null,
 ): Promise<((t: string) => string) | undefined> {
   if (!billionsEnabled('FINDB') || !apiKey) return undefined;
-  const client = new BillionsClient({ apiKey });
+  // 亿信 CORS:web 端实际 POST 响应无 ACAO 头 → 同源 /billions-proxy 代理;
+  // Node/RN 直连零变化(webBillionsFetch 单点判定,见下)。
+  const client = new BillionsClient({ apiKey, fetch: webBillionsFetch() ?? undefined });
   let text: string;
   try {
     const data = await client.finDb(`查询${ticker}的最新财务数据和近期行情表现，包括营收、净利润、市盈率等关键指标。`);
@@ -213,7 +215,12 @@ export async function makeMcpIntel(
   apiKey: string | null,
 ): Promise<((t: string) => string) | undefined> {
   if (!apiKey) return undefined;
-  const text = await getMarketIntel(ticker, { apiKey });
+  // F2:web 端浏览器直连通达信 MCP 服务器受 CORS 限制 → 经同源 /tdx-mcp
+  // 代理(server 端固定目标转发);Node/RN 不传 fetch → 直连,行为零变化。
+  // location 读取守卫对齐 collectForWeb 先例(detectPlatform 单面探针)。
+  const proxyFetch =
+    detectPlatform() === 'web' && location?.origin ? makeProxyMcpFetch(location.origin) : undefined;
+  const text = await getMarketIntel(ticker, { apiKey, fetch: proxyFetch });
   return () => text;
 }
 
@@ -229,10 +236,21 @@ export function assembleTools(
 ): ToolLike[] {
   const tools: ToolLike[] = [];
   if (webSearchEnabled()) tools.push(makeWebSearchTool());
+  const billionsFetch = webBillionsFetch();
   const billions = makeBillionsTools({
     apiKey: keys.billionsApiKey || undefined,
+    ...(billionsFetch ? { fetch: billionsFetch } : {}),
     ...(caps ? { maxCallsByCap: { SEARCH: caps.searchMax, TWITTER: caps.twitterMax, FETCH: caps.fetchMax } } : {}),
   });
   tools.push(...billions);
   return tools;
+}
+
+/** web 端亿信同源代理 fetch 单点判定(detectPlatform + location.origin 守卫,
+ *  对齐 collectForWeb/makeMcpIntel 先例);非 web → undefined(直连)。 */
+export function webBillionsFetch(): typeof fetch | undefined {
+  if (detectPlatform() === 'web' && location?.origin) {
+    return makeProxyBillionsFetch(location.origin);
+  }
+  return undefined;
 }

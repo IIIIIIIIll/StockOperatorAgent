@@ -30,6 +30,7 @@ import {
   runner,
   store,
   storeReady,
+  webBillionsFetch,
 } from '../lib/runner';
 import { selectCollector } from '../lib/collectorSelection';
 import { info, warn, error as logError } from '../../src/log.ts';
@@ -109,7 +110,10 @@ export function useAnalysis(): UseAnalysis {
           ]);
           return { billions, mcp };
         },
-        makeBillionsClient: (apiKey) => (apiKey ? new BillionsClient({ apiKey }) : undefined),
+        // 亿信 CORS:web 端经同源 /billions-proxy(webBillionsFetch 单点判定,
+        // runner.ts);Node/RN 直连零变化。
+        makeBillionsClient: (apiKey) =>
+          apiKey ? new BillionsClient({ apiKey, fetch: webBillionsFetch() ?? undefined }) : undefined,
         assembleTools: (keys, caps) => assembleTools(keys, caps),
         keepAliveStart: startAnalysisKeepAlive,
         stopKeepAlive: stopAnalysisKeepAlive,

@@ -3,7 +3,13 @@
 // mock 框架：fake fetch 注入（对齐 Python `_http` 注入点）；零网络契约。
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
-import { BillionsApiError, BillionsClient, BILLIONS_BASE, type FetchLike } from '../src/billionsClient.ts';
+import {
+  BillionsApiError,
+  BillionsClient,
+  BILLIONS_BASE,
+  makeProxyBillionsFetch,
+  type FetchLike,
+} from '../src/billionsClient.ts';
 
 interface CapturedRequest {
   url: string;
@@ -245,5 +251,69 @@ describe('密钥纪律（R6：X-API-KEY 头 + 不 log）', () => {
     const src = fs.readFileSync(new URL('../src/billionsClient.ts', import.meta.url), 'utf8');
     expect(src).not.toMatch(/console\./);
     expect(src).not.toMatch(/\blog\(/);
+  });
+});
+
+describe('F1 fetch 绑定（Chrome Illegal invocation 回归）', () => {
+  it('缺省 fetch 经裸调用包装：globalThis.fetch 的 this === undefined（浏览器不抛 Illegal invocation）', async () => {
+    const original = globalThis.fetch;
+    let capturedThis: unknown = 'unset';
+    // 常规函数捕获调用方 this(裸调用 → ESM 严格模式 undefined)
+    const fake = function (
+      this: unknown,
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ): Promise<Response> {
+      capturedThis = this;
+      return Promise.resolve(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    };
+    globalThis.fetch = fake as unknown as typeof fetch;
+    try {
+      // 不注入 opts.fetch → 走构造器裸调用包装(this._fetch(...) 方法调用,
+      // 箭头函数无 this 依赖,内部以 globalThis.fetch(...) 裸调用)
+      const client = new BillionsClient({ apiKey: 'k', baseUrl: 'https://example.com' });
+      await client.search('q');
+      expect(capturedThis).toBeUndefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+describe('makeProxyBillionsFetch(F5 web 亿信 CORS 同源代理)', () => {
+  it('URL 改写为同源 /billions-proxy + path/search 保留;白名单头透传,其余过滤', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      const proxied = makeProxyBillionsFetch('https://app.example.com');
+      await proxied('https://openapi.billionsintelligence.com/api/v2/search?src=web', {
+        method: 'POST',
+        headers: {
+          'x-api-key': 'k123',
+          authorization: 'Bearer secret',
+          'content-type': 'application/json',
+        },
+        body: '{"q":"x"}',
+      });
+      const [c] = calls;
+      expect(c.url).toBe('https://app.example.com/billions-proxy/api/v2/search?src=web');
+      const h = c.init?.headers as Record<string, string>;
+      expect(h['x-api-key']).toBe('k123');
+      expect(h['content-type']).toBe('application/json');
+      expect(h['authorization']).toBeUndefined();
+      expect(c.init?.body).toBe('{"q":"x"}');
+      expect(c.init?.method).toBe('POST');
+    } finally {
+      globalThis.fetch = orig;
+    }
   });
 });

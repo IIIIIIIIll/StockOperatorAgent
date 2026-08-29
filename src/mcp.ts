@@ -185,6 +185,35 @@ export class TdxMcpClient {
   }
 }
 
+/** 同源代理 fetch(F2:web 端 TdxMcpClient 直连通达信 MCP 服务器受 CORS 限制,
+ *  改经同源 /tdx-mcp 代理转发;Node/RN 无 CORS,不走此分支,维持直连)。
+ *  base 由调用方传(web 取 location.origin),函数惰性——对齐 makeProxySearcher
+ *  先例(webSearch.ts)。头白名单仅透传 tdx-api-key/content-type/accept/
+ *  mcp-session-id(小写比较;原键名写入,服务端按原样转发),其余头拒绝——
+ *  密钥只经白名单头,不落地其他位置;其余 init 字段原样展开。无超时——
+ *  server 端 60s timer 兜底(proxies.cjs handleTdxMcp,同源链路 R4 流式)。 */
+export function makeProxyMcpFetch(base: string): typeof fetch {
+  // 转发头白名单(S6 纪律;与 proxies.cjs TDX_MCP_FORWARD_HEADERS 同名单,
+  // 双端单源防漂移——客户端过滤在先,服务端再按同名单过滤一次)。
+  // Record<string, true> 静态查表(ts-set-map 规则;Object.hasOwn 防
+  // prototype 键如 'constructor' 误放行)
+  const FORWARD: Record<string, true> = {
+    'tdx-api-key': true,
+    'content-type': true,
+    accept: true,
+    'mcp-session-id': true,
+  };
+  return (input, init) => {
+    const headers: Record<string, string> = {};
+    // Headers 统一解析(接受 Record/数组/Headers 三种 init.headers 形态;
+    // forEach 键名已归一化为小写——服务端/上游均大小写不敏感,语义等价)
+    new Headers(init?.headers).forEach((v, k) => {
+      if (Object.hasOwn(FORWARD, k.toLowerCase())) headers[k] = v;
+    });
+    return fetch(`${base}/tdx-mcp`, { ...init, headers });
+  };
+}
+
 // ─── 门控与摘要（对齐 Python get_market_intel，缓存不做） ────────────────
 
 export const MCP_DISABLED_TEXT = '（TDX MCP 已禁用，跳过实时市场情报）';

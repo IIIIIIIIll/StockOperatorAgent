@@ -548,15 +548,173 @@ async function handleWebSearch(req, res, _ddg = ddgSearcher) {
   }
 }
 
+// ─── TDX MCP 同源代理(/tdx-mcp)─────────────────────────────────────────────
+// F2:web 端浏览器直连通达信 MCP 服务器受 CORS 限制 → 同源代理转发
+// (TdxMcpClient 经 makeProxyMcpFetch 走本端点,src/mcp.ts)。目标写死
+// mcp.tdx.com.cn:3001/mcp——无用户输入 target,零 SSRF 面(不需要
+// normalizeBaseUrl/pinPublicHost)。请求体 1MB 上限(W2 同款)、Buffer 原样
+// 转发(不 JSON.parse);请求头白名单(S6 纪律,与 src/mcp.ts FORWARD 同名单,
+// 双端单源防漂移);响应 R4 同款流式透传(SSE 逐块);60s 超时仅提前回 504
+// 通知客户端,不打断 in-flight(W4 语义);redirect manual(固定目标不应跳转)。
+const TDX_MCP_TARGET = 'https://mcp.tdx.com.cn:3001/mcp';
+const TDX_MCP_TIMEOUT_MS = 60_000;
+const TDX_MCP_FORWARD_HEADERS = new Set(['tdx-api-key', 'content-type', 'accept', 'mcp-session-id']);
+
+async function handleTdxMcp(req, res, _fetch = fetch) {
+  try {
+    // W2 同款:请求体超 MAX_BODY_BYTES → 413 并终止读取(对齐 handleLlmProxy 形态)
+    const parts = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+        res.end(JSON.stringify({ error: 'TDX MCP 请求体超过 1MB 限制' }));
+        return;
+      }
+      parts.push(chunk);
+    }
+    // Buffer 原样转发(不 JSON.parse——body 是 JSON-RPC,服务端无需理解)
+    const body = Buffer.concat(parts);
+    // S6 同款白名单:仅透传 tdx-api-key/content-type/accept/mcp-session-id
+    // (小写比较,原键名写入转发头;其余头拒绝——含 X-SOA-Token/Authorization)
+    const forwardHeaders = {};
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value !== undefined && TDX_MCP_FORWARD_HEADERS.has(name.toLowerCase())) {
+        forwardHeaders[name] = value;
+      }
+    }
+    // W4 语义:60s 超时 timer 仅提前回 504 通知客户端,不打断 in-flight
+    // (上游流/连接无法从服务端取消);timer 在 finally clear。
+    const timer = setTimeout(() => {
+      if (!res.headersSent) {
+        res.writeHead(504, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+        res.end(JSON.stringify({ error: `TDX MCP 转发超时(${TDX_MCP_TIMEOUT_MS / 1000}s)` }));
+      }
+    }, TDX_MCP_TIMEOUT_MS);
+    try {
+      const upstream = await _fetch(TDX_MCP_TARGET, {
+        method: 'POST',
+        headers: forwardHeaders,
+        body,
+        redirect: 'manual',
+      });
+      if (res.headersSent) return; // 504 已回(超时后才返回),不再 writeHead
+      // R4 同款流式透传:writeHead 后 for-await chunk → res.write(SSE 逐块);
+      // Mcp-Session-Id 透传(客户端会话续接);Content-Type 透传上游。
+      const sid = upstream.headers.get('Mcp-Session-Id');
+      res.writeHead(upstream.status, {
+        'Content-Type': upstream.headers.get('content-type') || 'application/json',
+        ...(sid ? { 'Mcp-Session-Id': sid } : {}),
+        ...SEC_HEADERS,
+      });
+      if (upstream.body) {
+        for await (const chunk of upstream.body) {
+          res.write(chunk);
+        }
+      }
+      res.end();
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    // writeHead 后抛错(上游流中断/客户端断开)不可再 writeHead——destroy 兜底,
+    // 防客户端挂起;未 writeHead 的错误路径保持 502 JSON。
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
+    res.writeHead(502, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: { message: `TDX MCP 转发失败:${String(err?.message ?? err)}` } }));
+  }
+}
+
+// ─── 亿信同源代理(/billions-proxy)───────────────────────────────────────────
+// web 端亿信 CORS 根治:亿信实际 POST 响应不带 Access-Control-Allow-Origin
+// (预检 204 有、实际响应无,08-29 实证),浏览器直连被 CORS 拦截(status 0/
+// Failed to fetch)→ 同源代理转发(BillionsClient 经 makeProxyBillionsFetch
+// 走本端点,src/billionsClient.ts)。固定 host openapi.billionsintelligence.com
+// + path 白名单四端点 → 零 SSRF 面(目标不可由客户端指向其他 host)。
+// 头白名单(S6 纪律,与 src/billionsClient.ts FORWARD 同名单:x-api-key/
+// content-type/accept);响应 JSON 透传(亿信非流式);redirect manual。
+const BILLIONS_TARGET_ORIGIN = 'https://openapi.billionsintelligence.com';
+const BILLIONS_ALLOWED_PATHS = new Set(['/api/v1/fin_db', '/api/v2/search', '/api/v2/twitter/search', '/api/v2/fetch']);
+const BILLIONS_FORWARD_HEADERS = new Set(['x-api-key', 'content-type', 'accept']);
+
+async function handleBillionsProxy(req, res, _fetch = fetch) {
+  try {
+    // 固定 host + path 白名单(非白名单路径 → 403;畸形 URL → 400 不崩进程)
+    let path;
+    try {
+      // 挂载点前缀剥离(server.mjs/metro 以 req.url.startsWith('/billions-proxy')
+      // 路由,handler 收到的 url 含此前缀;真实目标 path 在其后)
+      path = new URL(req.url, 'http://x').pathname.replace(/^\/billions-proxy/, '') || '/';
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+      res.end(JSON.stringify({ error: '非法请求 URL' }));
+      return;
+    }
+    if (!BILLIONS_ALLOWED_PATHS.has(path)) {
+      res.writeHead(403, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+      res.end(JSON.stringify({ error: `亿信代理路径被拒:${path}(白名单四端点)` }));
+      return;
+    }
+    // W2 同款:请求体超 MAX_BODY_BYTES → 413 并终止读取
+    const parts = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+        res.end(JSON.stringify({ error: '亿信代理请求体超过 1MB 限制' }));
+        return;
+      }
+      parts.push(chunk);
+    }
+    // Buffer 原样转发(不 JSON.parse——body 是 JSON-RPC 风格,服务端无需理解)
+    const body = Buffer.concat(parts);
+    const forwardHeaders = {};
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (value !== undefined && BILLIONS_FORWARD_HEADERS.has(name.toLowerCase())) {
+        forwardHeaders[name] = value;
+      }
+    }
+    const upstream = await _fetch(`${BILLIONS_TARGET_ORIGIN}${path}`, {
+      method: 'POST',
+      headers: forwardHeaders,
+      body,
+      redirect: 'manual',
+    });
+    const text = await upstream.text(); // 亿信响应为 JSON(非流式),整体缓冲
+    res.writeHead(upstream.status, {
+      'Content-Type': upstream.headers.get('content-type') || 'application/json',
+      ...SEC_HEADERS,
+    });
+    res.end(text);
+  } catch (err) {
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
+    res.writeHead(502, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: { message: `亿信代理转发失败:${String(err?.message ?? err)}` } }));
+  }
+}
+
 module.exports = {
   handleLlmProxy,
   handleTdxCollect,
   handleYahooCollect,
   handleWebSearch,
+  handleTdxMcp,
+  handleBillionsProxy,
   // 测试/复用导出(新增,不删旧)
   MAX_BODY_BYTES, // W2 上限
   COLLECT_TIMEOUT_MS, // W4 超时
   YAHOO_COLLECT_TIMEOUT_MS, // Yahoo 采集超时
+  TDX_MCP_TARGET, // F2 固定目标(零 SSRF 面)
+  TDX_MCP_TIMEOUT_MS, // F2 超时
+  BILLIONS_TARGET_ORIGIN, // 亿信固定目标(零 SSRF 面)
   isYahooMarket, // E9 布尔谓词(与 yahooMarketOfTicker 单源;测试等价回归)
   normalizeBaseUrl, // C2 base 校验
   isPrivateAddress,

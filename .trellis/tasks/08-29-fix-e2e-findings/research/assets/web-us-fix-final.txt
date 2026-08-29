@@ -1,0 +1,463 @@
+☰
+做个好人AI股票分析系统 📈
+输入股票代码（沪深A股 / 港股 / 美股）
+美股
+▾
+开始分析
+美股
+已显示上次分析结果 · 8/29/2026, 8:00:08 PM · 真实 LLM
+设置
+✕
+设置
+LLM(大模型)
+OpenAI 兼容;三键必填。保存时自动检测可达性。
+LLM 模型
+LLM Base URL
+LLM API Key
+保存配置
+外部服务密钥(可选)
+未配置时对应能力自动降级占位,不影响分析。
+通达信 TDX API Key
+亿信 API Key
+Finnhub API Key（可选，美股增强）
+LangSmith(遥测)
+开发者追踪配置;TS 侧未接入,仅持久化。
+启用追踪
+API Key
+项目名
+能力开关
+下次分析生效;设置自动保存,重启后保留。
+通达信 MCP(实时市场情报)
+联网搜索(DDG 免 key/Tavily 优先)
+亿信总闸
+亿信 · 金融问数(FINDB)
+亿信 · 搜索(SEARCH)
+亿信 · 社交平台(TWITTER)
+亿信 · 数据抓取(FETCH)
+亿信 · 信息面分析师(ANALYST)
+亿信调用上限
+单次分析内工具调用上限;设置自动保存,重启后保留。
+亿信搜索(SEARCH)调用上限
+亿信社交(TWITTER)调用上限
+亿信抓取(FETCH)调用上限
+采集数据
+基本面分析
+趋势分析
+技术指标分析
+信息面分析
+看涨观点
+看跌观点
+最终结论
+基本面分析 · 完成
+趋势分析 · 完成
+技术指标分析 · 完成
+信息面分析 · 完成
+看涨观点 · 完成
+看跌观点 · 完成
+最终结论 · 完成
+✓ 分析完成(60 步)
+采集数据 · 美股 Apple Inc. (AAPL)
+最新价
+319.70
+涨跌幅
+1.63%
+动态PE
+36.70
+市净率
+N/A
+60日
+244999.26%
+YTD
+N/A%
+货币
+USD
+技术图(近 60 根,全部指标)
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+
+
+	
+	
+
+	
+	
+主图
+MA5
+MA10
+MA20
+MA60
+EMA5
+EMA10
+EMA20
+EMA60
+BOLL
+成交量
+VOL_MA5
+涨跌幅
+涨跌幅
+MACD
+DIF
+DEA
+MACD 柱
+KDJ
+K
+D
+J
+RSI
+RSI6
+RSI12
+RSI24
+MACD-VH
+MACD_V
+SIGNAL
+VH 柱
+ATR
+ATR
+量比
+VOL_RATIO
+乖离率
+LIU_BIAS
+财务趋势(跨期)
+	
+	
+
+	
+	
+净利润 (亿USD)
+日K(尾 20 / 共 11519 根)
+日期
+开
+收
+高
+低
+涨跌幅
+量(股)
+换手率
+2026-07-31
+304.81
+308.91
+310.69
+300.00
+-7.35%
+132.49M
+N/A
+2026-08-03
+309.58
+303.42
+311.80
+302.56
+-1.78%
+75.05M
+N/A
+2026-08-04
+302.73
+309.38
+310.42
+301.32
+1.96%
+68.00M
+N/A
+2026-08-05
+309.36
+311.00
+311.71
+305.67
+0.52%
+49.44M
+N/A
+2026-08-06
+314.34
+312.41
+316.29
+309.23
+0.45%
+46.14M
+N/A
+2026-08-07
+311.45
+313.33
+314.81
+310.74
+0.29%
+34.44M
+N/A
+2026-08-10
+306.83
+308.26
+308.26
+304.61
+-1.62%
+44.81M
+N/A
+2026-08-11
+307.75
+304.91
+309.97
+302.79
+-1.09%
+37.48M
+N/A
+2026-08-12
+305.10
+302.25
+305.66
+300.57
+-0.87%
+41.66M
+N/A
+2026-08-13
+304.21
+305.26
+306.00
+302.05
+1.00%
+40.35M
+N/A
+2026-08-14
+306.00
+305.93
+307.49
+304.30
+0.22%
+28.23M
+N/A
+2026-08-17
+306.21
+305.59
+307.66
+302.94
+-0.11%
+38.17M
+N/A
+2026-08-18
+307.58
+310.03
+311.49
+305.74
+1.45%
+53.42M
+N/A
+2026-08-19
+310.14
+316.83
+319.28
+309.60
+2.19%
+50.51M
+N/A
+2026-08-20
+317.46
+311.30
+320.28
+310.65
+-1.75%
+40.96M
+N/A
+2026-08-21
+312.05
+309.35
+312.38
+307.01
+-0.63%
+46.88M
+N/A
+2026-08-24
+311.47
+310.34
+313.36
+309.97
+0.32%
+34.67M
+N/A
+2026-08-25
+310.79
+309.90
+313.59
+308.21
+-0.14%
+25.87M
+N/A
+2026-08-26
+310.30
+313.45
+315.43
+308.80
+1.15%
+34.02M
+N/A
+2026-08-27
+310.55
+314.58
+315.40
+309.40
+0.36%
+32.42M
+N/A
+业绩报告(7)
+20260331 — EPS N/A | 净利润 29578000000 | YoY N/A% | QoQ -29.74% | 销售毛利率 N/A% | ROE N/A% | 每股净资产 N/A | 每股现金流 N/A
+20251231 — EPS N/A | 净利润 42097000000 | YoY N/A% | QoQ 53.27% | 销售毛利率 N/A% | ROE N/A% | 每股净资产 N/A | 每股现金流 N/A
+20250930 — EPS N/A | 净利润 27466000000 | YoY N/A% | QoQ 17.21% | 销售毛利率 N/A% | ROE N/A% | 每股净资产 N/A | 每股现金流 N/A
+20250630 — EPS N/A | 净利润 23434000000 | YoY N/A% | QoQ N/A% | 销售毛利率 N/A% | ROE N/A% | 每股净资产 N/A | 每股现金流 N/A
+最新指标(computeAll 末根)
+MA5
+311.524
+MA10
+310.730
+MA20
+309.321
+MACD
+0.831
+RSI6
+61.693
+K
+57.266
+BOLL_UP
+316.842
+ATR
+7.104
+VOL_RATIO
+0.889
+MACD_VH
+5.210
+LIU_BIAS
+0.008
+分析上下文(build_stock_information 输出)
+
+-----------
+Stock: Apple Inc. (AAPL)
+Market: 美股, Currency: USD
+Latest price: 319.70
+Dynamic PE: 36.70
+Pb: N/A
+Momentum: N/A%
+Last 60 days prices:
+  Date: 2026-06-03, Open:314.18, Close: 310.26, High: 316.94, Low: 308.85, Change Percent: -1.57%, Volume: 50836700.00shares, Turnover Rate: 0.35%
+  Date: 2026-06-04, Open:313.23, Close: 311.23, High: 313.54, Low: 309.65, Change Percent: 0.31%, Volume: 44869100.00shares, Turnover Rate: 0.31%
+  Date: 2026-06-05, Open:312.86, Close: 307.34, High: 315.17, Low: 307.15, Change Percent: -1.25%, Volume: 65310500.00shares, Turnover Rate: 0.45%
+  Date: 2026-06-08, Open:308.74, Close: 301.54, High: 317.40, Low: 301.17, Change Percent: -1.89%, Volume: 77949100.00shares, Turnover Rate: 0.54%
+  Date: 2026-06-09, Open:300.28, Close: 290.55, High: 300.75, Low: 287.78, Change Percent: -3.64%, Volume: 70108800.00shares, Turnover Rate: 0.48%
+  Date: 2026-06-10, Open:290.74, Close: 291.58, High: 294.75, Low: 287.38, Change Percent: 0.35%, Volume: 52793300.00shares, Turnover Rate: 0.36%
+  Date: 2026-06-11, Open:293.72, Close: 295.63, High: 297.00, Low: 289.59, Change Percent: 1.39%, Volume: 42572500.00shares, Turnover Rate: 0.29%
+  Date: 2026-06-12, Open:296.03, Close: 291.13, High: 297.14, Low: 289.62, Change Percent: -1.52%, Volume: 38742100.00shares, Turnover Rate: 0.27%
+  Date: 2026-06-15, Open:294.12, Close: 296.42, High: 297.78, Low: 291.70, Change Percent: 1.82%, Volume: 45732600.00shares, Turnover Rate: 0.31%
+  Date: 2026-06-16, Open:295.25, Close: 299.24, High: 300.48, Low: 293.97, Change Percent: 0.95%, Volume: 39874400.00shares, Turnover Rate: 0.27%
+  Date: 2026-06-17, Open:300.85, Close: 295.95, High: 302.07, Low: 294.36, Change Percent: -1.10%, Volume: 42745100.00shares, Turnover Rate: 0.29%
+  Date: 2026-06-18, Open:298.11, Close: 298.01, High: 300.57, Low: 295.62, Change Percent: 0.70%, Volume: 85962200.00shares, Turnover Rate: 0.59%
+  Date: 2026-06-22, Open:297.31, Close: 297.01, High: 302.42, Low: 296.76, Change Percent: -0.34%, Volume: 44879900.00shares, Turnover Rate: 0.31%
+  Date: 2026-06-23, Open:297.54, Close: 294.30, High: 301.64, Low: 294.18, Change Percent: -0.91%, Volume: 52010900.00shares, Turnover Rate: 0.36%
+  Date: 2026-06-24, Open:295.36, Close: 293.08, High: 299.70, Low: 292.94, Change Percent: -0.41%, Volume: 53081900.00shares, Turnover Rate: 0.36%
+  Date: 2026-06-25, Open:287.40, Close: 275.15, High: 288.80, Low: 273.75, Change Percent: -6.12%, Volume: 107013700.00shares, Turnover Rate: 0.73%
+  Date: 2026-06-26, Open:275.00, Close: 283.78, High: 285.95, Low: 274.21, Change Percent: 3.14%, Volume: 261775500.00shares, Turnover Rate: 1.80%
+  Date: 2026-06-29, Open:286.73, Close: 281.74, High: 288.37, Low: 279.85, Change Percent: -0.72%, Volume: 66427000.00shares, Turnover Rate: 0.46%
+  Date: 2026-06-30, Open:281.17, Close: 289.36, High: 289.94, Low: 280.70, Change Percent: 2.70%, Volume: 65100200.00shares, Turnover Rate: 0.45%
+  Date: 2026-07-01, Open:293.44, Close: 294.38, High: 296.59, Low: 289.20, Change Percent: 1.73%, Volume: 50164200.00shares, Turnover Rate: 0.34%
+  Date: 2026-07-02, Open:294.12, Close: 308.63, High: 309.42, Low: 293.68, Change Percent: 4.84%, Volume: 75352800.00shares, Turnover Rate: 0.52%
+  Date: 2026-07-06, Open:307.36, Close: 312.66, High: 314.20, Low: 307.00, Change Percent: 1.31%, Volume: 53590000.00shares, Turnover Rate: 0.37%
+  Date: 2026-07-07, Open:315.29, Close: 310.66, High: 315.48, Low: 310.15, Change Percent: -0.64%, Volume: 42490000.00shares, Turnover Rate: 0.29%
+  Date: 2026-07-08, Open:311.91, Close: 313.39, High: 314.82, Low: 307.05, Change Percent: 0.88%, Volume: 41323500.00shares, Turnover Rate: 0.28%
+  Date: 2026-07-09, Open:310.51, Close: 316.22, High: 316.53, Low: 308.16, Change Percent: 0.90%, Volume: 48124500.00shares, Turnover Rate: 0.33%
+  Date: 2026-07-10, Open:314.72, Close: 315.32, High: 316.91, Low: 312.17, Change Percent: -0.28%, Volume: 34132300.00shares, Turnover Rate: 0.23%
+  Date: 2026-07-13, Open:317.02, Close: 317.31, High: 323.45, Low: 315.78, Change Percent: 0.63%, Volume: 43257800.00shares, Turnover Rate: 0.30%
+  Date: 2026-07-14, Open:313.76, Close: 314.86, High: 316.19, Low: 311.91, Change Percent: -0.77%, Volume: 36336800.00shares, Turnover Rate: 0.25%
+  Date: 2026-07-15, Open:317.62, Close: 327.50, High: 328.73, Low: 317.32, Change Percent: 4.01%, Volume: 60957600.00shares, Turnover Rate: 0.42%
+  Date: 2026-07-16, Open:328.01, Close: 333.26, High: 334.68, Low: 326.79, Change Percent: 1.76%, Volume: 62970600.00shares, Turnover Rate: 0.43%
+  Date: 2026-07-17, Open:331.98, Close: 333.74, High: 334.99, Low: 329.00, Change Percent: 0.14%, Volume: 63407100.00shares, Turnover Rate: 0.44%
+  Date: 2026-07-20, Open:333.51, Close: 326.59, High: 333.71, Low: 323.68, Change Percent: -2.14%, Volume: 53468000.00shares, Turnover Rate: 0.37%
+  Date: 2026-07-21, Open:323.13, Close: 327.74, High: 329.60, Low: 322.22, Change Percent: 0.35%, Volume: 41338900.00shares, Turnover Rate: 0.28%
+  Date: 2026-07-22, Open:327.87, Close: 325.89, High: 329.00, Low: 323.34, Change Percent: -0.56%, Volume: 38755900.00shares, Turnover Rate: 0.27%
+  Date: 2026-07-23, Open:321.73, Close: 321.66, High: 323.30, Low: 319.35, Change Percent: -1.30%, Volume: 40840800.00shares, Turnover Rate: 0.28%
+  Date: 2026-07-24, Open:321.79, Close: 333.02, High: 334.37, Low: 321.62, Change Percent: 3.53%, Volume: 47489400.00shares, Turnover Rate: 0.33%
+  Date: 2026-07-27, Open:334.54, Close: 336.91, High: 339.57, Low: 334.02, Change Percent: 1.17%, Volume: 49604300.00shares, Turnover Rate: 0.34%
+  Date: 2026-07-28, Open:340.03, Close: 340.08, High: 342.89, Low: 335.60, Change Percent: 0.94%, Volume: 51859000.00shares, Turnover Rate: 0.36%
+  Date: 2026-07-29, Open:339.73, Close: 338.19, High: 344.57, Low: 337.35, Change Percent: -0.56%, Volume: 56090800.00shares, Turnover Rate: 0.38%
+  Date: 2026-07-30, Open:333.10, Close: 333.43, High: 334.75, Low: 329.59, Change Percent: -1.41%, Volume: 74817800.00shares, Turnover Rate: 0.51%
+  Date: 2026-07-31, Open:304.81, Close: 308.91, High: 310.69, Low: 300.00, Change Percent: -7.35%, Volume: 132489100.00shares, Turnover Rate: 0.91%
+  Date: 2026-08-03, Open:309.58, Close: 303.42, High: 311.80, Low: 302.56, Change Percent: -1.78%, Volume: 75052000.00shares, Turnover Rate: 0.52%
+  Date: 2026-08-04, Open:302.73, Close: 309.38, High: 310.42, Low: 301.32, Change Percent: 1.96%, Volume: 68001000.00shares, Turnover Rate: 0.47%
+  Date: 2026-08-05, Open:309.36, Close: 311.00, High: 311.71, Low: 305.67, Change Percent: 0.52%, Volume: 49438800.00shares, Turnover Rate: 0.34%
+  Date: 2026-08-06, Open:314.34, Close: 312.41, High: 316.29, Low: 309.23, Change Percent: 0.45%, Volume: 46139900.00shares, Turnover Rate: 0.32%
+  Date: 2026-08-07, Open:311.45, Close: 313.33, High: 314.81, Low: 310.74, Change Percent: 0.29%, Volume: 34437200.00shares, Turnover Rate: 0.24%
+  Date: 2026-08-10, Open:306.83, Close: 308.26, High: 308.26, Low: 304.61, Change Percent: -1.62%, Volume: 44812500.00shares, Turnover Rate: 0.31%
+  Date: 2026-08-11, Open:307.75, Close: 304.91, High: 309.97, Low: 302.79, Change Percent: -1.09%, Volume: 37476700.00shares, Turnover Rate: 0.26%
+  Date: 2026-08-12, Open:305.10, Close: 302.25, High: 305.66, Low: 300.57, Change Percent: -0.87%, Volume: 41657800.00shares, Turnover Rate: 0.29%
+  Date: 2026-08-13, Open:304.21, Close: 305.26, High: 306.00, Low: 302.05, Change Percent: 1.00%, Volume: 40349300.00shares, Turnover Rate: 0.28%
+  Date: 2026-08-14, Open:306.00, Close: 305.93, High: 307.49, Low: 304.30, Change Percent: 0.22%, Volume: 28229400.00shares, Turnover Rate: 0.19%
+  Date: 2026-08-17, Open:306.21, Close: 305.59, High: 307.66, Low: 302.94, Change Percent: -0.11%, Volume: 38169300.00shares, Turnover Rate: 0.26%
+  Date: 2026-08-18, Open:307.58, Close: 310.03, High: 311.49, Low: 305.74, Change Percent: 1.45%, Volume: 53424500.00shares, Turnover Rate: 0.37%
+  Date: 2026-08-19, Open:310.14, Close: 316.83, High: 319.28, Low: 309.60, Change Percent: 2.19%, Volume: 50505600.00shares, Turnover Rate: 0.35%
+  Date: 2026-08-20, Open:317.46, Close: 311.30, High: 320.28, Low: 310.65, Change Percent: -1.75%, Volume: 40959200.00shares, Turnover Rate: 0.28%
+  Date: 2026-08-21, Open:312.05, Close: 309.35, High: 312.38, Low: 307.01, Change Percent: -0.63%, Volume: 46876800.00shares, Turnover Rate: 0.32%
+  Date: 2026-08-24, Open:311.47, Close: 310.34, High: 313.36, Low: 309.97, Change Percent: 0.32%, Volume: 34673600.00shares, Turnover Rate: 0.24%
+  Date: 2026-08-25, Open:310.79, Close: 309.90, High: 313.59, Low: 308.21, Change Percent: -0.14%, Volume: 25869800.00shares, Turnover Rate: 0.18%
+  Date: 2026-08-26, Open:310.30, Close: 313.45, High: 315.43, Low: 308.80, Change Percent: 1.15%, Volume: 34024500.00shares, Turnover Rate: 0.23%
+  Date: 2026-08-27, Open:310.55, Close: 314.58, High: 315.40, Low: 309.40, Change Percent: 0.36%, Volume: 32419200.00shares, Turnover Rate: 0.22%
+Last 20 financial abstracts:
+  Report Date: 20220930, EPS: N/A, Net Profit: 99803000000.00, Net Profit YoY percent N/A, Net Profit QoQ percent N/A, Net worth per share N/A, Return on Equity percent N/A, Cash flow per share N/A, Sales gross margin percent 0.00
+  Report Date: 20230930, EPS: N/A, Net Profit: 96995000000.00, Net Profit YoY percent N/A, Net Profit QoQ percent N/A, Net worth per share N/A, Return on Equity percent N/A, Cash flow per share N/A, Sales gross margin percent 0.00
+  Report Date: 20240930, EPS: N/A, Net Profit: 93736000000.00, Net Profit YoY percent N/A, Net Profit QoQ percent N/A, Net worth per share N/A, Return on Equity percent N/A, Cash flow per share N/A, Sales gross margin percent 0.00
+  Report Date: 20250630, EPS: N/A, Net Profit: 23434000000.00, Net Profit YoY percent N/A, Net Profit QoQ percent N/A, Net worth per share N/A, Return on Equity percent N/A, Cash flow per share N/A, Sales gross margin percent 0.00
+  Report Date: 20250930, EPS: N/A, Net Profit: 27466000000.00, Net Profit YoY percent N/A, Net Profit QoQ percent 17.21, Net worth per share N/A, Return on Equity percent N/A, Cash flow per share N/A, Sales gross margin percent 0.00
+  Report Date: 20251231, EPS: N/A, Net Profit: 42097000000.00, Net Profit YoY percent N/A, Net Profit QoQ percent 53.27, Net worth per share N/A, Return on Equity percent N/A, Cash flow per share N/A, Sales gross margin percent 0.00
+  Report Date: 20260331, EPS: N/A, Net Profit: 29578000000.00, Net Profit YoY percent N/A, Net Profit QoQ percent -29.74, Net worth per share N/A, Return on Equity percent N/A, Cash flow per share N/A, Sales gross margin percent 0.00
+-----------
+
+【技术指标（2026-08-27 收盘）】
+MA5/10/20/60: MA5=311.52, MA10=310.73, MA20=309.32, MA60=309.52
+EMA5/10/20/60: EMA5=312.37, EMA10=311.53, EMA20=312.12, EMA60=308.00
+MACD: DIF=-0.733, DEA=-1.149, MACD=0.831
+RSI6/12/24: RSI6=61.69, RSI12=53.18, RSI24=52.43
+KDJ: K=57.27, D=52.05, J=67.69
+BOLL: BOLL_UP=316.84, BOLL_MB=309.32, BOLL_DN=301.80
+ATR: 7.10
+量比/VOL_MA5: VOL_RATIO=0.89, VOL_MA5=34772780.00
+换手率: 0.223
+MACD-VH: MACD_V=-9.82  Signal=-15.03  VH=5.21  柱态=正扩张  动量区=震荡
+刘晨明乖离率(20日EMA): 0.79%
+【盈利能力指标（20260331）】
+净利润: 29578000000.00 USD
+营业收入: 111184000000.00 USD
+净资产收益率(ROE): N/A%
+每股收益(EPS): N/A USD
+（港股/美股暂无实时市场情报源，跳过）
+（亿信金融数据库查询失败，跳过AAPL的财务问数）

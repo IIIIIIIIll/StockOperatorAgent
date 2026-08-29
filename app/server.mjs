@@ -8,7 +8,14 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleLlmProxy, handleTdxCollect, handleWebSearch, handleYahooCollect } from './lib/proxies.cjs';
+import {
+  handleLlmProxy,
+  handleTdxCollect,
+  handleWebSearch,
+  handleYahooCollect,
+  handleTdxMcp,
+  handleBillionsProxy,
+} from './lib/proxies.cjs';
 import { handleLogs } from './lib/logs-server.cjs';
 import { envValue } from '../src/env.ts';
 
@@ -189,6 +196,8 @@ export function createAppServer({ host } = {}) {
       req.url.startsWith('/tdx-collect') ||
       req.url.startsWith('/yahoo-collect') ||
       req.url.startsWith('/web-search') ||
+      req.url.startsWith('/tdx-mcp') ||
+      req.url.startsWith('/billions-proxy') ||
       req.url === '/logs';
     if (isProxyPath && !isOriginAllowed(req)) {
       res.writeHead(403);
@@ -221,6 +230,14 @@ export function createAppServer({ host } = {}) {
     }
     if (req.method === 'GET' && req.url.startsWith('/web-search')) {
       void handleWebSearch(req, res);
+      return;
+    }
+    if (req.method === 'POST' && req.url.startsWith('/tdx-mcp')) {
+      void handleTdxMcp(req, res);
+      return;
+    }
+    if (req.method === 'POST' && req.url.startsWith('/billions-proxy')) {
+      void handleBillionsProxy(req, res);
       return;
     }
     if (req.method === 'POST' && req.url === '/logs') {
