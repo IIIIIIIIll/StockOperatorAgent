@@ -63,6 +63,15 @@ export function serveStatic(req, res) {
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       file = path.join(DIST, 'index.html'); // SPA fallback
     }
+    // dist 未构建(CI 测试/裸跑 server)或缺 index.html:回 404 带安全头,而非
+    // 直接 destroy——destroy 会以半截连接结束(客户端 fetch 报
+    // UND_ERR_SOCKET: other side closed,CI 实测 08-29)。stream error
+    // destroy 分支保留给 stat 之后读流中途失败(文件被删/IO 错)。
+    if (!fs.existsSync(file)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...SEC_HEADERS });
+      res.end('Not Found');
+      return;
+    }
     const ext = path.extname(file);
     res.writeHead(200, {
       'Content-Type': MIME[ext] ?? 'application/octet-stream',

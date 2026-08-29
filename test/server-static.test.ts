@@ -1,19 +1,27 @@
 // server.mjs serveStatic 单测(C1:畸形 URL → 400 不崩)。serveStatic 已导出,
 // import 侧跳过 listen 副作用(见 server.mjs 底部 isMain 守卫)。
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { serveStatic, createAppServer } from '../app/server.mjs';
 
-/** 无 keep-alive 的 fetch 包装:undici 全局池按 origin(host:port)复用连接,
- *  CI 慢机上 listen(0) 端口复用 → 池内死 socket 被下一次请求捡走
- *  (UND_ERR_SOCKET: other side closed,08-29 实证)。Connection: close 让每次
- *  请求新建连接,池不再持有本测试 server 的 socket;与 finally 里的
- *  closeAllConnections 双保险。 */
-function nc(url: string, init?: RequestInit): Promise<Response> {
-  return fetch(url, {
-    ...init,
-    headers: { ...(init?.headers as Record<string, string> | undefined), connection: 'close' },
-  });
+// S5 需要真实 dist/index.html(200 头契约);CI 纯净 checkout 无 dist(expo
+// export 产物,gitignored)——缺则临时补一个最小 index.html,测完只删自己建的。
+const DIST = join(dirname(fileURLToPath(import.meta.url)), '..', 'app', 'dist');
+const fixtureCreated: string[] = [];
+
+function ensureDistIndexHtml(): void {
+  const file = join(DIST, 'index.html');
+  if (existsSync(file)) return;
+  mkdirSync(DIST, { recursive: true });
+  writeFileSync(file, '<!doctype html><html><body>fixture</body></html>');
+  fixtureCreated.push(file);
 }
+
+afterAll(() => {
+  for (const f of fixtureCreated) rmSync(f, { force: true });
+});
 
 interface StaticRes {
   calls: Array<{ status: number; body: string; headers?: Record<string, string> }>;
@@ -66,7 +74,25 @@ describe('server.mjs serveStatic(C1 畸形 URL)', () => {
     expect(res.calls).toEqual([{ status: 403, body: 'Forbidden' }]);
   });
 
+  it.skipIf(existsSync(join(DIST, 'index.html')))(
+    'fallback 缺文件 → 404 带安全头而非 destroy 半截连接(CI 纯净 checkout 无 dist)',
+    () => {
+    // 08-29 CI 实证:旧实现 fallback 缺文件时 createReadStream 异步 error →
+    // res.destroy(),客户端 fetch 收 UND_ERR_SOCKET: other side closed。
+    // 现走「缺 → 404 带头;在 → 正常 200」;两种环境都断言完整响应(而非
+    // 无 writeHead 的空记录)。
+    const res = fakeRes();
+    serveStatic({ url: '/__soa-missing-404-probe__' }, res);
+    expect(res.calls).toHaveLength(1); // 必有响应:destroy 旧路径会留下空记录
+    expect(res.calls[0].status).toBe(404);
+    const h = res.calls[0].headers ?? {};
+    expect(h['Content-Security-Policy']).toContain("default-src 'self'");
+    expect(h['X-Content-Type-Options']).toBe('nosniff');
+    expect(res.calls[0].body).toBe('Not Found');
+  });
+
   it('S5:静态 200 响应带 CSP/nosniff/cache 头(index.html no-cache)', () => {
+    ensureDistIndexHtml();
     const res = fakeRes();
     serveStatic({ url: '/index.html' }, res);
     expect(res.calls[0].status).toBe(200);
@@ -90,11 +116,6 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
       const port = (server.address() as { port: number }).port;
       await fn(`http://127.0.0.1:${port}`);
     } finally {
-      // 全局 undici fetch 池会 keep-alive 复用本 server 的 socket;仅 close()
-      // 不销毁空闲连接——下一用例 listen(0) 拿到同端口时池内旧 socket 已死
-      // (UND_ERR_SOCKET: other side closed,CI 慢机偶发,08-29 实证)。先
-      // closeAllConnections 强制断开,池内条目作废,下用例必然新建连接。
-      server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   }
@@ -102,7 +123,7 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
   it('跨站 Origin → 403 且零 CORS 头;同站 Origin → 放行到路由;null Origin → 放行', async () => {
     await withServer(async (base) => {
       // 跨站 fetch(带 Origin)→ 403,无 access-control-allow-origin(读不到响应)
-      const cross = await nc(`${base}/llm-proxy/chat/completions`, {
+      const cross = await fetch(`${base}/llm-proxy/chat/completions`, {
         method: 'POST',
         headers: { Origin: 'http://evil.example' },
         body: '{}',
@@ -112,7 +133,7 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
       expect(await cross.text()).toBe('Forbidden');
 
       // 同站 Origin → 进入 llm-proxy 路由(body 非法 JSON → 502,而非 403)
-      const same = await nc(`${base}/llm-proxy/chat/completions`, {
+      const same = await fetch(`${base}/llm-proxy/chat/completions`, {
         method: 'POST',
         headers: { Origin: base },
         body: 'not-json',
@@ -120,7 +141,7 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
       expect(same.status).toBe(502);
 
       // Origin: null(file:// 等上下文)→ 放行到路由(同上 502 判定)
-      const nul = await nc(`${base}/llm-proxy/chat/completions`, {
+      const nul = await fetch(`${base}/llm-proxy/chat/completions`, {
         method: 'POST',
         headers: { Origin: 'null' },
         body: 'not-json',
@@ -132,10 +153,10 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
   it('无 Origin 的 GET 简单请求不受 Origin 门控(落到静态/SPA 面,非 403)', async () => {
     await withServer(async (base) => {
       // GET /web-search 无 Origin(script/img 等简单请求形态)→ 非 403
-      const get = await nc(`${base}/web-search?q=`, { method: 'GET' });
+      const get = await fetch(`${base}/web-search?q=`, { method: 'GET' });
       expect(get.status).not.toBe(403);
       // 无 Origin 的 GET /llm-proxy/…(简单请求)不被门控(SPA fallback 面)
-      const getProxy = await nc(`${base}/llm-proxy/whatever`, { method: 'GET' });
+      const getProxy = await fetch(`${base}/llm-proxy/whatever`, { method: 'GET' });
       expect(getProxy.status).not.toBe(403);
     });
   });
@@ -161,7 +182,6 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
       const port = (server.address() as { port: number }).port;
       await fn(`http://127.0.0.1:${port}`);
     } finally {
-      server.closeAllConnections(); // 同上:销毁 keep-alive 空闲连接,防池复用死 socket
       await new Promise<void>((resolve) => server.close(() => resolve()));
       vi.unstubAllEnvs();
     }
@@ -169,11 +189,11 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
 
   it('非回环监听 + 未设 token → 代理端点 401(安全默认:宁缺勿开)', async () => {
     await withFreshServer({}, async (base) => {
-      const res = await nc(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+      const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
       expect(res.status).toBe(401);
       expect(await res.text()).toContain('X-SOA-Token');
       // 5 个代理端点统一设门:/logs 同样 401
-      const logs = await nc(`${base}/logs`, { method: 'POST', body: '{}' });
+      const logs = await fetch(`${base}/logs`, { method: 'POST', body: '{}' });
       expect(logs.status).toBe(401);
     });
   });
@@ -181,17 +201,17 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
   it('非回环监听 + X-SOA-Token 缺失/不匹配 → 401;匹配 → 放行到路由', async () => {
     await withFreshServer({ SOA_ACCESS_TOKEN: 'sekrit' }, async (base) => {
       // 头缺失 → 401(裸 Authorization 不算数,见下一条)
-      const none = await nc(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+      const none = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
       expect(none.status).toBe(401);
 
-      const bad = await nc(`${base}/tdx-collect?ticker=bad`, {
+      const bad = await fetch(`${base}/tdx-collect?ticker=bad`, {
         method: 'GET',
         headers: { 'X-SOA-Token': 'wrong' },
       });
       expect(bad.status).toBe(401);
 
       // 过门后进路由:非法 ticker → 400(而非 401,证明门已放行)
-      const good = await nc(`${base}/tdx-collect?ticker=bad`, {
+      const good = await fetch(`${base}/tdx-collect?ticker=bad`, {
         method: 'GET',
         headers: { 'X-SOA-Token': 'sekrit' },
       });
@@ -203,7 +223,7 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
     await withFreshServer({ SOA_ACCESS_TOKEN: 'sekrit' }, async (base) => {
       // Authorization 头是 /llm-proxy 上游透传的 LLM key,与门头互不干扰:
       // 只有 Authorization、没有 X-SOA-Token → 仍 401
-      const authOnly = await nc(`${base}/llm-proxy/chat/completions`, {
+      const authOnly = await fetch(`${base}/llm-proxy/chat/completions`, {
         method: 'POST',
         headers: { Authorization: 'Bearer sekrit' },
         body: 'not-json',
@@ -211,7 +231,7 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
       expect(authOnly.status).toBe(401);
       // 双头齐备 → 过门进 llm-proxy 路由(body 非法 JSON → 502,证明门放行且
       // Authorization 透传路径未被门改动)
-      const both = await nc(`${base}/llm-proxy/chat/completions`, {
+      const both = await fetch(`${base}/llm-proxy/chat/completions`, {
         method: 'POST',
         headers: { 'X-SOA-Token': 'sekrit', Authorization: 'Bearer llm-key' },
         body: 'not-json',
@@ -225,7 +245,7 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
       { SOA_ACCESS_TOKEN: 'sekrit' },
       async (base) => {
         // host 选项回环 → 无门:无 token 直接进路由(非法 ticker → 400,而非 401)
-        const res = await nc(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+        const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
         expect(res.status).toBe(400);
       },
       { host: '127.0.0.1' },
@@ -234,7 +254,7 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
 
   it('非回环监听:静态面不要求 token(仅代理/日志端点设门)', async () => {
     await withFreshServer({}, async (base) => {
-      const res = await nc(`${base}/index.html`, { method: 'GET' });
+      const res = await fetch(`${base}/index.html`, { method: 'GET' });
       expect(res.status).not.toBe(401); // 无 dist → SPA fallback 面,非 401
     });
   });
@@ -244,14 +264,14 @@ describe('server.mjs S6(非回环监听 X-SOA-Token 门)', () => {
     // import):不依赖 dev shell 的 ambient HOST(如 HOST=0.0.0.0 导出会使旧
     // 顶层实例 requireToken=true → 误 401)。
     await withFreshServer({ HOST: '127.0.0.1' }, async (base) => {
-      const res = await nc(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+      const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
       expect(res.status).toBe(400); // 非法 ticker 判定,而非 401
     });
   });
 
   it('bind host ::1(IPv6 回环)同样不要求 token', async () => {
     await withFreshServer({ HOST: '::1' }, async (base) => {
-      const res = await nc(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
+      const res = await fetch(`${base}/tdx-collect?ticker=bad`, { method: 'GET' });
       expect(res.status).toBe(400); // 裸 IPv6 回环 bind 串不入门(2026-08-28)
     });
   });
