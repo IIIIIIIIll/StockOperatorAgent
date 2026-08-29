@@ -298,3 +298,17 @@ describe('契约 7:app 无 lib/log 相对 import 残留(双日志入口已收敛
     expect(violations, '日志入口统一 src/log.ts;app/lib/log 旧 shim 已删除,禁回潮').toEqual([]);
   });
 });
+
+// ─── 契约 8:Android release bundle 依赖守卫 ─────────────────────────────────
+// 08-29 上线实证:9007185 依赖清理误删根依赖 string_decoder,Android release
+// bundle(createBundleReleaseJsAndAssets)里 iconv-lite(deviceCollect→f10Client
+// 链,仅 native 动态 import)裸 require('string_decoder') 无法被 Metro 解析 →
+// gradle 构建必败;web expo export 与 vitest 均不覆盖该链(平台门),故此前
+// 完全隐形。根 package.json 必须保持该显式依赖(iconv-lite 的非 node 运行
+// 环境解析唯一来源)。
+describe('契约 8:Android release bundle 的 node 内建垫依赖在根 package.json 显式声明', () => {
+  it('根 package.json dependencies 含 string_decoder(iconv-lite 裸 require 解析)', () => {
+    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    expect(pkg.dependencies?.string_decoder, 'string_decoder 被 9007185 误删导致 android release 构建失败(08-29 实证),禁回删').toBeTruthy();
+  });
+});
