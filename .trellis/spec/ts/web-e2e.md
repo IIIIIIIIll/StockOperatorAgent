@@ -54,3 +54,28 @@ paths:
     安卓 36 步/178.1s——步数差 = 工具轮重试非确定性,终态语义一致;
     TDX 真实采集双端生效(web 5846 根日K);DDG 间歇 403/502 属
     尽力而为路径,优雅降级不阻塞。
+- **2026-08-29(e2e-full-features,全功能五连跑)**:
+  - **基线(全功能全开,deepseek-v4-flash)**:web cn 64 步/1029.7s、
+    hk 56 步/896.8s、us 66 步/1169.8s;安卓 cn 52 步/700.6s、us 56 步/
+    868.5s——5/5 D15 终态全过;步数/耗时随工具轮重试非确定性浮动。
+  - **亿信平台差异(重要)**:web 端亿信**全灭**——`billionsClient`
+    `this._fetch = globalThis.fetch` 后方法调用,Chrome 强制 fetch
+    this===Window → Illegal invocation(08-29 实证,待修复);安卓 RN
+    fetch 不检查 this → 正常(报告引用「基于本次联网/亿信验证」)。
+    验证亿信功能以安卓为实证面。
+  - **TDX MCP 平台差异**:web 浏览器直连 mcp.tdx.com.cn:3001 被 CORS
+    阻断(预检无 Access-Control-Allow-Origin)→ 情报段降级文案;安卓
+    直连无 CORS → 正常执行。web 如需 MCP 需 server 同源代理(未实现)。
+  - **安卓输入 gotcha**:RN TextInput 对 `adb input text`(commitText
+    通道)不响应,逐键 `input keyevent KEYCODE_*` 有效(先 tap 聚焦、
+    MOVE_END 后 DEL 清空,再逐键输入);模拟器 stylus 手写引导弹窗会
+    吞掉全部输入 → 先 `settings put secure stylus_handwriting_tutorial_shown 1`
+    禁用。
+  - **web headless __soa gotcha**:首帧 passive effect 未 flush,
+    `window.__soa` 在首次交互(点任意按钮)后才注入;手动赋值的 probe
+    残留会误判「已注入」——以 `Object.keys` 验证真对象。
+  - **resource timing 计数**:单页面多轮运行会因 buffer 溢出(默认 250)
+    丢弃新条目——跨轮次计数不可靠,单轮内快照为准;llm 往返证据也可
+    用「每角色报告生成日志」佐证。
+  - **上游间歇实测**:亿信 HTTP 502(安卓 3 次)+ DDG 502(1 次)——均
+    尽力而为优雅降级,不阻塞终态。
