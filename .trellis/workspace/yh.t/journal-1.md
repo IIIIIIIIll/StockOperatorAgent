@@ -1693,3 +1693,24 @@ Bucket C 30 项完成:测试卫生(F57 常量对齐 2004-06-16/F58-60)、元数�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 61: 08-29 full go-live review + fix pass (0.1.5)
+
+**Date**: 2026-08-29
+**Task**: 08-29 full go-live review + fix pass (0.1.5)
+**Branch**: `master`
+
+### Summary
+
+Full fresh pre-go-live review (5 subagents): READY, 0 blockers; 2 should-fix + 13 notes + S4. Fix pass: SSRF ::/96 blocklist + tests, N-2 bootstrap/start guard + regression test, ErrorBoundary, Electron console-message sig, macOS lifecycle, desktop version gate, README Yahoo docs, allowScripts {}, privacy §5, versions 0.1.5. S4 keystore rotation EXECUTED (JKS v2, distinct passwords, APK fingerprint 92c4e22e verified); GH secrets propagation left as user step.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d0669b0` | (see git log) |
+
+### Status
+
+[OK] **Completed**

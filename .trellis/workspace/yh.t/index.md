@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 60
-- **Last Active**: 2026-08-28
+- **Total Sessions**: 61
+- **Last Active**: 2026-08-29
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1695 | Active |
+| `journal-1.md` | ~1716 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 61 | 2026-08-29 | 08-29 full go-live review + fix pass (0.1.5) | `d0669b0` | `master` |
 | 60 | 2026-08-28 | Final pre-go-live review + fix pass | `fc583a0` | `master` |
 | 59 | 2026-08-27 | golive-fix-backlog 全树完成:78/78 项修复,集成审查通过,父任务归档 | `3e4119b` | `master` |
 | 58 | 2026-08-27 | golive-cleanup-nits 完成:Bucket C 30 项全部修复并提交 | `bbaa223`, `9007185`, `8681d76`, `9c01996`, `dbd13a2`, `a5d4bcf`, `b426e3e`, `560688d`, `5138465` | `master` |
