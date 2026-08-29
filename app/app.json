@@ -2,7 +2,7 @@
   "expo": {
     "name": "做个好人AI股票分析系统",
     "slug": "stock-operator-agent",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -23,6 +23,5 @@
     "web": {
       "favicon": "./assets/favicon.png"
     }
-  },
-  "version": "0.1.5"
+  }
 }
