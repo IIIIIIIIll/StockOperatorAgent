@@ -36,6 +36,9 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
+          # 默认走 runner 预缓存版本(2026-10-21 实测 v22.23.3,仍低于
+          # 10 月安全版的 22.23.4);check-latest 才会查 node-versions 清单。
+          check-latest: true
           cache: npm
           cache-dependency-path: |
             package-lock.json
