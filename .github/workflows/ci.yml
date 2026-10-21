@@ -22,17 +22,34 @@ jobs:
     env:
       CI: 1
     steps:
+      # Pin 注释上提一行:保留 SHA 溯源且不让 yml 超长。
+      # actions/checkout v4 → 11d5960a326750d5838078e36cf38b85af677262
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # ci 只跑 npm ci + typecheck + test,不需要 git 凭据;避免 token
+          # 落在 .git/config 并被后续 artifact 带上(zizmor artipacked)。
+          persist-credentials: false
 
+      # actions/setup-node v4 → 49933ea5288caeca8642d1e84afbd3f7d6820020
       - name: Setup Node.js 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 → 49933ea5288caeca8642d1e84afbd3f7d6820020
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
 
       - name: Install dependencies
+        run: npm ci
+
+      # 根 vitest 会 transform app/lib/*.ts(如 analysis-controller.test.ts),
+      # 而 app/tsconfig.json extends "expo/tsconfig.base"——缺 app/node_modules
+      # 时 oxc 报 TSCONFIG_ERROR: Failed to load tsconfig 'expo/tsconfig.base',
+      # 13 个 test file 直接 transform 失败(2026-10-21 实证)。必须装 app 层。
+      - name: Install app dependencies
+        working-directory: app
         run: npm ci
 
       - name: Typecheck
