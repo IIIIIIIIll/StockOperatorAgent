@@ -10,7 +10,7 @@ import type { IndicatorRow } from '../../src/indicators.ts';
 import { changePctHistData } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { fmtDate } from '../../src/format.ts';
-import { CHART_HTML } from '../lib/chartHtml';
+import { useChartWebView } from '../hooks/useChartWebView';
 import type { Theme } from '../theme';
 
 export interface Bar {
@@ -230,7 +230,7 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
   // ─── 原生分支:WebView 渲染同一数据(HTML 由 tools/build-chart-view.mts 生成)──
   // 序列化 web 分支同款数据(bars + lineData/histData 结果 + 颜色)→ JSON;
-  // useMemo 稳定 JSON 引用,流式重渲染不重建 WebView(仅重注入数据)。
+  // useMemo 稳定 JSON 引用,流式重渲染只重注入数据(不重建 WebView)。
   const nativeData = React.useMemo<NativeChartData | null>(() => {
     if (Platform.OS === 'web') return null;
     const dates = bars.map((b) => fmtDate(b.date));
@@ -298,28 +298,24 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
     };
   }, [bars, rows, changePct, theme]);
 
-  const webviewRef = React.useRef<WebView | null>(null);
-  const loadedRef = React.useRef(false);
   const nativeJson = React.useMemo(
     () => (Platform.OS === 'web' ? '' : JSON.stringify(nativeData)),
     [nativeData],
   );
-  const injectData = React.useCallback(() => {
-    if (!nativeJson) return;
-    webviewRef.current?.injectJavaScript(`window.__SOA_CHART_DATA__=${nativeJson};window.renderChart&&window.renderChart();`);
-  }, [nativeJson]);
-  React.useEffect(() => {
-    if (Platform.OS !== 'web' && loadedRef.current) injectData();
-  }, [injectData]);
+  // WebView 生命周期(稳定 source / 渲染进程死亡重挂 / 后台不注入)集中在
+  // app/hooks/useChartWebView.ts —— 与 FinancialTrendChart 同一套语义。
+  const chart = useChartWebView(nativeJson);
 
   if (Platform.OS !== 'web') {
     // 原生:WebView 渲染生成的 chart-view.html(图例在页内由数据构建)
     return (
       <View style={{ backgroundColor: theme.colors.background }}>
         <WebView
-          ref={webviewRef}
-          source={{ html: CHART_HTML }}
-          onLoadEnd={() => { loadedRef.current = true; injectData(); }}
+          key={chart.key}
+          ref={chart.ref}
+          source={chart.source}
+          onLoadEnd={chart.onLoadEnd}
+          onRenderProcessGone={chart.onRenderProcessGone}
           style={{ height: CHART_HEIGHT, width: '100%', backgroundColor: theme.colors.background }}
           javaScriptEnabled
           domStorageEnabled

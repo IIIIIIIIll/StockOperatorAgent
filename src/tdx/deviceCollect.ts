@@ -106,7 +106,12 @@ export async function collectForDevice(
       lastErr = err;
       warn(`TDX host ${host} 采集失败:${String((err as Error)?.message ?? err)}——尝试下一个`);
     } finally {
-      client.disconnect();
+      // destroy() 而非 disconnect():node-tdx-market 的 disconnect() 只 cleanup,
+      // 不置 destroyed 标志(client.js:213-215)。socket 若在采集中途断开(移动网络常态),
+      // scheduleReconnect 的守卫 `if (destroyed || connected) return`(client.js:344-346)
+      // 拦不住 → 会以 30s 心跳 + 指数退避永久重连一个没人持有的客户端。
+      // 每次掉线泄漏一个长连接,随运行次数累积 → 「跑几次之后才卡死」的漂移来源。
+      client.destroy();
     }
   }
   // 可读中文,对齐 proxies.cjs 代理错误文案;调用方中止分析,不喂空数据

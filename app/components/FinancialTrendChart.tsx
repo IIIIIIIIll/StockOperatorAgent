@@ -9,7 +9,7 @@ import { WebView } from 'react-native-webview';
 import type { IChartApi } from 'lightweight-charts';
 import type { FinancialSeries } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
-import { CHART_HTML } from '../lib/chartHtml';
+import { useChartWebView } from '../hooks/useChartWebView';
 import type { Theme } from '../theme';
 
 // 原生分支(WebView)JSON 数据契约:与 tools/build-chart-view.mts 头部文档一致
@@ -84,19 +84,13 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
       })),
     };
   }, [series, theme]);
-  const webviewRef = React.useRef<WebView | null>(null);
-  const loadedRef = React.useRef(false);
   const nativeJson = React.useMemo(
     () => (Platform.OS === 'web' ? '' : JSON.stringify(nativeData)),
     [nativeData],
   );
-  const injectData = React.useCallback(() => {
-    if (!nativeJson) return;
-    webviewRef.current?.injectJavaScript(`window.__SOA_CHART_DATA__=${nativeJson};window.renderChart&&window.renderChart();`);
-  }, [nativeJson]);
-  React.useEffect(() => {
-    if (Platform.OS !== 'web' && loadedRef.current) injectData();
-  }, [injectData]);
+  // WebView 生命周期集中在 app/hooks/useChartWebView.ts(与 IndicatorChart 同语义):
+  // 稳定 source / 渲染进程死亡后重挂 / 后台不注入。
+  const chart = useChartWebView(nativeJson);
 
   if (series.length === 0) return null;
 
@@ -105,9 +99,11 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
     return (
       <View style={{ backgroundColor: theme.colors.background }}>
         <WebView
-          ref={webviewRef}
-          source={{ html: CHART_HTML }}
-          onLoadEnd={() => { loadedRef.current = true; injectData(); }}
+          key={chart.key}
+          ref={chart.ref}
+          source={chart.source}
+          onLoadEnd={chart.onLoadEnd}
+          onRenderProcessGone={chart.onRenderProcessGone}
           style={{ height: CHART_HEIGHT, width: '100%', backgroundColor: theme.colors.background }}
           javaScriptEnabled
           domStorageEnabled

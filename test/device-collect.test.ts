@@ -1,5 +1,5 @@
 // 真机采集单测 —— 离线零网络:mock node-tdx-market TdxClient(假客户端,
-// connect/disconnect 桩,不建 TCP)+ tdx/quoteClient.collectAll + tdx/f10Client
+// connect/destroy 桩,不建 TCP)+ tdx/quoteClient.collectAll + tdx/f10Client
 // 三函数(getCompanyInfoCategory/getCompanyInfoContent/f10MarketFor);store 用
 // InMemoryStore 经 setDeviceStore 注入。不测真实 TCP。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,12 +28,16 @@ import { capitalKey, f10Key } from '../src/metaKeys.ts';
 
 const TICKER = '600036';
 
-/** 假客户端:只用 on/connect/disconnect 面(真 TdxClient connect 才建 TCP)。 */
+/** 假客户端:只用 on/connect/destroy 面(真 TdxClient connect 才建 TCP)。
+ *  disconnect 一并给出但断言为 0 次调用:disconnect() 不置 destroyed 标志
+ *  (client.js:213-215),socket 掉线后 scheduleReconnect 会永久重连一个没人
+ *  持有的客户端 → 每次掉线泄漏一个长连接,随运行次数累积。 */
 function makeFakeClient() {
   return {
     on: vi.fn(),
     connect: vi.fn().mockResolvedValue('1.2.3.4:7709'),
     disconnect: vi.fn(),
+    destroy: vi.fn(),
   };
 }
 
@@ -84,7 +88,7 @@ describe('collectForDevice', () => {
   it('全路径:构造 TdxClient → connect → F10 + collectAll → 写 store,返回 WebCollectResult', async () => {
     const result = await collectForDevice(TICKER);
 
-    // TdxClient 构造参数(显式 host,顺序尝试首个)+ 生命周期(单连接,结束 disconnect)
+    // TdxClient 构造参数(显式 host,顺序尝试首个)+ 生命周期(单连接,结束 destroy)
     expect(mocks.TdxClient).toHaveBeenCalledWith(
       // F56:host 是模块加载期 env 固化的 DEVICE_TDX_HOSTS[0](开发机设
       // TDX_HOST=hostname 时 IPv4 断言困惑性失败)——改为精确引用常量本身;
@@ -93,7 +97,8 @@ describe('collectForDevice', () => {
     );
     expect(client.on).toHaveBeenCalledWith('error', expect.any(Function));
     expect(client.connect).toHaveBeenCalledTimes(1);
-    expect(client.disconnect).toHaveBeenCalledTimes(1);
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+    expect(client.disconnect).not.toHaveBeenCalled();
 
     // F10:category → 财务分析节 + 股本结构节(组装序对齐 proxies.cjs doCollect)
     expect(mocks.getCompanyInfoCategory).toHaveBeenCalledWith(client, 0, TICKER);
@@ -172,16 +177,18 @@ describe('collectForDevice', () => {
     expect(store.getMeta(f10Key(TICKER))).toBe('【主要财务指标】\n净资产收益率: 18.8'); // 幂等重写
   });
 
-  it('collectAll 失败 → 全部 host 尝试后 reject 可读中文错误,每个都 disconnect', async () => {
+  it('collectAll 失败 → 全部 host 尝试后 reject 可读中文错误,每个都 destroy', async () => {
     mocks.collectAll.mockRejectedValue(new Error('socket hang up'));
     await expect(collectForDevice(TICKER)).rejects.toThrow('TDX 采集失败:socket hang up');
-    expect(client.disconnect).toHaveBeenCalledTimes(DEVICE_TDX_HOSTS.length);
+    expect(client.destroy).toHaveBeenCalledTimes(DEVICE_TDX_HOSTS.length);
+    expect(client.disconnect).not.toHaveBeenCalled();
   });
 
   it('connect 失败 → 全部 host 尝试后 reject 可读中文错误,不吞', async () => {
     client.connect.mockRejectedValue(new Error('connect ECONNREFUSED 1.2.3.4:7709'));
     await expect(collectForDevice(TICKER)).rejects.toThrow('TDX 采集失败:connect ECONNREFUSED 1.2.3.4:7709');
-    expect(client.disconnect).toHaveBeenCalledTimes(DEVICE_TDX_HOSTS.length);
+    expect(client.destroy).toHaveBeenCalledTimes(DEVICE_TDX_HOSTS.length);
+    expect(client.disconnect).not.toHaveBeenCalled();
   });
 
   it('TDX_HOST=hostname → host 原样传 TdxClient(模块加载期 env 固化 → resetModules+动态 import 重载)', async () => {
