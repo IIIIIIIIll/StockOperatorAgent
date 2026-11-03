@@ -1714,3 +1714,51 @@ Full fresh pre-go-live review (5 subagents): READY, 0 blockers; 2 should-fix + 1
 ### Status
 
 [OK] **Completed**
+
+
+## Session 62: 真机 1/5 假死定位与修复 + Electron 安全版收口 (0.1.7/0.1.8)
+
+**Date**: 2026-11-03
+**Task**: 真机 1/5 假死定位与修复 + Electron 安全版收口 (0.1.7/0.1.8)
+**Branch**: `master`
+
+### Summary
+
+两块工作:① 10 月 Node 安全版在 Electron 侧的收口 —— 43.8.6 内置 Node 24.22.1,出 0.1.7;② 真机「锁屏后分析跑完但界面点不动、只能重启」的定位与修复,四路并行 review 后出 0.1.8。
+
+### Main Changes
+
+- Electron 43.4.0 → 43.8.6(内置 Node 24.18.1 → 24.22.1,补齐 10 月 CVE),v0.1.7 发布
+- 假死四成因:POST_NOTIFICATIONS 申请跑在 modulesQueue 且无 resumed 守卫;图表 WebView 无 onRenderProcessGone 处理;TDX client.disconnect() 不置 destroyed → 重连僵尸累积;运行结束即释放前台服务
+- 修复:mainQueue + lifecycle RESUMED + runCatching;useChartWebView 递增 key 重挂 + 前台才注入;client.destroy();保活延迟到回前台释放 + PARTIAL_WAKE_LOCK
+- 新增取消按钮 + 300s 空闲看门狗 + runner.abort():卡住的运行可自停,不必重启 App
+- 运行代数(runSeq):取消/看门狗中止后,孤儿运行的 settle 与事件不得影响新一轮(review P0)
+- 负载:token 不入 events + 120ms 合并广播;RN 日志改 append;DataScreen/ReportStyles memo
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2217226` | (see git log) |
+| `4159506` | (see git log) |
+| `f0cf80a` | (see git log) |
+| `c3ee30d` | (see git log) |
+| `e6262c0` | (see git log) |
+| `d09cdc3` | (see git log) |
+
+### Testing
+
+- [OK] vitest 691 passed(新增 cancel/看门狗/看门狗重置/token 合并/运行代数 P0 回归/采集期取消/日志 append 断言)
+- [OK] tsc 双端 clean;:soa-keepalive compileDebugKotlin 通过;expo export web+android 通过
+- [OK] v0.1.8 实机验证(模拟器):锁屏 284.8s 跑完 → 解锁界面正常;wakelock ACQ/REL 成对;权限弹窗 t+1s 前台出现
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机 5 次锁屏/解锁循环验证(模拟器无法复现网络静默丢弃)
+- 保活超期改原生实现:ACTION_RELEASE_WAKE_LOCK + Handler.postDelayed(当前 90s JS 宽限在后台不触发)
+- SYSTEM_ALERT_WINDOW 仍进 release manifest(prebuild/插件收口)+ privacy-policy 权限章节同步
+- 图表注入仍每次重建整图(chartHtml.ts remove()+createChart),可改 setData 复用
