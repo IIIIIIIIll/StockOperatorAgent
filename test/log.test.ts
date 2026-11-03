@@ -83,6 +83,10 @@ interface FileState {
   creates: number;
   writes: number;
   moves: number;
+  /** 最后一次 write 的选项(断言 append:true —— 回归时 if 不写就能捕获) */
+  lastOptions?: { append?: boolean };
+  /** textSync() 调用次数:旧实现每条日志读回整文件,O(文件) I/O 回归的哨兵 */
+  textReads: number;
 }
 class FakeFile {
   movedTo: string | null = null;
@@ -92,7 +96,7 @@ class FakeFile {
     protected readonly store: Map<string, FileState>,
   ) {}
   private state(): FileState {
-    if (!this.store.has(this.name)) this.store.set(this.name, { content: '', exists: false, creates: 0, writes: 0, moves: 0 });
+    if (!this.store.has(this.name)) this.store.set(this.name, { content: '', exists: false, creates: 0, writes: 0, moves: 0, textReads: 0 });
     return this.store.get(this.name)!;
   }
   get exists(): boolean {
@@ -109,11 +113,14 @@ class FakeFile {
   write(contents: string, options?: { append?: boolean }): void {
     const s = this.state();
     s.writes++;
+    s.lastOptions = options;
     s.content = options?.append ? `${s.content}${contents}` : contents;
     s.exists = true;
   }
   textSync(): string {
-    return this.state().content;
+    const s = this.state();
+    s.textReads++;
+    return s.content;
   }
   moveSync(destination: FakeFile, options?: { overwrite?: boolean }): void {
     // F03:对齐 expo-file-system 真实语义——目标已存在且未显式 overwrite → 抛错
@@ -348,6 +355,10 @@ describe('RN 沙盒文件 transport(注入 fake file API)', () => {
     expect(s.exists).toBe(true);
     expect(s.creates).toBe(1); // 首个写入创建文件
     expect(s.writes).toBe(2);
+    // 追加语义:必须走 write(..., { append: true }),且不得读回整文件
+    // (旧实现 textSync() + 整文件写 = 每条日志 O(文件) 同步 I/O)
+    expect(s.lastOptions).toEqual({ append: true });
+    expect(s.textReads).toBe(0);
     const lines = s.content.split('\n').filter(Boolean);
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| ERROR \| \[soa\] boom \(platform:rn\)$/);

@@ -561,7 +561,7 @@ describe('AnalysisController.cancel / 看门狗', () => {
     expect(h.snap().running).toBe(false);
   });
 
-  it('看门狗:120s 无任何事件 → 中止 + 报错 + 释放保活', async () => {
+  it('看门狗:300s 无任何事件 → 中止 + 报错 + 释放保活', async () => {
     vi.useFakeTimers();
     try {
       const entered = Promise.withResolvers<void>();
@@ -575,7 +575,7 @@ describe('AnalysisController.cancel / 看门狗', () => {
       await entered.promise;
       expect(h.snap().running).toBe(true);
 
-      vi.advanceTimersByTime(120_000);
+      vi.advanceTimersByTime(300_000);
       expect(h.snap().running).toBe(false);
       expect(h.snap().error).toContain('无任何进展');
       expect(h.keepAlive.stops).toBeGreaterThanOrEqual(1);
@@ -631,5 +631,72 @@ describe('AnalysisController.cancel / 看门狗', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ─── 运行代数(P0 回归:孤儿运行不得影响新一轮)────────────────────────────
+// 取消/看门狗中止只把 UI 拉回可用,底层 pipeline 仍在跑(LLM 客户端未接 abort)。
+// 若不用运行代数隔离,孤儿运行迟到 settle 会执行自己的 finally —— 停掉新一轮的
+// 保活与看门狗、把 running 置回 false,等于把新一轮重新打回「cached 冻结」假死。
+describe('AnalysisController 运行代数(P0 回归)', () => {
+  it('取消后立即重开:旧运行迟到 settle 不得停掉新一轮的保活与 running', async () => {
+    const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    let call = 0;
+    const h = makeHarness({
+      runnerImpl: async () => {
+        const i = call++;
+        entered[i]?.resolve();
+        await gates[i]?.promise;
+        return undefined;
+      },
+    });
+
+    const pA = h.ctrl.start('600036', 'cn');
+    await entered[0]!.promise;
+    h.ctrl.cancel();
+    const stopsAfterCancel = h.keepAlive.stops;
+
+    const pB = h.ctrl.start('000001', 'cn');
+    await entered[1]!.promise;
+    expect(h.snap().running).toBe(true);
+
+    gates[0]!.resolve(); // 旧运行迟到 settle
+    await pA;
+
+    expect(h.snap().running).toBe(true); // 新一轮仍在运行(旧 finally 没把它停掉)
+    expect(h.keepAlive.stops).toBe(stopsAfterCancel); // 新一轮的保活没被旧的释放
+
+    gates[1]!.resolve();
+    await pB;
+    expect(h.snap().running).toBe(false);
+  });
+
+  it('采集阶段取消:阶段边界中止,不再发起 runner.run(不白烧 LLM)', async () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const h = makeHarness({
+      overrides: {
+        collect: async () => {
+          entered.resolve();
+          await release.promise;
+          return {
+            f10Text: '【主要财务指标】\n净资产收益率: 15.2',
+            snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9, volume: 10000, amount: 380000 },
+            name: '测试股',
+            capital: null,
+          };
+        },
+      },
+    });
+
+    const p = h.ctrl.start('600036', 'cn');
+    await entered.promise;
+    h.ctrl.cancel();
+    release.resolve(); // 采集恢复完成,但代数已作废
+    await p;
+
+    expect(h.runner.runs).toHaveLength(0); // 没有进 runner.run
+    expect(h.snap().running).toBe(false);
   });
 });

@@ -64,14 +64,30 @@ export function useAnalysis(): UseAnalysis {
   // cached 桶,被 Doze/厂商冻结器抓住 → 回到前台只剩最后一帧、点不动也不 ANR。
   // 改为「推迟到下次 active 再停」;回到前台时顺手补一次广播。
   const pendingStopRef = React.useRef(false);
+  const graceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hardStopKeepAlive = React.useCallback(() => {
+    if (graceTimerRef.current !== null) {
+      clearTimeout(graceTimerRef.current);
+      graceTimerRef.current = null;
+    }
+    pendingStopRef.current = false;
+    stopAnalysisKeepAlive();
+  }, []);
   const stopKeepAliveDeferred = React.useCallback(() => {
     if (AppState.currentState === 'active') {
-      pendingStopRef.current = false;
-      stopAnalysisKeepAlive();
-    } else {
-      pendingStopRef.current = true;
+      hardStopKeepAlive();
+      return;
     }
-  }, []);
+    pendingStopRef.current = true;
+    // 90s 宽限上限:用户拖到分析结束而不再回前台时,前台服务/唤醒锁不能无限期
+    // 挂着(Android 15 dataSync 有 6h/24h 上限,Play Vitals 也会判「卡住的唤醒锁」)
+    if (graceTimerRef.current !== null) return;
+    graceTimerRef.current = setTimeout(() => {
+      graceTimerRef.current = null;
+      if (!pendingStopRef.current) return;
+      hardStopKeepAlive();
+    }, 90_000);
+  }, [hardStopKeepAlive]);
 
   // 控制器随 hook 实例常驻(首渲染构造一次;构造内 loadSettings 与抽取前
   // useState 初始化同时序,启动链 bootstrap 在挂载 effect 再加载一次——同原)。
@@ -151,14 +167,11 @@ export function useAnalysis(): UseAnalysis {
   React.useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       if (next !== 'active') return;
-      if (pendingStopRef.current) {
-        pendingStopRef.current = false;
-        stopAnalysisKeepAlive();
-      }
+      if (pendingStopRef.current) hardStopKeepAlive();
       ctrl.refresh();
     });
     return () => sub.remove();
-  }, [ctrl]);
+  }, [ctrl, hardStopKeepAlive]);
 
   const start = React.useCallback(
     (ticker: string, market: Market) => ctrl.start(ticker, market),

@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.launch
@@ -66,19 +69,38 @@ class SoaKeepAliveModule : Module() {
             return
         }
         appContext.mainQueue.launch {
-            val activity = appContext.currentActivity
-            if (activity == null || activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
-                return@launch
-            }
-            notificationPermissionRequested = true
-            activity.requestPermissions(
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_POST_NOTIFICATIONS,
-            )
+            // launch{} 不在 AsyncFunction 的 promise 错误网内:未捕获异常会抛到主线程
+            // 直接崩进程 → 统一 runCatching
+            runCatching {
+                val activity = appContext.currentActivity
+                if (activity == null || activity.isFinishing || activity.isDestroyed || !isResumed(activity)) {
+                    Log.w(TAG, "POST_NOTIFICATIONS skipped: activity not resumed")
+                    return@runCatching
+                }
+                notificationPermissionRequested = true
+                activity.requestPermissions(
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_POST_NOTIFICATIONS,
+                )
+            }.onFailure { Log.w(TAG, "POST_NOTIFICATIONS request failed", it) }
         }
     }
 
+    /**
+     * “能不能现在弹系统框”的正确判据是生命周期 RESUMED，而不是 hasWindowFocus()：
+     * 窗口有焦点是个 window 属性 —— 分屏/多窗口未聚焦、自身开了 Dialog（RN <Modal>
+     * 就是真的 Dialog）、其他 App 的悬浮层、解锁瞬间焦点尚未落回来，都会让
+     * hasWindowFocus() 为 false 但 Activity 确实 resumed。用错判据的后果不是崩溃，
+     * 而是这一次分析永远拿不到通知权限（Android 13+ 保活通知对用户不可见）。
+     */
+    private fun isResumed(activity: android.app.Activity): Boolean {
+        val owner = activity as? LifecycleOwner ?: return activity.hasWindowFocus()
+        return owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+    }
+
     private companion object {
+        const val TAG = "SoaKeepAlive"
+
         // requestPermissions 回调码;本模块不注册结果处理器,取任意不冲突值。
         const val REQUEST_POST_NOTIFICATIONS = 47001
     }

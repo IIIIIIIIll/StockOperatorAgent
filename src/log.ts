@@ -107,7 +107,7 @@ export function makeReporter(
 
 // ─── RN 沙盒文件 transport ────────────────────────────────────────────────
 // expo-file-system SDK 52+ 新 API(File/Paths),仅 RN 分支动态 import 一次;
-// append 走 read-modify-write(file.create + textSync + write,对齐设计);
+// 追加走 File.write(line, { append: true })(O(行) 而非 O(文件))。
 // 文件 ≥5MB → moveSync 到 soa-logs.log.1 再开新文件(对齐 server 轮转语义)。
 // NODE_ENV==='test' 或 SOA_LOG_FILE==='0' → 不写文件(vitest 不污染 logs/)。
 export const RN_LOG_FILE = 'soa-logs.log';

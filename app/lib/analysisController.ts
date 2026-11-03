@@ -48,7 +48,7 @@ import {
  *  (src/llm.ts:~69)→ await 永不返回,running 卡在 true、保活通知不落,
  *  用户唯一出路是重启 App。120s 远大于最长正常停顿(单次 LLM 调用可达
  *  数分钟,但期间工具轮/进度事件不断流,不会触发)。 */
-const RUN_IDLE_TIMEOUT_MS = 120_000;
+const RUN_IDLE_TIMEOUT_MS = 300_000;
 
 /** token 合并广播窗口:一次分析上万个 delta,每个都全量快照 + React 重渲染
  *  会把 JS 线程打满(快照里 events 数组的拷贝是 O(n²))。120ms ≈ 8fps,
@@ -159,11 +159,17 @@ export class AnalysisController {
   private readonly listeners = new Set<(s: AnalysisSnapshot) => void>();
   // 上次分析运行模式(real|demo):done 写缓存/标记时以 start() 时刻模式为准
   private mode: 'real' | 'demo' = 'demo';
-  /** 本次运行是否已作废(用户取消/看门狗中止)。作废后迟到的事件一律丢弃,
-   *  否则几分钟后的 token 会把已「已取消」的会话改回运行中。 */
-  private cancelled = false;
+  /** 运行代数:每次 start/取消/新一轮都递增。事件订阅、catch/finally、看门狗均按
+   *  「是否仍是当前代」作用域化 —— 否则被取消/中止的孤儿运行迟到 settle 时会停掉
+   *  新一轮的保活与看门狗,把新一轮重新打回 cached 冻结(正是要修的那个假死)。 */
+  private runSeq = 0;
+  /** 当前代的事件处理器(构造时只订阅一次,按代分派)。 */
+  private runHandler: ((e: PipelineEvent) => void) | null = null;
+  /** 看门狗已中止但底层 pipeline 可能仍在跑:此时只接受 done(真跑完的结果不该丢)。 */
+  private timedOut = false;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private notifyTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastWatchdogArm = 0;
 
   constructor(deps: AnalysisDeps) {
     this.deps = deps;
@@ -182,10 +188,13 @@ export class AnalysisController {
       settings: deps.loadSettings(),
       hasDone: false,
     };
-    // runner 订阅随控制器生命周期存在(构造即订阅;根 hook 常驻不卸载,与抽取前
-    // 「mount effect 订阅/unmount 退订」对外可观察行为一致)。UI 侧快照监听走
-    // subscribe()(挂载 effect 建立,卸载退订)。
-    deps.runner.subscribe(this.handleEvent);
+    // runner 订阅随控制器生命周期存在(构造即订阅;根 hook 常驻不卸载)。
+    // 按代分派:订阅本身不动,换 runHandler 即隔离孤儿运行的事件。
+    // 无运行时的游离事件(测试/探针直推)仍交给 handleEvent,保持旧行为。
+    deps.runner.subscribe((e) => {
+      if (this.runHandler) this.runHandler(e);
+      else this.handleEvent(e);
+    });
   }
 
   /** ── 取消当前分析 ──────────────────────────────────────────────────────
@@ -197,7 +206,12 @@ export class AnalysisController {
     const s = this.st;
     if (!s.running) return;
     this.deps.log.warn('用户取消分析');
-    this.cancelled = true;
+    // 作废当前代:孤儿运行的迟到事件全部丢弃,其 catch/finally 也不再收尾
+    // (runHandler 保留旧代闭包:它的 seq 已不匹配 → 事件自然被丢弃)
+    this.runSeq += 1;
+    // 复位 runner 的并发守卫 —— 否则永不 settle 的运行会让后续 run() 被
+    // 「上一次分析仍在进行中」永久拒绝,取消等于什么都没解决
+    this.deps.runner.abort?.();
     s.error = '已取消分析';
     s.statuses = {};
     this.finishRun();
@@ -231,20 +245,32 @@ export class AnalysisController {
     }
   }
 
-  /** 每个事件重置一次;到期即中止并报错,把「无限等」变成「可恢复的失败」。 */
+  /** 每个事件重置一次;到期即中止并报错,把「无限等」变成「可恢复的失败」。
+   *  不递增 runSeq:底层 pipeline 可能只是安静(大包 tool 调用),真跑完的 done
+   *  仍应该落地 —— 见 timedOut 门。 */
   private armWatchdog(): void {
     this.clearWatchdog();
+    this.lastWatchdogArm = this.deps.nowMs();
     this.watchdog = setTimeout(() => {
       this.watchdog = null;
       if (!this.st.running) return;
-      const msg = `分析已 ${Math.round(RUN_IDLE_TIMEOUT_MS / 1000)} 秒无任何进展,已中止(网络可能在锁屏期间断开)`;
+      const msg = `分析已 ${Math.round(RUN_IDLE_TIMEOUT_MS / 1000)} 秒无任何进展,已中止等待(网络可能在锁屏期间断开)`;
       this.deps.log.error(msg);
-      this.cancelled = true;
+      this.timedOut = true;
+      // 复位并发守卫,让用户能立即重试(孤儿 pipeline 继续跑,事件由 timedOut 门过滤)
+      this.deps.runner.abort?.();
       this.st.error = msg;
       this.st.statuses = {};
       this.finishRun();
       this.notify();
     }, RUN_IDLE_TIMEOUT_MS);
+  }
+
+  /** 事件驱动的重置节流 ≥1s:每个 token 都重建 timer 会新增成千上万次 JSI 调用
+   *  (setTimeout/clearTimeout),把本批次刚优化的线程负载又加回去。 */
+  private rearmWatchdog(): void {
+    if (this.deps.nowMs() - this.lastWatchdogArm < 1000) return;
+    this.armWatchdog();
   }
 
   private clearNotify(): void {
@@ -392,8 +418,13 @@ export class AnalysisController {
     // F01 重入守卫:运行中再次 start 直接返回——不清已运行状态
     // (events/decision/statuses/hasDone),不重复启保活/采集/run
     if (this.st.running) return;
-    // 新一轮:解除上一次的作废标记(取消/看门狗后重新开始必须能收事件)
-    this.cancelled = false;
+    // 新一代:递增代数 + 安装本代处理器。旧代(取消/看门狗中止的孤儿运行)的
+    // 事件与 settle 此后一律被代数门丢弃。
+    const seq = ++this.runSeq;
+    this.runHandler = (e) => {
+      if (seq === this.runSeq) this.handleEvent(e);
+    };
+    this.timedOut = false;
     const d = this.deps;
     const s = this.st;
     // 新分析开始:全量重置(R4:lastRun 标记清除;hasDone 撤销——D15)
@@ -470,12 +501,17 @@ export class AnalysisController {
         // /yahoo-collect);真机经 selectCollector/真机桥动态加载(S5:market 由
         // start() 归一化结果分派)——平台接线在 glue 层 collect 注入内
         const collected = await d.collect(nt, m, finnhub);
+        // 阶段边界中止:用户已取消/已被新一轮取代 → 不再往下跑 LLM(不白烧时间和 token)
+        if (seq !== this.runSeq) return;
         f10Text = collected.f10Text ?? undefined;
         snapshot = collected.snapshot;
         stockName = collected.name;
         capital = collected.capital;
         d.log.info(`采集完成:${d.store.getDatas(nt).length} 根日K${m === 'cn' ? ' + F10' : ''}`);
         s.dataVersion += 1; // 采集数据 Tab 立即刷新
+        // 采集阶段不发任何事件(TDX 逐 host 重试可能合法地跑几分钟)→ 阶段边界重置
+        // 看门狗,避免把慢但健康的采集误判为死连接
+        if (this.runSeq === seq) this.armWatchdog();
         this.notify();
       } catch (err) {
         const detail = describeError(err);
@@ -488,6 +524,10 @@ export class AnalysisController {
       // 亿信/mcp 情报段(phase out 能力补齐):预查询一次 → 缓存闭包,供
       // buildStockInformation 与 runner.run 双算共享(不重复触发网络)
       const intel = await d.fetchIntel(nt, m, s.settings.keys);
+      // 同上:取消后不再进 runner.run
+      if (seq !== this.runSeq) return;
+      // 同上:intel 预查询也是事件静默段
+      if (this.runSeq === seq) this.armWatchdog();
       // 亿信预抓 client 注入(phaseout C1):带 key → 信息面分析师预抓三源+twitter
       // 生效;无 key → undefined(现状 DDG 回退不变)。安全:key 仅进 client 私有
       // 字段——不打印/不落日志/不经服务端代理。
@@ -518,6 +558,8 @@ export class AnalysisController {
       // 成功耗时信息。
       if (report) d.log.info(`分析结束:耗时 ${((d.nowMs() - t0) / 1000).toFixed(1)}s`);
     } catch (err) {
+      // 旧代(已取消/被新一轮取代)的异常不得写进当前会话
+      if (seq !== this.runSeq) return;
       // C1:防御性兜底 —— runner 契约(error-handling.md「runner never throws past
       // event boundary」)失败信号唯一通道是 error 事件(单 banner),此处只接
       // runner.run 之外的意外异常(intel/client 组装等),非第二横幅来源。
@@ -526,9 +568,13 @@ export class AnalysisController {
       s.error = detail;
       this.notify();
     } finally {
-      // finishRun 内部 try/catch 保活释放:同步异常不得让 running 卡在 true
-      this.finishRun();
-      this.notify();
+      // 只有当前代才收尾:取消/新一轮之后,旧运行的 settle 不得停掉新一轮的
+      // 保活与看门狗(那会把新一轮重新打回 cached 冻结的假死)
+      if (seq === this.runSeq) {
+        // finishRun 内部 try/catch 保活释放:同步异常不得让 running 卡在 true
+        this.finishRun();
+        this.notify();
+      }
     }
   }
 
@@ -537,11 +583,11 @@ export class AnalysisController {
   private handleEvent = (e: PipelineEvent): void => {
     const d = this.deps;
     const s = this.st;
-    // 作废的运行(用户取消/看门狗中止)不再写状态:否则孤儿 promise 迟到的事件
-    // 会把用户已经看到「已取消」的会话改回去
-    if (this.cancelled) return;
-    // 任何事件都算「有进展」→ 重置看门狗
-    this.armWatchdog();
+    // 看门狗中止后只接受 done:用户已看到「已中止」,但真跑完的结果不该丢
+    // (孤儿 pipeline 的 token/progress 不再写 UI)
+    if (this.timedOut && e.type !== 'done') return;
+    // 任何事件都算「有进展」→ 重置看门狗(节流 ≥1s,见 rearmWatchdog)
+    if (s.running) this.rearmWatchdog();
     if (e.type === 'progress') {
       d.log.info(e.message);
     } else if (e.type === 'report') {

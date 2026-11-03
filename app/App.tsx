@@ -21,6 +21,11 @@ import type { PipelineEvent } from './lib/runner';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
 
+/** 模块实例令牌:只有同一模块实例重复挂载（同一次热重载内）才跳过安装。
+ *  之前只看 `if (g.__soa) return`，Fast Refresh 后新模块实例会直接返回，
+ *  `window.__soa` 永久闭包住已卸载的旧控制器（getState/start 全部失效）。 */
+const SOA_HOOK_TOKEN = {};
+
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -105,8 +110,10 @@ function AppContent() {
     // SAFETY: window 在 web/RN 都存在但无只读索引签名;__soa 仅调试钩子,
     // 写入不改变 window 的已有形状(读回时同样走 Record 路径)
     const g = window as unknown as Record<string, unknown>;
-    if (g.__soa) return; // 已安装(热重载/重复挂载不重复覆盖)
+    const prev = g.__soa as { token?: unknown } | undefined;
+    if (prev && prev.token === SOA_HOOK_TOKEN) return; // 同实例已安装(不重复覆盖)
     g.__soa = {
+      token: SOA_HOOK_TOKEN,
       start: () => void debugRef.current.start(debugRef.current.ticker, debugRef.current.market),
       switchTab: (id: TabId) => debugRef.current.setActiveTab(id),
       getState: () => {
