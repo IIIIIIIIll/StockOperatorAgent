@@ -415,11 +415,12 @@ describe('AnalysisController.start 编排', () => {
     // 运行中注入事件态,随后重入(不同参数)——不得被清空/改写
     h.runner.emit({ type: 'token', roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', delta: '部分' });
     await h.ctrl.start('0700.HK', 'hk');
+    h.ctrl.refresh(); // token 广播是尾部 120ms 合并的:断言前手动刷一帧
 
     expect(h.runner.runs).toHaveLength(1); // 未发起第二次 run
     expect(h.collectCalls).toHaveLength(1); // 未重复采集
     expect(h.keepAlive.starts).toHaveLength(1); // 未重启保活
-    expect(h.snap().events.some((e) => e.type === 'token')).toBe(true); // 事件流未被清空
+    expect(h.snap().events.some((e) => e.type === 'token')).toBe(false); // token 不入 events(JS 线程负载)
     expect(h.snap().partials.fundamental_analysis_expert).toBe('部分'); // partial 未被清空
     expect(h.snap().market).toBe('cn'); // 未被重入参数改写
     expect(h.snap().lastRunTicker).toBe('600036');
@@ -434,6 +435,7 @@ describe('AnalysisController 事件归约', () => {
     const h = makeHarness();
     h.runner.emit({ type: 'token', roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', delta: '部分' });
     h.runner.emit({ type: 'token', roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', delta: '文本' });
+    h.ctrl.refresh(); // token 广播是尾部 120ms 合并的:断言前手动刷一帧
     expect(h.snap().partials.fundamental_analysis_expert).toBe('部分文本');
 
     h.runner.emit({ type: 'roleStatus', roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', status: 'retry' });
@@ -446,7 +448,9 @@ describe('AnalysisController 事件归约', () => {
     h.runner.emit({ type: 'report', key: 'bullish_opinions', tabTitle: '看涨观点', content: 'BULL_FINAL' });
     expect(h.snap().partials.bullish_trader).toBeUndefined();
     expect(h.snap().partials.bullish_revise).toBeUndefined();
-    expect(h.snap().events).toHaveLength(6); // 每事件都追加
+    // token 不再入 events(UI 只读 partials;保存它让每帧快照拷贝的数组越拉越长):
+    // 6 个事件里只有 roleStatus + report 落地,4 个 token 全不进
+    expect(h.snap().events.map((e) => e.type)).toEqual(['roleStatus', 'report']);
   });
 });
 
@@ -514,5 +518,118 @@ describe('AnalysisController.hasDone(D15)', () => {
     await h.ctrl.start('600036', 'cn');
     expect(h.snap().hasDone).toBe(false); // 第二次 start 重置,error 终态保持 false
     expect(h.snap().lastRunAt).toBeNull(); // R4:error 不写缓存,标记被 start 清除
+  });
+});
+
+// ─── 假死兜底:取消 / 看门狗 / token 合并广播 ──────────────────────────────
+// 背景:真机锁屏后网络静默断掉时,runner.run 的 await 永不返回(LLM 不设超时 +
+// RN OkHttp 读超时 0),原来既无取消也无超时 → running 永远 true、开始按钮
+// disabled、保活通知不落,唯一出路是重启 App。
+
+describe('AnalysisController.cancel / 看门狗', () => {
+  /** 挂起型 runner:entered 表示 start 已推进到 runner.run 内部。 */
+  function hangingHarness() {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const h = makeHarness({
+      runnerImpl: async () => {
+        entered.resolve();
+        await release.promise;
+        return undefined;
+      },
+    });
+    return { h, entered, release };
+  }
+
+  it('cancel:running 归位 + 释放保活 + 孤儿运行的迟到事件被丢弃', async () => {
+    const { h, entered, release } = hangingHarness();
+    const p = h.ctrl.start('600036', 'cn');
+    await entered.promise;
+    expect(h.snap().running).toBe(true);
+
+    h.ctrl.cancel();
+    expect(h.snap().running).toBe(false);
+    expect(h.snap().error).toBe('已取消分析');
+    expect(h.keepAlive.stops).toBeGreaterThanOrEqual(1);
+
+    // 孤儿 promise 迟到的事件不得把已取消的会话改回运行中
+    h.runner.emit({ type: 'progress', message: '迟到的进度' });
+    expect(h.snap().events.some((e) => e.type === 'progress')).toBe(false);
+
+    release.resolve();
+    await p;
+    expect(h.snap().running).toBe(false);
+  });
+
+  it('看门狗:120s 无任何事件 → 中止 + 报错 + 释放保活', async () => {
+    vi.useFakeTimers();
+    try {
+      const entered = Promise.withResolvers<void>();
+      const h = makeHarness({
+        runnerImpl: async () => {
+          entered.resolve();
+          return new Promise<undefined>(() => {}); // 永不 settle(网络静默断掉的等价物)
+        },
+      });
+      void h.ctrl.start('600036', 'cn');
+      await entered.promise;
+      expect(h.snap().running).toBe(true);
+
+      vi.advanceTimersByTime(120_000);
+      expect(h.snap().running).toBe(false);
+      expect(h.snap().error).toContain('无任何进展');
+      expect(h.keepAlive.stops).toBeGreaterThanOrEqual(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('看门狗被事件重置:连续事件期间不中止', async () => {
+    vi.useFakeTimers();
+    try {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const h = makeHarness({
+        runnerImpl: async () => {
+          entered.resolve();
+          await release.promise;
+          return undefined;
+        },
+      });
+      const p = h.ctrl.start('600036', 'cn');
+      await entered.promise;
+      for (let i = 0; i < 3; i++) {
+        vi.advanceTimersByTime(90_000); // 每 90s 一个事件 → 永不触发 120s
+        h.runner.emit({ type: 'progress', message: `进度 ${i}` });
+        expect(h.snap().running).toBe(true);
+      }
+      release.resolve();
+      await p;
+      expect(h.snap().running).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('token 合并广播:多个 delta 只发一次快照,且不落进 events', () => {
+    vi.useFakeTimers();
+    try {
+      const h = makeHarness();
+      let notifies = 0;
+      h.ctrl.subscribe(() => {
+        notifies += 1;
+      });
+      const token = (delta: string) => ({ type: 'token' as const, roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', delta });
+      h.runner.emit(token('一'));
+      h.runner.emit(token('二'));
+      h.runner.emit(token('三'));
+      expect(notifies).toBe(0); // 尾部合并:窗口内不广播
+      vi.advanceTimersByTime(120);
+      expect(notifies).toBe(1); // 三次 delta → 一次快照
+      expect(h.snap().partials.fundamental_analysis_expert).toBe('一二三');
+      expect(h.snap().events).toHaveLength(0); // token 不入 events
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

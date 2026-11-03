@@ -106,10 +106,10 @@ class FakeFile {
     s.creates++;
     s.exists = true;
   }
-  write(contents: string): void {
+  write(contents: string, options?: { append?: boolean }): void {
     const s = this.state();
     s.writes++;
-    s.content = contents;
+    s.content = options?.append ? `${s.content}${contents}` : contents;
     s.exists = true;
   }
   textSync(): string {

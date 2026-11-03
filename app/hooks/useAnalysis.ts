@@ -5,7 +5,7 @@
 // + start/onSettingsChange 转发。对外契约不变 —— UseAnalysis 字段与抽取前逐一
 // 对应,新增 hasDone(D15;App 侧 U16 消费)。ticker 由调用方传入(输入框在 App)。
 import React from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import {
   switchesToCapabilities,
   loadSettings,
@@ -54,10 +54,25 @@ export interface UseAnalysis {
   /** D15:done 事件后 true;新 start()/error 事件后 false(App「✓分析完成」消费,U16)。 */
   hasDone: boolean;
   start: (ticker: string, market: Market) => Promise<void>;
+  /** 取消当前分析(runner promise 不打断,但状态/保活立即归位,孤儿事件被丢弃)。 */
+  cancel: () => void;
   onSettingsChange: (next: SettingsState) => void;
 }
 
 export function useAnalysis(): UseAnalysis {
+  // 锁屏期间运行结束不能立即 stopForegroundService:进程会从 foreground 掉回
+  // cached 桶,被 Doze/厂商冻结器抓住 → 回到前台只剩最后一帧、点不动也不 ANR。
+  // 改为「推迟到下次 active 再停」;回到前台时顺手补一次广播。
+  const pendingStopRef = React.useRef(false);
+  const stopKeepAliveDeferred = React.useCallback(() => {
+    if (AppState.currentState === 'active') {
+      pendingStopRef.current = false;
+      stopAnalysisKeepAlive();
+    } else {
+      pendingStopRef.current = true;
+    }
+  }, []);
+
   // 控制器随 hook 实例常驻(首渲染构造一次;构造内 loadSettings 与抽取前
   // useState 初始化同时序,启动链 bootstrap 在挂载 effect 再加载一次——同原)。
   const ctrl = React.useMemo(
@@ -116,7 +131,7 @@ export function useAnalysis(): UseAnalysis {
           apiKey ? new BillionsClient({ apiKey, fetch: webBillionsFetch() ?? undefined }) : undefined,
         assembleTools: (keys, caps) => assembleTools(keys, caps),
         keepAliveStart: startAnalysisKeepAlive,
-        stopKeepAlive: stopAnalysisKeepAlive,
+        stopKeepAlive: stopKeepAliveDeferred,
         log: { info, warn, error: logError },
         nowMs: () => Date.now(),
         isoNow: () => new Date().toISOString(),
@@ -132,14 +147,28 @@ export function useAnalysis(): UseAnalysis {
     return off;
   }, [ctrl]);
 
+  // 前台回归:补释放推迟的保活 + 补一次广播(锁屏期间压下的合并帧)
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      if (pendingStopRef.current) {
+        pendingStopRef.current = false;
+        stopAnalysisKeepAlive();
+      }
+      ctrl.refresh();
+    });
+    return () => sub.remove();
+  }, [ctrl]);
+
   const start = React.useCallback(
     (ticker: string, market: Market) => ctrl.start(ticker, market),
     [ctrl],
   );
+  const cancel = React.useCallback(() => ctrl.cancel(), [ctrl]);
   const onSettingsChange = React.useCallback(
     (next: SettingsState) => ctrl.onSettingsChange(next),
     [ctrl],
   );
 
-  return { ...snap, start, onSettingsChange };
+  return { ...snap, start, cancel, onSettingsChange };
 }

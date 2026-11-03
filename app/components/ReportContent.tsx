@@ -36,7 +36,7 @@ function streamText(
   return { text: streaming ? text + CURSOR : text, streaming };
 }
 
-export default function ReportContent({
+export default React.memo(function ReportContent({
   roleKey, opinion, tabTitle, reports, finalDecision, partials, statuses, nodeName, reviseNodeName,
 }: Props) {
   const theme = useTheme();
@@ -108,7 +108,7 @@ export default function ReportContent({
       </View>
     </ScrollView>
   );
-}
+});
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({

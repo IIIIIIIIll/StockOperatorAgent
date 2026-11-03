@@ -4,7 +4,7 @@
 // 分析编排(状态/启动链/订阅/start)在 app/hooks/useAnalysis.ts(08-16 重构),
 // 本组件只保留 UI 状态(activeTab/ticker/showSettings)、派生与渲染。
 import React from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type Role } from 'react-native';
+import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type Role } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import ReportContent from './components/ReportContent';
@@ -32,7 +32,8 @@ export default function App() {
 function AppContent() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const styles = makeStyles(theme, insets);
+  // makeStyles 每次渲染都建 ~60 个 StyleSheet 对象;流式 token 期间每帧都跑 → memo
+  const styles = React.useMemo(() => makeStyles(theme, insets), [theme, insets]);
   const { width, height } = useWindowDimensions();
   const [activeTab, setActiveTab] = React.useState<TabId>('data');
   const [ticker, setTicker] = React.useState(DEMO_TICKER);
@@ -64,6 +65,14 @@ function AppContent() {
   React.useEffect(() => {
     setMarket(a.market);
   }, [a.market]);
+  // 锁屏/切后台时关掉市场下拉的透明 Modal:RN Modal 是真 Dialog 窗口,持有焦点
+  // 时 eats 所有触摸+滚动;带着它进后台再回来是「点不动」的一个可达路径。
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') setShowMarketMenu(false);
+    });
+    return () => sub.remove();
+  }, []);
   const roles = reportRoles(); // (stateKey, tabTitle) —— report_tabs() 契约
 
   const missing = missingLlmKeys(a.settings.keys);
@@ -86,16 +95,26 @@ function AppContent() {
   // 高度不足上翻);首帧未实测时退化为锚点原始定位,onLayout 随即回填
   const menuPos = menuAnchor && menuSize ? menuGeometry(menuAnchor, menuSize, width, height) : null;
 
-  // 调试/自动化钩子(headless 验证用;不参与正常交互)
+  // 调试/自动化钩子(headless 验证用;不参与正常交互)。
+  // 只挂载一次:依赖数组空 + ref 转发,避免无依赖数组的 effect 每帧重建闭包
+  // (每帧一次 → 几百次/分钟的无意义分配,且一旦将来在里面 setState 就是死循环)。
+  const debugRef = React.useRef({ start: a.start, ticker, market, setActiveTab, a });
+  debugRef.current = { start: a.start, ticker, market, setActiveTab, a };
   React.useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as unknown as Record<string, unknown>).__soa = {
-        start: () => void a.start(ticker, market),
-        switchTab: (id: TabId) => setActiveTab(id),
-        getState: () => ({ finalDecision: a.finalDecision, eventCount: a.events.length, running: a.running, partials: a.partials, statuses: a.statuses }),
-      };
-    }
-  });
+    if (typeof window === 'undefined') return;
+    // SAFETY: window 在 web/RN 都存在但无只读索引签名;__soa 仅调试钩子,
+    // 写入不改变 window 的已有形状(读回时同样走 Record 路径)
+    const g = window as unknown as Record<string, unknown>;
+    if (g.__soa) return; // 已安装(热重载/重复挂载不重复覆盖)
+    g.__soa = {
+      start: () => void debugRef.current.start(debugRef.current.ticker, debugRef.current.market),
+      switchTab: (id: TabId) => debugRef.current.setActiveTab(id),
+      getState: () => {
+        const s = debugRef.current.a;
+        return { finalDecision: s.finalDecision, eventCount: s.events.length, running: s.running, partials: s.partials, statuses: s.statuses };
+      },
+    };
+  }, []);
 
   return (
     <View style={styles.root}>
@@ -148,6 +167,13 @@ function AppContent() {
           <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => { setShowMarketMenu(false); void a.start(ticker, market); }}>
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
+          {/* 取消:唯一的「卡住也能自己停」出口。之前 running 时开始按钮 disabled,
+              又没有 cancel → 网络断流/LLM 无超时的挂起只能靠重启 App。 */}
+          {a.running ? (
+            <Pressable style={styles.cancelButton} onPress={a.cancel} accessibilityRole="button" accessibilityLabel="取消分析">
+              <Text style={styles.cancelButtonText}>取消</Text>
+            </Pressable>
+          ) : null}
         </View>
         {/* 悬浮下拉:菜单经下方 RN Modal portal 渲染(见 Modal 注释);与全屏点击层均未设
             zIndex —— 命中顺序靠 DOM 顺序(点击层先渲染、菜单后渲染 → 菜单区域可命中) */}
@@ -361,6 +387,8 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     marketOptionCheck: { fontSize: 12, color: theme.colors.primary, fontWeight: '700' },
     startButton: { backgroundColor: theme.colors.primary, borderRadius: theme.radius.sm, paddingHorizontal: 24, justifyContent: 'center' },
     startButtonText: { color: theme.colors.onPrimary, fontWeight: '700', fontSize: 15 },
+    cancelButton: { borderWidth: 1, borderColor: theme.colors.error, borderRadius: theme.radius.sm, paddingHorizontal: 16, justifyContent: 'center' },
+    cancelButtonText: { color: theme.colors.error, fontWeight: '700', fontSize: 15 },
     buttonDisabled: { opacity: 0.5 },
     warn: { color: theme.colors.warn, fontSize: 12, marginTop: theme.spacing.sm },
     marketBadgeRow: { flexDirection: 'row', marginTop: theme.spacing.sm },

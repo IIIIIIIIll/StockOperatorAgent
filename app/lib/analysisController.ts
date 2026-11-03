@@ -42,6 +42,19 @@ import {
 } from './settings.ts';
 
 /** 平台形态:web → 同源代理(/llm-proxy、采集代理);native(RN 真机/桌面壳)→ 设备链直连。 */
+/** 运行空闲看门狗:超过该时长没有任何事件(含 token)即判定连接已死。
+ *  真机锁屏后基站/NAT 会静默丢弃 TCP(无 FIN/RST),而 RN 侧 OkHttp 的
+ *  connect/read/write 超时全是 0(无限)、LLM 客户端也刻意不设 timeout
+ *  (src/llm.ts:~69)→ await 永不返回,running 卡在 true、保活通知不落,
+ *  用户唯一出路是重启 App。120s 远大于最长正常停顿(单次 LLM 调用可达
+ *  数分钟,但期间工具轮/进度事件不断流,不会触发)。 */
+const RUN_IDLE_TIMEOUT_MS = 120_000;
+
+/** token 合并广播窗口:一次分析上万个 delta,每个都全量快照 + React 重渲染
+ *  会把 JS 线程打满(快照里 events 数组的拷贝是 O(n²))。120ms ≈ 8fps,
+ *  肉眼仍是流式。 */
+const TOKEN_NOTIFY_MS = 120;
+
 export type ControllerPlatform = 'web' | 'native';
 
 /** 日志面(src/log info/warn/error 同形;测试以捕获数组替换)。 */
@@ -146,6 +159,11 @@ export class AnalysisController {
   private readonly listeners = new Set<(s: AnalysisSnapshot) => void>();
   // 上次分析运行模式(real|demo):done 写缓存/标记时以 start() 时刻模式为准
   private mode: 'real' | 'demo' = 'demo';
+  /** 本次运行是否已作废(用户取消/看门狗中止)。作废后迟到的事件一律丢弃,
+   *  否则几分钟后的 token 会把已「已取消」的会话改回运行中。 */
+  private cancelled = false;
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
+  private notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: AnalysisDeps) {
     this.deps = deps;
@@ -168,6 +186,81 @@ export class AnalysisController {
     // 「mount effect 订阅/unmount 退订」对外可观察行为一致)。UI 侧快照监听走
     // subscribe()(挂载 effect 建立,卸载退订)。
     deps.runner.subscribe(this.handleEvent);
+  }
+
+  /** ── 取消当前分析 ──────────────────────────────────────────────────────
+   *  只把 UI/状态拉回可用,不打断 runner 内部的 promise(LLM 客户端未接 abort
+   *  通道),孤儿运行的事件由 cancelled 门丢弃。价值:任何卡住的运行都能自己停,
+   *  不必重启 App —— 这是「假死」体验的死因(开始按钮 running 时 disabled,
+   *  且原来没有第二种出口)。 */
+  cancel(): void {
+    const s = this.st;
+    if (!s.running) return;
+    this.deps.log.warn('用户取消分析');
+    this.cancelled = true;
+    s.error = '已取消分析';
+    s.statuses = {};
+    this.finishRun();
+    this.notify();
+  }
+
+  /** 回到前台时补一次广播:锁屏期间压下的 token 合并帧可能在后台被节流,
+   *  回前台刷新一次让用户看到最新进度,而不是等下一个事件。 */
+  refresh(): void {
+    this.clearNotify();
+    this.notify();
+  }
+
+  /** 结束运行态:先释放保活(可能同步抛错)再清标志 —— 否则保活的同步异常会
+   *  逃出 finally,让 running 永远停在 true、按钮永远「分析中…」。 */
+  private finishRun(): void {
+    this.clearWatchdog();
+    this.clearNotify();
+    this.st.running = false;
+    try {
+      this.deps.stopKeepAlive();
+    } catch (err) {
+      this.deps.log.warn(`释放保活失败:${describeError(err)}`);
+    }
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdog !== null) {
+      clearTimeout(this.watchdog);
+      this.watchdog = null;
+    }
+  }
+
+  /** 每个事件重置一次;到期即中止并报错,把「无限等」变成「可恢复的失败」。 */
+  private armWatchdog(): void {
+    this.clearWatchdog();
+    this.watchdog = setTimeout(() => {
+      this.watchdog = null;
+      if (!this.st.running) return;
+      const msg = `分析已 ${Math.round(RUN_IDLE_TIMEOUT_MS / 1000)} 秒无任何进展,已中止(网络可能在锁屏期间断开)`;
+      this.deps.log.error(msg);
+      this.cancelled = true;
+      this.st.error = msg;
+      this.st.statuses = {};
+      this.finishRun();
+      this.notify();
+    }, RUN_IDLE_TIMEOUT_MS);
+  }
+
+  private clearNotify(): void {
+    if (this.notifyTimer !== null) {
+      clearTimeout(this.notifyTimer);
+      this.notifyTimer = null;
+    }
+  }
+
+  /** token 专用尾部合并广播(见 TOKEN_NOTIFY_MS);非 token 事件仍即时 notify。 */
+  private scheduleNotify(): void {
+    if (this.notifyTimer !== null) return;
+    this.notifyTimer = setTimeout(() => {
+      this.notifyTimer = null;
+      this.notify();
+    }, TOKEN_NOTIFY_MS);
   }
 
   /** UI 快照订阅(hook 挂载 effect 调用;返回退订函数,同 runner.subscribe 契约)。 */
@@ -299,6 +392,8 @@ export class AnalysisController {
     // F01 重入守卫:运行中再次 start 直接返回——不清已运行状态
     // (events/decision/statuses/hasDone),不重复启保活/采集/run
     if (this.st.running) return;
+    // 新一轮:解除上一次的作废标记(取消/看门狗后重新开始必须能收事件)
+    this.cancelled = false;
     const d = this.deps;
     const s = this.st;
     // 新分析开始:全量重置(R4:lastRun 标记清除;hasDone 撤销——D15)
@@ -343,6 +438,8 @@ export class AnalysisController {
     const t0 = d.nowMs();
     s.running = true;
     this.notify();
+    // 看门狗早于采集启动:卡死也可能发生在 collect/intel 阶段(锁屏后 socket 静默死掉)
+    this.armWatchdog();
     // 前台服务保活:分析分钟级,切后台/锁屏保持进程前台;结束在 finally 停止
     d.keepAliveStart(`正在分析 ${nt}`, 'AI 分析进行中,可切到后台等待完成');
     try {
@@ -429,8 +526,8 @@ export class AnalysisController {
       s.error = detail;
       this.notify();
     } finally {
-      d.stopKeepAlive();
-      s.running = false;
+      // finishRun 内部 try/catch 保活释放:同步异常不得让 running 卡在 true
+      this.finishRun();
       this.notify();
     }
   }
@@ -440,6 +537,11 @@ export class AnalysisController {
   private handleEvent = (e: PipelineEvent): void => {
     const d = this.deps;
     const s = this.st;
+    // 作废的运行(用户取消/看门狗中止)不再写状态:否则孤儿 promise 迟到的事件
+    // 会把用户已经看到「已取消」的会话改回去
+    if (this.cancelled) return;
+    // 任何事件都算「有进展」→ 重置看门狗
+    this.armWatchdog();
     if (e.type === 'progress') {
       d.log.info(e.message);
     } else if (e.type === 'report') {
@@ -454,6 +556,10 @@ export class AnalysisController {
       }
     } else if (e.type === 'token') {
       s.partials[e.node] = (s.partials[e.node] ?? '') + e.delta;
+      // token 不入 events:UI 不读它(只读 partials),保存它只会让每帧快照
+      // 拷贝的数组越拉越长(一次分析上万个 delta,拷贝总量 O(n²))
+      this.scheduleNotify();
+      return;
     } else if (e.type === 'roleStatus') {
       d.log.info(`状态[${e.node}] ${e.status}`);
       s.statuses[e.node] = e.status;
@@ -468,8 +574,14 @@ export class AnalysisController {
       s.stockInformation = report.stock_information;
       // 上次分析缓存:仅 done(成功)写;error 不写 → 旧缓存保留(R4)
       const at = d.isoNow();
-      saveLastRun(d.store, report, this.mode, at);
-      s.lastRunAt = { at, mode: this.mode };
+      // 写盘异常(配额满/存储损坏)不得吞掉 done:否则 hasDone 与报告都不落地,
+      // 用户看到的是「分析完成但没有结果」且没有任何日志
+      try {
+        saveLastRun(d.store, report, this.mode, at);
+        s.lastRunAt = { at, mode: this.mode };
+      } catch (err) {
+        d.log.error(`写上次分析缓存失败:${describeError(err)}`);
+      }
       s.hasDone = true; // D15
     } else if (e.type === 'error') {
       d.log.error(e.error);

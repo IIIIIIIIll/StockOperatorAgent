@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 分析期间持 PARTIAL_WAKE_LOCK:FGS 只提进程优先级,不阻 CPU 挂起 ——
+         Doze 下 JS 线程仍会被冻,锁屏期间的流会断在 socket 读取上。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application>
         <service

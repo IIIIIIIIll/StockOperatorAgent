@@ -20,7 +20,7 @@ import { useTheme, type Theme } from '../theme';
 const DAILY_TABLE_N = 20;
 const KLINE_N = 60;
 
-export default function DataScreen({ stockInformation, dataVersion, ticker, market }: { stockInformation: string; dataVersion?: number; ticker: string; market: Market }) {
+export default React.memo(function DataScreen({ stockInformation, dataVersion, ticker, market }: { stockInformation: string; dataVersion?: number; ticker: string; market: Market }) {
   void dataVersion; // 父组件数据就绪信号:触发本组件重渲染以读取 store
   const theme = useTheme();
   const styles = makeStyles(theme);
@@ -219,7 +219,7 @@ export default function DataScreen({ stockInformation, dataVersion, ticker, mark
       </View>
     </ScrollView>
   );
-}
+});
 
 // ─── 样式 ─────────────────────────────────────────────────────────────
 

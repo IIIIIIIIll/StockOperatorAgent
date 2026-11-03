@@ -118,7 +118,9 @@ export interface RnFileLike {
   readonly exists: boolean;
   readonly size: number;
   create(): void;
-  write(contents: string): void;
+  /** SDK 57 真实签名带 FileWriteOptions:{ append?: boolean }(默认 false = 覆写)。
+   *  日志追加必须走 append —— 不能用 textSync()+write(读回整文件再整文件重写)。 */
+  write(contents: string, options?: { append?: boolean }): void;
   textSync(): string;
   moveSync(destination: RnFileLike, options?: { overwrite?: boolean }): void;
 }
@@ -131,7 +133,10 @@ export function fileWriteDisabled(): boolean {
   return envValue('NODE_ENV') === 'test' || envValue('SOA_LOG_FILE') === '0';
 }
 
-/** RN 沙盒 transport 工厂。_writeDisabled 注入点(测试);失败静默降级 console。 */
+/** RN 沙盒 transport 工厂。_writeDisabled 注入点(测试);失败静默降级 console。
+ *  追加走 File.write(line, { append: true })(O(行) 而非 O(文件))。
+ *  旧实现每条日志都 textSync() 读回整文件再整体 write —— 单次分析几十条日志、
+ *  文件到 MB 级时,把 JS 线程按秒级同步 I/O 卡住(真机解密文件系统更慢)。 */
 export function makeRnFileTransport(
   _fs: RnFileSystem,
   _writeDisabled: () => boolean = fileWriteDisabled,
@@ -147,7 +152,7 @@ export function makeRnFileTransport(
       }
       if (!file.exists) file.create();
       const line = formatLogLine(new Date(), level, message, 'rn');
-      file.write(`${file.textSync()}${line}\n`);
+      file.write(`${line}\n`, { append: true });
     } catch {
       // 失败静默:console transport 已输出,不打断业务
     }

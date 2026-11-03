@@ -9,7 +9,9 @@ declare module 'expo-file-system' {
     readonly exists: boolean;
     readonly size: number;
     create(): void;
-    write(contents: string): void;
+    /** SDK 57 真实签名带 FileWriteOptions:{ append?: boolean }(默认 false = 覆写)。
+     *  日志追加依赖 append:每次只写增量行,不读回整文件。 */
+    write(contents: string, options?: { append?: boolean }): void;
     text(): Promise<string>;
     textSync(): string;
     /** SDK 57 真实签名带 RelocationOptions:{ overwrite?: boolean },默认 false

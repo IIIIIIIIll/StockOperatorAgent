@@ -1,6 +1,11 @@
 // SoaKeepAlive:分析期间前台服务保活(Android)。
-// 调用时机:分析开始 start(...),结束/失败/取消 stop()。
-// 前台服务使进程成为前台进程,豁免 Doze 冻结与内存回收,JS async 链继续跑。
+// 调用时机:分析开始 start(...),结束/失败/取消 stop()(锁屏中结束时推迟到回前台再停,
+// 见 app/hooks/useAnalysis.ts)。
+// 两层作用不同,缺一不可:
+//   - 前台服务:把进程抬到前台优先级,免疫 LMK 低优先级回收;
+//   - PARTIAL_WAKE_LOCK(KeepAliveService 内持):真正阻止 CPU 挂起。
+//     只靠 FGS 不会豁免 Doze —— 屏幕灭 + 手机静止时 CPU 照样冻,JS 定时器与
+//     socket 读取一起停摆。
 
 import { Platform } from 'react-native';
 import { requireNativeModule } from 'expo-modules-core';
