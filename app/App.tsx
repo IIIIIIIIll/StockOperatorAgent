@@ -11,12 +11,14 @@ import ReportContent from './components/ReportContent';
 import ErrorBoundary from './components/ErrorBoundary';
 import DataScreen from './screens/DataScreen';
 import SettingsPanel from './screens/SettingsPanel';
+import HistoryPanel from './screens/HistoryPanel';
 import { THEME_HEADING, useTheme, type Theme } from './theme';
 import { missingLlmKeys } from './lib/settings';
 import { reportRoles } from '../src/committee.ts';
 import { DEMO_TICKER } from '../src/metaKeys.ts';
 import { marketInfo, MARKET_CHOICES, type Market } from '../src/market.ts';
 import { useAnalysis } from './hooks/useAnalysis';
+import { formatRunTime } from '../src/runHistory.ts';
 import type { PipelineEvent } from './lib/runner';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
@@ -52,8 +54,14 @@ function AppContent() {
   const marketButtonRef = React.useRef<View>(null);
   // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
   const [showSettings, setShowSettings] = React.useState(false);
+  // 历史抽屉(右上角按钮):与左侧设置侧栏对称的右侧面板
+  const [showHistory, setShowHistory] = React.useState(false);
   React.useEffect(() => {
     if (width < 900) setShowSettings(false);
+  }, [width]);
+  // 同上:窄窗(手机竖屏)不常驻历史侧栏,避免把内容区挤没
+  React.useEffect(() => {
+    if (width < 900) setShowHistory(false);
   }, [width]);
   // D1:菜单打开期间窗口尺寸变化(web resize/zoom)→ 重测锚点;measureInWindow
   // 是异步快照,尺寸变化后旧锚点即过期。native 旋转已锁 portrait(app.json),
@@ -132,7 +140,18 @@ function AppContent() {
           <Pressable style={styles.hamburger} onPress={() => setShowSettings((v) => !v)} hitSlop={8} accessibilityLabel="切换设置侧边栏" accessibilityRole="button">
             <Text style={styles.hamburgerIcon}>☰</Text>
           </Pressable>
-          <Text style={styles.heading}>{THEME_HEADING}</Text>
+          <Text style={styles.heading} numberOfLines={1} ellipsizeMode="tail">{THEME_HEADING}</Text>
+          {/* 右侧独立入口:历史分析抽屉(点开后在右侧展开,与左上角设置对称) */}
+          <View style={styles.headerSpacer} />
+          <Pressable
+            style={styles.headerAction}
+            onPress={() => setShowHistory((v) => !v)}
+            accessibilityRole="button"
+            accessibilityLabel="历史分析"
+            aria-expanded={showHistory}
+          >
+            <Text style={styles.headerActionText}>历史{a.history.length ? ` ${a.history.length}` : ''}</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -192,7 +211,7 @@ function AppContent() {
             </View>
           ) : null}
           {gateNotice ? <Text style={styles.warn}>⚠ {gateNotice}</Text> : null}
-          {a.lastRunAt && !a.running ? (
+          {a.lastRunAt && !a.running && !a.viewingRun ? (
             <Text style={styles.info}>
               已显示上次分析结果 · {new Date(a.lastRunAt.at).toLocaleString()} · {a.lastRunAt.mode === 'real' ? '真实 LLM' : '演示模式'}
             </Text>
@@ -270,6 +289,17 @@ function AppContent() {
           </View>
         ) : null}
         <View style={styles.contentColumn}>
+          {/* 历史查看条:任何 Tab 都可见;返回最新 = 点开前的实时态 */}
+          {a.viewingRun ? (
+            <View style={styles.historyBar}>
+              <Text style={styles.historyBarText} numberOfLines={1}>
+                正在查看历史 · {formatRunTime(a.viewingRun.at)} · {a.viewingRun.ticker}
+              </Text>
+              <Pressable onPress={a.closeRun} accessibilityRole="button" accessibilityLabel="返回最新结果">
+                <Text style={styles.historyBarAction}>返回最新</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {/* 主 Tab 条(采集数据 + 角色报告) */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
             {tabs.map((t) => {
@@ -337,6 +367,42 @@ function AppContent() {
           </ErrorBoundary>
         </View>
 
+        {/* 历史侧栏(右侧抽屉):点右上角按钮开合;点选一条 → 退出抽屉并在报告
+            Tab 里复现该次分析,顶部横幅带「返回最新」。窄屏(手机/安卓竖屏)改为
+            覆盖式抽屉(带背景遮罩)—— 固定占宽会把内容区挤到不可用(11-04 实测)。 */}
+        {showHistory ? (
+          <>
+            {width < NARROW_DRAWER_MAX_WIDTH ? (
+              <Pressable
+                style={styles.historyBackdrop}
+                onPress={() => setShowHistory(false)}
+                accessibilityLabel="关闭历史侧栏"
+              />
+            ) : null}
+            <HistoryPanel
+                history={a.history}
+                loading={a.historyLoading}
+                error={a.historyError}
+                viewingId={a.viewingRun?.id ?? null}
+                running={a.running}
+                onOpen={(id) => {
+                  const row = a.history.find((h) => h.id === id);
+                  if (row) setTicker(row.ticker); // 表单同步成该次 ticker，避免「打开 A 再点分析却跑 B」
+                  setShowHistory(false);
+                  setActiveTab('final_decision'); // 先看结论
+                  void a.openRun(id);
+                }}
+                onDelete={(ids) => void a.deleteRuns(ids)}
+                onClear={() => void a.clearHistory()}
+                onClose={() => setShowHistory(false)}
+                onRefresh={() => void a.refreshHistory()}
+                // 窄屏:绝对定位 top/bottom 直接上裁到根节点 —— 包一层 View 会让内部
+                // ScrollView(flex:1)量到 0 高度,列表整块消失(11-04 模拟器实测)
+                style={width < NARROW_DRAWER_MAX_WIDTH ? styles.historyOverlay : undefined}
+              />
+          </>
+        ) : null}
+
       </View>
     </View>
   );
@@ -348,6 +414,9 @@ function AppContent() {
 // 时上翻到按钮上方。不选 maxHeight 截断:RNW Modal 无滚动条,截断会把选项裁掉
 // 不可选;上翻在常规短视口(按钮距顶 ≥ 菜单高 + 边距)下完整保留三个选项。
 const MENU_GAP = 4; // 菜单与按钮/视口边缘的间距(px),原内联字面量
+
+/** 窄屏阈值(dp):历史抽屉改覆盖式(安卓竖屏 ~411dp、手机横屏 ~800dp)。 */
+const NARROW_DRAWER_MAX_WIDTH = 720;
 
 function menuGeometry(
   anchor: { x: number; y: number; width: number; bottom: number },
@@ -372,9 +441,20 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     root: { flex: 1, backgroundColor: theme.colors.background },
     header: { paddingHorizontal: theme.spacing.lg, paddingTop: insets.top + theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     headerRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
+    headerSpacer: { flex: 1 },
+    headerAction: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, backgroundColor: theme.colors.surface },
+    headerActionText: { fontSize: 12, fontWeight: '600', color: theme.colors.text },
+    historyBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.md, paddingVertical: 6, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    historyBarText: { flex: 1, fontSize: 12, color: theme.colors.text },
+    historyBarAction: { fontSize: 12, fontWeight: '700', color: theme.colors.primary },
+    // 窄屏覆盖式历史抽屉:遮罩 + 贴右浮层(不占布局宽度)
+    historyBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.25)', zIndex: 19 },
+    historyOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 20, elevation: 8 },
     hamburger: { paddingVertical: 2, paddingRight: 2 },
     hamburgerIcon: { fontSize: 22, color: theme.colors.text, lineHeight: 24 },
-    heading: { fontSize: 24, fontWeight: '800', color: theme.colors.primary, letterSpacing: 0.5 },
+    // minWidth:0 + flexShrink:窄屏(安卓竖屏 ~411dp)标题+右侧历史按钮总宽超屏时
+    // 标题让位并省略号截断 —— 否则按钮被推出屏外不可点(11-04 真机实测)
+    heading: { flexShrink: 1, minWidth: 0, fontSize: 24, fontWeight: '800', color: theme.colors.primary, letterSpacing: 0.5 },
     form: { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
     formLabel: { fontSize: 13, color: theme.colors.text, marginBottom: theme.spacing.sm },
     formRow: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },

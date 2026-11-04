@@ -25,7 +25,15 @@ import { buildStockInformation } from '../../src/pipeline.ts';
 import { asiaToday } from '../../src/gates.ts';
 import type { WebCollectResult } from '../../src/webCollect.ts';
 import { loadLastRun, saveLastRun } from '../../src/lastRun.ts';
-import { DEMO_F10_KEY, DEMO_TICKER } from '../../src/metaKeys.ts';
+import { DEMO_F10_KEY, DEMO_TICKER, RUN_HISTORY_MIGRATED_KEY } from '../../src/metaKeys.ts';
+import {
+  newRunId,
+  sortSummaries,
+  toSummary,
+  type AnalysisRun,
+  type RunSummary,
+} from '../../src/runHistory.ts';
+import type { RunArchive } from './runArchive.ts';
 import { envValue } from '../../src/env.ts';
 import type { BillionsClient } from '../../src/billionsClient.ts';
 import type { LlmConfig } from '../../src/llm.ts';
@@ -90,6 +98,22 @@ export interface AnalysisSnapshot {
   /** D15:done 事件后 true;新 start()/error 事件后 false;lastRun 恢复按
    *  final_decision 非空同步(App「✓分析完成」横幅消费)。 */
   readonly hasDone: boolean;
+  /** 历史归档摘要列表(时间倒序;正文按需 openRun 加载 —— 启动不背历史体积)。 */
+  readonly history: RunSummary[];
+  /** 历史列表读写进行中(抽屉 spinner / 行禁用)。 */
+  readonly historyLoading: boolean;
+  /** 历史读写错误(抽屉内展示;与运行错误横幅 error 分渠道)。 */
+  readonly historyError: string | null;
+  /** 正在查看的历史条目;null = 看实时结果。顶部横幅 + 「返回最新」消费。 */
+  readonly viewingRun: ViewingRunMarker | null;
+}
+
+/** 正在查看的历史条目标记(详情正文已在 events/finalDecision 等字段里)。 */
+export interface ViewingRunMarker {
+  id: string;
+  at: string;
+  ticker: string;
+  mode: 'real' | 'demo';
 }
 
 /** 注入依赖面:生产由 useAnalysis 接线(app/lib/runner + settings + keepalive +
@@ -97,6 +121,9 @@ export interface AnalysisSnapshot {
 export interface AnalysisDeps {
   /** 持久化后端(与 runner 同实例;lastRun 读写/demo 数据查询共用)。 */
   readonly store: StoreLike;
+  /** 历史归档后端(runArchive.ts;web/桌面 IndexedDB、RN 文件、测试内存)。
+   *  不进 StoreLike —— 展示层归档,四族同步契约与桌面 IPC 协议不动。 */
+  readonly runArchive: RunArchive;
   /** 事件源 runner(createPipelineRunner 单例;测试用假 runner emit 驱动)。 */
   readonly runner: PipelineRunner;
   readonly platform: ControllerPlatform;
@@ -151,6 +178,10 @@ interface MutableState {
   market: Market;
   settings: SettingsState;
   hasDone: boolean;
+  history: RunSummary[];
+  historyLoading: boolean;
+  historyError: string | null;
+  viewingRun: ViewingRunMarker | null;
 }
 
 export class AnalysisController {
@@ -170,6 +201,17 @@ export class AnalysisController {
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private notifyTimer: ReturnType<typeof setTimeout> | null = null;
   private lastWatchdogArm = 0;
+  /** 打开历史前的实时状态快照(closeRun 逐字段写回;null = 当前不是查看历史态)。 */
+  private liveStash: {
+    events: PipelineEvent[];
+    finalDecision: string;
+    stockInformation: string;
+    partials: Record<string, string>;
+    statuses: Record<string, RoleStatus>;
+    hasDone: boolean;
+    lastRunTicker: string;
+    market: Market;
+  } | null = null;
 
   constructor(deps: AnalysisDeps) {
     this.deps = deps;
@@ -187,6 +229,10 @@ export class AnalysisController {
       market: 'cn',
       settings: deps.loadSettings(),
       hasDone: false,
+      history: [],
+      historyLoading: false,
+      historyError: null,
+      viewingRun: null,
     };
     // runner 订阅随控制器生命周期存在(构造即订阅;根 hook 常驻不卸载)。
     // 按代分派:订阅本身不动,换 runHandler 即隔离孤儿运行的事件。
@@ -223,6 +269,224 @@ export class AnalysisController {
   refresh(): void {
     this.clearNotify();
     this.notify();
+  }
+
+  // ─── 分析历史归档(展示层;不进 StoreLike)───────────────────────────────
+
+  /** 重新读摘要列表。migrateLastRun=true 只在启动链传:首次升级把 lastRun 补成
+   *  第一条历史,写迁移标记后不再重复(用户清空历史后不复活,PRD R2)。 */
+  async refreshHistory(migrateLastRun = false): Promise<void> {
+    const s = this.st;
+    s.historyLoading = true;
+    this.notify();
+    try {
+      let list = await this.deps.runArchive.list();
+      if (migrateLastRun) list = await this.migrateLastRunOnce(list);
+      s.history = list;
+      s.historyError = null;
+    } catch (err) {
+      const msg = describeError(err);
+      this.deps.log.warn(`加载历史归档失败:${msg}`);
+      s.historyError = `加载历史失败:${msg}`;
+    } finally {
+      s.historyLoading = false;
+      this.notify();
+    }
+  }
+
+  /** 打开一条历史(在现有报告 Tab 内复现)。运行中拒绝:事件流仍会写 events，
+   *  与历史内容混写后无法区分。首次打开暂存实时状态，closeRun 原样恢复。 */
+  async openRun(id: string): Promise<void> {
+    const s = this.st;
+    if (s.running) return;
+    s.historyLoading = true;
+    this.notify();
+    try {
+      const run = await this.deps.runArchive.load(id);
+      if (!run) {
+        s.historyError = '历史记录不存在或已损坏';
+        return;
+      }
+      if (!s.viewingRun) {
+        // 暂存实时态(在 s 上就地覆盖，关闭时逐字段写回)
+        this.liveStash = {
+          events: [...s.events],
+          finalDecision: s.finalDecision,
+          stockInformation: s.stockInformation,
+          partials: { ...s.partials },
+          statuses: { ...s.statuses },
+          hasDone: s.hasDone,
+          lastRunTicker: s.lastRunTicker,
+          market: s.market,
+        };
+      }
+      this.applyReportBody(run);
+      s.viewingRun = { id: run.id, at: run.at, ticker: run.ticker, mode: run.mode };
+      s.historyError = null;
+      this.deps.log.info(`查看历史分析:${run.ticker} @ ${run.at}`);
+    } catch (err) {
+      const msg = describeError(err);
+      this.deps.log.error(`读取历史分析失败:${msg}`);
+      s.historyError = `读取历史失败:${msg}`;
+    } finally {
+      s.historyLoading = false;
+      this.notify();
+    }
+  }
+
+  /** 退出历史查看，恢复点开前的实时状态(不丢正在看的结果)。 */
+  closeRun(): void {
+    const s = this.st;
+    if (!s.viewingRun) return;
+    const stash = this.liveStash;
+    this.liveStash = null;
+    s.viewingRun = null;
+    if (stash) {
+      s.events = stash.events;
+      s.finalDecision = stash.finalDecision;
+      s.stockInformation = stash.stockInformation;
+      s.partials = stash.partials;
+      s.statuses = stash.statuses;
+      s.hasDone = stash.hasDone;
+      s.lastRunTicker = stash.lastRunTicker;
+      s.market = stash.market;
+    }
+    this.notify();
+  }
+
+  /** 删除历史条目(单条/批量同路径)。删除正在查看的条目 → 自动退出查看态。 */
+  async deleteRuns(ids: string[]): Promise<void> {
+    const s = this.st;
+    if (!ids.length) return;
+    s.historyLoading = true;
+    this.notify();
+    try {
+      const removed = await this.deps.runArchive.remove(ids);
+      s.history = s.history.filter((h) => !ids.includes(h.id));
+      s.historyError = null;
+      this.deps.log.info(`删除历史分析:${removed} 条`);
+      if (s.viewingRun && ids.includes(s.viewingRun.id)) this.closeRun();
+    } catch (err) {
+      const msg = describeError(err);
+      this.deps.log.error(`删除历史失败:${msg}`);
+      s.historyError = `删除历史失败:${msg}`;
+    } finally {
+      s.historyLoading = false;
+      this.notify();
+    }
+  }
+
+  /** 清空全部历史(调用方负责二次确认)。 */
+  async clearHistory(): Promise<void> {
+    const s = this.st;
+    s.historyLoading = true;
+    this.notify();
+    try {
+      await this.deps.runArchive.clear();
+      s.history = [];
+      s.historyError = null;
+      this.deps.log.info('已清空分析历史');
+      if (s.viewingRun) this.closeRun();
+    } catch (err) {
+      const msg = describeError(err);
+      this.deps.log.error(`清空历史失败:${msg}`);
+      s.historyError = `清空历史失败:${msg}`;
+    } finally {
+      s.historyLoading = false;
+      this.notify();
+    }
+  }
+
+  /** 首次升级迁移:历史为空且未迁移过 → 把 soa:last-run 补成一条(id 固定，
+   *  重复调用不会重复插入)。迁移标记写入后不再触发(清空历史不复活)。 */
+  private async migrateLastRunOnce(list: RunSummary[]): Promise<RunSummary[]> {
+    const { store, runArchive } = this.deps;
+    if (store.getMeta(RUN_HISTORY_MIGRATED_KEY) !== null) return list;
+    const last = loadLastRun(store);
+    let next = list;
+    if (last) {
+      const legacy: AnalysisRun = {
+        id: newRunId(last.at, 'legacy'),
+        at: last.at,
+        mode: last.mode,
+        ticker: last.ticker,
+        market: marketOfStoreTicker(last.ticker) ?? 'cn',
+        stock_information: last.stock_information,
+        final_decision: last.final_decision,
+        opinions: last.opinions,
+      };
+      if (!list.some((s) => s.id === legacy.id)) {
+        try {
+          await runArchive.put(legacy);
+          next = sortSummaries([...list, toSummary(legacy)]);
+          this.deps.log.info(`历史迁移:上次分析 ${legacy.ticker} 已归档`);
+        } catch (err) {
+          // 迁移失败不置标记 —— 下次启动再试(数据仍在 lastRun,不丢)
+          this.deps.log.warn(`历史迁移失败:${describeError(err)}`);
+          return list;
+        }
+      }
+    }
+    store.setMeta(RUN_HISTORY_MIGRATED_KEY, '1');
+    return next;
+  }
+
+  /** 把一份报告正文映射到展示字段(bootstrap lastRun 恢复 / openRun 共用)。
+   *  状态 chips:命中角色置「完成」(opinion 取修订节点);经理只在最终结论非空
+   *  时算完成(与活运行 roleStatus 同语义)。 */
+  private applyReportBody(body: {
+    ticker: string;
+    stock_information: string;
+    final_decision: string;
+    opinions: AnalysisRun['opinions'];
+    market: Market;
+  }): void {
+    const s = this.st;
+    s.lastRunTicker = body.ticker;
+    s.stockInformation = body.stock_information;
+    s.finalDecision = body.final_decision;
+    s.events = body.opinions.map((o) => ({
+      type: 'report' as const,
+      key: o.key,
+      tabTitle: o.tabTitle,
+      content: o.content,
+    }));
+    const sts: Record<string, RoleStatus> = {};
+    for (const o of body.opinions) {
+      const r = enabledRoles().find((x) => x.stateKey === o.key);
+      if (!r) continue;
+      if (r.reviseNodeName) sts[r.reviseNodeName] = 'done';
+      sts[r.nodeName] = 'done';
+    }
+    const manager = enabledRoles().find((r) => r.kind === 'manager');
+    if (manager && body.final_decision.trim()) sts[manager.nodeName] = 'done';
+    s.statuses = sts;
+    // D15:完成标记与经理 chip 同条件(final_decision 非空才算完成会话)
+    s.hasDone = Boolean(body.final_decision.trim());
+    s.market = body.market;
+  }
+
+  /** done 后落一条历史(写穿异步:失败只记日志 + 抽屉错误，不影响已完成结果)。 */
+  private recordRun(report: FinalReport, at: string): void {
+    const s = this.st;
+    const run: AnalysisRun = {
+      id: newRunId(at),
+      at,
+      mode: this.mode,
+      ticker: report.ticker,
+      market: s.market,
+      stock_information: report.stock_information,
+      final_decision: report.final_decision,
+      opinions: report.opinions.map((o) => ({ ...o })),
+    };
+    // 列表立即可见(不必等写盘/下一次 refresh)
+    s.history = sortSummaries([toSummary(run), ...s.history]);
+    void this.deps.runArchive.put(run).catch((err: unknown) => {
+      const msg = describeError(err);
+      this.deps.log.error(`写历史归档失败:${msg}`);
+      s.historyError = `历史归档写入失败:${msg}`;
+      this.notify();
+    });
   }
 
   /** 结束运行态:先释放保活(可能同步抛错)再清标志 —— 否则保活的同步异常会
@@ -313,6 +577,10 @@ export class AnalysisController {
       market: s.market,
       settings: s.settings,
       hasDone: s.hasDone,
+      history: [...s.history],
+      historyLoading: s.historyLoading,
+      historyError: s.historyError,
+      viewingRun: s.viewingRun ? { ...s.viewingRun } : null,
     };
   }
 
@@ -338,6 +606,10 @@ export class AnalysisController {
     // native(RN 真机)采集注入先于任何采集(保持原时序:setDeviceStore 在
     // start() 采集前完成);web 不使用。
     if (d.platform !== 'web') await d.injectDeviceStore?.();
+    // 历史归档:摘要列表异步载入(只读索引,不背正文体积),首次升级顺带把
+    // soa:last-run 补成第一条历史。放在 running 守卫之前 —— 运行中的会话也
+    // 应该能看到/打开旧记录(openRun 自身有 running 门)。
+    await this.refreshHistory(true);
     // N-2:start() 优先 —— storeReady 挂起期间用户已点「开始分析」(UI 仅按
     // running 禁用按钮),若继续载入 demo / 恢复 lastRun 缓存,会把上次会话的
     // events/statuses/hasDone 覆盖进运行中的会话。守卫:运行中 → bootstrap 到此
@@ -353,33 +625,17 @@ export class AnalysisController {
     // 不再展示 demo 占位;无缓存 → 现状 demo 上下文(loadDemoData 已无条件调用)
     const last = loadLastRun(d.store);
     if (last) {
-      s.lastRunTicker = last.ticker;
-      s.stockInformation = last.stock_information;
-      s.finalDecision = last.final_decision;
-      s.events = last.opinions.map((o) => ({ type: 'report' as const, key: o.key, tabTitle: o.tabTitle, content: o.content }));
-      // 状态 chips:缓存命中角色置「完成」(reviseNodeName 存在取修订节点);
-      // 缓存未覆盖的启用角色保持「待运行」
-      const sts: Record<string, RoleStatus> = {};
-      for (const o of last.opinions) {
-        const r = enabledRoles().find((x) => x.stateKey === o.key);
-        if (!r) continue;
-        if (r.reviseNodeName) sts[r.reviseNodeName] = 'done';
-        sts[r.nodeName] = 'done';
-      }
-      // 经理报告只进 final_decision 字段(不在 opinions)——非空即视为已完成,
-      // 与活运行 roleStatus 置 done 的 chips 语义一致
-      const manager = enabledRoles().find((r) => r.kind === 'manager');
-      if (manager && last.final_decision.trim()) sts[manager.nodeName] = 'done';
-      // D15:恢复路径同步完成标记(与经理 chip 同款条件:final_decision 非空才算
-      // 完成会话)。App 进度区另有 progress.length>0 外门,恢复态只有 report 型
-      // 事件——当前无 UI 效果,此处为状态一致性(hasDone=存在已完成结果)。
-      s.hasDone = Boolean(last.final_decision.trim());
-      s.statuses = sts;
+      // 恢复展示:报告 Tab/最终决策/采集数据/状态 chips(映射集中在 applyReportBody)
+      this.applyReportBody({
+        ticker: last.ticker,
+        stock_information: last.stock_information,
+        final_decision: last.final_decision,
+        opinions: last.opinions,
+        // 恢复路径同步市场:lastRun ticker 即 store 键(规范化产物),反推市场 →
+        // 徽标/DataScreen 单位/下拉初始值一致(手动市场时代,恢复不停留默认 cn)
+        market: marketOfStoreTicker(last.ticker) ?? s.market,
+      });
       s.lastRunAt = { at: last.at, mode: last.mode };
-      // 恢复路径同步市场:lastRun ticker 即 store 键(规范化产物),反推市场 →
-      // 徽标/DataScreen 单位/下拉初始值一致(手动市场时代,恢复不停留默认 cn)
-      const m = marketOfStoreTicker(last.ticker);
-      if (m) s.market = m;
     } else {
       // 演示上下文:预载数据立即生成(采集数据 Tab 运行前有内容;真实运行后覆盖)
       const demoF10 = d.store.getMeta(DEMO_F10_KEY);
@@ -421,6 +677,8 @@ export class AnalysisController {
     // 新一代:递增代数 + 安装本代处理器。旧代(取消/看门狗中止的孤儿运行)的
     // 事件与 settle 此后一律被代数门丢弃。
     const seq = ++this.runSeq;
+    // 查看历史中发起新分析 → 先退出查看态(否则新一轮 events 会与历史正文混写)
+    this.closeRun();
     this.runHandler = (e) => {
       if (seq === this.runSeq) this.handleEvent(e);
     };
@@ -628,6 +886,8 @@ export class AnalysisController {
       } catch (err) {
         d.log.error(`写上次分析缓存失败:${describeError(err)}`);
       }
+      // 历史归档(展示层，独立后端)：与 lastRun 并行留档
+      this.recordRun(report, at);
       s.hasDone = true; // D15
     } else if (e.type === 'error') {
       d.log.error(e.error);

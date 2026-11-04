@@ -19,5 +19,9 @@ export const capitalKey = (ticker: string): string => `capital:${ticker}`;
 /** 每股证券名称 meta 键模板(deviceCollect/webCollect 缓存,quoteClient 读写)。 */
 export const nameKey = (ticker: string): string => `name:${ticker}`;
 
+/** 历史归档迁移标记 —— 首次启动把 `soa:last-run` 补成第一条历史(只迁一次;
+ *  用户清空历史后不得复活)。历史正文/索引不入 meta(见 app/lib/runArchive.ts)。 */
+export const RUN_HISTORY_MIGRATED_KEY = 'soa:runs-migrated';
+
 /** 演示股票代码(与 app/data/demo.json 的 ticker 一致的约定)。 */
 export const DEMO_TICKER = '600036';

@@ -1,5 +1,5 @@
 ---
-description: 存储契约与持久化(StoreLike 11 方法、四族实现、写穿队列、上次分析缓存、meta 键单源、runner 启动链)
+description: 存储契约与持久化(StoreLike 11 方法、四族实现、写穿队列、上次分析缓存、分析历史归档、meta 键单源、runner 启动链)
 paths:
   - src/store.ts
   - src/store-idb.ts
@@ -7,8 +7,10 @@ paths:
   - src/store-memory.ts
   - src/store-node.ts
   - src/lastRun.ts
+  - src/runHistory.ts
   - src/metaKeys.ts
   - app/lib/runner.ts
+  - app/lib/runArchive.ts
   - app/lib/settingsStore.ts
 ---
 
@@ -65,6 +67,30 @@ Tab/最终决策/采集数据 ticker 与股票信息/角色 chips(经理角色�
 `final_decision` 置 done——经理报告只进 `final_decision` 字段不在 opinions);
 未命中/损坏 JSON → 静默降级 demo 路径。恢复内容带时间+模式标记("已显示上次
 分析结果"),防误当实时新分析;四平台共用同一 meta 面。
+
+## 分析历史归档(11-04-analysis-run-history)
+
+与 lastRun 并列的**展示层归档**:每次 `done` 落一条完整记录(采集数据快照
+`stock_information` + 各角色 `opinions` + `final_decision` + 时间/模式/市场),
+支持按本地日分组浏览、单条/批量/全清删除。
+
+- **不进 StoreLike**:历史不是采集数据,四族同步契约与桌面 IPC 协议零改动
+  (不拖累 `storeReady` 的 hydrate 成本,不随历史体积变慢启动)。
+- `src/runHistory.ts` 纯契约:`AnalysisRun`/`RunSummary`、`parse*` 校验、
+  `toSummary`(结论首行预览)、`groupRunsByDay`(今天/昨天/MM-DD 周X,本地日)、
+  `formatRunClock/formatRunTime`。零平台依赖,UI 与存储共用。
+- `app/lib/runArchive.ts` 三后端:`createIdbRunArchive`(web/桌面渲染进程,
+  `soa-runs` DB:正文 `runs` + 摘要 `summaries` 两个 store)、
+  `createFileRunArchive`(RN,`soa-runs/` 目录:正文 `<id>.json` + `index.json`
+  摘要;tmp + 原子替换;索引损坏从正文重建)、`createMemoryRunArchive`(测试)。
+  `list` 只读摘要,正文 `load` 按需 → 不限条数也不拖启动。
+- 接线:`analysisController.recordRun`(done 落档;失败只 log + 抽屉错误)、
+  `refreshHistory/openRun/closeRun/deleteRuns/clearHistory`;`openRun` 暂存实时态
+  并在 `closeRun` 逐字段写回,**运行中拒绝打开**(事件流不混写)。
+- 首次升级迁移:`soa:last-run` → 第一条历史(id 固定 `-legacy`),迁移标记
+  `RUN_HISTORY_MIGRATED_KEY`(`soa:runs-migrated`)置位后不再触发 —— 用户清空
+  历史后不复活。
+- 删除动作要求 UI 行内二次确认(Web/Android 的 Alert 多按钮行为不一致)。
 
 ## 常量/键名单源(08-16-audit-remediation)
 

@@ -33,8 +33,10 @@ import {
   webBillionsFetch,
 } from '../lib/runner';
 import { selectCollector } from '../lib/collectorSelection';
+import { createFileRunArchive, createIdbRunArchive } from '../lib/runArchive';
 import { info, warn, error as logError } from '../../src/log.ts';
-import { AnalysisController, type AnalysisSnapshot } from '../lib/analysisController';
+import { AnalysisController, type AnalysisSnapshot, type ViewingRunMarker } from '../lib/analysisController';
+import type { RunSummary } from '../../src/runHistory.ts';
 
 export interface UseAnalysis {
   events: PipelineEvent[];
@@ -53,13 +55,31 @@ export interface UseAnalysis {
   settings: SettingsState;
   /** D15:done 事件后 true;新 start()/error 事件后 false(App「✓分析完成」消费,U16)。 */
   hasDone: boolean;
+  /** 分析历史摘要列表(时间倒序;正文 openRun 按需加载)。 */
+  history: RunSummary[];
+  historyLoading: boolean;
+  historyError: string | null;
+  /** 正在查看的历史条目;null = 实时结果。 */
+  viewingRun: ViewingRunMarker | null;
   start: (ticker: string, market: Market) => Promise<void>;
   /** 取消当前分析(runner promise 不打断,但状态/保活立即归位,孤儿事件被丢弃)。 */
   cancel: () => void;
   onSettingsChange: (next: SettingsState) => void;
+  /** 历史抽屉:重读列表 / 打开一条 / 返回实时 / 删除 / 清空。 */
+  refreshHistory: () => Promise<void>;
+  openRun: (id: string) => Promise<void>;
+  closeRun: () => void;
+  deleteRuns: (ids: string[]) => Promise<void>;
+  clearHistory: () => Promise<void>;
 }
 
 export function useAnalysis(): UseAnalysis {
+  // 历史归档后端:web/桌面渲染进程(Chromium)走 IndexedDB,RN 走 expo-file-system。
+  // 模块级单例 —— 两个后端都是惰性打开/惰性 import(首次打开抽屉才发生 I/O)。
+  const runArchive = React.useMemo(
+    () => (Platform.OS === 'web' ? createIdbRunArchive() : createFileRunArchive()),
+    [],
+  );
   // 锁屏期间运行结束不能立即 stopForegroundService:进程会从 foreground 掉回
   // cached 桶,被 Doze/厂商冻结器抓住 → 回到前台只剩最后一帧、点不动也不 ANR。
   // 改为「推迟到下次 active 再停」;回到前台时顺手补一次广播。
@@ -95,6 +115,7 @@ export function useAnalysis(): UseAnalysis {
     () =>
       new AnalysisController({
         store,
+        runArchive,
         runner,
         platform: Platform.OS === 'web' ? 'web' : 'native',
         storeReady,
@@ -182,6 +203,21 @@ export function useAnalysis(): UseAnalysis {
     (next: SettingsState) => ctrl.onSettingsChange(next),
     [ctrl],
   );
+  const refreshHistory = React.useCallback(() => ctrl.refreshHistory(), [ctrl]);
+  const openRun = React.useCallback((id: string) => ctrl.openRun(id), [ctrl]);
+  const closeRun = React.useCallback(() => ctrl.closeRun(), [ctrl]);
+  const deleteRuns = React.useCallback((ids: string[]) => ctrl.deleteRuns(ids), [ctrl]);
+  const clearHistory = React.useCallback(() => ctrl.clearHistory(), [ctrl]);
 
-  return { ...snap, start, cancel, onSettingsChange };
+  return {
+    ...snap,
+    start,
+    cancel,
+    onSettingsChange,
+    refreshHistory,
+    openRun,
+    closeRun,
+    deleteRuns,
+    clearHistory,
+  };
 }

@@ -12,6 +12,7 @@ import {
   type AnalysisSnapshot,
 } from '../app/lib/analysisController.ts';
 import { defaultSettings } from '../app/lib/settings.ts';
+import { createMemoryRunArchive } from '../app/lib/runArchive.ts';
 
 type RunnerImpl = (ticker: string, opts?: RunOptions) => Promise<FinalReport | undefined>;
 
@@ -58,6 +59,7 @@ function makeHarness(opts: { runnerImpl?: RunnerImpl; storeReady?: () => Promise
   const runner = makeFakeRunner(opts.runnerImpl);
   const deps: AnalysisDeps = {
     store,
+    runArchive: createMemoryRunArchive(),
     runner,
     platform: 'native',
     storeReady: opts.storeReady ?? (async () => {}),

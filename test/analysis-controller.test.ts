@@ -15,6 +15,7 @@ import {
   type AnalysisSnapshot,
 } from '../app/lib/analysisController.ts';
 import { defaultSettings, type SettingsState } from '../app/lib/settings.ts';
+import { createMemoryRunArchive } from '../app/lib/runArchive.ts';
 
 type RunnerImpl = (ticker: string, opts?: RunOptions) => Promise<FinalReport | undefined>;
 
@@ -71,8 +72,10 @@ function makeHarness(
   const collectCalls: Array<{ ticker: string; market: string; finnhub: { apiKey: string } | null }> = [];
   const keepAlive = { starts: [] as Array<[string, string]>, stops: 0 };
   let demoLoaded = 0;
+  const runArchive = createMemoryRunArchive();
   const deps: AnalysisDeps = {
     store,
+    runArchive,
     runner,
     platform: 'native',
     storeReady: async () => {},
@@ -121,6 +124,7 @@ function makeHarness(
   });
   return {
     store,
+    runArchive,
     runner,
     log,
     ctrl,

@@ -7,6 +7,27 @@ paths:
 
 # app 手工 E2E 验证(web 浏览器驱动 + 安卓冒烟)
 
+- **2026-11-04(分析历史安卓实测,真机驱动要点)**:
+  - **先查已装包是 debug 还是 release**:`adb shell dumpsys package <pkg> | grep flags`
+    无 `DEBUGGABLE` 即 release 包 —— 它跑**内嵌 bundle**,Metro 改了代码也不会生效
+    (实测白查半小时)。装 debug 需 `cd app/android && ./gradlew assembleDebug`,
+    release 已装包签名不匹配 → 先 `adb uninstall`(会清数据)再 `adb install -r`。
+  - **Metro 必须非 CI 模式**:`CI=1 expo start` 禁 watch,**改完代码重启 app 仍拿到旧
+    bundle**;调 UI 时用 `npx expo start`(非 CI)。测试要 demo 模式 → 启动前把
+    `EXPO_PUBLIC_LLM_*` 置空,否则 Metro 从 .env 注入真 key(真 LLM 跑几分钟)。
+  - **触摸被 LogBox 吃掉**:dev 模式底部警告条 `Open debugger to view warnings`
+    (`clickable=true`,约 [26,2170][1054,2295])会盖住底部按钮 —— 先点它的 ✕ 关闭,
+    再点目标控件;否则「点了没反应」。
+  - **底部按钮要留 safe-area**:全屏/绝对定位面板的 footer 不加上
+    `insets.bottom` 会落在系统导航栏下(实测 1080x2424 @420dpi,可用区截止 ~2298px),
+    `input tap` 直接落到系统。
+  - **uiautomator 取点击坐标**:`uiautomator dump` 后按 `clickable="true"` 节点的
+    bounds 中心点 tap;文字节点 bounds 小于触摸区,按文字中心点可能落在热区边缘。
+  - **功能实测序列(全过)**:done → `run-as <pkg> ls files/soa-runs` 出现 index.json
+    + `<id>.json`(demo 单条 13.9KB);抽屉按天分组;点条目→横幅「正在查看历史」+返回最新;
+    重启 app 记录仍在;编辑→☐→☑→删除选中→确认删除→ `index.json` 为 `[]` 且正文文件已删;
+    再重启仍为空(lastRun 不复活 —— 迁移标记生效)。
+
 - **2026-08-23(e2e-web-android)**:
   - **构建/托管**:web = `cd app && npx expo export --platform web` 后
     `node --experimental-strip-types server.mjs`(默认 `127.0.0.1:8090`,
