@@ -16,6 +16,7 @@ const {
   TDX_MCP_TIMEOUT_MS,
   normalizeBaseUrl,
   isPrivateAddress,
+  isFakeIpAddress,
   isPublicHost,
   isYahooMarket,
 } = proxies;
@@ -130,6 +131,36 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     expect(called).toBe(false);
   });
 
+  it('fake-IP 占位段(198.18/15)放行:本机 fake-ip 代理环境下 LLM 端点不再被误拦', async () => {
+    // 2026-11-04 实证:Clash fake-ip 把 ark.cn-beijing.volces.com 解成 198.18.18.50,
+    // 旧逻辑当保留段拒发 → 用户侧看到「认证失败 HTTP 403」但请求未出本机。
+    const res = fakeRes();
+    const targets: string[] = [];
+    await handleLlmProxy(
+      fakeReq(JSON.stringify({ base: 'https://198.18.18.50/v1', model: 'm' })),
+      res,
+      async (url: string) => {
+        targets.push(url);
+        return fakeUpstream();
+      },
+    );
+    expect(res.calls[0].status).toBe(200);
+    expect(targets).toEqual(['https://198.18.18.50/v1/chat/completions']);
+  });
+
+  it('isFakeIpAddress:仅 198.18/15(含 IPv4-mapped 形),其余仍按私网规则判定', () => {
+    for (const ip of ['198.18.0.1', '198.19.255.255', '::ffff:198.18.18.50']) {
+      expect(isFakeIpAddress(ip), ip).toBe(true);
+    }
+    for (const ip of ['198.17.255.255', '198.20.0.1', '10.0.0.5', '127.0.0.1', '::1', '8.8.8.8']) {
+      expect(isFakeIpAddress(ip), ip).toBe(false);
+    }
+    // 私网黑名单本身不变(fake-IP 只在 pin 环节豁免)
+    expect(isPrivateAddress('198.18.18.50')).toBe(true);
+    expect(isPrivateAddress('10.0.0.5')).toBe(true);
+    expect(isPrivateAddress('8.8.8.8')).toBe(false);
+  });
+
   it('内网/环回/链路本地 host → 403,不转发(含 DNS 解析后内网)', async () => {
     const bases = [
       'http://127.0.0.1:11434/v1',
@@ -240,7 +271,7 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     await handleLlmProxy(
       fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' })),
       res,
-      async (url: string, init?: unknown) => {
+      async (_url: string, init?: unknown) => {
         calls += 1;
         const initObj = init as { redirect?: string } | undefined;
         redirects.push(initObj?.redirect);

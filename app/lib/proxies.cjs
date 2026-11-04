@@ -43,6 +43,8 @@ const MAX_BODY_BYTES = 1024 * 1024;
 // ① scheme 仅 http(s);② 拒绝 userinfo;③ host 经 DNS 解析后任一地址落入
 // 私网/环回/链路本地/保留段(127.x 10.x 172.16-31.x 192.168.x 169.254.x
 // 0.0.0.0 ::1 fe80::/10 fc00::/7 等)→ 拒发;解析失败 → 保守拒绝。
+// ④ fake-IP 例外:198.18/15(RFC 2544)是 Clash/mihomo fake-ip 默认占位段,
+//    命中放行(见 isFakeIpAddress)——否则所有 fake-ip 代理环境访问 LLM 恒 403。
 // 校验失败回 400(格式非法)/403(策略拒绝),双入口(metro dev + 生产)同步生效。
 
 /** 解析并校验 base:http(s) + 无 userinfo + host 非空 → URL;否则 null。 */
@@ -148,8 +150,26 @@ function expandIpv6Groups(ip) {
   return groups.map((s) => s.padStart(4, '0'));
 }
 
+/** fake-IP DNS 占位段(RFC 2544 benchmark 198.18.0.0/15)—— Clash/mihomo/Surge
+ *  的 fake-ip 默认段:本机 DNS 把**每个**域名映射成该段地址,真实连接由本地代理
+ *  按域名(SNI/Host)转发。该段公网不可路由、不是内网段;不放开则所有 fake-ip
+ *  用户访问任意 LLM 端点都会被 403(2026-11-04 实证:ark.cn-beijing.volces.com
+ *  → 198.18.18.50,直连 401 / 经代理 403 7ms)。
+ *  风险边界:仍拒 RFC1918/环回/链路本地/云 metadata;仅该段被当作「无法判定的
+ *  占位地址」放行 —— fake-ip 下解析结果与真实目的地无关,拦截价值本就为 0
+ *  (代价:若某内网真用 198.18/15,域名可被路由到该段;已由用户确认接受)。 */
+function isFakeIpAddress(ip) {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) ip = mapped[1];
+  if (!net.isIPv4(ip)) return false;
+  const p = ip.split('.').map(Number);
+  return p[0] === 198 && (p[1] === 18 || p[1] === 19);
+}
+
 /** S3:host 全地址公网校验 —— 解析一次,任一地址私网/解析失败 → null(保守拒发);
  *  全部公网 → 返回地址列表(调用方仅判 null)。
+ *  fake-IP 例外(11-04-fakeip-proxy-fix):198.18/15 占位地址不提供目的地信息,
+ *  命中则不拦(混合应答里出现真私网地址仍拒 —— 按最严处理)。
  *  注(TOCTOU 残余,2026-08-27 实证):全局 fetch(undici 6.x)不接受 init 里的
  *  lookup 选项(实测忽略,仍自行解析),且仓库无独立 undici 包可构造 dispatcher
  *  注入 connect.lookup —— 「把已校验 IP 钉进建连」在当前栈不可实现,故此处只
@@ -162,7 +182,8 @@ async function pinPublicHost(u) {
   } catch {
     return null; // 解析失败 → 保守拒绝(不发)
   }
-  if (addrs.length === 0 || addrs.some(({ address }) => isPrivateAddress(address))) return null;
+  if (addrs.length === 0) return null;
+  if (addrs.some(({ address }) => isPrivateAddress(address) && !isFakeIpAddress(address))) return null;
   return addrs;
 }
 
@@ -718,5 +739,6 @@ module.exports = {
   isYahooMarket, // E9 布尔谓词(与 yahooMarketOfTicker 单源;测试等价回归)
   normalizeBaseUrl, // C2 base 校验
   isPrivateAddress,
+  isFakeIpAddress, // fake-IP 占位段(198.18/15)判定
   isPublicHost,
 };

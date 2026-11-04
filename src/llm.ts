@@ -53,25 +53,37 @@ export function readLlmEnv(env?: Record<string, string | undefined>): LlmConfig 
   return cfg;
 }
 
-/** 构造 OpenAI 兼容 LLM（全库唯一 ChatOpenAI 构造点，对齐 Python make_llm）。
- *  proxyBase：浏览器同源代理前缀(如 '/llm-proxy/v1')——baseURL 指向代理,
+/** 配置字符串净化:剥控制字符(含粘贴/输入法带入的 NUL `\u0000`)与首尾空白。
+ *  实测(2026-11-04,安卓模拟器):Base URL 尾部夹一个 NUL → 键/路径/模型都对,
+ *  但 undici(web/Node) 回 400、OkHttp(RN) 回 404,表面看像「路径或模型不存在」，
+ *  用户无从自行诊断。三键共用这一道净化(键/模型/URL 同一来源、同一风险)。 */
+export function sanitizeLlmValue(v: string): string {
+  return v.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+}
+
+/** 构造 OpenAI 兼容 LLM(全库唯一 ChatOpenAI 构造点,对齐 Python make_llm)。
+ *  proxyBase:浏览器同源代理前缀(如 '/llm-proxy/v1')——baseURL 指向代理,
  *  真实端点经 X-LLM-Base 头透传(绕开 CORS;Node/真机不传则直连)。 */
 export function createLlm(cfg: LlmConfig, opts?: { proxyBase?: string }): ChatOpenAI {
+  // 直接调用方(非设置面板)也吃同一道净化:配置里夹控制字符不得逃进请求 URL
+  const model = sanitizeLlmValue(cfg.model);
+  const apiKey = sanitizeLlmValue(cfg.apiKey);
+  const baseUrl = sanitizeLlmValue(cfg.baseUrl);
   const viaProxy = !!opts?.proxyBase;
   // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
   // 直接成员访问(EXPO_PUBLIC_* 内联契约,architecture 契约 6 豁免);未设 → 不带头。
   const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
   return new ChatOpenAI({
-    model: cfg.model,
-    apiKey: cfg.apiKey,
+    model,
+    apiKey,
     configuration: {
-      baseURL: viaProxy ? opts.proxyBase : cfg.baseUrl,
+      baseURL: viaProxy ? opts.proxyBase : baseUrl,
       // 不设 timeout:基本面分析师长 prompt/长生成可达数分钟(Python 版
       // 同语义);超时会误杀正常生成
       ...(viaProxy
         ? {
             defaultHeaders: {
-              'X-LLM-Base': cfg.baseUrl,
+              'X-LLM-Base': baseUrl,
               ...(soaToken ? { 'X-SOA-Token': soaToken } : {}),
             },
           }

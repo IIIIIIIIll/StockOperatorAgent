@@ -51,6 +51,7 @@ declare const proxies: {
   YAHOO_COLLECT_TIMEOUT_MS: number;
   normalizeBaseUrl(raw: string): string;
   isPrivateAddress(ip: string): boolean;
+  isFakeIpAddress(ip: string): boolean;
   isPublicHost(u: URL): Promise<boolean>;
   isYahooMarket(ticker: unknown): boolean;
 };

@@ -2,7 +2,7 @@
 // 持久化 settingsStore(web:localStorage;RN:expo-file-system 沙盒文件);
 // 开关经 switchesToCapabilities → setCapabilitySwitches 显式注入
 // (src/switches.ts,语义 enabled;消费点惰性读 config——process.env 零写入)。
-import { createLlm, type LlmConfig } from '../../src/llm.ts';
+import { createLlm, sanitizeLlmValue, type LlmConfig } from '../../src/llm.ts';
 import * as settingsStore from './settingsStore.ts';
 import { info, warn, error as logError } from '../../src/log.ts';
 import { BILLIONS_DEFAULT_MAX } from '../../src/billionsTools.ts';
@@ -110,7 +110,25 @@ export function describeLlmKeys(keys: KeysState): string {
 }
 
 export function saveSettings(s: SettingsState): void {
-  settingsStore.save(JSON.stringify(s));
+  // 落盘前净化字符串键:控制字符(含粘贴带入的 NUL)不写进设置文件 —— 否则
+  // 下次启动读回的 Base URL 仍带毒(11-04 安卓实测:尾部 NUL → 请求 400/404)
+  const clean = (v: string): string => sanitizeLlmValue(v);
+  const keys = s.keys;
+  const sanitized: SettingsState = {
+    ...s,
+    keys: {
+      ...keys,
+      llmApiKey: clean(keys.llmApiKey),
+      llmModel: clean(keys.llmModel),
+      llmBaseUrl: clean(keys.llmBaseUrl),
+      tdxApiKey: clean(keys.tdxApiKey),
+      billionsApiKey: clean(keys.billionsApiKey),
+      finnhubApiKey: clean(keys.finnhubApiKey),
+      langsmithKey: clean(keys.langsmithKey),
+      langsmithProject: clean(keys.langsmithProject),
+    },
+  };
+  settingsStore.save(JSON.stringify(sanitized));
 }
 
 /** 面板开关(语义 enabled) → 能力开关直映(与旧 DISABLED 语义取反映射等价)。
@@ -130,11 +148,15 @@ export function switchesToCapabilities(switches: SwitchState): CapabilitySwitche
 
 /** LLM 三键齐 → 真 LLM;缺 → 演示 stub(门控对齐 Python _llm_configured)。 */
 export function llmConfigured(keys: KeysState): boolean {
-  return !!(keys.llmApiKey.trim() && keys.llmModel.trim() && keys.llmBaseUrl.trim());
+  return !!(sanitizeLlmValue(keys.llmApiKey) && sanitizeLlmValue(keys.llmModel) && sanitizeLlmValue(keys.llmBaseUrl));
 }
 
 export function toLlmConfig(keys: KeysState): LlmConfig {
-  return { apiKey: keys.llmApiKey.trim(), model: keys.llmModel.trim(), baseUrl: keys.llmBaseUrl.trim() };
+  return {
+    apiKey: sanitizeLlmValue(keys.llmApiKey),
+    model: sanitizeLlmValue(keys.llmModel),
+    baseUrl: sanitizeLlmValue(keys.llmBaseUrl),
+  };
 }
 
 /** 与 Python 门控文案同语义:缺键点名。 */
@@ -159,8 +181,8 @@ export interface ReachabilityResult {
  *  classifyChatResponse)。同源 /llm-proxy 优先(绕开浏览器 CORS),代理不可用再
  *  回退直连;浏览器 CORS 限制下直连 fetch 可能失败——按错误消息如实展示。 */
 export async function checkLlmReachability(keys: KeysState): Promise<ReachabilityResult> {
-  const base = keys.llmBaseUrl.trim().replace(/\/+$/, '');
-  if (!base || !keys.llmApiKey.trim() || !keys.llmModel.trim()) {
+  const base = sanitizeLlmValue(keys.llmBaseUrl).replace(/\/+$/, '');
+  if (!base || !sanitizeLlmValue(keys.llmApiKey) || !sanitizeLlmValue(keys.llmModel)) {
     warn(`LLM 可达性检测跳过:三键不齐`);
     return { ok: false, latencyMs: 0, message: '三键不齐,无法检测' };
   }
@@ -174,7 +196,7 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   const t0 = Date.now();
   const payload = {
     base,
-    model: keys.llmModel.trim(),
+    model: sanitizeLlmValue(keys.llmModel),
     messages: [{ role: 'user', content: 'ping' }],
     max_tokens: 64, // reasoning 模型会消耗部分预算(max_tokens 16 实测回复为空)
   };
@@ -227,8 +249,37 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   }
 }
 
+/** 本代理自己的拒绝信封(`{error: "中文串"}`)——与上游认证失败区分。
+ *  2026-11-04 实证:代理 SSRF 拒绝曾与 key 错误合流成「认证失败」。 */
+function proxyRejection(text: string): string | null {
+  try {
+    const data = JSON.parse(text) as { error?: unknown };
+    return typeof data.error === 'string' && data.error !== '' ? data.error : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 上游错误摘要:`{error:{code,message}}` / `{message}` / 纯文本 → 一行简短串。 */
+function errorDetail(text: string): string {
+  try {
+    const data = JSON.parse(text) as { error?: unknown; message?: unknown };
+    const e = data.error;
+    if (e && typeof e === 'object') {
+      const o = e as { code?: unknown; message?: unknown };
+      const parts = [o.code, o.message].filter((x): x is string => typeof x === 'string' && x !== '');
+      if (parts.length) return parts.join(': ').slice(0, 160);
+    }
+    if (typeof data.message === 'string') return data.message.slice(0, 160);
+  } catch {
+    /* 非 JSON:走下方纯文本截断 */
+  }
+  return text.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
 /** chat 响应分类:成功解析回复内容展示;失败按状态码给原因。 */
-async function classifyChatResponse(
+// 导出供单测(401/403 分流:代理拒绝 vs 上游认证失败;上游错误体不再丢弃)。
+export async function classifyChatResponse(
   resp: Response,
   host: string,
   keys: KeysState,
@@ -247,8 +298,19 @@ async function classifyChatResponse(
     }
   }
   if (resp.status === 401 || resp.status === 403) {
-    logError(`LLM 可达但认证失败:${host} HTTP ${resp.status}(${ms}ms)——检查 API Key`);
-    return { ok: false, latencyMs: ms, message: `认证失败(HTTP ${resp.status})——检查 API Key` };
+    // 代理自身的策略拒绝(SSRF/Origin/token)→ 直接透传原因,不误导成 key 错误
+    const rejection = proxyRejection(text);
+    if (rejection) {
+      logError(`LLM 代理拒绝 ${host} HTTP ${resp.status}(${ms}ms)——${rejection}`);
+      return { ok: false, latencyMs: ms, message: `代理拒绝(HTTP ${resp.status}):${rejection}` };
+    }
+    const detail = errorDetail(text);
+    logError(`LLM 可达但认证失败:${host} HTTP ${resp.status}(${ms}ms)${detail ? `——${detail}` : '——检查 API Key'}`);
+    return {
+      ok: false,
+      latencyMs: ms,
+      message: `认证失败(HTTP ${resp.status})——检查 API Key${detail ? `(上游:${detail})` : ''}`,
+    };
   }
   if (resp.status === 404) {
     logError(`LLM 提问 404:${host}(${ms}ms)——Base URL 缺 /v1 或模型名 ${keys.llmModel} 不存在`);
