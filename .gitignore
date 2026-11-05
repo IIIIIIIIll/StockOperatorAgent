@@ -29,4 +29,5 @@ desktop/node_modules/
 desktop/dist/
 *.aab
 *.apk
-*.exe.scratch
+*.exe
+.scratch
