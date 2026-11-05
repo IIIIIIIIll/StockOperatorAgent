@@ -1,4 +1,4 @@
-// 历史分析抽屉 —— 右上角按钮打开的右侧面板(与左上角设置侧栏对称)。
+// 历史分析面板 —— 左侧抽屉的二级页(☰ → 菜单 → 历史)。
 // 列表按本地日分组(今天/昨天/日期,标签规则在 src/runHistory.ts 单点),
 // 点一条 → 报告 Tab 内复现该次分析;「编辑」进入多选批量删除;「清空全部」需
 // 行内二次确认(不弹系统对话框 —— RN web 的 Alert 多按钮行为不一致)。
@@ -23,6 +23,8 @@ interface Props {
   onOpen: (id: string) => void;
   onDelete: (ids: string[]) => void;
   onClear: () => void;
+  /** 返回上一级(抽屉菜单);不传则不渲染 ← 按钮。 */
+  onBack?: () => void;
   onClose: () => void;
   onRefresh: () => void;
   /** 外部布局(窄屏覆盖式抽屉:绝对定位 top/bottom 直接落在根节点上 —— 包一层
@@ -39,6 +41,7 @@ export default React.memo(function HistoryPanel({
   onOpen,
   onDelete,
   onClear,
+  onBack,
   onClose,
   onRefresh,
   style,
@@ -74,7 +77,12 @@ export default React.memo(function HistoryPanel({
   return (
     <View style={[styles.root, style]}>
       <View style={styles.header}>
-        <Text style={styles.title}>历史分析</Text>
+        {onBack ? (
+          <Pressable onPress={onBack} hitSlop={8} accessibilityRole="button" accessibilityLabel="返回菜单">
+            <Text style={styles.iconButton}>←</Text>
+          </Pressable>
+        ) : null}
+        <Text style={styles.title} numberOfLines={1}>历史分析</Text>
         <View style={styles.headerActions}>
           <Pressable onPress={onRefresh} hitSlop={8} accessibilityRole="button" accessibilityLabel="刷新历史">
             <Text style={[styles.iconButton, loading && styles.iconDisabled]}>↻</Text>
@@ -206,9 +214,10 @@ export default React.memo(function HistoryPanel({
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
-    root: { width: 320, borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },
+    // 宽度由抽屉容器决定(比例计算在 App.tsx drawerWidthFor);描边交给抽屉避免双线
+    root: { flex: 1, minWidth: 0, backgroundColor: theme.colors.surface },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-    title: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
+    title: { flex: 1, fontSize: 15, fontWeight: '700', color: theme.colors.text },
     headerActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
     iconButton: { fontSize: 16, color: theme.colors.textSecondary, paddingHorizontal: 4 },
     iconDisabled: { opacity: 0.4 },

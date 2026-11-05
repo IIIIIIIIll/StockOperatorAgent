@@ -90,7 +90,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>设置</Text>
+      {/* 标题不在此渲染:抽屉二级页标题栏已给「← 设置 ✕」,再写一遍就是重复 */}
 
       {/* ── 1. LLM(大模型)────────────────────────────────────── */}
       <View style={styles.section}>
@@ -197,7 +197,6 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.md },
-    title: { fontSize: 18, fontWeight: '700', color: theme.colors.text, marginBottom: theme.spacing.md },
     section: { marginBottom: theme.spacing.lg, paddingBottom: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     sectionTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.primary, marginBottom: 2 },
     muted: { fontSize: 11, color: theme.colors.textSecondary, marginBottom: theme.spacing.sm },

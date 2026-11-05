@@ -7,6 +7,12 @@ paths:
 
 # app 手工 E2E 验证(web 浏览器驱动 + 安卓冒烟)
 
+- **2026-11-05(抽屉二级菜单 UI 驱动要点)**:☰ 打开左侧抽屉,一级是菜单(设置/历史),二级页在同一抽屉内切换(← 返回 / ✕ 关闭);右上角原来的「历史」按钮已删。驱动时注意:
+  - **抽屉宽度是比例算的**(`App.tsx` `drawerWidthFor`:窄屏 88% 上限 360dp、宽屏 28% clamp 320–420dp),**不要按固定 320dp 断言**;取真实宽度用 `[data-testid="drawer"]` 的 `getBoundingClientRect()`(RN web 把 testID 渲染成 `data-testid`)。
+  - **布局只看一个阈值** `DRAWER_OVERLAY_MAX_WIDTH = 760`:窄于此值覆盖式(遮罩 + 绝对定位),否则占位式;窗口 resize 时布局即时切换,不需重挂载。
+  - **dev 环境的 LogBox 警告条会压住抽屉底部 footer**(「编辑」/「清空全部」),看起来像被安全区裁掉 —— 先按它右侧 ✕ 关掉再复核;真实安全区余量在 `HistoryPanel` footer 的 `insets.bottom` 里,量法:`dumpsys window displays` 看 navigationBars frame(本机 63px)。
+  - **emoji 图标在无 emoji 字体的 web/headless 环境渲染成方块**(实测 🕘 变 □,标题里的 📈 同理);界面上改用 ⚙/↺ 这类基本符号更稳。
+  - **只改 JS 时不需要重装 APK**:debug 包走 Metro,`npx expo start --port 8081`(非 CI 模式)+ `adb reverse tcp:8081 tcp:8081` + `am force-stop`/`am start` 即可;之后的样式微调走 Fast Refresh,不重启。
 - **2026-11-04(分析历史安卓实测,真机驱动要点)**:
   - **先查已装包是 debug 还是 release**:`adb shell dumpsys package <pkg> | grep flags`
     无 `DEBUGGABLE` 即 release 包 —— 它跑**内嵌 bundle**,Metro 改了代码也不会生效

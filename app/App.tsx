@@ -2,7 +2,8 @@
 // 标题 → ticker 表单(首页最显眼)→ 主 Tab 条([采集数据] + 角色报告)
 // → 内容区;设置四节放侧边栏(宽屏固定 / 窄屏按钮切换)。
 // 分析编排(状态/启动链/订阅/start)在 app/hooks/useAnalysis.ts(08-16 重构),
-// 本组件只保留 UI 状态(activeTab/ticker/showSettings)、派生与渲染。
+// 本组件只保留 UI 状态(activeTab/ticker/drawer)、派生与渲染。
+// 入口合并:☰ 打开抽屉菜单(设置/历史),二级页在抽屉内切换 —— 原右上角历史按钮已取消。
 import React from 'react';
 import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type Role } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -22,6 +23,9 @@ import { formatRunTime } from '../src/runHistory.ts';
 import type { PipelineEvent } from './lib/runner';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
+
+/** 左侧抽屉的三态:closed 收起 / menu 一级菜单 / settings|history 二级页。 */
+type DrawerPage = 'closed' | 'menu' | 'settings' | 'history';
 
 /** 模块实例令牌:只有同一模块实例重复挂载（同一次热重载内）才跳过安装。
  *  之前只看 `if (g.__soa) return`，Fast Refresh 后新模块实例会直接返回，
@@ -52,17 +56,12 @@ function AppContent() {
   // 菜单浮层实测尺寸(onLayout):翻转/右缘 clamp 用真实宽高,避免估算漂移
   const [menuSize, setMenuSize] = React.useState<{ width: number; height: number } | null>(null);
   const marketButtonRef = React.useRef<View>(null);
-  // 侧边栏默认收起:页面只有 ☰ 汉堡按钮,点击才展开(抽屉语义)
-  const [showSettings, setShowSettings] = React.useState(false);
-  // 历史抽屉(右上角按钮):与左侧设置侧栏对称的右侧面板
-  const [showHistory, setShowHistory] = React.useState(false);
-  React.useEffect(() => {
-    if (width < 900) setShowSettings(false);
-  }, [width]);
-  // 同上:窄窗(手机竖屏)不常驻历史侧栏,避免把内容区挤没
-  React.useEffect(() => {
-    if (width < 900) setShowHistory(false);
-  }, [width]);
+  // 抽屉:☰ 打开一级菜单(设置/历史),点进去在该抽屉内换成二级页(← 返回菜单)。
+  const [drawer, setDrawer] = React.useState<DrawerPage>('closed');
+  // 宽度只用「比例 + clamp」决定(见 drawerWidthFor),不写死 dp:
+  // 窄屏 88% 覆盖式、宽屏 28% 占位;切窄到覆盖阈值直接懒切换布局,不强制关抽屉
+  const drawerOverlay = width < DRAWER_OVERLAY_MAX_WIDTH;
+  const drawerWidth = drawerWidthFor(width);
   // D1:菜单打开期间窗口尺寸变化(web resize/zoom)→ 重测锚点;measureInWindow
   // 是异步快照,尺寸变化后旧锚点即过期。native 旋转已锁 portrait(app.json),
   // 此 effect 仅窗口尺寸真实变化时触发,无害
@@ -137,21 +136,17 @@ function AppContent() {
       {/* 标题行:☰ 汉堡按钮(抽屉开关)+ 标题 */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Pressable style={styles.hamburger} onPress={() => setShowSettings((v) => !v)} hitSlop={8} accessibilityLabel="切换设置侧边栏" accessibilityRole="button">
+          <Pressable
+            style={styles.hamburger}
+            onPress={() => setDrawer((d) => (d === 'closed' ? 'menu' : 'closed'))}
+            hitSlop={8}
+            accessibilityLabel={drawer === 'closed' ? '打开菜单' : '关闭菜单'}
+            accessibilityRole="button"
+            aria-expanded={drawer !== 'closed'}
+          >
             <Text style={styles.hamburgerIcon}>☰</Text>
           </Pressable>
           <Text style={styles.heading} numberOfLines={1} ellipsizeMode="tail">{THEME_HEADING}</Text>
-          {/* 右侧独立入口:历史分析抽屉(点开后在右侧展开,与左上角设置对称) */}
-          <View style={styles.headerSpacer} />
-          <Pressable
-            style={styles.headerAction}
-            onPress={() => setShowHistory((v) => !v)}
-            accessibilityRole="button"
-            accessibilityLabel="历史分析"
-            aria-expanded={showHistory}
-          >
-            <Text style={styles.headerActionText}>历史{a.history.length ? ` ${a.history.length}` : ''}</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -275,18 +270,71 @@ function AppContent() {
         </View>
       </Modal>
 
-      {/* 主体:侧边栏设置(左侧抽屉)+ 内容区 */}
+      {/* 主体:左侧抽屉(菜单 → 设置/历史二级页)+ 内容区 */}
       <View style={styles.main}>
-        {showSettings ? (
-          <View style={styles.sidebar}>
-            <View style={styles.sidebarHeader}>
-              <Text style={styles.sidebarTitle}>设置</Text>
-              <Pressable onPress={() => setShowSettings(false)} hitSlop={8} accessibilityLabel="关闭设置侧边栏" accessibilityRole="button">
-                <Text style={styles.sidebarClose}>✕</Text>
-              </Pressable>
+        {drawer !== 'closed' ? (
+          <>
+            {/* 窄屏:抽屉改覆盖式(绝对定位 + 遮罩),不再挤占内容区宽度 */}
+            {drawerOverlay ? (
+              <Pressable style={styles.drawerBackdrop} onPress={() => setDrawer('closed')} accessibilityLabel="关闭菜单" />
+            ) : null}
+            <View testID="drawer" style={[styles.sidebar, { width: drawerWidth }, drawerOverlay && styles.sidebarOverlay]}>
+              {drawer === 'menu' ? (
+                <>
+                  <View style={styles.sidebarHeader}>
+                    <Text style={styles.sidebarTitle}>菜单</Text>
+                    <Pressable onPress={() => setDrawer('closed')} hitSlop={8} accessibilityLabel="关闭菜单" accessibilityRole="button">
+                      <Text style={styles.sidebarClose}>✕</Text>
+                    </Pressable>
+                  </View>
+                  <Pressable style={styles.menuItem} onPress={() => setDrawer('settings')} accessibilityRole="button" accessibilityLabel="设置">
+                    <Text style={styles.menuItemIcon}>⚙</Text>
+                    <Text style={styles.menuItemLabel}>设置</Text>
+                    <Text style={styles.menuItemChevron}>›</Text>
+                  </Pressable>
+                  <Pressable style={styles.menuItem} onPress={() => setDrawer('history')} accessibilityRole="button" accessibilityLabel="历史分析">
+                    <Text style={styles.menuItemIcon}>↺</Text>
+                    <Text style={styles.menuItemLabel}>历史</Text>
+                    {a.history.length ? <Text style={styles.menuItemBadge}>{a.history.length}</Text> : null}
+                    <Text style={styles.menuItemChevron}>›</Text>
+                  </Pressable>
+                </>
+              ) : drawer === 'settings' ? (
+                <>
+                  <View style={styles.sidebarHeader}>
+                    <Pressable onPress={() => setDrawer('menu')} hitSlop={8} accessibilityLabel="返回菜单" accessibilityRole="button">
+                      <Text style={styles.sidebarBack}>←</Text>
+                    </Pressable>
+                    <Text style={[styles.sidebarTitle, styles.sidebarTitleGrow]}>设置</Text>
+                    <Pressable onPress={() => setDrawer('closed')} hitSlop={8} accessibilityLabel="关闭菜单" accessibilityRole="button">
+                      <Text style={styles.sidebarClose}>✕</Text>
+                    </Pressable>
+                  </View>
+                  <SettingsPanel onSettingsChange={a.onSettingsChange} />
+                </>
+              ) : (
+                <HistoryPanel
+                  history={a.history}
+                  loading={a.historyLoading}
+                  error={a.historyError}
+                  viewingId={a.viewingRun?.id ?? null}
+                  running={a.running}
+                  onOpen={(id) => {
+                    const row = a.history.find((h) => h.id === id);
+                    if (row) setTicker(row.ticker); // 表单同步成该次 ticker，避免「打开 A 再点分析却跑 B」
+                    setDrawer('closed');
+                    setActiveTab('final_decision'); // 先看结论
+                    void a.openRun(id);
+                  }}
+                  onDelete={(ids) => void a.deleteRuns(ids)}
+                  onClear={() => void a.clearHistory()}
+                  onBack={() => setDrawer('menu')}
+                  onClose={() => setDrawer('closed')}
+                  onRefresh={() => void a.refreshHistory()}
+                />
+              )}
             </View>
-            <SettingsPanel onSettingsChange={a.onSettingsChange} />
-          </View>
+          </>
         ) : null}
         <View style={styles.contentColumn}>
           {/* 历史查看条:任何 Tab 都可见;返回最新 = 点开前的实时态 */}
@@ -367,42 +415,6 @@ function AppContent() {
           </ErrorBoundary>
         </View>
 
-        {/* 历史侧栏(右侧抽屉):点右上角按钮开合;点选一条 → 退出抽屉并在报告
-            Tab 里复现该次分析,顶部横幅带「返回最新」。窄屏(手机/安卓竖屏)改为
-            覆盖式抽屉(带背景遮罩)—— 固定占宽会把内容区挤到不可用(11-04 实测)。 */}
-        {showHistory ? (
-          <>
-            {width < NARROW_DRAWER_MAX_WIDTH ? (
-              <Pressable
-                style={styles.historyBackdrop}
-                onPress={() => setShowHistory(false)}
-                accessibilityLabel="关闭历史侧栏"
-              />
-            ) : null}
-            <HistoryPanel
-                history={a.history}
-                loading={a.historyLoading}
-                error={a.historyError}
-                viewingId={a.viewingRun?.id ?? null}
-                running={a.running}
-                onOpen={(id) => {
-                  const row = a.history.find((h) => h.id === id);
-                  if (row) setTicker(row.ticker); // 表单同步成该次 ticker，避免「打开 A 再点分析却跑 B」
-                  setShowHistory(false);
-                  setActiveTab('final_decision'); // 先看结论
-                  void a.openRun(id);
-                }}
-                onDelete={(ids) => void a.deleteRuns(ids)}
-                onClear={() => void a.clearHistory()}
-                onClose={() => setShowHistory(false)}
-                onRefresh={() => void a.refreshHistory()}
-                // 窄屏:绝对定位 top/bottom 直接上裁到根节点 —— 包一层 View 会让内部
-                // ScrollView(flex:1)量到 0 高度,列表整块消失(11-04 模拟器实测)
-                style={width < NARROW_DRAWER_MAX_WIDTH ? styles.historyOverlay : undefined}
-              />
-          </>
-        ) : null}
-
       </View>
     </View>
   );
@@ -415,8 +427,18 @@ function AppContent() {
 // 不可选;上翻在常规短视口(按钮距顶 ≥ 菜单高 + 边距)下完整保留三个选项。
 const MENU_GAP = 4; // 菜单与按钮/视口边缘的间距(px),原内联字面量
 
-/** 窄屏阈值(dp):历史抽屉改覆盖式(安卓竖屏 ~411dp、手机横屏 ~800dp)。 */
-const NARROW_DRAWER_MAX_WIDTH = 720;
+/** 覆盖式抽屉的触发宽度(dp):窄于此值 → 抽屉脱离文档流占满右侧(不挤内容区)。
+ *  单一阈值 —— 之前「<900 强制关抽屉 + <720 改覆盖式」两套阈值中间夹着
+ *  720–900 的夹缝,抽屉在夹缝里只能挤内容区;现在全程只有一种布局切换。 */
+const DRAWER_OVERLAY_MAX_WIDTH = 760;
+
+/** 抽屉宽度:只跟视口成比例,不写死 dp。
+ *  窄屏(覆盖式):88% 视口,上限 360(平板上不至于整屏只剩一条缝);
+ *  宽屏(占位式):28% 视口,clamp 320–420(小窗口留够内容区,大屏不拉成巨栏)。 */
+function drawerWidthFor(width: number): number {
+  if (width < DRAWER_OVERLAY_MAX_WIDTH) return Math.round(Math.min(width * 0.88, 360));
+  return Math.round(Math.min(Math.max(width * 0.28, 320), 420));
+}
 
 function menuGeometry(
   anchor: { x: number; y: number; width: number; bottom: number },
@@ -441,15 +463,12 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     root: { flex: 1, backgroundColor: theme.colors.background },
     header: { paddingHorizontal: theme.spacing.lg, paddingTop: insets.top + theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     headerRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
-    headerSpacer: { flex: 1 },
-    headerAction: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, backgroundColor: theme.colors.surface },
-    headerActionText: { fontSize: 12, fontWeight: '600', color: theme.colors.text },
     historyBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.md, paddingVertical: 6, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     historyBarText: { flex: 1, fontSize: 12, color: theme.colors.text },
     historyBarAction: { fontSize: 12, fontWeight: '700', color: theme.colors.primary },
-    // 窄屏覆盖式历史抽屉:遮罩 + 贴右浮层(不占布局宽度)
-    historyBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.25)', zIndex: 19 },
-    historyOverlay: { position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 20, elevation: 8 },
+    // 窄屏覆盖式抽屉:遮罩 + 贴左浮层(不占布局宽度)
+    drawerBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.25)', zIndex: 19 },
+    sidebarOverlay: { position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 20, elevation: 8 },
     hamburger: { paddingVertical: 2, paddingRight: 2 },
     hamburgerIcon: { fontSize: 22, color: theme.colors.text, lineHeight: 24 },
     // minWidth:0 + flexShrink:窄屏(安卓竖屏 ~411dp)标题+右侧历史按钮总宽超屏时
@@ -500,9 +519,19 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     progressLine: { fontSize: 11, color: theme.colors.textSecondary, marginRight: 14 },
     progressLatest: { color: theme.colors.primary, fontWeight: '600' },
     content: { flex: 1 },
-    sidebar: { width: 320, borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },
-    sidebarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    // 抽屉在左侧:描边画右边(原来误画左边,和内容区之间出现双线)
+    sidebar: { borderRightWidth: 1, borderRightColor: theme.colors.border, backgroundColor: theme.colors.surface },
+    sidebarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     sidebarTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
+    // 二级页:标题占据中间,← 贴左、✕ 贴右
+    sidebarTitleGrow: { flex: 1 },
+    sidebarBack: { fontSize: 16, color: theme.colors.textSecondary, paddingHorizontal: 4 },
     sidebarClose: { fontSize: 16, color: theme.colors.textSecondary, paddingHorizontal: 4 },
+    // 一级菜单行:图标 + 标签(+ 历史条数) + ›
+    menuItem: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.md, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+    menuItemIcon: { fontSize: 16, minWidth: 22, textAlign: 'center', color: theme.colors.text },
+    menuItemLabel: { flex: 1, fontSize: 14, fontWeight: '600', color: theme.colors.text },
+    menuItemBadge: { fontSize: 11, fontWeight: '700', color: theme.colors.primary, borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1, overflow: 'hidden' },
+    menuItemChevron: { fontSize: 18, color: theme.colors.textSecondary },
   });
 }
