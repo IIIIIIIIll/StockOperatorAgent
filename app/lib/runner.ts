@@ -5,7 +5,7 @@ import { IdbStore } from '../../src/store-idb.ts';
 import { FileStore } from '../../src/store-file.ts';
 import type { StoreLike } from '../../src/store.ts';
 import { createPipelineRunner, type PipelineEvent, type FinalReport } from '../../src/events.ts';
-import { createLlm, MissingLlmConfigError, type LlmConfig } from '../../src/llm.ts';
+import { createLlm, type LlmConfig } from '../../src/llm.ts';
 import { applyCollectedToStore, collectViaProxy, type WebCollectResult } from '../../src/webCollect.ts';
 import { collectYahooViaProxy } from '../../src/yahoo/webYahooCollect.ts';
 import { setYahooStore } from '../../src/yahoo/applyYahooCollectedToStore.ts';

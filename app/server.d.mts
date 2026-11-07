@@ -6,3 +6,5 @@ declare function serveStatic(
 ): void;
 declare function createAppServer(opts?: { host?: string }): import('node:http').Server;
 export { serveStatic, createAppServer };
+/** CR-51:静态面与代理面共用的安全头单源。 */
+export const SEC_HEADERS: Record<string, string>;

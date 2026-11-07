@@ -566,6 +566,11 @@ describe('collectYahooViaProxy(浏览器 → /yahoo-collect)', () => {
     vi.unstubAllGlobals();
   });
 
+  it('CR-10:200 + HTML 非 JSON → 可读错误(不抛 Cannot read properties of null)', async () => {
+    makeGlobalFetch([{ match: () => true, respond: () => textResponse('<html>proxy crashed</html>', 200) }]);
+    await expect(collectYahooViaProxy('AAPL', 'https://app.example.com')).rejects.toThrow(/非预期载荷/);
+  });
+
   it('POST body {ticker} + skipDaily 查询参数 → payload 入库 → WebCollectResult', async () => {
     const store = new InMemoryStore();
     setYahooStore(store);

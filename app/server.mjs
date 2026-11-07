@@ -17,6 +17,7 @@ import {
   handleBillionsProxy,
 } from './lib/proxies.cjs';
 import { handleLogs } from './lib/logs-server.cjs';
+import secHeaders from './lib/sec-headers.cjs';
 import { envValue } from '../src/env.ts';
 
 const PORT = Number(process.env.PORT || 8090);
@@ -37,13 +38,9 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-// S5:CSP 静态面(与 proxies.cjs SEC_HEADERS 同值,单份策略防漂移;style-src
-// 'unsafe-inline' 为 expo-reset 内联 <style>,img-src data: 供内联图元)。
-const SEC_HEADERS = {
-  'Content-Security-Policy':
-    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'",
-  'X-Content-Type-Options': 'nosniff',
-};
+// S5:CSP 静态面与代理面共用 app/lib/sec-headers.cjs 单源(CR-51);
+// style-src 'unsafe-inline' 为 expo-reset 内联 <style>,img-src data: 供内联图元。
+export const SEC_HEADERS = secHeaders.SEC_HEADERS;
 
 /** C1:畸形 URL(如 /%ZZ)decodeURIComponent 抛 URIError → 400 不崩 server。
  *  导出供 vitest 单测;本模块 import 侧无副作用(listen 仅主入口执行)。 */
@@ -203,6 +200,16 @@ export function createAppServer({ host } = {}) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
+    }
+    // CR-53:GET 简单请求(<img>/<script>)不带 Origin;用 Sec-Fetch-Site 补一道
+    // 跨站判据(现代浏览器必带;curl/探针无该头 → 放行,不误伤本地工具)。
+    if (isProxyPath) {
+      const site = req.headers['sec-fetch-site'];
+      if (site === 'cross-site' || site === 'same-site') {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
     }
     // S6:非回环监听(有效 bind host 非 loopback)时,代理/日志端点要求
     // X-SOA-Token == SOA_ACCESS_TOKEN(原始串比对,无 "Bearer " 前缀);

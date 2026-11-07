@@ -31,3 +31,5 @@ desktop/dist/
 *.apk
 *.exe
 .scratch
+*.keystore
+*.jks

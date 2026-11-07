@@ -203,7 +203,7 @@ export function makeProxyMcpFetch(base: string): typeof fetch {
     accept: true,
     'mcp-session-id': true,
   };
-  return (input, init) => {
+  return (_input, init) => {
     const headers: Record<string, string> = {};
     // Headers 统一解析(接受 Record/数组/Headers 三种 init.headers 形态;
     // forEach 键名已归一化为小写——服务端/上游均大小写不敏感,语义等价)

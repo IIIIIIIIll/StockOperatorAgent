@@ -81,11 +81,20 @@ export async function collectYahooViaProxy(
       `Yahoo 采集代理不可达(需用 npm run web 起的 server):${String((err as Error)?.message ?? err)}`,
     );
   }
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  const body = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
-    throw new Error(`Yahoo 采集失败(${res.status}):${body?.error ?? '未知错误'}`);
+    const errBody = body as { error?: string } | null;
+    throw new Error(`Yahoo 采集失败(${res.status}):${errBody?.error ?? '未知错误'}`);
   }
-  const payload = body as unknown as YahooCollectedPayload;
+  // CR-10:代理返回 HTML/null(静态托管漂移、中间层错误页)时给出可读错误,
+  // 不让 payload.ticker 直接抛 Cannot read properties of null。
+  const shape = body as { bars?: unknown; reports?: unknown } | null;
+  if (shape === null || typeof shape !== 'object' || !Array.isArray(shape.bars) || !Array.isArray(shape.reports)) {
+    throw new Error('Yahoo 采集失败:代理返回非预期载荷(检查 server 静态托管/代理是否就绪)');
+  }
+  // SAFETY: 上面已校验对象且 bars/reports 均为数组;其余字段(ticker/overview/
+  // capitalText 等)由 applyYahooCollectedToStore 做字段级兜底与 NaN 护栏。
+  const payload = shape as unknown as YahooCollectedPayload;
   await mergeFinnhubIndustry(payload, market, finnhub ?? null);
   return applyYahooCollectedToStore(store, payload, market);
 }

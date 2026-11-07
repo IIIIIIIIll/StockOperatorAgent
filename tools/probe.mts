@@ -47,7 +47,7 @@ function overviewKeys(overview: Record<string, number | string>): string {
 /** 全链 LLM 段(CN/hk/us 共用):三键齐 → 真 LLM;缺 → 占位 stub;runner.run 后
  *  写完整 report.json。LLM 三键必需,失败经 error 事件上报。 */
 async function runFullAnalysis(
-  store: Store,
+  _store: Store,
   runner: PipelineRunner,
   ticker: string,
   opts: {

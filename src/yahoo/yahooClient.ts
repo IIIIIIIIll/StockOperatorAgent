@@ -198,7 +198,12 @@ export class YahooClient {
         throw new YahooApiError('crumb', 401, `Yahoo quoteSummary 刷新 crumb 后仍失败：${detail}`);
       }
       if (!resp.ok) {
-        throw new YahooApiError('crumb', 401, `Yahoo quoteSummary 刷新 crumb 后仍失败：HTTP ${resp.status}`);
+        // CR-26:重试后的 429/5xx 不得伪装成 crumb/401(日志/诊断不可区分)
+        throw new YahooApiError(
+          resp.status === 401 ? 'crumb' : null,
+          resp.status,
+          `Yahoo quoteSummary 刷新 crumb 后仍失败：HTTP ${resp.status}`,
+        );
       }
     } else if (!resp.ok) {
       throw await this._errorFrom(resp, 'quoteSummary');

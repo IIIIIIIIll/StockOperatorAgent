@@ -129,7 +129,7 @@ describe('BillionsInformationAnalyst 联网预抓回退（R4,离线注入）', (
 describe('BillionsInformationAnalyst 亿信预抓（R1/R2,离线注入 fake client）', () => {
   it('SEARCH+TWITTER 开 → 三源 + twitter 顺序预抓;真实素材分节进 context;web 不触发', async () => {
     const { client, calls: clientCalls } = makeFakeBillionsClient({
-      search: async (query, opts) => ({
+      search: async (_query, opts) => ({
         result: [{ content: [{ title: `结果-${opts?.source}`, link: `https://e.example/${opts?.source}`, snippet: '摘要', date: '2026-08-01' }] }],
       }),
       twitterSearch: async () => ({

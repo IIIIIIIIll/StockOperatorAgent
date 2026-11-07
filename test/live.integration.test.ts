@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { TdxClient, KlineCategory } from 'node-tdx-market';
-import { getXdxrInfo, parseXdxrResponse } from '../src/tdx/xdxr.ts';
+import { getXdxrInfo } from '../src/tdx/xdxr.ts';
 import { getCompanyInfoCategory, getCompanyInfoContent } from '../src/tdx/f10Client.ts';
 import { qfqAdjust } from '../src/adjust.ts';
 

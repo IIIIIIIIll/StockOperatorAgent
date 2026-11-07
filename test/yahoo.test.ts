@@ -2,7 +2,7 @@
 // （fake fetch 注入，house style 无 mock 框架——对齐 billions-client.test.ts /
 // web-search.test.ts 的 handler 路由模式）。
 import { describe, expect, it } from 'vitest';
-import { YahooClient, YahooApiError, YAHOO_HOSTS } from '../src/yahoo/yahooClient.ts';
+import { YahooClient, YAHOO_HOSTS } from '../src/yahoo/yahooClient.ts';
 import { composeYahooOverview } from '../src/yahoo/composeYahooOverview.ts';
 import { composeYahooReports } from '../src/yahoo/composeYahooReports.ts';
 

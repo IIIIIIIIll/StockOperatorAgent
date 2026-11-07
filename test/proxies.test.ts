@@ -854,6 +854,20 @@ describe('proxies.cjs /tdx-mcp(F2 同源代理)', () => {
 describe('proxies.cjs /billions-proxy(F5 亿信 CORS 根治)', () => {
   const { handleBillionsProxy, BILLIONS_TARGET_ORIGIN } = proxies;
 
+  it('CR-54:query string 原样转发(不再只取 pathname)', async () => {
+    const res = fakeRes();
+    let url = '';
+    await handleBillionsProxy(
+      fakeReq('{}', { 'x-api-key': 'k' }, '/billions-proxy/api/v1/fin_db?limit=5&page=2'),
+      res,
+      async (u: unknown) => {
+        url = String(u);
+        return { status: 200, headers: { get: (n: string) => (n === 'content-type' ? 'application/json' : null) }, body: null, text: async () => '{}' };
+      },
+    );
+    expect(url).toBe(`${BILLIONS_TARGET_ORIGIN}/api/v1/fin_db?limit=5&page=2`);
+  });
+
   it('固定 host + 白名单 path 转发:POST/头白名单/body 原样', async () => {
     const res = fakeRes();
     let captured: { url: string; init: RequestInit } | null = null;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { parseFinanceIndicatorsAllTables, toNum } from '../src/f10.ts';
+import { parseContentResponse } from '../src/tdx/f10Client.ts';
 
 const tdxText = fs.readFileSync('test/fixtures/f10_tdx.txt', 'utf8');
 const hkText = fs.readFileSync('test/fixtures/f10_hk.txt', 'utf8');
@@ -54,5 +55,13 @@ describe('f10 parser dual format (AC6)', () => {
     // F26:裸「万」/「亿」(无数值前缀)→ NaN,不得乘出 0
     expect(Number.isNaN(toNum('万'))).toBe(true);
     expect(Number.isNaN(toNum('亿'))).toBe(true);
+  });
+});
+
+describe('parseContentResponse 长度守卫(CR-27)', () => {
+  it('短包/空包 → 空串,不抛 RangeError', () => {
+    expect(parseContentResponse(Buffer.alloc(0))).toBe('');
+    expect(parseContentResponse(Buffer.alloc(4))).toBe('');
+    expect(parseContentResponse(Buffer.alloc(11))).toBe('');
   });
 });

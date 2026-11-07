@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import { AIMessage, AIMessageChunk, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { invokeWithTools } from '../src/toolLoop.ts';
 
 // 无 mock 框架:临时替换 console.warn 捕获输出,finally 还原(log.ts warn → console.warn)。

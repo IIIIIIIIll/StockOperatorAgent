@@ -10,6 +10,8 @@ type DnsLookup = (
 ) => Promise<Array<{ address: string; family: number }>>;
 
 declare const proxies: {
+  /** CR-51:与 server.mjs 共用的安全头单源。 */
+  SEC_HEADERS: Record<string, string>;
   handleLlmProxy(
     req: unknown,
     res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },

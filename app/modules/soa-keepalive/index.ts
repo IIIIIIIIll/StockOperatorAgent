@@ -9,6 +9,7 @@
 
 import { Platform } from 'react-native';
 import { requireNativeModule } from 'expo-modules-core';
+import { info, warn } from '../../../src/log.ts';
 
 type KeepAliveNative = {
   start: (title: string, body: string) => Promise<void>;
@@ -27,21 +28,21 @@ if (Platform.OS === 'android') {
 }
 
 if (__DEV__ && Platform.OS === 'android') {
-  console.log('[soa keepalive] native module:', native ? 'present' : 'MISSING');
+  info(`[soa keepalive] native module: ${native ? 'present' : 'MISSING'}`);
 }
 
 export function startAnalysisKeepAlive(title: string, body: string): void {
-  if (__DEV__) console.log(`[soa keepalive] start(${title})`);
+  if (__DEV__) info(`[soa keepalive] start(${title})`);
   native?.start(title, body).catch((e: unknown) => {
     // 前台服务启动失败(权限/系统限制)不阻断分析,静默降级为无保活;
-    // __DEV__ 下记录失败原因便于排查,生产保持静默。
-    if (__DEV__) console.warn('[soa keepalive] start failed:', e);
+    // __DEV__ 下记录失败原因便于排查(经 src/log.ts 单一日志出口,CR-39)。
+    if (__DEV__) warn(`[soa keepalive] start failed: ${String(e)}`);
   });
 }
 
 export function stopAnalysisKeepAlive(): void {
-  if (__DEV__) console.log('[soa keepalive] stop');
+  if (__DEV__) info('[soa keepalive] stop');
   native?.stop().catch((e: unknown) => {
-    if (__DEV__) console.warn('[soa keepalive] stop failed:', e);
+    if (__DEV__) warn(`[soa keepalive] stop failed: ${String(e)}`);
   });
 }

@@ -120,7 +120,7 @@ export class AgentNode {
   async completeExpert(
     queryText: string,
     stateKey: string,
-    { startMsg, doneMsg, logLabel, nodeName }: CompleteOptions,
+    { startMsg, doneMsg, nodeName }: CompleteOptions,
   ): Promise<Record<string, unknown>> {
     const query: Array<[string, string]> = [['human', queryText]];
     safePushStatus(this.progressUpdater, nodeName, 'running');
@@ -144,7 +144,7 @@ export class AgentNode {
   async completeWithTools(
     queryText: string,
     stateKey: string,
-    { chain, maxToolRounds, startMsg, doneMsg, logLabel, nodeName }: CompleteOptions & {
+    { chain, maxToolRounds, startMsg, doneMsg, nodeName }: CompleteOptions & {
       chain?: unknown;
       maxToolRounds?: number;
     },

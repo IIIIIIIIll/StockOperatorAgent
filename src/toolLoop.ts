@@ -5,7 +5,7 @@
 // 工具异常 → 占位不 raise（图不中断）；空 tools → 单轮直调
 // 08-11-ts-streaming-output:每轮(含收尾轮)改 streamWithRetry 流式;轮末
 // tool_calls 非空 → onReset(回滚该轮已流出文本,UI 清 partial)。
-import { AIMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts';
 import { safeProgress, type ProgressUpdater } from './progress.ts';
 import { error, warn } from './log.ts';

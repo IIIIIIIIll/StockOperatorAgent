@@ -217,7 +217,6 @@ function calcLiuBias(close: number[], n = 20): number[] {
  * 列与 Python compute_all + calc_macd_vh + calc_liu_bias 一致。
  */
 export function computeAll(bars: IndicatorInput[], shares?: number | null): IndicatorRow[] {
-  const open = bars.map((b) => b.open);
   const high = bars.map((b) => b.high);
   const low = bars.map((b) => b.low);
   const close = bars.map((b) => b.close);

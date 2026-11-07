@@ -4,7 +4,8 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serveStatic, createAppServer } from '../app/server.mjs';
+import { serveStatic, createAppServer, SEC_HEADERS } from '../app/server.mjs';
+import proxies from '../app/lib/proxies.cjs';
 
 // S5 需要真实 dist/index.html(200 头契约);CI 纯净 checkout 无 dist(expo
 // export 产物,gitignored)——缺则临时补一个最小 index.html,测完只删自己建的。
@@ -159,6 +160,23 @@ describe('server.mjs S2(代理端点 Origin 允许列表)', () => {
       const getProxy = await fetch(`${base}/llm-proxy/whatever`, { method: 'GET' });
       expect(getProxy.status).not.toBe(403);
     });
+  });
+
+  // CR-53:跨站简单请求带 Sec-Fetch-Site: cross-site → 403(无 Origin 不再放行)。
+  it('cross-site Sec-Fetch-Site 的 GET 代理请求 → 403', async () => {
+    await withServer(async (base) => {
+      const res = await fetch(`${base}/web-search?q=x`, {
+        method: 'GET',
+        headers: { 'sec-fetch-site': 'cross-site' },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  // CR-51:安全头单源 —— server.mjs 与 proxies.cjs 引用同一实现(值相等;
+  // vitest 的 CJS interop 可能给不同模块副本,故用 toEqual 而非 toBe)。
+  it('SEC_HEADERS 与 proxies.cjs 取值一致(单源防漂移)', () => {
+    expect(SEC_HEADERS).toEqual(proxies.SEC_HEADERS);
   });
 });
 

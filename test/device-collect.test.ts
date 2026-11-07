@@ -1,30 +1,25 @@
-// 真机采集单测 —— 离线零网络:mock node-tdx-market TdxClient(假客户端,
-// connect/destroy 桩,不建 TCP)+ tdx/quoteClient.collectAll + tdx/f10Client
-// 三函数(getCompanyInfoCategory/getCompanyInfoContent/f10MarketFor);store 用
+// 真机采集单测 —— 离线零网络:注入 fake TdxClient/collectAll/f10 三函数
+// (house style:注入点 + fake,不用 vi.mock;CR-09 2026-11-07 评审),store 用
 // InMemoryStore 经 setDeviceStore 注入。不测真实 TCP。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoreLike } from '../src/store.ts';
+import {
+  collectForDevice,
+  setDeviceStore,
+  DEVICE_TDX_HOSTS,
+  type DeviceCollectDeps,
+} from '../src/tdx/deviceCollect.ts';
+import { InMemoryStore } from '../src/store-memory.ts';
+import { asiaToday, latestPastQuarterEnd } from '../src/gates.ts';
+import { capitalKey, f10Key } from '../src/metaKeys.ts';
 
-const mocks = vi.hoisted(() => ({
+const mocks = {
   TdxClient: vi.fn(),
   collectAll: vi.fn(),
   getCompanyInfoCategory: vi.fn(),
   getCompanyInfoContent: vi.fn(),
   f10MarketFor: vi.fn(),
-}));
-
-vi.mock('node-tdx-market', () => ({ TdxClient: mocks.TdxClient }));
-vi.mock('../src/tdx/quoteClient.ts', () => ({ collectAll: mocks.collectAll }));
-vi.mock('../src/tdx/f10Client.ts', () => ({
-  getCompanyInfoCategory: mocks.getCompanyInfoCategory,
-  getCompanyInfoContent: mocks.getCompanyInfoContent,
-  f10MarketFor: mocks.f10MarketFor,
-}));
-
-import { collectForDevice, setDeviceStore, DEVICE_TDX_HOSTS } from '../src/tdx/deviceCollect.ts';
-import { InMemoryStore } from '../src/store-memory.ts';
-import { asiaToday, latestPastQuarterEnd } from '../src/gates.ts';
-import { capitalKey, f10Key } from '../src/metaKeys.ts';
+};
 
 const TICKER = '600036';
 
@@ -60,6 +55,7 @@ const collected = {
 describe('collectForDevice', () => {
   let store: StoreLike;
   let client: ReturnType<typeof makeFakeClient>;
+  let deps: DeviceCollectDeps;
 
   beforeEach(() => {
     store = new InMemoryStore();
@@ -79,6 +75,18 @@ describe('collectForDevice', () => {
       },
     );
     mocks.collectAll.mockResolvedValue(collected);
+    // SAFETY: 五个注入点都是 vi.fn 假件;运行时形状由各 test 的 mockResolvedValue
+    // / mockImplementation 定义(与 src 注入面同构)。
+    deps = {
+      makeClient: (o: { host: string; connectTimeout: number; requestTimeout: number }) => {
+        mocks.TdxClient(o);
+        return client as never;
+      },
+      collectAll: mocks.collectAll,
+      getCompanyInfoCategory: mocks.getCompanyInfoCategory,
+      getCompanyInfoContent: mocks.getCompanyInfoContent,
+      f10MarketFor: mocks.f10MarketFor,
+    } as unknown as DeviceCollectDeps;
   });
 
   afterEach(() => {
@@ -86,7 +94,7 @@ describe('collectForDevice', () => {
   });
 
   it('全路径:构造 TdxClient → connect → F10 + collectAll → 写 store,返回 WebCollectResult', async () => {
-    const result = await collectForDevice(TICKER);
+    const result = await collectForDevice(TICKER, undefined, deps);
 
     // TdxClient 构造参数(显式 host,顺序尝试首个)+ 生命周期(单连接,结束 destroy)
     expect(mocks.TdxClient).toHaveBeenCalledWith(
@@ -138,7 +146,7 @@ describe('collectForDevice', () => {
       overviewLastUpdate: null,
       lastDataUpdate: asiaToday(),
     });
-    await collectForDevice(TICKER);
+    await collectForDevice(TICKER, undefined, deps);
 
     expect(mocks.collectAll).toHaveBeenCalledWith(client, TICKER, expect.any(Object), { skipDaily: true });
     // 部分 fresh 不整体短路:日K 跳过,财务分析节仍拉
@@ -147,7 +155,7 @@ describe('collectForDevice', () => {
 
   it('opts 缺省:最新业绩报告 == 本季季度末 → skipF10 自动 true(财务分析节不拉)', async () => {
     store.addPerformanceReports(TICKER, [{ report_date: latestPastQuarterEnd(asiaToday())!, fields: {} }]);
-    await collectForDevice(TICKER);
+    await collectForDevice(TICKER, undefined, deps);
 
     expect(mocks.getCompanyInfoContent).toHaveBeenCalledTimes(1);
     expect(mocks.getCompanyInfoContent.mock.calls[0][3]).toBe('c'); // 仅股本结构节
@@ -162,7 +170,7 @@ describe('collectForDevice', () => {
       overviewLastUpdate: null,
       lastDataUpdate: asiaToday(),
     });
-    await collectForDevice(TICKER, { skipDaily: false, skipF10: true });
+    await collectForDevice(TICKER, { skipDaily: false, skipF10: true }, deps);
 
     expect(mocks.collectAll).toHaveBeenCalledWith(client, TICKER, expect.any(Object), { skipDaily: false });
     expect(mocks.getCompanyInfoContent).toHaveBeenCalledTimes(1); // 仅股本结构节
@@ -170,7 +178,7 @@ describe('collectForDevice', () => {
 
   it('skipF10 且存在缓存 f10 meta → 缓存文本顶替(不降级占位)', async () => {
     store.setMeta(f10Key(TICKER), '【主要财务指标】\n净资产收益率: 18.8');
-    const result = await collectForDevice(TICKER, { skipF10: true });
+    const result = await collectForDevice(TICKER, { skipF10: true }, deps);
 
     expect(result.f10Text).toBe('【主要财务指标】\n净资产收益率: 18.8');
     expect(mocks.getCompanyInfoContent).toHaveBeenCalledTimes(1); // 财务分析节未拉
@@ -179,14 +187,14 @@ describe('collectForDevice', () => {
 
   it('collectAll 失败 → 全部 host 尝试后 reject 可读中文错误,每个都 destroy', async () => {
     mocks.collectAll.mockRejectedValue(new Error('socket hang up'));
-    await expect(collectForDevice(TICKER)).rejects.toThrow('TDX 采集失败:socket hang up');
+    await expect(collectForDevice(TICKER, undefined, deps)).rejects.toThrow('TDX 采集失败:socket hang up');
     expect(client.destroy).toHaveBeenCalledTimes(DEVICE_TDX_HOSTS.length);
     expect(client.disconnect).not.toHaveBeenCalled();
   });
 
   it('connect 失败 → 全部 host 尝试后 reject 可读中文错误,不吞', async () => {
     client.connect.mockRejectedValue(new Error('connect ECONNREFUSED 1.2.3.4:7709'));
-    await expect(collectForDevice(TICKER)).rejects.toThrow('TDX 采集失败:connect ECONNREFUSED 1.2.3.4:7709');
+    await expect(collectForDevice(TICKER, undefined, deps)).rejects.toThrow('TDX 采集失败:connect ECONNREFUSED 1.2.3.4:7709');
     expect(client.destroy).toHaveBeenCalledTimes(DEVICE_TDX_HOSTS.length);
     expect(client.disconnect).not.toHaveBeenCalled();
   });
@@ -202,7 +210,7 @@ describe('collectForDevice', () => {
       vi.resetModules();
       const mod = await import('../src/tdx/deviceCollect.ts');
       mod.setDeviceStore(store);
-      await mod.collectForDevice(TICKER);
+      await mod.collectForDevice(TICKER, undefined, deps);
       expect(mocks.TdxClient).toHaveBeenCalledWith(
         expect.objectContaining({ host: 'tdx.example.com' }),
       );

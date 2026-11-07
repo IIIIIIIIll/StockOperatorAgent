@@ -40,6 +40,8 @@ export function parseCategoryResponse(body: Buffer): F10Category[] {
 }
 
 export function parseContentResponse(body: Buffer): string {
+  // CR-27:空/截断响应 readUInt16LE 会抛原生 RangeError,变成不可读的出错文案
+  if (body.length < 12) return '';
   const length = body.readUInt16LE(10);
   return iconv.decode(body.subarray(12, 12 + length), 'gbk');
 }

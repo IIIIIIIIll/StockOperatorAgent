@@ -236,7 +236,7 @@ describe('亿信 client 注入接线（C1:committee deps → 分析师预抓）'
 
   it('deps.billionsClient 注入 → 分析师预抓三源+twitter 命中 fake client（web 端 key 生效）', async () => {
     const { client, calls } = makeFakeBillionsClient({
-      search: async (query, opts) => ({
+      search: async (_query, opts) => ({
         result: [{ content: [{ title: `结果-${opts?.source}`, link: `https://e.example/${opts?.source}`, snippet: '摘要', date: '2026-08-01' }] }],
       }),
       twitterSearch: async () => ({

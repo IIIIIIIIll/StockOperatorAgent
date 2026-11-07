@@ -38,16 +38,27 @@ export const DEVICE_TDX_HOSTS: string[] = [
   '111.229.247.189',
 ];
 
+// CR-09:采集链依赖注入面(house style:测试注入 fake,而非 vi.mock 整个模块)。
+export interface DeviceCollectDeps {
+  makeClient?: (opts: ConstructorParameters<typeof TdxClient>[0]) => TdxClient;
+  collectAll?: typeof collectAll;
+  getCompanyInfoCategory?: typeof getCompanyInfoCategory;
+  getCompanyInfoContent?: typeof getCompanyInfoContent;
+  f10MarketFor?: typeof f10MarketFor;
+}
+
 /** F10 节文本拉取(组装序对齐 proxies.cjs fetchF10Section);节缺失 → '' 。 */
 async function fetchF10Section(
   client: TdxClient,
   ticker: string,
   cats: F10Category[],
   namePart: string,
+  getContent: typeof getCompanyInfoContent,
+  marketFor: typeof f10MarketFor,
 ): Promise<string> {
   const section = cats.find((c) => c.name.includes(namePart));
   if (!section) return '';
-  return getCompanyInfoContent(client, f10MarketFor(ticker), ticker, section.filename, section.start, section.length);
+  return getContent(client, marketFor(ticker), ticker, section.filename, section.start, section.length);
 }
 
 /** 真机采集:单连接内拉 F10(财务分析 + 股本结构)+ collectAll(日K qfq/快照/
@@ -58,7 +69,13 @@ async function fetchF10Section(
 export async function collectForDevice(
   ticker: string,
   opts?: CollectSkipOpts,
+  deps: DeviceCollectDeps = {},
 ): Promise<WebCollectResult> {
+  const makeClient = deps.makeClient ?? ((o: ConstructorParameters<typeof TdxClient>[0]) => new TdxClient(o));
+  const runCollectAll = deps.collectAll ?? collectAll;
+  const getCategory = deps.getCompanyInfoCategory ?? getCompanyInfoCategory;
+  const getContent = deps.getCompanyInfoContent ?? getCompanyInfoContent;
+  const marketFor = deps.f10MarketFor ?? f10MarketFor;
   if (!deviceStore) {
     throw new Error('真机采集未就绪:store 未注入(需先调 setDeviceStore)');
   }
@@ -73,16 +90,16 @@ export async function collectForDevice(
   const hosts = DEVICE_TDX_HOSTS;
   let lastErr: unknown = null;
   for (const host of hosts) {
-    const client = new TdxClient({ host, connectTimeout: 8000, requestTimeout: 12000 });
+    const client = makeClient({ host, connectTimeout: 8000, requestTimeout: 12000 });
     client.on('error', () => {}); // 必挂监听(EventEmitter 无 error 监听者即抛)
     try {
       // 组装序对齐 proxies.cjs doCollect:connect → category → 财务分析节(可跳过)
       // → 股本结构节(恒拉,capital 不缺失)→ collectAll(skipDaily 跳过日K+xdxr)
       await client.connect();
-      const cats = await getCompanyInfoCategory(client, f10MarketFor(ticker), ticker);
-      const f10Text = skipF10 ? '' : await fetchF10Section(client, ticker, cats, '财务分析');
-      const capitalText = await fetchF10Section(client, ticker, cats, '股本结构');
-      const collected = await collectAll(
+      const cats = await getCategory(client, marketFor(ticker), ticker);
+      const f10Text = skipF10 ? '' : await fetchF10Section(client, ticker, cats, '财务分析', getContent, marketFor);
+      const capitalText = await fetchF10Section(client, ticker, cats, '股本结构', getContent, marketFor);
+      const collected = await runCollectAll(
         client,
         ticker,
         { get: (k) => store.getMeta(k), set: (k, v) => store.setMeta(k, v) },

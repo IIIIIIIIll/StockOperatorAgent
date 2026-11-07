@@ -62,16 +62,16 @@
 
 ## B6 · 其余加固
 
-- [ ] CR-09 device-collect 去 `vi.mock`
-- [ ] CR-10 Yahoo 代理载荷形状门
-- [ ] CR-25 volume 缺失不伪造 0
-- [ ] CR-26 quoteSummary 状态码
-- [ ] CR-27 F10 内容长度守卫
-- [ ] CR-39 keepalive 走 log.ts
-- [ ] CR-51 SEC_HEADERS 单源/等值断言
-- [ ] CR-52 web-search 定时器清理
-- [ ] CR-53 GET 代理 Origin/来源判据
-- [ ] CR-54 billions query 转发
-- [ ] CR-59 token 公开性文档
-- [ ] CR-61 `.gitignore` keystore 通配（备注级）
-- [ ] CR-63 12 处未使用符号
+- [x] CR-09 device-collect 去 `vi.mock`
+- [x] CR-10 Yahoo 代理载荷形状门
+- [~] CR-25 volume 缺失不伪造 0（暂缓：`DailyBar.volume` 为 `number`，改 NaN 会经 JSON 落盘变 null 并流入图表；需先把 volume 改可空并贯通四族 store）
+- [x] CR-26 quoteSummary 状态码
+- [x] CR-27 F10 内容长度守卫
+- [x] CR-39 keepalive 走 log.ts
+- [x] CR-51 SEC_HEADERS 单源/等值断言
+- [x] CR-52 web-search 定时器清理
+- [x] CR-53 GET 代理 Origin/来源判据
+- [x] CR-54 billions query 转发
+- [x] CR-59 token 公开性文档
+- [x] CR-61 `.gitignore` keystore 通配（备注级）
+- [x] CR-63 12 处未使用符号

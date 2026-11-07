@@ -21,15 +21,9 @@ const net = require('node:net');
 
 // ─── S5:代理响应安全头(CSP 供参考/文档面;JSON 响应核心是 nosniff+no-store;
 // 静态面 CSP 同值,见 server.mjs serveStatic)──────────────────────────────
-// style-src 'unsafe-inline' 为 expo-reset 内联 <style>(dist/index.html 实测),
-// img-src data: 供内联图元;script-src 由 default-src 'self' 继承(无内联脚本)。
+// 安全头单源(CR-51):静态面与代理面共用 app/lib/sec-headers.cjs。
 // frame-ancestors 'self' 防本地 SPA 被第三方 iframe 嵌入(clickjacking,2026-08-27 note)。
-const SEC_HEADERS = {
-  'Content-Security-Policy':
-    "default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'",
-  'X-Content-Type-Options': 'nosniff',
-  'Cache-Control': 'no-store', // 代理响应永不缓存(含 SSRF 判定后的敏感载荷)
-};
+const { SEC_HEADERS } = require('./sec-headers.cjs');
 
 /** R-27:代理「自身拒绝」的标记头。上游 LLM 的 401 也常用 `{error:"..."}` 形状,
  *  客户端只按 body 形状判别会把上游认证失败误标成「代理拒绝」并丢掉检查 API Key
@@ -593,16 +587,22 @@ async function handleWebSearch(req, res, _ddg = ddgSearcher) {
     res.writeHead(status, { 'Content-Type': 'application/json', ...SEC_HEADERS });
     res.end(JSON.stringify(obj));
   };
+  const timeoutTimer = setTimeout(
+    () => rejectSearch(Object.assign(new Error('搜索超时(20s)'), { timedOut: true })),
+    SEARCH_TIMEOUT_MS,
+  );
+  let rejectSearch;
+  const timeoutPromise = new Promise((_, reject) => {
+    rejectSearch = reject;
+  });
   try {
-    const results = await Promise.race([
-      _ddg(q),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(Object.assign(new Error('搜索超时(20s)'), { timedOut: true })), SEARCH_TIMEOUT_MS),
-      ),
-    ]);
+    const results = await Promise.race([_ddg(q), timeoutPromise]);
     send(200, { results });
   } catch (err) {
     send(err?.timedOut ? 504 : 502, { error: `web 搜索失败:${String(err?.message ?? err)}` });
+  } finally {
+    // CR-52:定时器必须清——旧实现 race 胜出后仍存活 20s(高频调用堆积)
+    clearTimeout(timeoutTimer);
   }
 }
 
@@ -703,10 +703,14 @@ async function handleBillionsProxy(req, res, _fetch = fetch) {
   try {
     // 固定 host + path 白名单(非白名单路径 → 403;畸形 URL → 400 不崩进程)
     let path;
+    let query = '';
     try {
       // 挂载点前缀剥离(server.mjs/metro 以 req.url.startsWith('/billions-proxy')
       // 路由,handler 收到的 url 含此前缀;真实目标 path 在其后)
-      path = new URL(req.url, 'http://x').pathname.replace(/^\/billions-proxy/, '') || '/';
+      const parsed = new URL(req.url, 'http://x');
+      path = parsed.pathname.replace(/^\/billions-proxy/, '') || '/';
+      // CR-54:客户端拼了 url.search;旧实现只取 pathname 会静默丢参数
+      query = parsed.search;
     } catch {
       res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
       res.end(JSON.stringify({ error: '非法请求 URL' }));
@@ -737,7 +741,7 @@ async function handleBillionsProxy(req, res, _fetch = fetch) {
         forwardHeaders[name] = value;
       }
     }
-    const upstream = await _fetch(`${BILLIONS_TARGET_ORIGIN}${path}`, {
+    const upstream = await _fetch(`${BILLIONS_TARGET_ORIGIN}${path}${query}`, {
       method: 'POST',
       headers: forwardHeaders,
       body,
@@ -760,6 +764,7 @@ async function handleBillionsProxy(req, res, _fetch = fetch) {
 }
 
 module.exports = {
+  SEC_HEADERS,
   handleLlmProxy,
   handleTdxCollect,
   handleYahooCollect,
