@@ -79,8 +79,9 @@ no-op,图不中断,对齐 `safeProgress`)。
 ## 同源代理(app/lib/proxies.cjs + logs-server.cjs)
 
 dev(metro 中间件)与生产(server.mjs)共用**单份**实现(收敛防漂移)。路由:
-`/llm-proxy`(LLM 转发)、`/tdx-collect`(采集)、`/web-search`(搜索)、
-`/logs`(日志汇聚,lib/logs-server.cjs)。
+`/llm-proxy`(LLM 转发)、`/tdx-collect`(TDX 采集)、`/yahoo-collect`(港股/美股采集)、
+`/web-search`(搜索)、`/tdx-mcp`(通达信 MCP 固定上游)、`/billions-proxy`(亿信
+path 白名单)、`/logs`(日志汇聚,lib/logs-server.cjs)。
 
 **SSE 透传**(流式必需):`handleLlmProxy` 必须 pipe `upstream.body` 分块转发,
 **禁止 `await upstream.text()` 整体缓冲**(否则浏览器一次性收到 SSE,无实时性)。

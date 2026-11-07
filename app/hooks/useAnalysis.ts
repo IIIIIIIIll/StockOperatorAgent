@@ -34,6 +34,7 @@ import {
 } from '../lib/runner';
 import { selectCollector } from '../lib/collectorSelection';
 import { createFileRunArchive, createIdbRunArchive } from '../lib/runArchive';
+import { createGraceStopper, type GraceStopper } from '../lib/keepAliveGrace';
 import { detectPlatform, info, warn, error as logError } from '../../src/log.ts';
 import { AnalysisController, type ControllerPlatform, type AnalysisSnapshot, type ViewingRunMarker } from '../lib/analysisController';
 import type { RunSummary } from '../../src/runHistory.ts';
@@ -86,43 +87,27 @@ export function useAnalysis(): UseAnalysis {
     () => (CONTROLLER_PLATFORM === 'web' ? createIdbRunArchive() : createFileRunArchive()),
     [],
   );
-  // 锁屏期间运行结束不能立即 stopForegroundService:进程会从 foreground 掉回
-  // cached 桶,被 Doze/厂商冻结器抓住 → 回到前台只剩最后一帧、点不动也不 ANR。
-  // 改为「推迟到下次 active 再停」;回到前台时顺手补一次广播。
-  const pendingStopRef = React.useRef(false);
-  const graceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // CR-49:90s 宽限状态机抽到 app/lib/keepAliveGrace.ts(纯 TS 可单测)。
+  const stopperRef = React.useRef<GraceStopper | null>(null);
   const hardStopKeepAlive = React.useCallback(() => {
-    if (graceTimerRef.current !== null) {
-      clearTimeout(graceTimerRef.current);
-      graceTimerRef.current = null;
-    }
-    pendingStopRef.current = false;
+    stopperRef.current?.cancel();
     stopAnalysisKeepAlive();
   }, []);
+  if (stopperRef.current === null) {
+    stopperRef.current = createGraceStopper({
+      isActive: () => AppState.currentState === 'active',
+      hardStop: () => hardStopKeepAlive(),
+    });
+  }
   const stopKeepAliveDeferred = React.useCallback(() => {
-    if (AppState.currentState === 'active') {
-      hardStopKeepAlive();
-      return;
-    }
-    pendingStopRef.current = true;
-    // 90s 宽限上限:用户拖到分析结束而不再回前台时,前台服务/唤醒锁不能无限期
-    // 挂着(Android 15 dataSync 有 6h/24h 上限,Play Vitals 也会判「卡住的唤醒锁」)
-    if (graceTimerRef.current !== null) return;
-    graceTimerRef.current = setTimeout(() => {
-      graceTimerRef.current = null;
-      if (!pendingStopRef.current) return;
-      hardStopKeepAlive();
-    }, 90_000);
-  }, [hardStopKeepAlive]);
+    stopperRef.current?.defer();
+  }, []);
 
-  // R-35:卸载时清掉 90s 宽限定时器 —— 否则组件已卸载仍可能在 90s 后触发
+  // R-35:卸载时取消 90s 宽限定时器 —— 否则组件已卸载仍可能在 90s 后触发
   // stopKeepAlive(定时器持有 ref、不随组件消失)。
   React.useEffect(
     () => () => {
-      if (graceTimerRef.current !== null) {
-        clearTimeout(graceTimerRef.current);
-        graceTimerRef.current = null;
-      }
+      stopperRef.current?.cancel();
     },
     [],
   );
@@ -206,7 +191,7 @@ export function useAnalysis(): UseAnalysis {
   React.useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       if (next !== 'active') return;
-      if (pendingStopRef.current) hardStopKeepAlive();
+      if (stopperRef.current?.pending) hardStopKeepAlive();
       ctrl.refresh();
     });
     return () => sub.remove();

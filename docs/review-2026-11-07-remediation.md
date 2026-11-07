@@ -36,29 +36,29 @@
 
 ## B4 · 构建 / CI / 工具 / 许可证
 
-- [ ] CR-04+40 提交内联 tsconfig + desktop build 恢复步骤
-- [ ] CR-41 probe 失败退出码 + 清旧报告
-- [ ] CR-42 6→5 mutator 文档
-- [ ] CR-43 release workflow 加测试 job
-- [ ] CR-44 README Node 版本
-- [ ] CR-55 发布脚本密钥暂存硬化
-- [ ] CR-56 签名缺失守卫
-- [ ] CR-57 镜像决策记录
-- [ ] CR-58 许可证统一 GPL-3.0-or-later
+- [x] CR-04+40 提交内联 tsconfig + desktop build 恢复步骤
+- [x] CR-41 probe 失败退出码 + 清旧报告
+- [x] CR-42 6→5 mutator 文档
+- [x] CR-43 release workflow 加测试 job
+- [x] CR-44 README Node 版本
+- [x] CR-55 发布脚本密钥暂存硬化
+- [x] CR-56 签名缺失守卫
+- [x] CR-57 镜像决策记录
+- [x] CR-58 许可证统一 GPL-3.0-or-later
 
 ## B5 · 图表 / spec / 测试规范 / 隐私文本
 
-- [ ] CR-33 财务图 spec 折线→柱状
-- [ ] CR-34 涨跌幅图例色/同名 chip
-- [ ] CR-32 StoreLike 10 方法 + 悬空注释
-- [ ] CR-45 架构断言 7→8
-- [ ] CR-46 代理路由表补全
-- [ ] CR-47 `LAST_RUN_KEY` 钉死
-- [ ] CR-48 架构断言 2 正则
-- [ ] CR-49 useAnalysis 胶水测试
-- [ ] CR-50 测试 env 还原
-- [ ] CR-60 隐私政策补 Yahoo/Finnhub
-- [ ] CR-62 隐私政策日志条件说明
+- [x] CR-33 财务图 spec 折线→柱状
+- [x] CR-34 涨跌幅图例色/同名 chip
+- [x] CR-32 StoreLike 10 方法 + 悬空注释
+- [x] CR-45 架构断言 7→8
+- [x] CR-46 代理路由表补全
+- [x] CR-47 `LAST_RUN_KEY` 钉死
+- [x] CR-48 架构断言 2 正则
+- [x] CR-49 useAnalysis 胶水测试
+- [x] CR-50 测试 env 还原
+- [x] CR-60 隐私政策补 Yahoo/Finnhub
+- [x] CR-62 隐私政策日志条件说明
 
 ## B6 · 其余加固
 

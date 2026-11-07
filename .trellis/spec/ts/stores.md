@@ -1,5 +1,5 @@
 ---
-description: 存储契约与持久化(StoreLike 11 方法、四族实现、写穿队列、上次分析缓存、分析历史归档、meta 键单源、runner 启动链)
+description: 存储契约与持久化(StoreLike 10 方法、四族实现、写穿队列、上次分析缓存、分析历史归档、meta 键单源、runner 启动链)
 paths:
   - src/store.ts
   - src/store-idb.ts
@@ -82,7 +82,8 @@ Tab/最终决策/采集数据 ticker 与股票信息/角色 chips(经理角色�
 - `app/lib/runArchive.ts` 三后端:`createIdbRunArchive`(web/桌面渲染进程,
   `soa-runs` DB:正文 `runs` + 摘要 `summaries` 两个 store)、
   `createFileRunArchive`(RN,`soa-runs/` 目录:正文 `<id>.json` + `index.json`
-  摘要;tmp + 原子替换;索引损坏从正文重建)、`createMemoryRunArchive`(测试)。
+  摘要;tmp + 原子替换;索引损坏或少于正文数从正文重建)。内存后端实体在
+  `test/fixtures/memoryRunArchive.ts`(R-18 已迁出生产文件)。
   `list` 只读摘要,正文 `load` 按需 → 不限条数也不拖启动。
 - 接线:`analysisController.recordRun`(done 落档;失败只 log + 抽屉错误)、
   `refreshHistory/openRun/closeRun/deleteRuns/clearHistory`;`openRun` 暂存实时态

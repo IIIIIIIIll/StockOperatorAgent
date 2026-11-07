@@ -11,6 +11,7 @@ import {
   f10Key,
   RUN_HISTORY_MIGRATED_KEY,
 } from '../src/metaKeys.ts';
+import { LAST_RUN_KEY } from '../src/lastRun.ts';
 import { BILLIONS_DEFAULT_MAX } from '../src/billionsTools.ts';
 import { defaultSettings } from '../app/lib/settings.ts';
 
@@ -32,6 +33,11 @@ describe('metaKeys 键模板工厂', () => {
   // R-34:改名会让「已清空的历史」在下次启动被重新迁移一遍。
   it('RUN_HISTORY_MIGRATED_KEY 钉死 wire 格式 soa:runs-migrated', () => {
     expect(RUN_HISTORY_MIGRATED_KEY).toBe('soa:runs-migrated');
+  });
+
+  // CR-47:跨会话键改名会让「上次分析恢复」与首次迁移静默失效(全量测试仍绿)。
+  it('LAST_RUN_KEY 钉死 wire 格式 soa:last-run', () => {
+    expect(LAST_RUN_KEY).toBe('soa:last-run');
   });
 });
 

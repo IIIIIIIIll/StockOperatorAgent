@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { AIMessage } from '@langchain/core/messages';
 import { Store, type DailyBar } from '../src/store.ts';
@@ -12,6 +12,15 @@ beforeEach(() => {
   process.env.WEB_SEARCH_DISABLED = '1';
   delete process.env.BILLIONS_API_KEY;
   setCapabilitySwitches(fromEnv()); // env 修改后配置面反推同步(agents.test 同款)
+});
+
+// CR-50:testing.md 要求每个测试文件还原 env/全局开关——vitest 默认每文件隔离
+// 掩盖了泄漏;关隔离或合并文件后 WEB_SEARCH_DISABLED='1' 会漏给后续用例,
+// 联网搜索路径静默走回退仍全绿(false pass)。
+afterEach(() => {
+  delete process.env.WEB_SEARCH_DISABLED;
+  delete process.env.BILLIONS_API_KEY;
+  setCapabilitySwitches(fromEnv());
 });
 
 const fixtureRaw = JSON.parse(fs.readFileSync('test/fixtures/600036_daily.json', 'utf8')).raw as DailyBar[];

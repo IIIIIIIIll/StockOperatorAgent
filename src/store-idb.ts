@@ -249,7 +249,7 @@ export class IdbStore implements StoreLike {
   }
 
   /** 关闭仓储:先排空写穿队列(所有 pending 写落盘)再清内存镜像、释放连接,不丢写。
-   *  接口契约为同步 close(): void(StoreLike 11 同步方法),无法在 close 内 await
+   *  接口契约为同步 close(): void(StoreLike 10 同步方法),无法在 close 内 await
    *  队列——实现:本方法同步置 closed(阻止后续 enqueue,close 后不再排队/落盘),
    *  并把「等待队列排空 → 清内存 + 关连接」挂到队列尾:队列尾任务按序排在前序
    *  pending 写之后执行,等效于先 flush 后清理。队列可由 flush() 观察排空时机。 */

@@ -44,7 +44,7 @@ const LEGEND: Array<{ title: string; series: LegendSeries[] }> = [
     { label: 'BOLL', color: C.green },
   ] },
   { title: '成交量', series: [{ label: 'VOL_MA5', color: C.sky }] },
-  { title: '涨跌幅', series: [{ label: '涨跌幅', color: C.green }] },
+  { title: '涨跌幅', series: [] }, // CR-34:柱逐点红/绿,不挂固定色 chip(标题已表达)
   { title: 'MACD', series: [
     { label: 'DIF', color: C.amber }, { label: 'DEA', color: C.sky }, { label: 'MACD 柱', color: C.amber },
   ] },

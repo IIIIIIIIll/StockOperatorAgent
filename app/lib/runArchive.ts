@@ -374,5 +374,3 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
     },
   };
 }
-
-/** 生产后端选择(web/桌面 → IndexedDB;RN → 文件)。调用方按 Platform 传参。 */

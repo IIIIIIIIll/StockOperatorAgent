@@ -34,18 +34,18 @@ paths:
   契约,平台中立)。
 - `desktop/` — Electron 壳(main.mjs/preload.cjs/child.mjs,独立 package)。
 - `tools/*.mts` — Node 探针/构建脚本;`test/*.test.ts` — vitest 套件(含
-  architecture.test.ts 七条架构断言)。
+  architecture.test.ts 八条架构断言)。
 
 ## 开发前检查(动 TS 层代码前)
 
-1. 改 src 模块 → 不违反 `test/architecture.test.ts` 七条断言(下表)。
+1. 改 src 模块 → 不违反 `test/architecture.test.ts` 八条断言(下表)。
 2. 新增日志调用 → 一律经 `src/log.ts`(全端统一出口,禁第二出口)。
 3. 新增 meta 键/演示 ticker → 进 `src/metaKeys.ts` 单源,禁裸字面量。
 4. 读 env → 经 `src/env.ts` `envValue`;写 env → 禁止;EXPO_PUBLIC_* 仅直接成员访问。
 5. 平台判定 → `src/log.ts` `detectPlatform()`,不手写 typeof 链。
 6. 涉及图表/采集/桌面/CI → 先读对应主题文件(路由表)。
 
-## 架构断言(test/architecture.test.ts,7 条)
+## 架构断言(test/architecture.test.ts,8 条)
 
 | # | 契约 | 白名单 |
 |---|------|--------|
@@ -56,6 +56,7 @@ paths:
 | 5 | src+app 禁 meta 键裸字面量 | metaKeys.ts + app/data/demo.json |
 | 6 | process.env 零写入;读取仅 env.ts + EXPO_PUBLIC_* 直读 | env.ts + 直读白名单 |
 | 7 | app 禁 lib/log 相对 import 回潮 | 无(日志统一 src/log.ts) |
+| 8 | Android release bundle 的 node 内建垫依赖在根 package.json 显式声明 | 根 package.json |
 
 ## 主题文件路由
 

@@ -141,7 +141,7 @@ describe('契约 2:src 无 react-native import(平台纯净)', () => {
   it('src/**/*.ts 禁 from/react-native', () => {
     const violations = scan(
       SRC_TS,
-      (t) => /(?:from\s*|require\(\s*|import\(\s*)['"]react-native['"]/.test(t),
+      (t) => /(?:from\s*|require\(\s*|import\(\s*)['"]react-native(\/|['"])/.test(t),
     );
     expect(violations, 'react-native import 只允许出现在 app/(RN 专属层)').toEqual([]);
   });

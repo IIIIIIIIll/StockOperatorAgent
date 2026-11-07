@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AIMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages';
 import { ROLES, buildEdges, buildNodeNames, enabledRoles, informationAnalystEnabled, makeInvestmentCommittee, type CommitteeDeps } from '../src/committee.ts';
 import type { BillionsClient, SearchOptions } from '../src/billionsClient.ts';
@@ -130,6 +130,15 @@ describe('committee graph (AC1/AC2)', () => {
     // 经理读修订版（[-1]）——终审内容引用修订版
     expect(final.final_decision).toBe('FINAL_REPORT');
   });
+});
+
+// CR-50:testing.md 要求每个测试文件还原 env/全局开关——vitest 默认每文件隔离
+// 掩盖了泄漏;关隔离或合并文件后 WEB_SEARCH_DISABLED='1' 会漏给后续用例,
+// 联网搜索路径静默走回退仍全绿(false pass)。
+afterEach(() => {
+  delete process.env.WEB_SEARCH_DISABLED;
+  delete process.env.BILLIONS_API_KEY;
+  setCapabilitySwitches(fromEnv());
 });
 
 describe('informationAnalystEnabled 谓词（契约公式:ANALYST 且(SEARCH|TWITTER|web)）', () => {
