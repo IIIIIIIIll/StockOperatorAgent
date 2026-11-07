@@ -3,8 +3,8 @@
   1. 本政策需托管在活跃 URL 上(例如 GitHub Pages 或任意静态托管),并在 Play Console
      "App content → Privacy Policy" 填入该 URL。
   2. 若应用申请敏感权限/数据或面向儿童,还需在应用内提供隐私政策链接。
-     当前应用不申请任何 Android 权限(无通知/前台服务/敏感权限);
-     应用内链接属后续任务,如需可另开任务添加。
+     当前应用声明了网络、前台服务（数据同步）、通知、唤醒锁等权限
+     （逐条用途见正文第 5 节）；应用内链接属后续任务,如需可另开任务添加。
   3. 如发布英文商店页,建议同步提供英文版政策。
 -->
 # 隐私政策
@@ -90,11 +90,21 @@
 
 ## 5. 权限说明
 
-Android 版**不申请任何 Android 权限**:应用清单未声明 `android.permissions`,
-也不包含通知(POST_NOTIFICATIONS)、前台服务(FOREGROUND_SERVICE /
-FOREGROUND_SERVICE_DATA_SYNC)、定位、通讯录、短信、通话、相机、麦克风等
-任何权限声明。本应用的全部功能(AI 分析、行情采集、本地存储与日志)均在不
-申请任何特殊权限的前提下运行。
+Android 版在清单中声明以下权限，均有明确用途（**未申请**定位、通讯录、短信、
+通话、相机、麦克风等权限）：
+
+| 权限 | 用途 |
+|------|------|
+| `INTERNET` | 获取行情、调用您配置的 LLM / 数据服务、同源代理与日志上报 |
+| `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE`（仅 Android 12L 及以下） | 导入 / 导出本地数据文件 |
+| `POST_NOTIFICATIONS` | 分析进行中在通知栏显示常驻进度（可拒绝，不影响分析本身） |
+| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC` | 长任务期间以前台服务保活，避免系统休眠中断分析 |
+| `WAKE_LOCK` | 前台服务期间保持 CPU 唤醒，防止锁屏后行情流 / LLM 流中断 |
+| `VIBRATE` | 系统模板默认声明；当前版本未调用振动 API |
+| `SYSTEM_ALERT_WINDOW` | Expo 模板为开发调试浮层声明；应用运行时不使用悬浮窗功能 |
+
+以上权限不用于广告、用户画像，也不与第三方共享。分析结束或取消后，前台服务
+与唤醒锁立即释放；通知随之移除。
 
 ---
 

@@ -283,6 +283,13 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
     // M2:逐跳重定向处理 —— location 解析 → 新 host 重新解析+公网校验 → 手动跟随;
     // 目标私网/非法 location/非 http(s)/超 5 跳 → 拒发。
     const REDIRECT_CODES = new Set([301, 302, 303, 307, 308]);
+    // CR-08:Authorization 只属于用户配置的 base origin。WHATWG fetch 自动跟随
+    // 跨源重定向时会删该头;本实现 redirect:'manual' 手动跟随,必须显式剥离,
+    // 否则上游 302 跳到任意公网 host 就会拿到用户的 LLM key。
+    const crossOriginOpts = {
+      ...forwardOpts,
+      headers: { ...forwardOpts.headers, Authorization: '' },
+    };
     // M2 补漏(2026-08-27 实证):断链路径(缺 Location/超 5 跳/Location 非法/非
     // http(s))此前 break 后照常透传无 Location 的 3xx,再 pipe 已 cancel 的
     // upstream.body 抛错 → res.destroy() 半截响应,浏览器拿不到承诺的 502 JSON。
@@ -323,7 +330,7 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
       }
       target = next.href;
       hops += 1;
-      upstream = await _fetch(target, forwardOpts);
+      upstream = await _fetch(target, next.origin === baseUrl.origin ? forwardOpts : crossOriginOpts);
     }
     res.writeHead(upstream.status, {
       'Content-Type': upstream.headers.get('content-type') || 'application/json',

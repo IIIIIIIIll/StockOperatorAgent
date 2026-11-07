@@ -12,6 +12,8 @@
     },
     "android": {
       "package": "com.stockoperatoragent.app",
+      "versionCode": 2,
+      "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#D32F2F",
         "foregroundImage": "./assets/android-icon-foreground.png",

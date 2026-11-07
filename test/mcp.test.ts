@@ -402,6 +402,31 @@ describe('makeProxyMcpFetch（F2 同源代理 fetch）', () => {
     }
   });
 
+  it('S6:远程模式设 EXPO_PUBLIC_SOA_ACCESS_TOKEN → 带 x-soa-token(不污染白名单头)', async () => {
+    const original = globalThis.fetch;
+    const captured: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      captured.push({ url: String(url), init });
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const prev = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'soa-token-1';
+    try {
+      await makeProxyMcpFetch('https://app.example.com')('https://unused.example/mcp', {
+        method: 'POST',
+        headers: { 'tdx-api-key': 'k', 'content-type': 'application/json' },
+      });
+      const headers = (captured[0].init?.headers ?? {}) as Record<string, string>;
+      expect(headers['x-soa-token']).toBe('soa-token-1');
+      expect(headers['tdx-api-key']).toBe('k');
+      expect(headers['authorization']).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = prev;
+      globalThis.fetch = original;
+    }
+  });
+
   it('平台无关：不读 window/location（Node 环境直接可用）', () => {
     const proxyFetch = makeProxyMcpFetch('http://mcp.local');
     expect(typeof proxyFetch).toBe('function');

@@ -316,4 +316,30 @@ describe('makeProxyBillionsFetch(F5 web 亿信 CORS 同源代理)', () => {
       globalThis.fetch = orig;
     }
   });
+
+  it('S6:远程模式设 EXPO_PUBLIC_SOA_ACCESS_TOKEN → 带 x-soa-token', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    const prev = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = 'soa-token-2';
+    try {
+      const proxied = makeProxyBillionsFetch('https://app.example.com');
+      await proxied('https://openapi.billionsintelligence.com/v1/fin_db', {
+        method: 'POST',
+        headers: { 'x-api-key': 'k123', 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const h = calls[0].init?.headers as Record<string, string>;
+      expect(h['x-soa-token']).toBe('soa-token-2');
+      expect(h['x-api-key']).toBe('k123');
+    } finally {
+      if (prev === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+      else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = prev;
+      globalThis.fetch = orig;
+    }
+  });
 });

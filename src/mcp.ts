@@ -210,6 +210,12 @@ export function makeProxyMcpFetch(base: string): typeof fetch {
     new Headers(init?.headers).forEach((v, k) => {
       if (Object.hasOwn(FORWARD, k.toLowerCase())) headers[k] = v;
     });
+    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
+    // 与 webCollect/llm 同款直接成员访问(EXPO_PUBLIC_* 内联契约);未设 → 不带头
+    // (回环监听/桌面随机端口无需 token)。该头只发给同源 server,随后由服务端
+    // 按 TDX_MCP_FORWARD_HEADERS 过滤,不会转发给通达信上游。
+    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    if (soaToken) headers['x-soa-token'] = soaToken;
     return fetch(`${base}/tdx-mcp`, { ...init, headers });
   };
 }

@@ -300,17 +300,19 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     expect(targets).toHaveLength(1); // 未跟随到内网
   });
 
-  it('M2:3xx → redirect:manual + 公网目标手动跟随(单跳,302 → 200)', async () => {
+  it('M2:3xx → redirect:manual + 公网目标手动跟随(单跳,302 → 200);跨 origin 剥离 Authorization', async () => {
     const res = fakeRes();
     const redirects: Array<string | undefined> = [];
+    const auths: Array<string | undefined> = [];
     let calls = 0;
     await handleLlmProxy(
-      fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' })),
+      fakeReq(JSON.stringify({ base: 'https://8.8.8.8/v1', model: 'm' }), { authorization: 'Bearer secret-key' }),
       res,
       async (_url: string, init?: unknown) => {
         calls += 1;
-        const initObj = init as { redirect?: string } | undefined;
+        const initObj = init as { redirect?: string; headers?: Record<string, string> } | undefined;
         redirects.push(initObj?.redirect);
+        auths.push(initObj?.headers?.Authorization);
         if (calls === 1) {
           return {
             status: 302,
@@ -324,6 +326,8 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     expect(res.calls[0].status).toBe(200);
     expect(calls).toBe(2);
     expect(redirects).toEqual(['manual', 'manual']); // 每跳都禁自动跟随
+    // CR-08:首跳带用户 key,跨 origin 跳转必须剥离(否则 key 落到未配置的第三方)
+    expect(auths).toEqual(['Bearer secret-key', '']);
   });
 
   it('M2 补漏:重定向断链(缺 Location/Location 非法/非 http(s))→ 502 JSON,不透传 3xx', async () => {

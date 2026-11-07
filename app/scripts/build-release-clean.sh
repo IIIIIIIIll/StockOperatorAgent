@@ -19,6 +19,24 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source ~/.soa-android-env.sh
 
+# CR-05:android/ 是 expo prebuild 产物。版本必须与 app.json 对齐,否则产物
+# versionName/versionCode 与分发文件名、Play 上传记录三者错位(本地链路曾停在
+# 0.1.5/1 而 app.json 已是 0.1.9)。缺字段/不一致一律失败,不静默出包。
+VERSION=$(python3 -c "import json; print(json.load(open('app.json'))['expo']['version'])")
+VERSION_CODE=$(python3 -c "import json; d=json.load(open('app.json'))['expo']; print(d.get('android',{}).get('versionCode', ''))")
+GRADLE_FILE=android/app/build.gradle
+if [ ! -f "$GRADLE_FILE" ]; then
+  echo "FAIL: 缺 $GRADLE_FILE;先运行 npx expo prebuild --platform android --no-install" >&2
+  exit 1
+fi
+GRADLE_NAME=$(sed -n 's/.*versionName "\([^"]*\)".*/\1/p' "$GRADLE_FILE" | head -1)
+GRADLE_CODE=$(sed -n 's/.*versionCode \([0-9][0-9]*\).*/\1/p' "$GRADLE_FILE" | head -1)
+if [ -z "$VERSION_CODE" ] || [ "$GRADLE_NAME" != "$VERSION" ] || [ "$GRADLE_CODE" != "$VERSION_CODE" ]; then
+  echo "FAIL: android 版本与 app.json 不一致(app.json=$VERSION/$VERSION_CODE, gradle=$GRADLE_NAME/$GRADLE_CODE)" >&2
+  echo "      先运行 npx expo prebuild --platform android --no-install 再发布" >&2
+  exit 1
+fi
+
 BACKUP=$(mktemp /tmp/soa-env-backup.XXXXXX)
 cp .env "$BACKUP"
 restore() { cp "$BACKUP" .env; rm -f "$BACKUP"; }
@@ -60,7 +78,6 @@ PY
 echo "release APK: android/app/build/outputs/apk/release/app-release.apk"
 
 # 分发副本:友好文件名(带版本号),放 dist/(gitignored)
-VERSION=$(python3 -c "import json; print(json.load(open('app.json'))['expo']['version'])")
 mkdir -p dist
 cp android/app/build/outputs/apk/release/app-release.apk "dist/做个好人AI股票分析系统-v${VERSION}.apk"
 echo "dist APK:    dist/做个好人AI股票分析系统-v${VERSION}.apk"
