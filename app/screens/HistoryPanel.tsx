@@ -112,38 +112,55 @@ export default React.memo(function HistoryPanel({
                 const active = r.id === viewingId;
                 const checked = selected.includes(r.id);
                 return (
-                  <Pressable
-                    key={r.id}
-                    onPress={() => onRowPress(r)}
-                    style={[
-                      styles.row,
-                      active && styles.rowActive,
-                      checked && styles.rowChecked,
-                      running && !selectMode && styles.rowDisabled,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${r.ticker} ${formatRunClock(r.at)} ${r.decisionPreview}`}
-                    accessibilityState={{ selected: active }}
-                  >
-                    <View style={styles.rowBody}>
-                      <View style={styles.rowTop}>
-                        <Text style={styles.ticker}>{r.ticker}</Text>
-                        <Text style={styles.time}>{formatRunClock(r.at)}</Text>
-                        <Text style={[styles.modeChip, r.mode === 'demo' && styles.modeChipDemo]}>
-                          {r.mode === 'real' ? '真实' : '演示'}
+                  <View key={r.id} style={styles.rowWrap}>
+                    <Pressable
+                      onPress={() => onRowPress(r)}
+                      style={[
+                        styles.row,
+                        active && styles.rowActive,
+                        checked && styles.rowChecked,
+                        running && !selectMode && styles.rowDisabled,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${r.ticker} ${formatRunClock(r.at)} ${r.decisionPreview}`}
+                      accessibilityState={{ selected: active }}
+                    >
+                      <View style={styles.rowBody}>
+                        <View style={styles.rowTop}>
+                          <Text style={styles.ticker}>{r.ticker}</Text>
+                          <Text style={styles.time}>{formatRunClock(r.at)}</Text>
+                          <Text style={[styles.modeChip, r.mode === 'demo' && styles.modeChipDemo]}>
+                            {r.mode === 'real' ? '真实' : '演示'}
+                          </Text>
+                          {active ? <Text style={styles.viewingTag}>查看中</Text> : null}
+                        </View>
+                        <Text style={styles.preview} numberOfLines={1}>
+                          {r.decisionPreview || '(无结论)'}
                         </Text>
-                        {active ? <Text style={styles.viewingTag}>查看中</Text> : null}
                       </View>
-                      <Text style={styles.preview} numberOfLines={1}>
-                        {r.decisionPreview || '(无结论)'}
-                      </Text>
-                    </View>
-                    {selectMode ? (
-                      <Text style={[styles.check, checked && styles.checkOn]}>{checked ? '☑' : '☐'}</Text>
-                    ) : (
-                      <Text style={styles.chevron}>›</Text>
-                    )}
-                  </Pressable>
+                      {selectMode ? (
+                        <Text style={[styles.check, checked && styles.checkOn]}>{checked ? '☑' : '☐'}</Text>
+                      ) : (
+                        <Text style={styles.chevron}>›</Text>
+                      )}
+                    </Pressable>
+                  {
+                    // R-05(PRD R6):行内单条删除 —— 单条不需要二次确认(确认只给
+                    // 批量/清空全部)。放在 Pressable 外当兄弟节点,避开嵌套点击
+                    // 在 RN-web 上冒泡到整行。
+                    !selectMode ? (
+                      <Pressable
+                        onPress={() => onDelete([r.id])}
+                        style={styles.rowDelete}
+                        accessibilityRole="button"
+                        accessibilityLabel={`删除 ${r.ticker} 这条历史`}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.rowDeleteText}>✕</Text>
+                      </Pressable>
+                    ) : null
+                  }
+                  </View>
                 );
               })}
             </View>
@@ -165,19 +182,19 @@ export default React.memo(function HistoryPanel({
                     accessibilityRole="button"
                   >
                     <Text style={styles.actionDangerText}>删除选中({selected.length})</Text>
-                  </Pressable>
+                    </Pressable>
                   <Pressable style={styles.action} onPress={exitSelect} accessibilityRole="button">
                     <Text style={styles.actionText}>取消</Text>
-                  </Pressable>
+                    </Pressable>
                 </>
               ) : (
                 <>
                   <Pressable style={styles.action} onPress={() => setSelectMode(true)} accessibilityRole="button">
                     <Text style={styles.actionText}>编辑</Text>
-                  </Pressable>
+                    </Pressable>
                   <Pressable style={styles.action} onPress={() => setConfirm('clear')} accessibilityRole="button">
                     <Text style={styles.actionDangerText}>清空全部</Text>
-                  </Pressable>
+                    </Pressable>
                 </>
               )}
             </View>
@@ -229,7 +246,10 @@ function makeStyles(theme: Theme) {
     list: { flex: 1 },
     listContent: { paddingVertical: theme.spacing.sm },
     groupLabel: { fontSize: 11, fontWeight: '700', color: theme.colors.textSecondary, paddingHorizontal: theme.spacing.md, paddingTop: theme.spacing.sm, paddingBottom: 4 },
-    row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: 8, borderLeftWidth: 3, borderLeftColor: 'transparent' },
+    row: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: 8, borderLeftWidth: 3, borderLeftColor: 'transparent' },
+    rowWrap: { flexDirection: 'row', alignItems: 'center' },
+    rowDelete: { paddingHorizontal: theme.spacing.sm, paddingVertical: 8 },
+    rowDeleteText: { fontSize: 15, color: theme.colors.textSecondary },
     rowActive: { backgroundColor: theme.colors.background, borderLeftColor: theme.colors.primary },
     rowChecked: { backgroundColor: theme.colors.background },
     rowDisabled: { opacity: 0.5 },

@@ -93,7 +93,7 @@ the run is persisted but disappears from the drawer and the ☰ badge until the 
 
 **Fix:** merge by id (`list` wins for shared ids, keep `s.history` entries absent from `list`).
 
-### [ ] R-04 · LLM 可达性检测绕过 `sanitizeLlmValue`
+### [x] R-04 · LLM 可达性检测绕过 `sanitizeLlmValue`
 
 - **Where:** `app/lib/settings.ts:214`, `:233` (and `:196` logs the raw model)
 - **Verified:** yes · **Axis:** Standards + Spec
@@ -107,7 +107,9 @@ Breaks `.trellis/spec/ts/env-switches.md:57` (四净化入口 must include `chec
 
 **Fix:** `const key = sanitizeLlmValue(keys.llmApiKey);` at both header sites; sanitise the model in the log.
 
-### [ ] R-05 · 历史行缺少行内单条删除(PRD R6 未实现)
+**Done** (`19ec735`): `key` / `model` sanitised once and reused at both `Authorization` sites, the `:196` log line and the payload; tests assert `Bearer sk-abc` plus zero NUL/DEL across URL, headers and body on **both** the proxy and direct paths (red without the fix).
+
+### [x] R-05 · 历史行缺少行内单条删除(PRD R6 未实现)
 
 - **Where:** `app/screens/HistoryPanel.tsx:119-150`
 - **Verified:** yes · **Axis:** Spec
@@ -118,6 +120,8 @@ Rows render only `›` (or a checkbox in 编辑 mode); `onDelete` is reachable o
 missing the specified affordance and over-guarding the case that needs no confirm.
 
 **Fix:** row-level `✕` in non-select mode → `onDelete([r.id])` directly.
+
+**Done:** `app/screens/HistoryPanel.tsx` — row wrapped in `styles.rowWrap`, `✕` rendered as a **sibling** of the row `Pressable` (not nested, so RN-web taps do not bubble into `onRowPress`), non-select mode only, no confirm. No automated coverage: the panel has no component tests in this repo.
 
 ### [ ] R-06 · IDB `remove()` 返回值不是实际删除数
 
