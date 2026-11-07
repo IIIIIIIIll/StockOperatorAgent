@@ -9,6 +9,12 @@
 // 失败一律上抛,由调用方(analysisController)记录 + 静默降级 —— 本层不吞错。
 import { error as logError } from '../../src/log.ts';
 import {
+  requestResult as idbRequestResult,
+  txDone as idbTxDone,
+  type IdbRequestLike,
+  type IdbTransactionLike,
+} from '../../src/idbUtil.ts';
+import {
   parseAnalysisRun,
   parseRunSummaries,
   sortSummaries,
@@ -51,19 +57,18 @@ function idbFactoryOf(): IDBFactory | undefined {
   }
 }
 
+// R-12:Promise 包装逻辑单源在 src/idbUtil.ts(与 store-idb.ts 共用);此处只把
+// DOM 的 IDBRequest/IDBTransaction 适配到平台中立的结构化类型面。
 function requestResult<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB request failed'));
-  });
+  // SAFETY: DOM IDBRequest<T> 与 Idb*Like<T> 结构等价(onsuccess/onerror/result/error
+  // 同名同形);ts/ 无 DOM lib,故只能经 unknown 桥接,不会丢失运行时行为。
+  return idbRequestResult(req as unknown as IdbRequestLike<T>);
 }
 
 function txDone(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction failed'));
-    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
-  });
+  // SAFETY: 同上 —— DOM IDBTransaction 与 IdbTransactionLike 只在事件名上对应
+  // (oncomplete/onerror/onabort)。
+  return idbTxDone(tx as unknown as IdbTransactionLike);
 }
 
 function openRunDb(factory: IDBFactory, dbName: string): Promise<IDBDatabase> {

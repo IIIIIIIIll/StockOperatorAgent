@@ -15,12 +15,18 @@
   "branch": null,
   "base_branch": "master",
   "worktree_path": null,
-  "commit": null,
+  "commit": "b02971e",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
-  "relatedFiles": [],
-  "notes": "",
+  "relatedFiles": [
+    "app/lib/proxies.cjs",
+    "app/lib/settings.ts",
+    "src/llm.ts",
+    "test/proxies.test.ts",
+    "test/settings-llm-classify.test.ts"
+  ],
+  "notes": "PRD 验收项全绿(731 passed / tsc 0 error);implement/check 清单于 2026-11-07 评审 R-31 补齐。",
   "meta": {}
 }

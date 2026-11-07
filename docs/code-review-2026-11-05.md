@@ -203,15 +203,15 @@ the fix).
 
 ### Structure & standards
 
-- [ ] **R-11** `app/App.tsx:281-347` — drawer state machine, menu rows and sub-page routing live in `App.tsx`. `.trellis/spec/ts/chart-ui.md:89-90`: 「后续 UI 逻辑(新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx」. Extract to `app/components/DrawerMenu.tsx`; keep only `☰` + `{open ? <DrawerMenu/> : null}`. *(verified)*
-- [ ] **R-12** `app/lib/runArchive.ts:85-113` — `requestResult` / `txDone` / `openRunDb` are near-verbatim copies of `src/store-idb.ts:83-110` (Duplicated Code; two IDB conventions will drift). Export from `store-idb.ts` and import.
+- [x] **R-11** `app/App.tsx:281-347` — drawer state machine, menu rows and sub-page routing live in `App.tsx`. `.trellis/spec/ts/chart-ui.md:89-90`: 「后续 UI 逻辑(新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx」. Extract to `app/components/DrawerMenu.tsx`; keep only `☰` + `{open ? <DrawerMenu/> : null}`. *(verified)* *(verified)* → **Done:** 状态机抽到 `app/hooks/useDrawer.ts`(spec 明写「hooks/ 或 components/」,视图样式仍留 App.tsx,零视觉改动风险);`App.tsx` 现在只消费 `drawer.page/isOpen/toggle/showMenu/…`。
+- [x] **R-12** `app/lib/runArchive.ts:85-113` — `requestResult` / `txDone` / `openRunDb` are near-verbatim copies of `src/store-idb.ts:83-110` (Duplicated Code; two IDB conventions will drift). Export from `store-idb.ts` and import. **Done:** 类型面 + `requestResult`/`txDone` 单源到新 `src/idbUtil.ts`(`store-idb.ts` re-export 保持既有路径);`runArchive.ts` 只留两行 DOM 类型适配。`openRunDb` 保留(两个 DB 的表结构不同,不是重复逻辑)。
 - [x] **R-13** `app/lib/analysisController.ts:737-738` — `${globalThis.location.origin}` is the only unguarded `location` read in `app/`; `app/lib/runner.ts:220-222` documents the guard house rule. Use `globalThis.location?.origin ?? ''` and return `undefined` when empty. *(verified)*
   - **Done:** `globalThis.location?.origin ? … : undefined` — 无 origin 时不传 proxyBase(不再抛)。
 - [x] **R-14** `app/hooks/useAnalysis.ts:80` — `Platform.OS === 'web'` is a second platform-detection source alongside `detectPlatform()` (`ts/index.md:41` rule 5). *(verified)*
   - **Done:** hook 顶部一个模块级 `CONTROLLER_PLATFORM = detectPlatform() === 'web' ? 'web' : 'rn'`,archive 选择与 collect 分派都读它;`Platform` 导入删除。
 - [x] **R-15** `app/lib/analysisController.ts:66` — `ControllerPlatform = 'web' | 'native'` invents a third vocabulary next to `src/log.ts:17` `Platform = 'web' | 'rn' | 'node'`. *(verified)*
   - **Done:** `export type ControllerPlatform = Extract<Platform, 'web' | 'rn'>`(`src/log.ts` 词表),调用方/test harness 由 `'native'` 改 `'rn'`。
-- [ ] **R-16** `.trellis/spec/ts/index.md:25-30` — the layer map omits `runArchive.ts`, `analysisController.ts`, `runHistory.ts`, all added by this change.
+- [x] **R-16** `.trellis/spec/ts/index.md:25-30` — the layer map omits `runArchive.ts`, `analysisController.ts`, `runHistory.ts`, all added by this change. **Done:** 层映射补上 `lib/analysisController.ts`、`lib/runArchive.ts`、`src/runHistory.ts`(以及测试夹具位置)。
 - [x] **R-17** `app/hooks/useAnalysis.ts:78-82` — comment claims 「模块级单例」 but the archive is built in `React.useMemo` = per mount. *(verified)*
 - [x] **R-18** `app/lib/runArchive.ts:42` — `createMemoryRunArchive` (test-only backend) ships in a production module; `testing.md` lists test-only branches as an anti-pattern.
   - **Done:** 移到 `test/fixtures/memoryRunArchive.ts`,四个测试文件改 import;生产模块不再有测试专用后端。
@@ -246,14 +246,14 @@ the fix).
 
 ### Unspecced commit `6638d15` (☰ drawer)
 
-- [ ] **R-28** Drops the 右上角「历史」 entry point, contradicting archived PRD 「**入口**:右上角独立按钮」 with no amendment note. No automated coverage of drawer navigation. *(verified: entry removed)*
+- [x] **R-28** Drops the 右上角「历史」 entry point, contradicting archived PRD 「**入口**:右上角独立按钮」 with no amendment note. No automated coverage of drawer navigation. *(verified: entry removed)* **Done:** 归档 PRD 补「变更(2026-11-05,`6638d15`)」备注,明确入口已改为 ☰ 抽屉;抽屉导航自动化覆盖仍缺(无组件测试基建),如实记录。
 - [x] **R-29** Dead style `sidebarTab` at `app/App.tsx:504` (zero usages) and stale copy: `App.tsx:92` 「在侧边栏「LLM(大模型)」填写后保存」, `:2-3`, `:474-475` 「右侧历史按钮」. *(verified)*
   - **Done:** 三个零引用 `sidebarTab*` 样式删除;`:92` 文案改「☰ → 设置 →「LLM(大模型)」」,`:474` 注释改「☰ 按钮」。
 
 ### Task artifacts
 
-- [ ] **R-30** `.trellis/spec/ts/env-switches.md:55` cites task `11-04-llm-url-nul`, which does not exist under `.trellis/tasks/archive/2026-11/` — the NUL-sanitise half of `b02971e` ships with no PRD.
-- [ ] **R-31** `.trellis/tasks/archive/2026-11/11-04-fakeip-proxy-fix/` — `implement.jsonl` and `check.jsonl` are still the `{"_example": …}` template; `task.json` has `"commit": null`, `"relatedFiles": []`. A `completed` task with no implement/check record, so the PRD's 「731 passed / tsc 0 error」 has no artifact.
+- [x] **R-30** `.trellis/spec/ts/env-switches.md:55` cites task `11-04-llm-url-nul`, which does not exist under `.trellis/tasks/archive/2026-11/` — the NUL-sanitise half of `b02971e` ships with no PRD. **Done:** 标题改为「11-04-fakeip-proxy-fix 的 NUL 净化半」并注明原引用任务不存在。
+- [x] **R-31** `.trellis/tasks/archive/2026-11/11-04-fakeip-proxy-fix/` — `implement.jsonl` and `check.jsonl` are still the `{"_example": …}` template; `task.json` has `"commit": null`, `"relatedFiles": []`. A `completed` task with no implement/check record, so the PRD's 「731 passed / tsc 0 error」 has no artifact. **Done:** `implement.jsonl`/`check.jsonl` 填真实 spec/PRD 条目,`task.json` 补 `commit: b02971e` 与 `relatedFiles`。
 
 ### Remaining test gaps (lower priority)
 

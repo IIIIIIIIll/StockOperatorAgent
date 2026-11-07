@@ -52,7 +52,7 @@ defaultSearcher / deviceCollect.DEVICE_TDX_HOSTS / settings.ts loadSettings。
 测试 stub location 环境仍需读取)。日志出口统一 src/log.ts(web 上报 /logs +
 RN 沙盒 + Node),新增日志调用一律经它,禁第二出口(契约 7 防 lib/log 回潮)。
 
-## LLM 配置字符串净化(11-04-llm-url-nul)
+## LLM 配置字符串净化(11-04-fakeip-proxy-fix 的 NUL 净化半;原记作 11-04-llm-url-nul,该任务目录不存在)
 
 三键(尤其 Base URL)必须经 `src/llm.ts` `sanitizeLlmValue` 净化(剥控制字符
 + trim)。Android 实测(2026-11-04):Base URL 尾部夹一个粘贴带入的 NUL

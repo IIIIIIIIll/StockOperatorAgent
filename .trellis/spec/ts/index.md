@@ -28,6 +28,10 @@ paths:
 - `app/` — Expo web/RN 客户端:App.tsx(纯渲染壳)+ hooks/useAnalysis.ts +
   components/ + screens/ + lib/{runner,proxies,logs-server,settings,
   settingsStore,desktopBridge,deviceBridge,collectorSelection,polyfill,shims}。
+  分析历史(11-04 增):`lib/analysisController.ts`(可测编排核心,注入式 deps)、
+  `lib/runArchive.ts`(三后端归档层:IDB / expo-file-system / 测试夹具另见
+  `test/fixtures/memoryRunArchive.ts`)、`src/runHistory.ts`(纯摘要/ID/格式化
+  契约,平台中立)。
 - `desktop/` — Electron 壳(main.mjs/preload.cjs/child.mjs,独立 package)。
 - `tools/*.mts` — Node 探针/构建脚本;`test/*.test.ts` — vitest 套件(含
   architecture.test.ts 七条架构断言)。

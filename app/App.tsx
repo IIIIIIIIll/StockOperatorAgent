@@ -19,13 +19,11 @@ import { reportRoles } from '../src/committee.ts';
 import { DEMO_TICKER } from '../src/metaKeys.ts';
 import { marketInfo, MARKET_CHOICES, type Market } from '../src/market.ts';
 import { useAnalysis } from './hooks/useAnalysis';
+import { useDrawer } from './hooks/useDrawer';
 import { formatRunTime } from '../src/runHistory.ts';
 import type { PipelineEvent } from './lib/runner';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
-
-/** 左侧抽屉的三态:closed 收起 / menu 一级菜单 / settings|history 二级页。 */
-type DrawerPage = 'closed' | 'menu' | 'settings' | 'history';
 
 /** 模块实例令牌:只有同一模块实例重复挂载（同一次热重载内）才跳过安装。
  *  之前只看 `if (g.__soa) return`，Fast Refresh 后新模块实例会直接返回，
@@ -57,7 +55,8 @@ function AppContent() {
   const [menuSize, setMenuSize] = React.useState<{ width: number; height: number } | null>(null);
   const marketButtonRef = React.useRef<View>(null);
   // 抽屉:☰ 打开一级菜单(设置/历史),点进去在该抽屉内换成二级页(← 返回菜单)。
-  const [drawer, setDrawer] = React.useState<DrawerPage>('closed');
+  // R-11:页面状态机在 hooks/useDrawer.ts,这里只消费。
+  const drawer = useDrawer();
   // 宽度只用「比例 + clamp」决定(见 drawerWidthFor),不写死 dp:
   // 窄屏 88% 覆盖式、宽屏 28% 占位;切窄到覆盖阈值直接懒切换布局,不强制关抽屉
   const drawerOverlay = width < DRAWER_OVERLAY_MAX_WIDTH;
@@ -138,11 +137,11 @@ function AppContent() {
         <View style={styles.headerRow}>
           <Pressable
             style={styles.hamburger}
-            onPress={() => setDrawer((d) => (d === 'closed' ? 'menu' : 'closed'))}
+            onPress={() => drawer.toggle()}
             hitSlop={8}
-            accessibilityLabel={drawer === 'closed' ? '打开菜单' : '关闭菜单'}
+            accessibilityLabel={!drawer.isOpen ? '打开菜单' : '关闭菜单'}
             accessibilityRole="button"
-            aria-expanded={drawer !== 'closed'}
+            aria-expanded={drawer.isOpen}
           >
             <Text style={styles.hamburgerIcon}>☰</Text>
           </Pressable>
@@ -272,41 +271,41 @@ function AppContent() {
 
       {/* 主体:左侧抽屉(菜单 → 设置/历史二级页)+ 内容区 */}
       <View style={styles.main}>
-        {drawer !== 'closed' ? (
+        {drawer.isOpen ? (
           <>
             {/* 窄屏:抽屉改覆盖式(绝对定位 + 遮罩),不再挤占内容区宽度 */}
             {drawerOverlay ? (
-              <Pressable style={styles.drawerBackdrop} onPress={() => setDrawer('closed')} accessibilityLabel="关闭菜单" />
+              <Pressable style={styles.drawerBackdrop} onPress={() => drawer.close()} accessibilityLabel="关闭菜单" />
             ) : null}
             <View testID="drawer" style={[styles.sidebar, { width: drawerWidth }, drawerOverlay && styles.sidebarOverlay]}>
-              {drawer === 'menu' ? (
+              {drawer.page === 'menu' ? (
                 <>
                   <View style={styles.sidebarHeader}>
                     <Text style={styles.sidebarTitle}>菜单</Text>
-                    <Pressable onPress={() => setDrawer('closed')} hitSlop={8} accessibilityLabel="关闭菜单" accessibilityRole="button">
+                    <Pressable onPress={() => drawer.close()} hitSlop={8} accessibilityLabel="关闭菜单" accessibilityRole="button">
                       <Text style={styles.sidebarClose}>✕</Text>
                     </Pressable>
                   </View>
-                  <Pressable style={styles.menuItem} onPress={() => setDrawer('settings')} accessibilityRole="button" accessibilityLabel="设置">
+                  <Pressable style={styles.menuItem} onPress={() => drawer.showSettings()} accessibilityRole="button" accessibilityLabel="设置">
                     <Text style={styles.menuItemIcon}>⚙</Text>
                     <Text style={styles.menuItemLabel}>设置</Text>
                     <Text style={styles.menuItemChevron}>›</Text>
                   </Pressable>
-                  <Pressable style={styles.menuItem} onPress={() => setDrawer('history')} accessibilityRole="button" accessibilityLabel="历史分析">
+                  <Pressable style={styles.menuItem} onPress={() => drawer.showHistory()} accessibilityRole="button" accessibilityLabel="历史分析">
                     <Text style={styles.menuItemIcon}>↺</Text>
                     <Text style={styles.menuItemLabel}>历史</Text>
                     {a.history.length ? <Text style={styles.menuItemBadge}>{a.history.length}</Text> : null}
                     <Text style={styles.menuItemChevron}>›</Text>
                   </Pressable>
                 </>
-              ) : drawer === 'settings' ? (
+              ) : drawer.page === 'settings' ? (
                 <>
                   <View style={styles.sidebarHeader}>
-                    <Pressable onPress={() => setDrawer('menu')} hitSlop={8} accessibilityLabel="返回菜单" accessibilityRole="button">
+                    <Pressable onPress={() => drawer.showMenu()} hitSlop={8} accessibilityLabel="返回菜单" accessibilityRole="button">
                       <Text style={styles.sidebarBack}>←</Text>
                     </Pressable>
                     <Text style={[styles.sidebarTitle, styles.sidebarTitleGrow]}>设置</Text>
-                    <Pressable onPress={() => setDrawer('closed')} hitSlop={8} accessibilityLabel="关闭菜单" accessibilityRole="button">
+                    <Pressable onPress={() => drawer.close()} hitSlop={8} accessibilityLabel="关闭菜单" accessibilityRole="button">
                       <Text style={styles.sidebarClose}>✕</Text>
                     </Pressable>
                   </View>
@@ -322,13 +321,13 @@ function AppContent() {
                   // R-22:PRD R5 只要求「在当前报告 Tab 内打开该次运行」——
                   // 不再顺手改写表单 ticker(静默改用户输入)也不再强切 Tab。
                   onOpen={(id) => {
-                    setDrawer('closed');
+                    drawer.close();
                     void a.openRun(id);
                   }}
                   onDelete={(ids) => void a.deleteRuns(ids)}
                   onClear={() => void a.clearHistory()}
-                  onBack={() => setDrawer('menu')}
-                  onClose={() => setDrawer('closed')}
+                  onBack={() => drawer.showMenu()}
+                  onClose={() => drawer.close()}
                   onRefresh={() => void a.refreshHistory()}
                 />
               )}

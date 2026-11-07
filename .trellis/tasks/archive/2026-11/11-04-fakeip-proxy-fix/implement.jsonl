@@ -1,1 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/archive/2026-11/11-04-fakeip-proxy-fix/prd.md", "reason": "现象/根因/验收原文(fake-IP 403 与上游错误体分流)"}
+{"file": ".trellis/spec/ts/events-streaming.md", "reason": "SSRF 防线与 fake-IP 放行的安全契约节"}
+{"file": ".trellis/spec/ts/env-switches.md", "reason": "LLM 三键净化四处入口(createLlm/toLlmConfig/checkLlmReachability/saveSettings)"}
