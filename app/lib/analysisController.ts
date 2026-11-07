@@ -461,6 +461,10 @@ export class AnalysisController {
     const manager = enabledRoles().find((r) => r.kind === 'manager');
     if (manager && body.final_decision.trim()) sts[manager.nodeName] = 'done';
     s.statuses = sts;
+    // R-01:归档正文是最终内容 —— 必须清掉实时流式分片,否则 ReportContent 的
+    // `partial || fallback` 会让取消/失败那次运行残留的半截草稿盖住历史正文
+    // (openRun 已在 applyReportBody 之前把分片存进 liveStash,closeRun 原样恢复)
+    s.partials = {};
     // D15:完成标记与经理 chip 同条件(final_decision 非空才算完成会话)
     s.hasDone = Boolean(body.final_decision.trim());
     s.market = body.market;

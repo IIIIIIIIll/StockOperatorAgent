@@ -242,6 +242,36 @@ describe('历史归档 · openRun / closeRun', () => {
     await h.ctrl.start('600036', 'cn');
     expect(h.snap().viewingRun).toBeNull();
   });
+
+  // R-01(docs/code-review-2026-11-05.md P0):applyReportBody 不清 partials →
+  // ReportContent 的 `partial || fallback` 让取消那次的半截草稿盖住归档正文。
+  it('取消后的流式分片不得盖住历史正文;closeRun 仍能恢复实时分片', async () => {
+    const archive = createMemoryRunArchive([
+      run({ id: 'hb', final_decision: '持有', opinions: [{ key: 'fundamental_analysis', tabTitle: '基本面分析', content: 'A-FUND' }] }),
+    ]);
+    const h = makeHarness({ archive });
+    await h.ctrl.bootstrap();
+    // 不 await:start() 同步置 running=true(取消需要 running 态)
+    const inflight = h.ctrl.start('600036', 'cn');
+    h.runner.emit({ type: 'token', roleKey: 'final_decision', node: 'investment_manager', delta: '半截经理草稿' });
+    h.runner.emit({ type: 'token', roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', delta: '半截基本面' });
+    h.ctrl.cancel();
+    await inflight;
+    // 取消有意保留分片(实时视图显示最后进度)
+    const cancelled = { investment_manager: '半截经理草稿', fundamental_analysis_expert: '半截基本面' };
+    expect(h.snap().partials).toEqual(cancelled);
+
+    await h.ctrl.openRun('hb');
+    // 回归点:历史查看态读不到任何实时分片 → 槽位回落到归档正文
+    expect(h.snap().partials).toEqual({});
+    expect(h.snap().finalDecision).toBe('持有');
+    expect(h.snap().events).toEqual([
+      { type: 'report', key: 'fundamental_analysis', tabTitle: '基本面分析', content: 'A-FUND' },
+    ]);
+
+    h.ctrl.closeRun();
+    expect(h.snap().partials).toEqual(cancelled);
+  });
 });
 
 describe('历史归档 · 删除 / 清空', () => {

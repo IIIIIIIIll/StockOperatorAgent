@@ -39,11 +39,12 @@ Status legend: `[ ]` open · `[x]` done · `[~]` intentional (user decision — 
 
 ## P0 — data shown wrong
 
-### [ ] R-01 · 历史详情把实时分片盖在归档正文上
+### [x] R-01 · 历史详情把实时分片盖在归档正文上
 
-- **Where:** `app/lib/analysisController.ts:437-463` (`applyReportBody`), `app/lib/analysisController.ts:255-264` (`cancel`), `app/components/ReportContent.tsx:40`, `:68`
+- **Where:** `app/lib/analysisController.ts:437-466` (`applyReportBody`), `app/lib/analysisController.ts:255-264` (`cancel`), `app/components/ReportContent.tsx:40`, `:68`
 - **Verified:** yes
 - **Axis:** Correctness
+- **Fixed:** `11-07-review-r01-stale-partials` — `s.partials = {};` added in `applyReportBody`; regression test `test/analysis-controller-history.test.ts` 「取消后的流式分片不得盖住历史正文」(fails without the line). 734 passed / tsc 0 error.
 
 `applyReportBody` sets `events` / `statuses` / `hasDone` but never resets `s.partials`.
 `ReportContent` renders `const text = partial || fallback || ''` — the partial wins.
