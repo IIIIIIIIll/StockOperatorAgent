@@ -377,7 +377,9 @@ export async function collectYahooPayload(
   const summary = await quoteSummaryOrNull(client, symbol);
   // 收入表语句源归一化(HK quarterly 键名/期数差异,见 normalizeIncomeStatements)
   const composed = summary === null ? null : normalizeIncomeStatements(summary);
-  const firstClose = bars.length ? bars[0].close : undefined;
+  // CR-00:60 日窗口 = 最近 61 根收盘(与 CN overview.ts 同语义);历史不足 61 根
+  // → undefined → change_percent_60d NaN,不得退化成「上市以来涨幅」。
+  const firstClose = bars.length > 60 ? bars[bars.length - 61].close : undefined;
   const lastClose = bars.length ? bars[bars.length - 1].close : undefined;
   const { overview, capital } = composeYahooOverview(meta, composed ?? {}, { firstClose, lastClose });
   const name = typeof overview.name === 'string' && overview.name !== '' ? overview.name : '';

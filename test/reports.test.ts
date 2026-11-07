@@ -14,31 +14,44 @@ function rec(metric: string, period: string, value: number): F10Record {
 }
 
 const RECORDS: F10Record[] = [
-  rec('净利润(元)', '2025-12-31', 100),
   rec('净利润(元)', '2026-03-31', 130),
   rec('净利润(元)', '2026-06-30', 260),
-  rec('营业总收入(元)', '2025-12-31', 1000),
+  rec('净利润(元)', '2026-09-30', 360),
+  rec('净利润(元)', '2026-12-31', 400),
   rec('营业总收入(元)', '2026-03-31', 1100),
   rec('营业总收入(元)', '2026-06-30', 2200),
-  rec('基本每股收益(元)', '2026-06-30', 1.5),
+  rec('营业总收入(元)', '2026-09-30', 3300),
+  rec('营业总收入(元)', '2026-12-31', 4400),
+  rec('基本每股收益(元)', '2026-12-31', 1.5),
 ];
 
 describe('composeReports(移植 Python reports.py 契约)', () => {
   it('pivot:每报告期一行,report_date %Y%m%d,指标字段映射', () => {
     const rows = composeReports('600036', '招商银行', RECORDS);
-    expect(rows.map((r) => r.report_date)).toEqual(['20251231', '20260331', '20260630']);
+    expect(rows.map((r) => r.report_date)).toEqual(['20260331', '20260630', '20260930', '20261231']);
     const latest = rows[rows.length - 1];
     expect(latest.fields.eps).toBe(1.5);
-    expect(latest.fields.net_profit).toBe(260);
+    expect(latest.fields.net_profit).toBe(400);
     expect(latest.fields.name).toBe('招商银行');
   });
 
-  it('QoQ:相邻季度自算((本期-上期)/上期×100),首期 NaN', () => {
+  it('QoQ:累计值先还原单季再算环比(中报-Q1 / 三季报-中报 / 年报-三季报),首期 NaN', () => {
     const rows = composeReports('600036', '招商银行', RECORDS);
-    // 100 → 130 = +30%;130 → 260 = +100%
+    // 单季:Q1=130,Q2=260-130=130,Q3=360-260=100,Q4=400-360=40
     expect(rows[0].fields.net_profit_QoQ_rate).toBeNaN();
-    expect(rows[1].fields.net_profit_QoQ_rate).toBeCloseTo(30, 6);
-    expect(rows[2].fields.net_profit_QoQ_rate).toBeCloseTo(100, 6);
+    expect(rows[1].fields.net_profit_QoQ_rate).toBeCloseTo(0, 6);
+    expect(rows[2].fields.net_profit_QoQ_rate).toBeCloseTo(((100 - 130) / 130) * 100, 6);
+    expect(rows[3].fields.net_profit_QoQ_rate).toBeCloseTo(((40 - 100) / 100) * 100, 6);
+  });
+
+  it('跨年 12-31→03-31 无法还原上一年 Q4 → QoQ NaN(不得用累计值硬减)', () => {
+    const crossYear: F10Record[] = [
+      rec('净利润(元)', '2025-12-31', 100),
+      rec('净利润(元)', '2026-03-31', 130),
+    ];
+    const rows = composeReports('600036', '招商银行', crossYear);
+    expect(rows[1].fields.net_profit_QoQ_rate).toBeNaN();
+    expect(rows[1].fields.net_profit_YoY_rate).toBeNaN(); // 无同比列时为 NaN
   });
 
   it('跨季缺报告期(间隔非 88~93 天)→ QoQ NaN,不按相邻期硬算', () => {
@@ -53,14 +66,15 @@ describe('composeReports(移植 Python reports.py 契约)', () => {
   it('除零 → NaN;负分母合法(净利润可为负)', () => {
     const neg: F10Record[] = [
       rec('净利润(元)', '2026-03-31', -50),
-      rec('净利润(元)', '2026-06-30', -25), // (-25 - -50)/-50 = -50%(合法)
+      rec('净利润(元)', '2026-06-30', -25), // 中报累计 -25 → Q2 单季 +25
     ];
     const zeroPrev: F10Record[] = [
       rec('净利润(元)', '2026-03-31', 0),
       rec('净利润(元)', '2026-06-30', 100),
     ];
     const a = composeReports('x', 'x', neg);
-    expect(a[1].fields.net_profit_QoQ_rate).toBeCloseTo(-50, 6);
+    // Q1 单季 -50 → Q2 单季 +25:(25 - -50)/-50 = -150%(负分母合法)
+    expect(a[1].fields.net_profit_QoQ_rate).toBeCloseTo(-150, 6);
     const b = composeReports('x', 'x', zeroPrev);
     expect(b[1].fields.net_profit_QoQ_rate).toBeNaN();
   });
@@ -127,14 +141,14 @@ describe('通达信词表(真实 TDX 服务器格式,600036 f10_tdx.txt)', () =>
     expect(latest.fields.net_profit_YoY_rate as number).toBeCloseTo(1.52, 2);
   });
 
-  it('相邻季 QoQ 自算(通达信词表同样生效)', () => {
+  it('跨年 12-31→03-31 先还原 Q4 单季再算 → +3.96%,不是 -74.8% 的假环比', () => {
     const records = parseFinanceIndicatorsAllTables(tdx);
     const rows = composeReports('600036', '招商银行', records);
-    // 找一对相邻季度期(QoQ 非 NaN 的行)
-    const withQoq = rows.filter((r) => !Number.isNaN(r.fields.net_profit_QoQ_rate));
-    expect(withQoq.length).toBeGreaterThan(0);
-    for (const r of withQoq) {
-      expect(Number.isFinite(r.fields.net_profit_QoQ_rate)).toBe(true);
-    }
+    const q1 = rows.find((r) => r.report_date === '20260331')!;
+    // 2025-12-31 全年 15018.1 亿 - 2025-09-30 三季报 11377.2 亿 = Q4 单季 3640.9 亿;
+    // 2026-03-31 一季报 3785.2 亿 → (3785.2-3640.9)/3640.9 = +3.96%
+    expect(q1.fields.net_profit_QoQ_rate).toBeCloseTo(3.9633, 3);
+    expect(q1.fields.net_profit_QoQ_rate).not.toBeCloseTo(-74.79, 1);
+    expect(q1.fields.total_income_QoQ_rate).toBeCloseTo(0.9615, 3);
   });
 });

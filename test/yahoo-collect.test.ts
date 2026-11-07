@@ -105,6 +105,41 @@ function singleBarTodayBody(symbol: string): unknown {
   };
 }
 
+// CR-00 回归:构造 N 根日 K(收盘号递增)。firstTradeDate = 首根 → 单页窗口。
+function chartBodyWithBars(symbol: string, closes: number[]): unknown {
+  const start = Date.UTC(2026, 3, 1) / 1000; // 2026-04-01
+  const timestamps = closes.map((_, i) => start + i * 86_400);
+  const last = closes[closes.length - 1];
+  return {
+    chart: {
+      result: [
+        {
+          meta: {
+            symbol,
+            regularMarketPrice: last,
+            regularMarketTime: timestamps[timestamps.length - 1],
+            currency: 'USD',
+            exchangeTimezoneName: 'America/New_York',
+            firstTradeDate: start,
+          },
+          timestamp: timestamps,
+          indicators: {
+            quote: [
+              {
+                open: closes,
+                high: closes.map((c) => c + 1),
+                low: closes.map((c) => c - 1),
+                close: closes,
+                volume: closes.map(() => 1000),
+              },
+            ],
+          },
+        },
+      ],
+    },
+  };
+}
+
 // HK 实测形状(2026-08-20):quarterly 模块键名为 incomeStatementHistory(仅 4 期),
 // 年度模块 incomeStatementHistory 另 4 期(重叠 1231)→ 三源合并供 compose。
 const HK_QUOTE_BODY = {
@@ -227,6 +262,23 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(store.getPerformanceReports('0700.HK')).toHaveLength(2);
     // 存储形 '.HK' → 原符号优先试探 1 次(range=5d);全量日K period 分页 3 窗口
     expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(4);
+  });
+
+  it('CR-00:change_percent_60d 取最近 61 根收盘,不是上市首日累计涨幅', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
+    const closes = Array.from({ length: 80 }, (_, i) => 100 + i); // 100..179
+    makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(chartBodyWithBars('AAPL', closes)) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+    ]);
+    await collectYahooForDevice('AAPL');
+    const overview = store.getStock('AAPL')!.overview!;
+    // 最后 61 根 = closes[19..79] = 119 → 179
+    expect(overview.change_percent_60d).toBeCloseTo(((179 - 119) / 119) * 100, 6);
+    expect(store.getDatas('AAPL')).toHaveLength(80);
   });
 
   it('quoteSummary crumb 失败 → warn 降级:概览仅 chart meta 字段、reports 空,不抛错', async () => {

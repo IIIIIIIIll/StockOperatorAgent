@@ -1,5 +1,6 @@
 // 业绩报告构建 —— 移植 Python data_source/chinese_mainland/tdx/reports.py
-// F10 tidy long(metric × period)→ 每报告期一行 15 列;QoQ 环比仅相邻季度自算;
+// F10 tidy long(metric × period)→ 每报告期一行 15 列;QoQ 需先把**累计值**
+// 还原为单季值再算(年报−三季报/三季报−中报/中报−一季报),不得用累计值直接相减;
 // report_date '%Y%m%d'(store 去重/比较契约)。纯函数,零网络。
 import type { PerformanceReport } from './store.ts';
 import type { F10Record } from './f10.ts';
@@ -44,15 +45,40 @@ function adjacentQuarterGap(a: string, b: string): boolean {
   return gap >= 88 && gap <= 93;
 }
 
-/** 环比序列(移植 Python _qoq_series):(本期-上期)/上期×100;首期 NaN;除零 → NaN;
+/** 报告期月份(3/6/9/12);格式异常 → NaN(后续相减自然得 NaN)。 */
+function periodMonth(period: string): number {
+  return Number(period.slice(5, 7));
+}
+
+/** 累计口径 → 单季值:中国/港股 F10 利润表指标均为年初至今累计(Q1=Q1,
+ *  中报=Q1+Q2,三季报=Q1+Q2+Q3,年报=全年)。QoQ 必须用单季值相减——直接用
+ *  累计值相减会把「年报 − 一季报」算成 −74% 的假环比(2026-11-07 评审 CR-01)。
+ *  缺同年上一季累计值(无法还原) → NaN。 */
+function singleQuarterSeries(values: number[], periods: string[]): number[] {
+  return values.map((v, i) => {
+    if (Number.isNaN(v)) return NaN;
+    const month = periodMonth(periods[i]);
+    if (month === 3) return v; // 一季报累计值即单季
+    if (i === 0) return NaN;
+    const prevMonth = periodMonth(periods[i - 1]);
+    const sameYear = periods[i].slice(0, 4) === periods[i - 1].slice(0, 4);
+    // 必须与同年上一季累计值相减(中报−一季报 / 三季报−中报 / 年报−三季报)
+    if (!sameYear || prevMonth !== month - 3 || !adjacentQuarterGap(periods[i - 1], periods[i])) return NaN;
+    const prev = values[i - 1];
+    return Number.isNaN(prev) ? NaN : v - prev;
+  });
+}
+
+/** 环比序列:单季值 vs 上一季单季值;首期/无法还原/除零 → NaN;
  *  负分母合法(净利润可为负——与 overview 的"分母≤0 → NaN"约定不同)。 */
 function qoqSeries(values: number[], periods: string[]): number[] {
-  return values.map((v, i) => {
+  const singles = singleQuarterSeries(values, periods);
+  return singles.map((cur, i) => {
     if (i === 0) return NaN;
-    const prev = values[i - 1];
-    if (Number.isNaN(v) || Number.isNaN(prev) || prev === 0) return NaN;
+    const prev = singles[i - 1];
+    if (Number.isNaN(cur) || Number.isNaN(prev) || prev === 0) return NaN;
     if (!adjacentQuarterGap(periods[i - 1], periods[i])) return NaN;
-    return ((v - prev) / prev) * 100;
+    return ((cur - prev) / prev) * 100;
   });
 }
 

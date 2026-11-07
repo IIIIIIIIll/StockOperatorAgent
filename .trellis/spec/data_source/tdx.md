@@ -81,8 +81,11 @@ pytdx (通达信直连) 数据源，**全链路主数据源**（历史行情 + �
   `company_info_raw` 缓存 text 列（缺/坏 → None 不 raise，**零网络**）。
   `build_reports` 双路径：首选 raw → f10_parser（含季度）→ compose_reports；
   raw 缺失/解析失败 → 回退 vendor 解析 df（现状 6 期，不阻断）。QoQ 在季度
-  补齐后自然生效（相邻季 91 天 < 88-93 校验；跨年边界 12-31→03-31 同为相邻
-  季也计算——行为新增）。overview 仍走 vendor 路径（只需最新期）。存量重灌：
+  补齐后自然生效（相邻季 91 天 < 88-93 校验）。但 F10 利润表为**年初至今
+  累计值**：QoQ 必须先把累计还原为单季值（中报−一季报 / 三季报−中报 /
+  年报−三季报）再相减；跨年 12-31→03-31 需先用上一年三季报还原 Q4，缺
+  该期则 NaN。**禁止**直接用累计值相减（会把「年报 − 一季报」算成 −74% 的
+  假环比，2026-11-07 评审 CR-01）。overview 仍走 vendor 路径（只需最新期）。存量重灌：
   `scripts/backfill_f10_quarters.py`（有 raw 缓存的股票，零网络；**绕过
   freshness 门与 add_performance_reports 递增去重**——库中已有 20260331 会
   挡住季度期，脚本按 report_date 合并替换 PersistentList，幂等）。
