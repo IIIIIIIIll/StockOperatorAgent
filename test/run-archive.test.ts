@@ -78,6 +78,10 @@ describe('RunArchive · IndexedDB 后端', () => {
 
     expect(await archive.remove(['a'])).toBe(1);
     expect((await archive.list()).map((s) => s.id)).toEqual(['b']);
+    // R-06:返回值是实际删除数(delete() 对不存在的 key 不报错)
+    expect(await archive.remove(['missing'])).toBe(0);
+    expect(await archive.remove(['b', 'missing'])).toBe(1);
+    expect(await archive.list()).toEqual([]);
     await archive.clear();
     expect(await archive.list()).toEqual([]);
     expect(await archive.load('b')).toBeNull();

@@ -161,12 +161,32 @@ export function createIdbRunArchive(
       const tx = conn.transaction([IDB_RUNS, IDB_SUMMARIES], 'readwrite');
       const runs = tx.objectStore(IDB_RUNS);
       const summaries = tx.objectStore(IDB_SUMMARIES);
-      for (const id of ids) {
-        runs.delete(id);
-        summaries.delete(id);
-      }
+      // R-06:`delete()` 对不存在的 key 是无操作 —— 直接返回 ids.length 会向
+      // 调用方(日志「删除历史分析:N 条」)报出并未发生的删除。同 tx 内先
+      // getKey 探存在性,并在 onsuccess 回调里同步 delete(把新建请求放在
+      // 回调/微任务之外会被 IDB 判为事务已失活)。
+      let removed = 0;
+      await new Promise<void>((resolve, reject) => {
+        let pending = ids.length;
+        const settle = (): void => {
+          pending -= 1;
+          if (pending === 0) resolve();
+        };
+        for (const id of ids) {
+          const req = runs.getKey(id);
+          req.onsuccess = () => {
+            if (req.result !== undefined) {
+              removed += 1;
+              runs.delete(req.result);
+              summaries.delete(req.result);
+            }
+            settle();
+          };
+          req.onerror = () => reject(req.error ?? new Error('IndexedDB getKey failed'));
+        }
+      });
       await txDone(tx);
-      return ids.length;
+      return removed;
     },
     async clear() {
       const conn = await db();
