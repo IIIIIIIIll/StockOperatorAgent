@@ -27,6 +27,7 @@ import type { WebCollectResult } from '../../src/webCollect.ts';
 import { loadLastRun, saveLastRun } from '../../src/lastRun.ts';
 import { DEMO_F10_KEY, DEMO_TICKER, RUN_HISTORY_MIGRATED_KEY } from '../../src/metaKeys.ts';
 import {
+  mergeRunSummaries,
   newRunId,
   sortSummaries,
   toSummary,
@@ -282,7 +283,9 @@ export class AnalysisController {
     try {
       let list = await this.deps.runArchive.list();
       if (migrateLastRun) list = await this.migrateLastRunOnce(list);
-      s.history = list;
+      // R-03:list() 快照不含刷新期间新落档的运行(recordRun 已写进 s.history)
+      // → 直接赋值会把刚完成的运行从抽屉与徽标里抹掉。按 id 合并,磁盘为权威。
+      s.history = mergeRunSummaries(list, s.history);
       s.historyError = null;
     } catch (err) {
       const msg = describeError(err);
@@ -303,6 +306,10 @@ export class AnalysisController {
     this.notify();
     try {
       const run = await this.deps.runArchive.load(id);
+      // R-02:进函数时那次 running 检查在 await 之前 —— 读盘期间用户可能已发起
+      // 新分析(start() 全量重置并置 running),此时若继续写正文,历史内容会盖到
+      // 实时运行上。补一次检查。
+      if (s.running) return;
       if (!run) {
         s.historyError = '历史记录不存在或已损坏';
         return;

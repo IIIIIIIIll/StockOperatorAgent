@@ -3,7 +3,7 @@
 // 假 runner + InMemoryStore + 内存归档注入(与 analysis-controller.test.ts 同模式)。
 import { describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../src/store-memory.ts';
-import { LAST_RUN_KEY, saveLastRun } from '../src/lastRun.ts';
+import { saveLastRun } from '../src/lastRun.ts';
 import { RUN_HISTORY_MIGRATED_KEY } from '../src/metaKeys.ts';
 import type { FinalReport, PipelineEvent, PipelineRunner, RunOptions } from '../src/events.ts';
 import {
@@ -63,10 +63,10 @@ function run(over: Partial<AnalysisRun> = {}): AnalysisRun {
   };
 }
 
-function makeHarness(over: { archive?: RunArchive } = {}) {
+function makeHarness(over: { archive?: RunArchive; runner?: PipelineRunner & { emit(e: PipelineEvent): void } } = {}) {
   const store = new InMemoryStore();
   const archive = over.archive ?? createMemoryRunArchive();
-  const runner = makeFakeRunner();
+  const runner = over.runner ?? makeFakeRunner();
   const logs = { info: [] as string[], warn: [] as string[], error: [] as string[] };
   const deps: AnalysisDeps = {
     store,
@@ -272,6 +272,43 @@ describe('历史归档 · openRun / closeRun', () => {
     h.ctrl.closeRun();
     expect(h.snap().partials).toEqual(cancelled);
   });
+
+  // R-02(同评审 P1):进函数时那次 running 检查在 await 之前 → 读盘期间发起的新分析
+  // 会被随后落地的历史正文覆盖(events/decision 混写)。
+  it('读盘期间发起新分析 → 历史正文不得盖到实时运行上', async () => {
+    let releaseLoad!: () => void;
+    const gate = new Promise<void>((r) => {
+      releaseLoad = r;
+    });
+    const base = createMemoryRunArchive([run({ id: 'hb', final_decision: '持有' })]);
+    const slow: RunArchive = {
+      ...base,
+      async load(id: string) {
+        const out = await base.load(id);
+        await gate; // 读盘挂住:模拟用户在 await 期间点了「开始分析」
+        return out;
+      },
+    };
+    let settleRun!: (r?: FinalReport) => void;
+    const pending = makeFakeRunner(() => new Promise<FinalReport | undefined>((r) => {
+      settleRun = r;
+    }));
+    const h = makeHarness({ archive: slow, runner: pending });
+    await h.ctrl.bootstrap();
+
+    const opening = h.ctrl.openRun('hb');
+    const inflight = h.ctrl.start('600036', 'cn'); // start 同步置 running=true
+    releaseLoad();
+    await opening;
+
+    expect(h.snap().viewingRun).toBeNull();
+    expect(h.snap().finalDecision).toBe(''); // start() 的重置没被历史正文盖回
+    expect(h.snap().events).toEqual([]);
+
+    h.ctrl.cancel();
+    settleRun(undefined);
+    await inflight;
+  });
 });
 
 describe('历史归档 · 删除 / 清空', () => {
@@ -316,5 +353,39 @@ describe('历史归档 · 删除 / 清空', () => {
     await expect(h.ctrl.bootstrap()).resolves.toBeUndefined();
     expect(h.snap().historyError).toContain('加载历史失败');
     expect(h.snap().historyLoading).toBe(false);
+  });
+});
+
+describe('历史归档 · 列表刷新(R-03)', () => {
+  // R-03:list() 的快照不含刷新期间新落档的运行(recordRun 已 prepend 进 s.history)
+  // → 直接赋值会把刚完成的运行从抽屉与 ☰ 徽标里抹掉,直到下一次刷新。
+  it('刷新期间完成的运行不被陈旧的 list 快照覆盖', async () => {
+    let releaseList!: () => void;
+    const gate = new Promise<void>((r) => {
+      releaseList = r;
+    });
+    const base = createMemoryRunArchive();
+    let calls = 0;
+    const gated: RunArchive = {
+      ...base,
+      async list() {
+        calls += 1;
+        const snapshot = await base.list(); // 先取快照(此时还没有本次运行)
+        if (calls >= 2) await gate;         // 第 2 次刷新:快照取完再挂住
+        return snapshot;
+      },
+    };
+    const h = makeHarness({ archive: gated });
+    await h.ctrl.bootstrap(); // 第 1 次 list:不挂
+
+    const refreshing = h.ctrl.refreshHistory(); // 第 2 次:拿到 [] 后挂住
+    await h.ctrl.start('600036', 'cn');
+    h.runner.emit({ type: 'done', report: report() }); // 刷新途中完成
+    expect(h.snap().history).toHaveLength(1);
+    const doneId = h.snap().history[0].id;
+
+    releaseList();
+    await refreshing;
+    expect(h.snap().history.map((s) => s.id)).toEqual([doneId]);
   });
 });

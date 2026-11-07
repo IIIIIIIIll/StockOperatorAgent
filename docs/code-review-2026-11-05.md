@@ -62,10 +62,11 @@ Also consider clearing `partials` in `cancel()` (`:261` clears `statuses` only).
 
 ## P1 — real bugs on reachable paths / documented-standard breaches / data-loss test holes
 
-### [ ] R-02 · `openRun` 在 await 之后不再检查 running
+### [x] R-02 · `openRun` 在 await 之后不再检查 running
 
-- **Where:** `app/lib/analysisController.ts:299-303`
+- **Where:** `app/lib/analysisController.ts:299-312`
 - **Verified:** yes · **Axis:** Correctness
+- **Fixed:** `11-07-review-r02-r03-races` — `if (s.running) return;` added immediately after the `load` await; regression test 「读盘期间发起新分析 → 历史正文不得盖到实时运行上」 (gated `load`, pending runner; red without the guard).
 
 `if (s.running) return;` runs **before** `await this.deps.runArchive.load(id)`; nothing
 re-checks afterwards.
@@ -77,10 +78,11 @@ history-injected events.
 
 **Fix:** re-check `if (s.running) return;` immediately after the `load` await.
 
-### [ ] R-03 · `refreshHistory` 覆盖刷新期间新增的记录
+### [x] R-03 · `refreshHistory` 覆盖刷新期间新增的记录
 
-- **Where:** `app/lib/analysisController.ts:285`
+- **Where:** `app/lib/analysisController.ts:283-288`, `src/runHistory.ts:174-186` (`mergeRunSummaries`)
 - **Verified:** yes · **Axis:** Correctness
+- **Fixed:** `11-07-review-r02-r03-races` — `s.history = mergeRunSummaries(list, s.history)` (`list` wins for shared ids, state-only entries kept); new pure helper has its own unit tests, plus a controller test with a gated `list()` (red without the merge).
 
 `recordRun` prepends at `:483` (`s.history = sortSummaries([toSummary(run), ...s.history])`),
 but `refreshHistory` assigns whatever `list()` returned unconditionally, so anything written

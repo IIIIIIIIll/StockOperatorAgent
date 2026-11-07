@@ -1,0 +1,32 @@
+{
+  "id": "review-r02-r03-races",
+  "name": "review-r02-r03-races",
+  "title": "review R-02/R-03 openRun 与刷新竞态",
+  "description": "R-02: openRun 在 load await 之后不复查 running;R-03: refreshHistory 直接覆盖刷新期间新落档的运行",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "yh.t",
+  "assignee": "yh.t",
+  "createdAt": "2026-11-07",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "app/lib/analysisController.ts",
+    "src/runHistory.ts",
+    "test/analysis-controller-history.test.ts",
+    "test/run-history.test.ts",
+    "docs/code-review-2026-11-05.md"
+  ],
+  "notes": "",
+  "meta": {}
+}

@@ -5,6 +5,7 @@ import {
   decisionPreview,
   groupRunsByDay,
   localDayKey,
+  mergeRunSummaries,
   newRunId,
   parseAnalysisRun,
   parseRunSummaries,
@@ -127,6 +128,30 @@ describe('sortSummaries', () => {
     expect(out.map((s) => s.id)).toEqual(['c', 'b', 'a']);
     // 不改入参
     expect(sortSummaries([summary({ id: 'x' }), summary({ id: 'y' })])).toHaveLength(2);
+  });
+});
+
+describe('mergeRunSummaries', () => {
+  it('磁盘快照为权威;保留刷新期间新落档的条目(R-03)', () => {
+    const fresh = [summary({ id: 'old', decisionPreview: '磁盘新预览' })];
+    // state 里既有旧条目(已被磁盘覆盖)也有刷新期间新完成的 'new'
+    const state = [
+      summary({ id: 'new', at: '2026-11-05T00:00:00.000Z' }),
+      summary({ id: 'old', decisionPreview: '内存旧预览' }),
+    ];
+    const out = mergeRunSummaries(fresh, state);
+    expect(out.map((s) => s.id)).toEqual(['new', 'old']);
+    // 同 id 取磁盘版,不用内存版覆盖
+    expect(out[1].decisionPreview).toBe('磁盘新预览');
+    // 不改入参
+    expect(fresh).toHaveLength(1);
+    expect(state).toHaveLength(2);
+  });
+
+  it('空 state / 空 fresh 两侧都成立', () => {
+    expect(mergeRunSummaries([summary({ id: 'a' })], [])).toHaveLength(1);
+    expect(mergeRunSummaries([], [summary({ id: 'a' })])).toHaveLength(1);
+    expect(mergeRunSummaries([], [])).toEqual([]);
   });
 });
 

@@ -171,6 +171,17 @@ export function sortSummaries(list: readonly RunSummary[]): RunSummary[] {
   });
 }
 
+/** 刷新合并:磁盘快照 `fresh` 为权威(同 id 取磁盘版,正文/预览以落档为准),
+ *  但保留只存在于内存 `state` 的条目 —— 那是刷新期间新完成的运行
+ *  (`recordRun` 已 prepend,却还没进 `list()` 的快照)。R-03。 */
+export function mergeRunSummaries(
+  fresh: readonly RunSummary[],
+  state: readonly RunSummary[],
+): RunSummary[] {
+  const seen = new Set(fresh.map((s) => s.id));
+  return sortSummaries([...fresh, ...state.filter((s) => !seen.has(s.id))]);
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
