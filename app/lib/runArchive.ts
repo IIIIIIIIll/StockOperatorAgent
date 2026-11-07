@@ -7,7 +7,7 @@
 // - expo-file-system(RN):soa-runs/ 目录,正文 <id>.json + index.json 摘要;
 //   写盘 tmp + 原子替换(对齐 store-file.ts 生产后端)。
 // 失败一律上抛,由调用方(analysisController)记录 + 静默降级 —— 本层不吞错。
-import { error as logError } from '../../src/log.ts';
+import { error as logError, info as logInfo } from '../../src/log.ts';
 import {
   requestResult as idbRequestResult,
   txDone as idbTxDone,
@@ -234,7 +234,9 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
         // 真空档(email 场景)重建结果也是 [],只多一次目录扫描。
         const list = parseRunSummaries(parsed);
         if (Array.isArray(parsed) && list.length > 0) return list;
-        logError('历史索引为空或非数组,尝试从正文重建');
+        // 空数组/非数组是**合法**状态(用户清空过全部历史,或写入被截断)——不记
+        // error:dev 下每条 error 日志都会弹红条,把正常冷启动标成故障。真正值得
+        // 报的是「从正文找回了东西」,在下面按 rebuilt 判。
       } catch (err) {
         logError(`历史索引损坏,尝试重建:${err instanceof Error ? err.message : String(err)}`);
       }
@@ -252,7 +254,11 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
         logError(`历史正文损坏,跳过 ${name}:${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    if (rebuilt.length) await fs.write(INDEX_FILE, JSON.stringify(sortSummaries(rebuilt)));
+    if (rebuilt.length) {
+      // 索引不可信但正文还在 → 重建并回写;这是「数据被救回」,记 info 即可
+      logInfo(`历史索引缺失/为空,已从正文重建 ${rebuilt.length} 条`);
+      await fs.write(INDEX_FILE, JSON.stringify(sortSummaries(rebuilt)));
+    }
     return sortSummaries(rebuilt);
   };
 

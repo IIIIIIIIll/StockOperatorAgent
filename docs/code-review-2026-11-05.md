@@ -201,7 +201,9 @@ Only the `{oops`-throw path is tested.
 
 **Done:** `loadIndex` rebuilds whenever the parsed index is not an array **or** yields zero
 summaries; test cycles `'{}'`, `'[]'`, `'null'` and expects `['r1']` each time (red without
-the fix).
+the fix). Android check caught a follow-on: the empty-index branch was logging at `error`
+(a red LogBox toast on every cold start after 清空全部) — now silent, and the recovery path
+logs `info`「已从正文重建 N 条」only when bodies were actually recovered.
 
 ---
 
