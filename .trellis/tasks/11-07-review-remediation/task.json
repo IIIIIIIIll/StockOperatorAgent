@@ -7,7 +7,7 @@
   "dev_type": null,
   "scope": null,
   "package": null,
-  "priority": "P2",
+  "priority": "P1",
   "creator": "yh.t",
   "assignee": "yh.t",
   "createdAt": "2026-11-07",
@@ -20,7 +20,18 @@
   "subtasks": [],
   "children": [],
   "parent": null,
-  "relatedFiles": [],
+  "relatedFiles": [
+    "docs/code-review-2026-11-05.md",
+    "app/lib/analysisController.ts",
+    "app/lib/runArchive.ts",
+    "app/lib/settings.ts",
+    "app/lib/proxies.cjs",
+    "app/hooks/useAnalysis.ts",
+    "app/hooks/useDrawer.ts",
+    "app/screens/HistoryPanel.tsx",
+    "src/idbUtil.ts",
+    "src/runHistory.ts"
+  ],
   "notes": "",
   "meta": {}
 }

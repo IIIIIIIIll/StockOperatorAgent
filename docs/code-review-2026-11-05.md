@@ -33,6 +33,12 @@ against the working tree** — the `verified` column records which.
 | `npx tsc --noEmit` | exit 0 |
 | `test/architecture.test.ts` 7 assertions | hold (new `src/runHistory.ts` is platform-neutral; no `node:`/`react-native`/`better-sqlite3` leak; no bare demo-ticker literals) |
 
+**Remediation status:** all 35 items below are closed (2026-11-07). Commits
+`61321fc`…`c9d542c`; suite went 733 → 755 passing (`tsc --noEmit` clean).
+P0/P1 fixes each carry a test that fails without the fix. UI-layer items
+(R-05, R-11, R-28) have no component/e2e coverage — this repo has no component
+test harness — so they are guarded by `tsc` + the architecture assertions only.
+
 Status legend: `[ ]` open · `[x]` done · `[~]` intentional (user decision — will not implement)
 
 ---
@@ -228,7 +234,7 @@ the fix).
 
 ### File backend (native path)
 
-- [ ] **R-24** `app/lib/runArchive.ts` — three related defects:
+- [x] **R-24** `app/lib/runArchive.ts` — three related defects:
   `list()` (`:281-284`) runs `ensureLoaded()` **outside** `queue`, so a cold-start scan concurrent with a queued `put` clobbers `summaries` and rewrites `index.json` without the new entry. *(verified)*
   `remove()` (`:296-306`) only deletes body files present in the in-memory index, so a body written before a failed `writeIndex` becomes an undeletable orphan that resurrects on the next rebuild. *(verified)*
   A throw in `write`/`moveSync` leaves `<name>.tmp.*` behind; only `clear()` sweeps them.
