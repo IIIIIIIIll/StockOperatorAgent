@@ -13,6 +13,7 @@ import {
   type SettingsState,
 } from '../lib/settings';
 import { useTheme, type Theme } from '../theme';
+import { WEB_SEARCH_MAX_CALLS_LIMIT } from '../../src/switches';
 
 interface Props {
   onSettingsChange: (s: SettingsState) => void;
@@ -70,7 +71,11 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   }
 
   function updateCap(key: keyof SettingsState['caps'], value: number): void {
-    update({ caps: { ...settings.caps, [key]: value } });
+    // 输入即夹到 1..20:越界值此前会原样落盘,运行时又被 normalizeMaxCalls
+    // 回退默认值(54 → 实际 5),面板显示与生效值不一致。
+    if (!Number.isFinite(value)) return;
+    const n = Math.min(WEB_SEARCH_MAX_CALLS_LIMIT, Math.max(1, Math.floor(value)));
+    update({ caps: { ...settings.caps, [key]: n } });
   }
 
   function updateKey(key: keyof SettingsState['keys'], value: string | boolean): void {
@@ -191,8 +196,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
               keyboardType="numeric"
               onChangeText={(v) => {
                 if (v.trim() === '') return; // 清空不提交 0(字段保持空,不闪回 "0")
-                const n = Math.max(0, Math.floor(Number(v)));
-                if (Number.isFinite(n)) updateCap(row.key, n);
+                updateCap(row.key, Number(v));
               }}
             />
           </View>

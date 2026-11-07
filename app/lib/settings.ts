@@ -61,6 +61,17 @@ const DEFAULT_CAPS: CapsState = {
   fetchMax: BILLIONS_DEFAULT_MAX.FETCH,
 };
 
+/** caps 归一:越界/非整数 → 对应默认值,与运行时 normalizeMaxCalls 同口径。
+ *  否则会出现「面板存 54、实际静默按 5 执行」的显示/生效不一致。 */
+function sanitizeCaps(caps: CapsState): CapsState {
+  return {
+    webSearchMax: normalizeMaxCalls(caps.webSearchMax, DEFAULT_CAPS.webSearchMax),
+    searchMax: normalizeMaxCalls(caps.searchMax, DEFAULT_CAPS.searchMax),
+    twitterMax: normalizeMaxCalls(caps.twitterMax, DEFAULT_CAPS.twitterMax),
+    fetchMax: normalizeMaxCalls(caps.fetchMax, DEFAULT_CAPS.fetchMax),
+  };
+}
+
 const DEFAULT_KEYS: KeysState = {
   llmApiKey: '', llmModel: '', llmBaseUrl: '',
   tdxApiKey: '', billionsApiKey: '', finnhubApiKey: '',
@@ -80,7 +91,7 @@ export function loadSettings(): SettingsState {
       const p = JSON.parse(raw) as Partial<SettingsState>;
       loaded = {
         switches: { ...d.switches, ...(p.switches ?? {}) },
-        caps: { ...d.caps, ...(p.caps ?? {}) },
+        caps: sanitizeCaps({ ...d.caps, ...(p.caps ?? {}) }),
         keys: { ...d.keys, ...(p.keys ?? {}) },
       };
     }
@@ -118,6 +129,7 @@ export function saveSettings(s: SettingsState): void {
   const keys = s.keys;
   const sanitized: SettingsState = {
     ...s,
+    caps: sanitizeCaps(s.caps),
     keys: {
       ...keys,
       llmApiKey: clean(keys.llmApiKey),

@@ -213,6 +213,22 @@ describe('settings.ts 经 settingsStore 路由(web 分支)', () => {
     expect(s.keys.llmModel).toBe('gpt-x');
   });
 
+  it('caps 越界/非整数 → 对应默认值(显示值与运行时生效值一致)', async () => {
+    mem.set(
+      'soa:settings',
+      JSON.stringify({ caps: { webSearchMax: 54, searchMax: 0, twitterMax: 21, fetchMax: 7 } }),
+    );
+    const { loadSettings, saveSettings } = await import('../app/lib/settings.ts');
+    const s = loadSettings();
+    expect(s.caps.webSearchMax).toBe(5); // 54 → 默认(此前面板显示 54、实际按 5 执行)
+    expect(s.caps.searchMax).toBe(3); // 0 → 默认
+    expect(s.caps.twitterMax).toBe(2); // 21 → 默认
+    expect(s.caps.fetchMax).toBe(7); // 合法值保留
+    // 保存同样净化:越界值不再原样落盘
+    saveSettings({ ...s, caps: { ...s.caps, webSearchMax: 99 } });
+    expect(JSON.parse(mem.get('soa:settings') ?? '{}').caps.webSearchMax).toBe(5);
+  });
+
   it('F19:代理回 HTML(纯静态托管)→ 回退直连;代理回 JSON 404(上游真实应答)→ classify 不误判', async () => {
     const { checkLlmReachability } = await import('../app/lib/settings.ts');
     const keys = defaultSettings().keys;
