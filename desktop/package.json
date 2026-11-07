@@ -8,7 +8,7 @@
   "type": "module",
   "main": "main.mjs",
   "scripts": {
-    "build": "cd ../app && npx expo export --platform web",
+    "build": "cd ../app && npx expo export --platform web && node ../tools/restore-app-tsconfig.mjs",
     "start": "electron .",
     "pack": "electron-builder"
   },

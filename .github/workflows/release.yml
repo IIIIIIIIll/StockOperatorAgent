@@ -10,8 +10,43 @@ permissions:
   contents: write
 
 jobs:
+  # CR-43:tag/dispatch 发布前先跑与 ci.yml 相同的门禁——任意 commit 打 tag
+  # 都可能直接产出并挂出 Release 产物,不能绕过 typecheck/vitest。
+  test:
+    name: typecheck + test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CI: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Setup Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          check-latest: true
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+            desktop/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Install app dependencies
+        working-directory: app
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+
   desktop:
     name: desktop (${{ matrix.os }})
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -108,6 +143,7 @@ jobs:
 
   android:
     name: android (apk)
+    needs: test
     runs-on: ubuntu-latest
     env:
       CI: 1

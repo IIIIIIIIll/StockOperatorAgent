@@ -74,6 +74,9 @@ async function runFullAnalysis(
   const report = await runner.run(ticker, { ...opts, llm });
   if (!report) {
     console.error('  分析失败(根因见上方 error 事件),跳过 report.json');
+    // CR-41:失败不以 0 退出;并清掉上次结果,避免下游把旧 report.json 当本次
+    fs.rmSync(resolve(ROOT, 'probe-output/report.json'), { force: true });
+    process.exitCode = 1;
     return;
   }
   console.error(`  耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s;final_decision ${report.final_decision.length} 字符`);

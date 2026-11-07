@@ -9,7 +9,7 @@
 // Responsibilities:
 //   1. Serve app/dist + same-origin proxies through createAppServer() on a
 //      random 127.0.0.1 port (listen(0) — caller-owned listen).
-//   2. Own the FileStore (node fs adapter, createNodeFileStore): apply the 6
+//   2. Own the FileStore (node fs adapter, createNodeFileStore): apply the 5
 //      store-op mutators and answer snapshot requests for renderer hydration.
 //   3. Persist settings with nodeSettingsFileSystem semantics — the exact
 //      file shape of the settingsStore.ts node branch:

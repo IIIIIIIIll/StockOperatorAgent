@@ -8,15 +8,18 @@
 
 ## 安装
 
-请确保你已经安装了 **Node.js ≥ 23.6**（Node 探针需 `--experimental-transform-types`
-旗标；生产 server 直接 `node server.mjs` 即可——TS 类型剥离自 Node 23.6 起默认
-开启；若在 Node 22.x 上运行，需给 server 命令加 `--experimental-strip-types`
-旗标）。然后：
+请确保你已经安装了 **Node.js ≥ 22.23.4**（见 `package.json` engines / `.nvmrc`；
+生产 server 直接 `node server.mjs` 即可——TS 类型剥离自 Node 23.6 起默认开启，
+若在 22.x 上运行需加 `--experimental-strip-types` 旗标）。然后：
 
 ```bash
 npm install      # 业务层 + 测试（vitest / tsc / probe）
 cd app && npm install     # web 应用（Expo / React Native Web）
 ```
+
+> 依赖来源：三份 `package-lock.json` 的 tarball 均钉在 `registry.npmmirror.com`
+> （国内加速，有意决策，2026-11-07 评审 CR-57）。lockfile 带 `integrity` 校验，
+> 镜像只影响可用性/来源政策；切换官方源需重新生成三份 lockfile。
 
 ## 使用
 

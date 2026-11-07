@@ -46,6 +46,10 @@ const RELEASE_BLOCK = [
   "            if (keystorePropertiesFile.exists()) {",
   "                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))",
   "            }",
+  '            // CR-56:缺 keystore.properties 显式失败——不让空 storeFile 流到 AGP',
+  '            if (!keystorePropertiesFile.exists()) {',
+  '                throw new GradleException("release 签名缺失:app/android/keystore.properties(运行 tools/configure-android-signing.mjs)")',
+  "            }",
   "            storeFile file(keystoreProperties['storeFile'])",
   "            storePassword keystoreProperties['storePassword']",
   "            keyAlias keystoreProperties['keyAlias']",
@@ -115,6 +119,27 @@ function patchBuildGradle(gradle) {
     const indent = lines[buildTypesIdx].match(/^\s*/)[0];
     lines.splice(buildTypesIdx, 0, `${indent}signingConfigs {`, ...RELEASE_BLOCK.split("\n"), `${indent}}`);
     changed = true;
+  }
+
+  // --- 已有 release 块(历史注入)补 CR-56 守卫：幂等 ---
+  const scIdx2 = lines.findIndex((l) => /^\s*signingConfigs\s*\{/.test(l));
+  if (scIdx2 !== -1) {
+    const scEnd2 = blockBounds(lines, scIdx2);
+    const relIdx = childLineIndex(lines, scIdx2, scEnd2, /^\s*release\s*\{/);
+    if (relIdx !== -1) {
+      const relEnd = blockBounds(lines, relIdx);
+      const block = lines.slice(relIdx, relEnd);
+      const hasVars = block.some((l) => l.includes("keystorePropertiesFile"));
+      const hasGuard = block.some((l) => l.includes("GradleException"));
+      if (hasVars && !hasGuard) {
+        lines.splice(relEnd, 0,
+          '            // CR-56:缺 keystore.properties 显式失败',
+          '            if (!keystorePropertiesFile.exists()) {',
+          '                throw new GradleException("release 签名缺失:app/android/keystore.properties")',
+          "            }");
+        changed = true;
+      }
+    }
   }
 
   // --- release buildType 改挂 signingConfigs.release（仅在 release 块内替换） ---

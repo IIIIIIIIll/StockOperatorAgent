@@ -1,5 +1,5 @@
 // Store-op 入参校验真值表(TQ2):src/storeOps.ts 是桌面写操作唯一安全门
-// (desktop/child.mjs dispatch 前置),本文件钉其可观察行为 —— 六 op 白名单
+// (desktop/child.mjs dispatch 前置),本文件钉其可观察行为 —— 五 op 白名单
 // 合法形状全过、原型链形状拒、ticker 路径分隔符拒、逐字段类型错拒。错误文案
 // 即 IPC error 消息直达渲染层,一并按字面断言。
 import { describe, expect, it } from 'vitest';

@@ -50,7 +50,7 @@ Per-layer depth lives in [ts/index.md](./ts/index.md) (the live TS contract) and
   Spawns `child.mjs` (`ELECTRON_RUN_AS_NODE=1`, `--experimental-strip-types` via
   argv, not env) which runs `createAppServer()` + `createNodeFileStore` +
   `nodeSettingsFileSystem` + `setLogDir(userData/logs)` on a random loopback port.
-  IPC: renderer invoke `store-init` / `store-op` (6-mutator whitelist) /
+  IPC: renderer invoke `store-init` / `store-op` (5-mutator whitelist) /
   `settings-save-async`; `sendSync` `settings-load` is cold-path only (sendSync in
   event handlers deadlocks — proven). Graceful shutdown: main sends shutdown ->
   child flush+close -> quit; SIGTERM/SIGINT route into the same path.

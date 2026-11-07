@@ -3,7 +3,7 @@
 // desktop-bridge entry the renderer uses (app/lib/desktopBridge.ts
 // isDesktopBridge() checks isDesktop):
 //   storeInit:       invoke 'desktop:store-init'  -> full store snapshot
-//   storeOp:         invoke 'desktop:store-op'    -> applies one of the 6 mutators
+//   storeOp:         invoke 'desktop:store-op'    -> applies one of the 5 mutators
 //   settingsLoad:    sendSync 'desktop:settings-load' -> cached settings JSON
 //                    (cold paths only: module mount / analysis start)
 //   settingsSaveAsync: invoke 'desktop:settings-save-async' -> cache + persist

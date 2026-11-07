@@ -37,10 +37,15 @@ if [ -z "$VERSION_CODE" ] || [ "$GRADLE_NAME" != "$VERSION" ] || [ "$GRADLE_CODE
   exit 1
 fi
 
-BACKUP=$(mktemp /tmp/soa-env-backup.XXXXXX)
-cp .env "$BACKUP"
-restore() { cp "$BACKUP" .env; rm -f "$BACKUP"; }
-trap restore EXIT
+BACKUP_DIR=$(mktemp -d /tmp/soa-env-backup.XXXXXX)
+chmod 700 "$BACKUP_DIR"
+cp .env "$BACKUP_DIR/env"
+restore() {
+  if [ -f "$BACKUP_DIR/env" ]; then cp "$BACKUP_DIR/env" .env; fi
+  rm -rf "$BACKUP_DIR"
+}
+# CR-55:INT/TERM/HUP 也走还原(仅 EXIT 时被 kill 会留下空 .env + 明文备份)
+trap restore EXIT INT TERM HUP
 
 : > .env
 rm -rf /tmp/metro-cache /tmp/metro-file-map-* 2>/dev/null || true
