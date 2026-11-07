@@ -103,11 +103,17 @@ function makeHarness(over: { archive?: RunArchive; runner?: PipelineRunner & { e
     isoNow: () => '2026-11-04T08:00:00.000Z',
   };
   const ctrl = new AnalysisController(deps);
+  // R-20:bootstrap 里的历史载入是 fire-and-forget(不占启动关键路径)→
+  // 需要历史就 `await h.boot()`(bootstrap + 等历史落地一拍)。
+  const boot = async (): Promise<void> => {
+    await ctrl.bootstrap();
+    await new Promise((r) => setTimeout(r, 0));
+  };
   let snap: AnalysisSnapshot = ctrl.snapshot();
   ctrl.subscribe((s) => {
     snap = s;
   });
-  return { store, archive, runner, logs, ctrl, snap: () => snap };
+  return { store, archive, runner, logs, ctrl, boot, snap: () => snap };
 }
 
 describe('历史归档 · done 落档', () => {
@@ -160,7 +166,7 @@ describe('历史归档 · bootstrap 迁移(只迁一次)', () => {
   it('有 lastRun 无历史 → 补一条;再次 bootstrap 不重复;清空后不复活', async () => {
     const h = makeHarness();
     saveLastRun(h.store, report(), 'real', '2026-11-02T01:00:00.000Z');
-    await h.ctrl.bootstrap();
+    await h.boot();
 
     let list = await h.archive.list();
     expect(list).toHaveLength(1);
@@ -171,14 +177,14 @@ describe('历史归档 · bootstrap 迁移(只迁一次)', () => {
     // R-07:原来的 h2 用的是新 InMemoryStore → 根本没有 lastRun,迁移即使被
     // 重复执行也看不出来。这里必须传同一个 store。
     const h2 = makeHarness({ archive: h.archive, store: h.store });
-    await h2.ctrl.bootstrap();
+    await h2.boot();
     expect(await h.archive.list()).toHaveLength(1);
 
     // 用户清空历史后重启:迁移标记已置位 → 不复活(删掉标记检查这条会红)
     await h.ctrl.clearHistory();
     expect(await h.archive.list()).toEqual([]);
     const h3 = makeHarness({ archive: h.archive, store: h.store });
-    await h3.ctrl.bootstrap();
+    await h3.boot();
     expect(await h.archive.list()).toEqual([]);
     expect(h3.snap().history).toEqual([]);
   });
@@ -196,7 +202,7 @@ describe('历史归档 · bootstrap 迁移(只迁一次)', () => {
     };
     const h = makeHarness({ archive: flaky });
     saveLastRun(h.store, report(), 'real', '2026-11-02T01:00:00.000Z');
-    await h.ctrl.bootstrap();
+    await h.boot();
 
     expect(h.logs.warn.some((m) => m.includes('历史迁移失败'))).toBe(true);
     expect(h.store.getMeta(RUN_HISTORY_MIGRATED_KEY)).toBeNull(); // 未置标记 → 下次再试
@@ -205,7 +211,7 @@ describe('历史归档 · bootstrap 迁移(只迁一次)', () => {
 
     deny = false;
     const h2 = makeHarness({ archive: flaky, store: h.store });
-    await h2.ctrl.bootstrap();
+    await h2.boot();
     expect((await flaky.list()).map((s) => s.id).length).toBe(1);
     expect(h.store.getMeta(RUN_HISTORY_MIGRATED_KEY)).toBe('1');
   });
@@ -214,7 +220,7 @@ describe('历史归档 · bootstrap 迁移(只迁一次)', () => {
     const h = makeHarness();
     saveLastRun(h.store, report(), 'real', '2026-11-02T01:00:00.000Z');
     h.store.setMeta(RUN_HISTORY_MIGRATED_KEY, '1');
-    await h.ctrl.bootstrap();
+    await h.boot();
     expect(await h.archive.list()).toEqual([]);
     expect(h.snap().history).toEqual([]);
   });
@@ -225,7 +231,7 @@ describe('历史归档 · openRun / closeRun', () => {
     const archive = createMemoryRunArchive([run({ id: 'hb', ticker: '00700.HK', market: 'hk', final_decision: '减持', opinions: [{ key: 'bearish_opinions', tabTitle: '看跌观点', content: 'B' }] })]);
     const h = makeHarness({ archive });
     saveLastRun(h.store, report(), 'real', '2026-11-02T01:00:00.000Z');
-    await h.ctrl.bootstrap();
+    await h.boot();
 
     const live = h.snap();
     expect(live.viewingRun).toBeNull();
@@ -255,7 +261,7 @@ describe('历史归档 · openRun / closeRun', () => {
   it('运行中拒绝打开(事件流与历史正文不混写)', async () => {
     const archive = createMemoryRunArchive([run({ id: 'hb' })]);
     const h = makeHarness({ archive });
-    await h.ctrl.bootstrap();
+    await h.boot();
     // 不 await:start() 同步置 running=true(在首个 await/采集之前)
     const inflight = h.ctrl.start('600036', 'cn');
     await h.ctrl.openRun('hb');
@@ -267,7 +273,7 @@ describe('历史归档 · openRun / closeRun', () => {
 
   it('记录不存在 → 抽屉错误,不改展示字段', async () => {
     const h = makeHarness();
-    await h.ctrl.bootstrap();
+    await h.boot();
     const before = h.snap().finalDecision;
     await h.ctrl.openRun('nope');
     expect(h.snap().viewingRun).toBeNull();
@@ -278,7 +284,7 @@ describe('历史归档 · openRun / closeRun', () => {
   it('start() 会先退出历史查看态', async () => {
     const archive = createMemoryRunArchive([run({ id: 'hb' })]);
     const h = makeHarness({ archive });
-    await h.ctrl.bootstrap();
+    await h.boot();
     await h.ctrl.openRun('hb');
     expect(h.snap().viewingRun).not.toBeNull();
     await h.ctrl.start('600036', 'cn');
@@ -292,7 +298,7 @@ describe('历史归档 · openRun / closeRun', () => {
       run({ id: 'hb', final_decision: '持有', opinions: [{ key: 'fundamental_analysis', tabTitle: '基本面分析', content: 'A-FUND' }] }),
     ]);
     const h = makeHarness({ archive });
-    await h.ctrl.bootstrap();
+    await h.boot();
     // 不 await:start() 同步置 running=true(取消需要 running 态)
     const inflight = h.ctrl.start('600036', 'cn');
     h.runner.emit({ type: 'token', roleKey: 'final_decision', node: 'investment_manager', delta: '半截经理草稿' });
@@ -336,7 +342,7 @@ describe('历史归档 · openRun / closeRun', () => {
       settleRun = r;
     }));
     const h = makeHarness({ archive: slow, runner: pending });
-    await h.ctrl.bootstrap();
+    await h.boot();
 
     const opening = h.ctrl.openRun('hb');
     const inflight = h.ctrl.start('600036', 'cn'); // start 同步置 running=true
@@ -360,7 +366,7 @@ describe('历史归档 · 删除 / 清空', () => {
       run({ id: 'b', at: '2026-11-04T02:00:00.000Z' }),
     ]);
     const h = makeHarness({ archive });
-    await h.ctrl.bootstrap();
+    await h.boot();
     expect(h.snap().history.map((s) => s.id)).toEqual(['b', 'a']);
 
     await h.ctrl.openRun('a');
@@ -373,7 +379,7 @@ describe('历史归档 · 删除 / 清空', () => {
   it('清空全部:归档与列表都空;正在查看时一并退出', async () => {
     const archive = createMemoryRunArchive([run({ id: 'a' })]);
     const h = makeHarness({ archive });
-    await h.ctrl.bootstrap();
+    await h.boot();
     await h.ctrl.openRun('a');
     await h.ctrl.clearHistory();
     expect(await archive.list()).toEqual([]);
@@ -414,7 +420,7 @@ describe('历史归档 · 异常分支(R-33)', () => {
       },
     };
     const h = makeHarness({ archive: broken });
-    await h.ctrl.bootstrap();
+    await h.boot();
     expect(h.snap().history.map((s) => s.id)).toEqual(['r1']); // list 未坏
 
     await h.ctrl.openRun('r1');
@@ -450,7 +456,7 @@ describe('历史归档 · 列表刷新(R-03)', () => {
       },
     };
     const h = makeHarness({ archive: gated });
-    await h.ctrl.bootstrap(); // 第 1 次 list:不挂
+    await h.boot(); // 第 1 次 list:不挂
 
     const refreshing = h.ctrl.refreshHistory(); // 第 2 次:拿到 [] 后挂住
     await h.ctrl.start('600036', 'cn');

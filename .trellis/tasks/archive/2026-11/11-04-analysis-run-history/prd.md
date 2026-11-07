@@ -30,6 +30,9 @@ bootstrap 时恢复展示)。用户要求把**每一次**分析结果都留档,�
 - R6 删除:行内单条删除;「编辑」态多选批量删除;「清空全部」。
   删除全部/批量需**行内二次确认**(不弹系统对话框)。
 - R7 无自动裁剪;不写入 `StoreLike` → 不阻塞/不变慢既有 store 启动链。
+  - **修正(2026-11-07 评审 R-21)**:迁移标记 `soa:runs-migrated` 是唯一的
+    `StoreLike` 写,定为有意例外 —— 只在首次升级触发一次,单键、不随历史增长,
+    storeReady 已就绪;替代方案要给 RunArchive 加 meta 面。
 - R8 存储分层:web/桌面渲染进程用 IndexedDB(`soa-runs` DB:正文 `runs` 表 +
   摘要 `summaries` 表);RN 用 expo-file-system(`soa-runs/` 目录,正文
   `<id>.json` + `index.json` 摘要,写盘走 tmp + 原子替换);测试注入内存/假 fs。

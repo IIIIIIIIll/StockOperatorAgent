@@ -319,11 +319,10 @@ function AppContent() {
                   error={a.historyError}
                   viewingId={a.viewingRun?.id ?? null}
                   running={a.running}
+                  // R-22:PRD R5 只要求「在当前报告 Tab 内打开该次运行」——
+                  // 不再顺手改写表单 ticker(静默改用户输入)也不再强切 Tab。
                   onOpen={(id) => {
-                    const row = a.history.find((h) => h.id === id);
-                    if (row) setTicker(row.ticker); // 表单同步成该次 ticker，避免「打开 A 再点分析却跑 B」
                     setDrawer('closed');
-                    setActiveTab('final_decision'); // 先看结论
                     void a.openRun(id);
                   }}
                   onDelete={(ids) => void a.deleteRuns(ids)}

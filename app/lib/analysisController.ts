@@ -435,6 +435,10 @@ export class AnalysisController {
         }
       }
     }
+    // R-21:这里是一次 StoreLike 写入,而 PRD R7 说过「不写入 StoreLike」。
+    // 评审后定为**有意例外**:只在首次升级那一次触发,单键、同启动链内已被
+    // storeReady 打开,不引入新的后端/不随历史增长变慢;替代方案(把标记塞进
+    // 归档)要给 RunArchive 加 meta 面,复杂度大于收益。已同步 PRD 备注。
     store.setMeta(RUN_HISTORY_MIGRATED_KEY, '1');
     return next;
   }
@@ -618,16 +622,16 @@ export class AnalysisController {
     // native(RN 真机)采集注入先于任何采集(保持原时序:setDeviceStore 在
     // start() 采集前完成);web 不使用。
     if (d.platform !== 'web') await d.injectDeviceStore?.();
-    // 历史归档:摘要列表异步载入(只读索引,不背正文体积),首次升级顺带把
-    // soa:last-run 补成第一条历史。放在 running 守卫之前 —— 运行中的会话也
-    // 应该能看到/打开旧记录(openRun 自身有 running 门)。
-    await this.refreshHistory(true);
     // N-2:start() 优先 —— storeReady 挂起期间用户已点「开始分析」(UI 仅按
     // running 禁用按钮),若继续载入 demo / 恢复 lastRun 缓存,会把上次会话的
     // events/statuses/hasDone 覆盖进运行中的会话。守卫:运行中 → bootstrap 到此
     // 为止(设置/数据版本由 start()/构造路径负责);bootstrap 先行完成时 running
     // 恒 false,恢复行为与抽取前逐点等价。
-    if (s.running) return;
+    if (s.running) {
+      // 运行中的会话也应该能看到/打开旧记录(openRun 自身有 running 门)
+      void this.refreshHistory(true);
+      return;
+    }
     // 仅空库时载入 demo(有跨会话持久化数据则跳过);日志只在真正写入时打
     // (旧实现无论是否载入都打,真实库下数字误导)。
     if (d.loadDemoData()) {
@@ -657,6 +661,10 @@ export class AnalysisController {
         today: asiaToday(), // F20:北京日历日(pipeline 缺省同源;UTC 日清晨会差一天)
       });
     }
+    // R-20:历史摘要载入不在启动关键路径上(PRD R4「启动零额外开销」/
+    // 「启动成本不随历史增长」)——恢复完 lastRun 再后台发一次(带首次迁移),
+    // 不 await。写穿异步语义同 recordRun;失败只落 historyError。
+    void this.refreshHistory(true);
     this.notify();
     const loaded = d.loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
     s.settings = loaded;

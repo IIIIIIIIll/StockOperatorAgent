@@ -8,8 +8,11 @@ import { sanitizeLlmValue } from '../src/llm.ts';
 
 const KEYS: KeysState = { ...defaultSettings().keys, llmApiKey: 'sk-test', llmModel: 'deepseek-v4.1-flash', llmBaseUrl: 'https://ark.example.com/api/v3' };
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', ...headers },
+  });
 }
 
 describe('配置字符串净化(sanitizeLlmValue)', () => {
@@ -34,9 +37,9 @@ describe('配置字符串净化(sanitizeLlmValue)', () => {
 });
 
 describe('classifyChatResponse · 401/403 分流', () => {
-  it('代理自身策略拒绝(信封 error 为字符串)→ 标「代理拒绝」并带原文,不误导成 key 问题', async () => {
+  it('代理自身策略拒绝(带 x-soa-proxy-reject 标记头)→ 标「代理拒绝」并带原文', async () => {
     const r = await classifyChatResponse(
-      json(403, { error: 'LLM 代理目标被拒:仅允许公网 host(拒绝内网/环回地址)' }),
+      json(403, { error: 'LLM 代理目标被拒:仅允许公网 host(拒绝内网/环回地址)' }, { 'x-soa-proxy-reject': '1' }),
       'ark.example.com',
       KEYS,
       7,
@@ -45,6 +48,21 @@ describe('classifyChatResponse · 401/403 分流', () => {
     expect(r.message).toContain('代理拒绝(HTTP 403)');
     expect(r.message).toContain('仅允许公网 host');
     expect(r.message).not.toContain('API Key');
+  });
+
+  // R-27:上游也用 {error:"..."} 形状 —— 只按形状判别会把上游认证失败误标成
+  // 「代理拒绝」并丢掉「检查 API Key」提示。没有标记头就必须走认证失败分支。
+  it('上游 401 + 字符串 error(无代理标记头)→ 仍标认证失败并保留 API Key 提示', async () => {
+    const r = await classifyChatResponse(
+      json(401, { error: 'Unauthorized' }),
+      'ark.example.com',
+      KEYS,
+      31,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('认证失败(HTTP 401)');
+    expect(r.message).toContain('检查 API Key');
+    expect(r.message).not.toContain('代理拒绝');
   });
 
   it('上游认证失败(error 为对象)→ 带 code/message,保留「检查 API Key」指引', async () => {

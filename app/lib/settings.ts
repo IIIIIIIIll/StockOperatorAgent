@@ -255,7 +255,10 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
 
 /** 本代理自己的拒绝信封(`{error: "中文串"}`)——与上游认证失败区分。
  *  2026-11-04 实证:代理 SSRF 拒绝曾与 key 错误合流成「认证失败」。 */
-function proxyRejection(text: string): string | null {
+function proxyRejection(resp: Response, text: string): string | null {
+  // R-27:只认代理自己的标记头 —— 上游 401 也用 {error:"..."} 形状,纯形状判别
+  // 会把上游认证失败误标「代理拒绝」并丢掉「检查 API Key」提示。
+  if (resp.headers.get('x-soa-proxy-reject') !== '1') return null;
   try {
     const data = JSON.parse(text) as { error?: unknown };
     return typeof data.error === 'string' && data.error !== '' ? data.error : null;
@@ -303,7 +306,7 @@ export async function classifyChatResponse(
   }
   if (resp.status === 401 || resp.status === 403) {
     // 代理自身的策略拒绝(SSRF/Origin/token)→ 直接透传原因,不误导成 key 错误
-    const rejection = proxyRejection(text);
+    const rejection = proxyRejection(resp, text);
     if (rejection) {
       logError(`LLM 代理拒绝 ${host} HTTP ${resp.status}(${ms}ms)——${rejection}`);
       return { ok: false, latencyMs: ms, message: `代理拒绝(HTTP ${resp.status}):${rejection}` };

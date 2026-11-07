@@ -31,6 +31,12 @@ const SEC_HEADERS = {
   'Cache-Control': 'no-store', // 代理响应永不缓存(含 SSRF 判定后的敏感载荷)
 };
 
+/** R-27:代理「自身拒绝」的标记头。上游 LLM 的 401 也常用 `{error:"..."}` 形状,
+ *  客户端只按 body 形状判别会把上游认证失败误标成「代理拒绝」并丢掉检查 API Key
+ *  的提示 —— 因此代理自己的拒绝一律带此头,客户端(settings.ts
+ *  classifyChatResponse)只认这个头。 */
+const PROXY_REJECT_HEADER = 'x-soa-proxy-reject';
+
 // ─── 请求体上限(W2,对齐 logs-server MAX_BODY_BYTES)────────────────────────
 // 64KB → 1MB(2026-08-16 desktop-app 实证:投资经理终审上下文 = 6 份报告 +
 // 修订轮 + 联网搜索结果,真实全链 >64KB 撞 413;1MB 仍挡滥用,文本 JSON 无
@@ -64,8 +70,10 @@ function normalizeBaseUrl(raw) {
 
 /** IP 是否私网/环回/链路本地/保留段(SSRF 黑名单;IPv4-mapped IPv6 按内嵌 IPv4 判定)。 */
 function isPrivateAddress(ip) {
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) ip = mapped[1];
+  // R-25:内嵌 IPv4(dotted / hex / mapped / compatible)统一经 ipv4Of 归一,
+  // 与 isFakeIpAddress 同一把尺子;下方 IPv6 分支保留(纯 IPv6 隧道路段等)。
+  const v4 = ipv4Of(ip);
+  if (v4 !== null) ip = v4;
   if (net.isIPv4(ip)) {
     const p = ip.split('.').map(Number);
     if (p[0] === 0 || p[0] === 10 || p[0] === 127) return true;
@@ -150,6 +158,28 @@ function expandIpv6Groups(ip) {
   return groups.map((s) => s.padStart(4, '0'));
 }
 
+/** R-25:取「IPv4,或 IPv4-mapped/compatible IPv6」的内嵌 IPv4(dotted quad);
+ *  其余形状(纯 IPv6/非法)→ null。与 isPrivateAddress 的内嵌提取口径一致:
+ *  `::ffff:198.18.18.50`(dotted)与 `::ffff:c612:1232`(hex)必须判成同一个地址,
+ *  否则 fake-IP 的 hex 形会被判「私网且非 fake」→ 仍然 403。 */
+function ipv4Of(ip) {
+  if (typeof ip !== 'string' || ip === '') return null;
+  if (net.isIPv4(ip)) return ip;
+  if (!net.isIPv6(ip)) return null;
+  const g = expandIpv6Groups(ip.toLowerCase());
+  const head = g.slice(0, 4).every((h) => h === '0000');
+  const mappedStd = head && g[4] === '0000' && g[5] === 'ffff';
+  const mappedLoose = head && g[4] === 'ffff' && g[5] === '0000';
+  const compatible = head && g[5] === '0000' && g[4] === '0000';
+  if (!(mappedStd || mappedLoose || compatible)) return null;
+  const dotted = [g[6], g[7]].find((s) => typeof s === 'string' && s.includes('.'));
+  if (dotted !== undefined) return net.isIPv4(dotted) ? dotted : null;
+  const hi = parseInt(g[6], 16);
+  const lo = parseInt(g[7], 16);
+  if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+
 /** fake-IP DNS 占位段(RFC 2544 benchmark 198.18.0.0/15)—— Clash/mihomo/Surge
  *  的 fake-ip 默认段:本机 DNS 把**每个**域名映射成该段地址,真实连接由本地代理
  *  按域名(SNI/Host)转发。该段公网不可路由、不是内网段;不放开则所有 fake-ip
@@ -159,10 +189,10 @@ function expandIpv6Groups(ip) {
  *  占位地址」放行 —— fake-ip 下解析结果与真实目的地无关,拦截价值本就为 0
  *  (代价:若某内网真用 198.18/15,域名可被路由到该段;已由用户确认接受)。 */
 function isFakeIpAddress(ip) {
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) ip = mapped[1];
-  if (!net.isIPv4(ip)) return false;
-  const p = ip.split('.').map(Number);
+  // R-25:经 ipv4Of 归一 —— hex 形 `::ffff:c612:1232` 与 dotted 形同判
+  const v4 = ipv4Of(ip);
+  if (v4 === null) return false;
+  const p = v4.split('.').map(Number);
   return p[0] === 198 && (p[1] === 18 || p[1] === 19);
 }
 
@@ -175,10 +205,10 @@ function isFakeIpAddress(ip) {
  *  注入 connect.lookup —— 「把已校验 IP 钉进建连」在当前栈不可实现,故此处只
  *  校验不固定;校验与建连之间的 DNS 翻转窗口需攻击者控制宿主 DNS,记录为接受
  *  的残余(重定向逐跳重新解析+校验,见 handleLlmProxy M2 循环)。 */
-async function pinPublicHost(u) {
+async function pinPublicHost(u, lookup = dns.promises.lookup) {
   let addrs;
   try {
-    addrs = await dns.promises.lookup(u.hostname, { all: true, verbatim: true });
+    addrs = await lookup(u.hostname, { all: true, verbatim: true });
   } catch {
     return null; // 解析失败 → 保守拒绝(不发)
   }
@@ -189,8 +219,8 @@ async function pinPublicHost(u) {
 
 /** host 解析后任一地址私网 → false(防 hostname 指向内网/DNS 重绑定的 SSRF;
  *  判定与 pinPublicHost 单源)。 */
-async function isPublicHost(u) {
-  return (await pinPublicHost(u)) !== null;
+async function isPublicHost(u, lookup) {
+  return (await pinPublicHost(u, lookup)) !== null;
 }
 
 // ─── LLM 同源代理(/llm-proxy/*)─────────────────────────────────────────────
@@ -207,7 +237,7 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
     for await (const chunk of req) {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+        res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS, [PROXY_REJECT_HEADER]: '1' });
         res.end(JSON.stringify({ error: 'LLM 代理请求体超过 1MB 限制' }));
         return;
       }
@@ -222,14 +252,14 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
     // (浏览器端用户配置透传是设计意图,保留机制、加 SSRF 防线)
     const baseUrl = normalizeBaseUrl(req.headers['x-llm-base'] || base);
     if (!baseUrl) {
-      res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+      res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS, [PROXY_REJECT_HEADER]: '1' });
       res.end(JSON.stringify({ error: 'LLM 代理目标 base 非法(需 http(s):// 且不含 userinfo)' }));
       return;
     }
     // S3:全地址公网校验(任一私网/解析失败 → 403;固定查询器不可用见 pinPublicHost 注)
     const pinned = await pinPublicHost(baseUrl);
     if (!pinned) {
-      res.writeHead(403, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+      res.writeHead(403, { 'Content-Type': 'application/json', ...SEC_HEADERS, [PROXY_REJECT_HEADER]: '1' });
       res.end(JSON.stringify({ error: 'LLM 代理目标被拒:仅允许公网 host(拒绝内网/环回地址)' }));
       return;
     }
@@ -741,4 +771,5 @@ module.exports = {
   isPrivateAddress,
   isFakeIpAddress, // fake-IP 占位段(198.18/15)判定
   isPublicHost,
+  pinPublicHost, // R-26:lookup 可注入(混合应答测试)
 };

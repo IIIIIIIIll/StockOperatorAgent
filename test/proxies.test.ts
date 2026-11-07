@@ -18,6 +18,7 @@ const {
   isPrivateAddress,
   isFakeIpAddress,
   isPublicHost,
+  pinPublicHost,
   isYahooMarket,
 } = proxies;
 
@@ -159,6 +160,41 @@ describe('proxies.cjs /llm-proxy(C2 SSRF)', () => {
     expect(isPrivateAddress('198.18.18.50')).toBe(true);
     expect(isPrivateAddress('10.0.0.5')).toBe(true);
     expect(isPrivateAddress('8.8.8.8')).toBe(false);
+  });
+
+  // R-25:hex 形 IPv4-mapped 必须与 dotted 形同判(::ffff:c612:1232 = 198.18.18.50)
+  it('isFakeIpAddress:hex 形 IPv4-mapped 与 dotted 形等价', () => {
+    expect(isFakeIpAddress('::ffff:c612:1232')).toBe(true); // 198.18.18.50
+    expect(isFakeIpAddress('::ffff:c613:0a01')).toBe(true); // 198.19.10.1
+    expect(isFakeIpAddress('0:0:0:0:0:ffff:198.18.18.50')).toBe(true);
+    expect(isFakeIpAddress('::ffff:2606:4700')).toBe(false); // 38.6.71.0(公网,非 fake)
+    expect(isFakeIpAddress('::c612:1232')).toBe(true); // compatible 形亦归一
+    // 私网判定同一把尺子:hex 形 mapped 到 127.0.0.1 仍是私网
+    expect(isPrivateAddress('::ffff:7f00:1')).toBe(true);
+    expect(isPrivateAddress('::ffff:c612:1232')).toBe(true); // 198.18/15 在 IPv4 黑名单里
+  });
+
+  // R-26:pinPublicHost 的 lookup 可注入 —— PRD「混合应答按最严」终于有测试
+  it('pinPublicHost:混合应答按最严(fake-IP 放行、真私网拒发)', async () => {
+    const u = new URL('https://ark.example.com/api/v3');
+    const lookupOf = (addresses: string[]) => async () => addresses.map((address) => ({ address, family: 4 }));
+
+    // 全公网 → 放行
+    expect(await pinPublicHost(u, lookupOf(['38.6.71.1']))).not.toBeNull();
+    // fake-IP + 公网 → 放行(占位地址不提供目的地信息)
+    expect(await pinPublicHost(u, lookupOf(['198.18.18.50', '38.6.71.1']))).not.toBeNull();
+    // fake-IP(hex 形) + 公网 → 同样放行
+    expect(await pinPublicHost(u, lookupOf(['::ffff:c612:1232', '38.6.71.1']))).not.toBeNull();
+    // 混入真私网 → 按最严拒发
+    expect(await pinPublicHost(u, lookupOf(['38.6.71.1', '10.0.0.5']))).toBeNull();
+    expect(await pinPublicHost(u, lookupOf(['198.18.18.50', '127.0.0.1']))).toBeNull();
+    // 空应答 / 解析失败 → 拒发
+    expect(await pinPublicHost(u, lookupOf([]))).toBeNull();
+    expect(
+      await pinPublicHost(u, async () => {
+        throw new Error('ENOTFOUND');
+      }),
+    ).toBeNull();
   });
 
   it('内网/环回/链路本地 host → 403,不转发(含 DNS 解析后内网)', async () => {

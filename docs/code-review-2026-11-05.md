@@ -220,9 +220,9 @@ the fix).
 
 ### Spec alignment (analysis history)
 
-- [ ] **R-20** `app/lib/analysisController.ts:608-612` — `await refreshHistory(true)` sits on the startup critical path **before** the `loadLastRun` restore (`:640`). PRD R4: 「完整正文按需加载(**启动零额外开销**)」, Notes: 「启动成本不随历史增长」. Fire-and-forget after the restore. *(verified)*
-- [ ] **R-21** `app/lib/analysisController.ts:430` — `store.setMeta(RUN_HISTORY_MIGRATED_KEY, '1')` is a `StoreLike` write. PRD R7: 「**不写入 `StoreLike`** → 不阻塞/不变慢既有 store 启动链」. Move the flag into the archive, or record it as a deliberate exception in the PRD. *(verified)*
-- [ ] **R-22** `app/lib/analysisController.ts:287` + `app/App.tsx:321-324` — scope creep: `openRun` also calls `setTicker(row.ticker)` and `setActiveTab('final_decision')`. PRD R5 only says 「点击一条 → 在当前报告 Tab 内打开该次运行」. The ticker mutation silently rewrites form state.
+- [x] **R-20** `app/lib/analysisController.ts:608-612` — `await refreshHistory(true)` sits on the startup critical path **before** the `loadLastRun` restore (`:640`). PRD R4: 「完整正文按需加载(**启动零额外开销**)」, Notes: 「启动成本不随历史增长」. Fire-and-forget after the restore. *(verified)*
+- [x] **R-21** `app/lib/analysisController.ts:430` — `store.setMeta(RUN_HISTORY_MIGRATED_KEY, '1')` is a `StoreLike` write. PRD R7: 「**不写入 `StoreLike`** → 不阻塞/不变慢既有 store 启动链」. Move the flag into the archive, or record it as a deliberate exception in the PRD. *(verified)*
+- [x] **R-22** `app/lib/analysisController.ts:287` + `app/App.tsx:321-324` — scope creep: `openRun` also calls `setTicker(row.ticker)` and `setActiveTab('final_decision')`. PRD R5 only says 「点击一条 → 在当前报告 Tab 内打开该次运行」. The ticker mutation silently rewrites form state.
 - [x] **R-23** `src/runHistory.ts:144` vs `:154-155` — doc comment says 「preview 缺失按空串补齐」 but the code drops the whole summary (`return null`) when `decisionPreview` is not a string. Violates PRD R9 「所有失败静默降级」. *(verified)*
   - **Done:** `decisionPreview` 非字符串 → `''`(其余必填字段仍判 null);新增两条测试钉住边界。
 
@@ -240,9 +240,9 @@ the fix).
 
 ### Proxy / fake-IP
 
-- [ ] **R-25** `app/lib/proxies.cjs:164` — `isFakeIpAddress` returns false for anything that is not dotted-quad IPv4, but `isPrivateAddress` also decodes hex. `::ffff:c612:1232` (=198.18.18.50) is therefore judged private-and-not-fake → still 403, while `::ffff:198.18.18.50` passes. `.trellis/spec/ts/events-streaming.md:98-101` records this exact hex-vs-dotted lesson as mandatory. Share one normaliser. *(verified)*
-- [ ] **R-26** `app/lib/proxies.cjs` `pinPublicHost` — no injection seam (`dns.promises.lookup` is called off a module-level require), so the PRD's 「混合应答按最严」 and `events-streaming.md:113` have **no test**. Add `pinPublicHost(u, _lookup = dns.promises.lookup)` + one mixed-answer case.
-- [ ] **R-27** `proxyRejection` is shape-only, so an upstream `401 {"error": …}` is mislabelled 「代理拒绝」 and loses the 检查 API Key hint.
+- [x] **R-25** `app/lib/proxies.cjs:164` — `isFakeIpAddress` returns false for anything that is not dotted-quad IPv4, but `isPrivateAddress` also decodes hex. `::ffff:c612:1232` (=198.18.18.50) is therefore judged private-and-not-fake → still 403, while `::ffff:198.18.18.50` passes. `.trellis/spec/ts/events-streaming.md:98-101` records this exact hex-vs-dotted lesson as mandatory. Share one normaliser. *(verified)*
+- [x] **R-26** `app/lib/proxies.cjs` `pinPublicHost` — no injection seam (`dns.promises.lookup` is called off a module-level require), so the PRD's 「混合应答按最严」 and `events-streaming.md:113` have **no test**. Add `pinPublicHost(u, _lookup = dns.promises.lookup)` + one mixed-answer case.
+- [x] **R-27** `proxyRejection` is shape-only, so an upstream `401 {"error": …}` is mislabelled 「代理拒绝」 and loses the 检查 API Key hint.
 
 ### Unspecced commit `6638d15` (☰ drawer)
 

@@ -3,6 +3,12 @@
 // 声明面与 logs-server.d.cts 同款伴随惯例。cjs 实现无类型,参数刻意宽松
 // (any):本声明的职责是暴露导出面与注入点 arity(测试传假 req/fetch/collect/
 // ddg 件,类型上兼容真件即可),不重新发明签名。
+/** R-26:pinPublicHost/isPublicHost 的 DNS 查询器注入面(生产缺省 dns.promises.lookup)。 */
+type DnsLookup = (
+  hostname: string,
+  opts: { all: true; verbatim: boolean },
+) => Promise<Array<{ address: string; family: number }>>;
+
 declare const proxies: {
   handleLlmProxy(
     req: unknown,
@@ -52,7 +58,8 @@ declare const proxies: {
   normalizeBaseUrl(raw: string): string;
   isPrivateAddress(ip: string): boolean;
   isFakeIpAddress(ip: string): boolean;
-  isPublicHost(u: URL): Promise<boolean>;
+  isPublicHost(u: URL, lookup?: DnsLookup): Promise<boolean>;
+  pinPublicHost(u: URL, lookup?: DnsLookup): Promise<Array<{ address: string; family: number }> | null>;
   isYahooMarket(ticker: unknown): boolean;
 };
 export = proxies;
