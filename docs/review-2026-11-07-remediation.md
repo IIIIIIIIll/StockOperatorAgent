@@ -23,7 +23,7 @@
 - [x] CR-21 `done` 增 `degraded`
 - [x] CR-22 `abort()` 用例 + 注释
 - [x] CR-23 取消边界写入 spec/注释
-- [x] CR-24 `web_search` 调用上限
+- [x] CR-24 `web_search` 调用上限（已改为可配置：面板「工具调用上限」+ `WEB_SEARCH_MAX_CALLS`，1..20）
 - [x] CR-28 hydrate 失败可见信号
 - [x] CR-29 归档索引与正文对账
 - [x] CR-30 设置原子写

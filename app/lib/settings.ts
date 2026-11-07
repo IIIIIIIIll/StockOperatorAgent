@@ -6,7 +6,7 @@ import { sanitizeLlmValue, type LlmConfig } from '../../src/llm.ts';
 import * as settingsStore from './settingsStore.ts';
 import { info, warn, error as logError } from '../../src/log.ts';
 import { BILLIONS_DEFAULT_MAX } from '../../src/billionsTools.ts';
-import type { CapabilitySwitches } from '../../src/switches.ts';
+import { normalizeMaxCalls, WEB_SEARCH_DEFAULT_MAX_CALLS, type CapabilitySwitches } from '../../src/switches.ts';
 
 export interface SwitchState {
   tdxMcp: boolean; // TDX MCP(实时市场情报)
@@ -20,6 +20,7 @@ export interface SwitchState {
 }
 
 export interface CapsState {
+  webSearchMax: number; // 联网搜索单次分析上限(默认 5)
   searchMax: number; // 默认 3
   twitterMax: number; // 默认 2
   fetchMax: number; // 默认 3
@@ -54,6 +55,7 @@ const DEFAULT_SWITCHES: SwitchState = {
 // caps 默认值单一来源 = billionsTools.BILLIONS_DEFAULT_MAX（UI 面板默认与
 // env/内部兜底同一份；换默认只改 src/billionsTools.ts 一处）。
 const DEFAULT_CAPS: CapsState = {
+  webSearchMax: WEB_SEARCH_DEFAULT_MAX_CALLS,
   searchMax: BILLIONS_DEFAULT_MAX.SEARCH,
   twitterMax: BILLIONS_DEFAULT_MAX.TWITTER,
   fetchMax: BILLIONS_DEFAULT_MAX.FETCH,
@@ -132,17 +134,18 @@ export function saveSettings(s: SettingsState): void {
 }
 
 /** 面板开关(语义 enabled) → 能力开关直映(与旧 DISABLED 语义取反映射等价)。
- *  消费点:App start()/onSettingsChange 调 setCapabilitySwitches(switchesToCapabilities(s))。 */
-export function switchesToCapabilities(switches: SwitchState): CapabilitySwitches {
+ *  消费点:App start()/onSettingsChange 调 setCapabilitySwitches(switchesToCapabilities(settings))。 */
+export function switchesToCapabilities(s: SettingsState): CapabilitySwitches {
   return {
-    tdxMcp: switches.tdxMcp,
-    webSearch: switches.webSearch,
-    billions: switches.billionsMaster,
-    findb: switches.findb,
-    search: switches.search,
-    twitter: switches.twitter,
-    fetch: switches.fetch,
-    analyst: switches.analyst,
+    tdxMcp: s.switches.tdxMcp,
+    webSearch: s.switches.webSearch,
+    webSearchMaxCalls: normalizeMaxCalls(s.caps.webSearchMax),
+    billions: s.switches.billionsMaster,
+    findb: s.switches.findb,
+    search: s.switches.search,
+    twitter: s.switches.twitter,
+    fetch: s.switches.fetch,
+    analyst: s.switches.analyst,
   };
 }
 

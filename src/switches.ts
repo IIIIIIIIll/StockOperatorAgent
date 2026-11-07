@@ -10,9 +10,23 @@
 // 等谓词运行时求值,开关运行时生效)。
 import { envValue } from './env.ts';
 
+/** 联网搜索单次分析调用上限默认值(面板 caps 默认与 env/工具兜底同一份)。 */
+export const WEB_SEARCH_DEFAULT_MAX_CALLS = 5;
+/** 上限允许范围:1..20(超过只会让模型无限抓取,失去预算意义)。 */
+export const WEB_SEARCH_MAX_CALLS_LIMIT = 20;
+
+/** 上限归一:接受 number/string(env);非整数/越界 → fallback。 */
+export function normalizeMaxCalls(value: unknown, fallback: number = WEB_SEARCH_DEFAULT_MAX_CALLS): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isInteger(n) || n < 1 || n > WEB_SEARCH_MAX_CALLS_LIMIT) return fallback;
+  return n;
+}
+
 export interface CapabilitySwitches {
   tdxMcp: boolean; // TDX MCP(实时市场情报)
   webSearch: boolean; // 联网搜索
+  /** 联网搜索单次分析调用上限(1..20;含同参缓存命中不计数)。 */
+  webSearchMaxCalls: number;
   billions: boolean; // 亿信总闸
   findb: boolean; // 金融问数
   search: boolean; // 搜索
@@ -45,6 +59,7 @@ export function fromEnv(): CapabilitySwitches {
   return {
     tdxMcp: enabled('TDX_MCP_DISABLED'),
     webSearch: enabled('WEB_SEARCH_DISABLED'),
+    webSearchMaxCalls: normalizeMaxCalls(envValue('WEB_SEARCH_MAX_CALLS')),
     billions: enabled('BILLIONS_DISABLED'),
     findb: enabled('BILLIONS_FINDB_DISABLED'),
     search: enabled('BILLIONS_SEARCH_DISABLED'),

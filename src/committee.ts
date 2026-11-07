@@ -45,7 +45,8 @@ export interface Role {
  *  字段);未注入时 fromEnv 从 BILLIONS_{CAP}_DISABLED 反推。cap: FINDB/
  *  SEARCH/TWITTER/FETCH/ANALYST。无 key 约束(现状)——key 判定在
  *  billionsTools.billionsCapEnabled 单点承担。 */
-const BILLIONS_CAP_FIELD: Record<string, keyof CapabilitySwitches> = {
+type CapabilityFlag = 'findb' | 'search' | 'twitter' | 'fetch' | 'analyst';
+const BILLIONS_CAP_FIELD: Record<string, CapabilityFlag> = {
   FINDB: 'findb',
   SEARCH: 'search',
   TWITTER: 'twitter',

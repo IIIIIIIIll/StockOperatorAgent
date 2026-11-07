@@ -14,6 +14,7 @@ import {
 import { LAST_RUN_KEY } from '../src/lastRun.ts';
 import { BILLIONS_DEFAULT_MAX } from '../src/billionsTools.ts';
 import { defaultSettings } from '../app/lib/settings.ts';
+import { WEB_SEARCH_DEFAULT_MAX_CALLS } from '../src/switches.ts';
 
 describe('metaKeys 键模板工厂', () => {
   it('f10Key:每股 F10 meta 键 = f10:<ticker>', () => {
@@ -52,6 +53,7 @@ describe('caps 默认值单一来源', () => {
   it('settings DEFAULT_CAPS 与 billionsTools BILLIONS_DEFAULT_MAX 同源同值', () => {
     const caps = defaultSettings().caps;
     expect(caps).toEqual({
+      webSearchMax: WEB_SEARCH_DEFAULT_MAX_CALLS,
       searchMax: BILLIONS_DEFAULT_MAX.SEARCH,
       twitterMax: BILLIONS_DEFAULT_MAX.TWITTER,
       fetchMax: BILLIONS_DEFAULT_MAX.FETCH,

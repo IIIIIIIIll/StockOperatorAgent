@@ -6,7 +6,7 @@
 // 浏览器同源代理分支(makeProxySearcher)不加超时——server /web-search race 兜底。
 import { detectPlatform } from './log.ts';
 import { envValue } from './env.ts';
-import { getCapabilitySwitches } from './switches.ts';
+import { getCapabilitySwitches, WEB_SEARCH_DEFAULT_MAX_CALLS } from './switches.ts';
 import type { ToolLike } from './toolLoop.ts';
 import { fetchWithTimeout } from './yahoo/yahooClient.ts';
 
@@ -212,10 +212,6 @@ export async function ddgSearcher(query: string): Promise<SearchResult[]> {
   return results;
 }
 
-/** CR-24:单次分析的 web_search 调用上限(含同参缓存命中不计数)。与亿信
- *  三件套的 maxCalls 同语义;超出返回占位文案,不让模型无限重试抓取。 */
-export const WEB_SEARCH_MAX_CALLS = 5;
-
 /** web_search 工具 OpenAI function description（对齐 Python make_web_search_tool docstring）。 */
 const WEB_SEARCH_DESCRIPTION =
   '联网搜索(DuckDuckGo 中文财经源,cn-zh),可验证行业与市场的最新论据(如新闻、公告、政策)。查询失败时返回占位文本。';
@@ -237,7 +233,9 @@ export function makeWebSearchTool(
   opts?: { maxCalls?: number },
 ): ToolLike {
   const search = _searcher ?? defaultSearcher();
-  const maxCalls = opts?.maxCalls ?? WEB_SEARCH_MAX_CALLS;
+  // 上限可配置:显式 opts > 能力开关(面板 caps / env WEB_SEARCH_MAX_CALLS)
+  // > 默认 5;同参缓存命中不计数(CR-24)。
+  const maxCalls = opts?.maxCalls ?? getCapabilitySwitches().webSearchMaxCalls ?? WEB_SEARCH_DEFAULT_MAX_CALLS;
   // CR-24:工具实例按「每次分析」创建(committee 一次),计数器/同参缓存即分析级预算。
   // 之前只有轮数上限(15),单轮可发任意多个调用且同参重复抓取。
   let calls = 0;

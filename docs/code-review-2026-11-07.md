@@ -208,7 +208,7 @@
 | CR-21 | `done` 契约无 degraded 标记：占位兜底被当成功写历史 | `src/events.ts:31-36,201`；`app/lib/analysisController.ts:911-918` | `FinalReport` 增 `degraded`；消费侧不置 `hasDone`、不写归档 | CONFIRMED（行号微调） |
 | CR-22 | `abort()` 零测试，作废代仍 emit（靠消费方自带代数门） | `src/events.ts:128-131`；`test/` 无 abort 用例 | 补 abort 用例；注释写明消费方需自带代数门 | CONFIRMED（位置改为 128-131） |
 | CR-23 | 取消/看门狗不触达 LLM 与工具循环，后台继续烧 token | `src/retry.ts:120-152`；`src/toolLoop.ts:88-131` | 本轮不改代码，把边界写进 `ts/events-streaming.md` 与 `retry.ts` 头注释 | CONFIRMED（已知边界 + 缺文档） |
-| CR-24 | 工具预算只按轮数：`web_search` 无调用上限、同参不去重 | `src/toolLoop.ts:84`；`src/webSearch.ts:233-247` | 加 `maxCalls`（对齐亿信三件套）或对 `(name,args)` 复用 ToolMessage | CONFIRMED |
+| CR-24 | 工具预算只按轮数：`web_search` 无调用上限、同参不去重 | `src/toolLoop.ts:84`；`src/webSearch.ts:233-247` | 已加 `maxCalls`（默认 5，可配置：面板「工具调用上限」/ `WEB_SEARCH_MAX_CALLS`，1..20）+ 同参缓存 | CONFIRMED |
 
 ### 6.2 数据采集（data）
 

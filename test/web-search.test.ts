@@ -11,6 +11,7 @@ import {
   parseDdgHtml,
   stripTags,
 } from '../src/webSearch.ts';
+import { fromEnv, setCapabilitySwitches } from '../src/switches.ts';
 
 const WEB_SEARCH_DESCRIPTION =
   '联网搜索(DuckDuckGo 中文财经源,cn-zh),可验证行业与市场的最新论据(如新闻、公告、政策)。查询失败时返回占位文本。';
@@ -232,5 +233,25 @@ describe('web_search 调用预算(CR-24)', () => {
     const capped = await tool.invoke({ query: 'c' });
     expect(String(capped)).toContain('上限');
     expect(calls).toBe(2);
+  });
+});
+
+describe('web_search 上限可配置(CR-24)', () => {
+  it('能力开关注入的 maxCalls 生效(面板/环境配置路径)', async () => {
+    const base = fromEnv();
+    setCapabilitySwitches({ ...base, webSearchMaxCalls: 1 });
+    try {
+      let calls = 0;
+      const tool = makeWebSearchTool(async (q) => {
+        calls += 1;
+        return [{ title: q, link: 'https://example.com', snippet: 's' }];
+      });
+      await tool.invoke({ query: 'a' });
+      const capped = await tool.invoke({ query: 'b' });
+      expect(String(capped)).toContain('上限');
+      expect(calls).toBe(1);
+    } finally {
+      setCapabilitySwitches(base);
+    }
   });
 });

@@ -16,7 +16,7 @@ import { makeBillionsTools } from '../src/billionsTools.ts';
 import { defaultSettings, switchesToCapabilities } from '../app/lib/settings.ts';
 
 const ALL_TRUE: CapabilitySwitches = {
-  tdxMcp: true, webSearch: true, billions: true,
+  tdxMcp: true, webSearch: true, webSearchMaxCalls: 5, billions: true,
   findb: true, search: true, twitter: true, fetch: true, analyst: true,
 };
 
@@ -56,7 +56,7 @@ describe('fromEnv:旧 DISABLED 语义反推(与旧 envDisabledBool 逐位等价)
   it('全键缺省 → 全开(等价面板全开)', () => {
     expect(fromEnv()).toEqual(ALL_TRUE);
     // 默认等价:env 反推 == 面板默认开关(switchesToCapabilities 直映)
-    expect(fromEnv()).toEqual(switchesToCapabilities(defaultSettings().switches));
+    expect(fromEnv()).toEqual(switchesToCapabilities(defaultSettings()));
   });
 
   it.each(['', '0', 'false', 'no'])('键值 %j → enabled(显式假值不禁用)', (v) => {
@@ -67,7 +67,7 @@ describe('fromEnv:旧 DISABLED 语义反推(与旧 envDisabledBool 逐位等价)
   it.each(['1', 'true', 'yes', 'TRUE', '任意串'])('键值 %j → disabled', (v) => {
     for (const k of DISABLED_KEYS) process.env[k] = v;
     expect(fromEnv()).toEqual({
-      tdxMcp: false, webSearch: false, billions: false,
+      tdxMcp: false, webSearch: false, webSearchMaxCalls: 5, billions: false,
       findb: false, search: false, twitter: false, fetch: false, analyst: false,
     });
   });
@@ -201,5 +201,39 @@ describe('TDX_MCP_ENABLED 覆盖层优先级(env 覆盖 > config > env 默认)',
     expect(mcpDisabled()).toBe(true);
     setCapabilitySwitches(ALL_TRUE);
     expect(mcpDisabled()).toBe(false);
+  });
+});
+
+describe('WEB_SEARCH_MAX_CALLS 可配置(1..20,非法回退 5)', () => {
+  it('env 合法值生效;越界/非数字回退默认', () => {
+    const prev = process.env.WEB_SEARCH_MAX_CALLS;
+    try {
+    const cases: Array<[string | undefined, number]> = [
+      ['3', 3],
+      ['20', 20],
+      ['1', 1],
+      ['0', 5],
+      ['21', 5],
+      ['abc', 5],
+      [undefined, 5],
+    ];
+    for (const [raw, want] of cases) {
+      if (raw === undefined) delete process.env.WEB_SEARCH_MAX_CALLS;
+      else process.env.WEB_SEARCH_MAX_CALLS = raw;
+      expect(fromEnv().webSearchMaxCalls).toBe(want);
+    }
+    } finally {
+      if (prev === undefined) delete process.env.WEB_SEARCH_MAX_CALLS;
+      else process.env.WEB_SEARCH_MAX_CALLS = prev;
+    }
+  });
+
+  it('面板 caps → 能力开关注入(默认 5,自定义值生效)', () => {
+    const d = defaultSettings();
+    expect(switchesToCapabilities(d).webSearchMaxCalls).toBe(5);
+    const custom = { ...d, caps: { ...d.caps, webSearchMax: 9 } };
+    expect(switchesToCapabilities(custom).webSearchMaxCalls).toBe(9);
+    const invalid = { ...d, caps: { ...d.caps, webSearchMax: 0 } };
+    expect(switchesToCapabilities(invalid).webSearchMaxCalls).toBe(5);
   });
 });

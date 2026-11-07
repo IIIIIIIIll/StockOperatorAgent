@@ -48,7 +48,6 @@ import {
   type CapsState,
   type KeysState,
   type SettingsState,
-  type SwitchState,
 } from './settings.ts';
 
 /** 平台形态:web → 同源代理(/llm-proxy、采集代理);native(RN 真机/桌面壳)→ 设备链直连。 */
@@ -138,7 +137,7 @@ export interface AnalysisDeps {
   readonly loadSettings: () => SettingsState;
   readonly saveSettings: (next: SettingsState) => void;
   /** 面板开关 → 能力开关注入(setCapabilitySwitches ∘ switchesToCapabilities)。 */
-  readonly applyCapabilitySwitches: (switches: SwitchState) => void;
+  readonly applyCapabilitySwitches: (settings: SettingsState) => void;
   // ── start() 编排 ────────────────────────────────────────────────────
   readonly buildLlm: (cfg: LlmConfig | null, proxyBase?: string) => unknown;
   /** 平台+市场采集分派(web 代理/selectCollector/真机桥,含 finnhub 绑定);
@@ -690,7 +689,7 @@ export class AnalysisController {
   onSettingsChange(next: SettingsState): void {
     this.st.settings = next;
     this.deps.saveSettings(next);
-    this.deps.applyCapabilitySwitches(next.switches);
+    this.deps.applyCapabilitySwitches(next);
     if (!this.st.running) this.st.error = null;
     this.notify();
   }
@@ -748,7 +747,7 @@ export class AnalysisController {
     const { market: m, ticker: nt } = normalized;
     s.market = m;
     // 能力开关经显式注入(settings 面板语义 enabled → 直映;消费点惰性读 config)
-    d.applyCapabilitySwitches(s.settings.switches);
+    d.applyCapabilitySwitches(s.settings);
     const modeLabel = llmConfigured(s.settings.keys) ? '真实 LLM' : '演示占位 LLM';
     this.mode = llmConfigured(s.settings.keys) ? 'real' : 'demo'; // 缓存/标记以 start() 时刻模式为准
     d.log.info(`开始分析 ${nt}(市场:${m},模式:${modeLabel})`);

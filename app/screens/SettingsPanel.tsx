@@ -30,6 +30,7 @@ const SWITCH_ROWS: Array<{ key: keyof SettingsState['switches']; label: string; 
 ];
 
 const CAP_ROWS: Array<{ key: keyof SettingsState['caps']; label: string }> = [
+  { key: 'webSearchMax', label: '联网搜索(WEB_SEARCH)调用上限' },
   { key: 'searchMax', label: '亿信搜索(SEARCH)调用上限' },
   { key: 'twitterMax', label: '亿信社交(TWITTER)调用上限' },
   { key: 'fetchMax', label: '亿信抓取(FETCH)调用上限' },
@@ -177,10 +178,10 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         })}
       </View>
 
-      {/* ── 5. 亿信调用上限────────────────────────────────────── */}
+      {/* ── 5. 工具调用上限────────────────────────────────────── */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>亿信调用上限</Text>
-        <Text style={styles.muted}>单次分析内工具调用上限;设置自动保存,重启后保留。</Text>
+        <Text style={styles.sectionTitle}>工具调用上限</Text>
+        <Text style={styles.muted}>单次分析内工具调用上限(联网搜索/亿信各能力);设置自动保存,重启后保留。</Text>
         {CAP_ROWS.map((row) => (
           <View key={row.key} style={styles.capRow}>
             <Text style={[styles.label, { flex: 1 }]}>{row.label}</Text>
