@@ -254,7 +254,13 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
     const text = await fs.read(INDEX_FILE);
     if (text !== null) {
       try {
-        return parseRunSummaries(JSON.parse(text));
+        const parsed: unknown = JSON.parse(text);
+        // R-10:能解析但非数组/空数组也算「索引不可信」—— 否则一条被截断成
+        // '{}' 的索引会让磁盘上所有记录永久消失(正文文件才是真值来源)。
+        // 真空档(email 场景)重建结果也是 [],只多一次目录扫描。
+        const list = parseRunSummaries(parsed);
+        if (Array.isArray(parsed) && list.length > 0) return list;
+        logError('历史索引为空或非数组,尝试从正文重建');
       } catch (err) {
         logError(`历史索引损坏,尝试重建:${err instanceof Error ? err.message : String(err)}`);
       }
@@ -287,6 +293,18 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
     await fs.write(INDEX_FILE, JSON.stringify(summaries));
   };
 
+  /** R-24:write/move 中场抛错会留下 `<name>.tmp.*`,只有 clear() 扫——
+   *  写失败后在这里收拾一次,不让残留越积越多。 */
+  const sweepTmp = async (fs: RunFsAdapter): Promise<void> => {
+    try {
+      for (const name of await fs.list()) {
+        if (name.includes('.tmp.')) await fs.remove(name);
+      }
+    } catch (err) {
+      logError(`历史归档 tmp 残留清理失败:${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   /** 串行化写操作:索引是「读改写」,并发会互相覆盖。 */
   const enqueue = <T>(op: () => Promise<T>): Promise<T> => {
     const run = queue.then(op);
@@ -299,8 +317,12 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
 
   return {
     async list() {
-      await ensureLoaded();
-      return sortSummaries(summaries);
+      // R-24:ensureLoaded 原来在 queue 外 —— 冷启动扇描与排队中的 put 并发时
+      // 会用旧扇描结果覆盖 summaries,writeIndex 再把新条目从索引里抹掉
+      return enqueue(async () => {
+        await ensureLoaded();
+        return sortSummaries(summaries);
+      });
     },
     async load(id) {
       assertSafeId(id);
@@ -318,7 +340,12 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
       await enqueue(async () => {
         await ensureLoaded();
         const fs = await getFs();
-        await fs.write(`${run.id}.json`, JSON.stringify(run));
+        try {
+          await fs.write(`${run.id}.json`, JSON.stringify(run));
+        } catch (err) {
+          await sweepTmp(fs);
+          throw err;
+        }
         summaries = sortSummaries([...summaries.filter((s) => s.id !== run.id), toSummary(run)]);
         await writeIndex();
       });
@@ -330,10 +357,16 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
         await ensureLoaded();
         const fs = await getFs();
         let removed = 0;
+        // R-24:正文文件可能不在索引里(上次 writeIndex 失败留下的孤儿)——
+        // 一并删掉,否则重建索引时它又复活且永远删不掉。计数只算索引里的
+        // (调用方日志面向列表),孤儿清理是防护。
+        const files = new Set(await fs.list());
         for (const id of ids) {
-          if (!summaries.some((s) => s.id === id)) continue;
-          await fs.remove(`${id}.json`);
-          removed += 1;
+          const name = `${id}.json`;
+          const inIndex = summaries.some((s) => s.id === id);
+          if (!inIndex && !files.has(name)) continue;
+          if (files.has(name)) await fs.remove(name);
+          if (inIndex) removed += 1;
         }
         summaries = summaries.filter((s) => !ids.includes(s.id));
         await writeIndex();

@@ -63,8 +63,8 @@ function run(over: Partial<AnalysisRun> = {}): AnalysisRun {
   };
 }
 
-function makeHarness(over: { archive?: RunArchive; runner?: PipelineRunner & { emit(e: PipelineEvent): void } } = {}) {
-  const store = new InMemoryStore();
+function makeHarness(over: { archive?: RunArchive; runner?: PipelineRunner & { emit(e: PipelineEvent): void }; store?: InMemoryStore } = {}) {
+  const store = over.store ?? new InMemoryStore();
   const archive = over.archive ?? createMemoryRunArchive();
   const runner = over.runner ?? makeFakeRunner();
   const logs = { info: [] as string[], warn: [] as string[], error: [] as string[] };
@@ -154,18 +154,47 @@ describe('历史归档 · bootstrap 迁移(只迁一次)', () => {
     expect(list[0].ticker).toBe('600036');
     expect(h.store.getMeta(RUN_HISTORY_MIGRATED_KEY)).toBe('1');
 
-    // 同一 store/archive 再起一个控制器(模拟重启)→ 不重复迁移
-    const h2 = makeHarness({ archive: h.archive });
-    // 共享同一 store 的 lastRun:新 harness 有自己的 store → 直接断言 archive 未变化
+    // 同一 store + 同一 archive 再起一个控制器(= 重启,共享 lastRun 与标记)
+    // R-07:原来的 h2 用的是新 InMemoryStore → 根本没有 lastRun,迁移即使被
+    // 重复执行也看不出来。这里必须传同一个 store。
+    const h2 = makeHarness({ archive: h.archive, store: h.store });
     await h2.ctrl.bootstrap();
     expect(await h.archive.list()).toHaveLength(1);
 
-    // 用户清空历史后重启:迁移标记已置位 → 不复活
+    // 用户清空历史后重启:迁移标记已置位 → 不复活(删掉标记检查这条会红)
     await h.ctrl.clearHistory();
     expect(await h.archive.list()).toEqual([]);
-    h.ctrl.closeRun();
-    await h.ctrl.refreshHistory(true);
+    const h3 = makeHarness({ archive: h.archive, store: h.store });
+    await h3.ctrl.bootstrap();
     expect(await h.archive.list()).toEqual([]);
+    expect(h3.snap().history).toEqual([]);
+  });
+
+  // R-08:迁移写盘失败的半成品态 —— 只 warn、不置标记、下次启动还能再试。
+  it('迁移写盘失败 → 不置标记,下次启动重试成功', async () => {
+    const base = createMemoryRunArchive();
+    let deny = true;
+    const flaky: RunArchive = {
+      ...base,
+      async put(r) {
+        if (deny) throw new Error('quota exceeded');
+        return base.put(r);
+      },
+    };
+    const h = makeHarness({ archive: flaky });
+    saveLastRun(h.store, report(), 'real', '2026-11-02T01:00:00.000Z');
+    await h.ctrl.bootstrap();
+
+    expect(h.logs.warn.some((m) => m.includes('历史迁移失败'))).toBe(true);
+    expect(h.store.getMeta(RUN_HISTORY_MIGRATED_KEY)).toBeNull(); // 未置标记 → 下次再试
+    expect(await flaky.list()).toEqual([]);
+    expect(h.snap().historyError).toBeNull(); // 迁移失败不得污染抽屉错误
+
+    deny = false;
+    const h2 = makeHarness({ archive: flaky, store: h.store });
+    await h2.ctrl.bootstrap();
+    expect((await flaky.list()).map((s) => s.id).length).toBe(1);
+    expect(h.store.getMeta(RUN_HISTORY_MIGRATED_KEY)).toBe('1');
   });
 
   it('迁移标记已存在 → 即便有 lastRun 也不写历史', async () => {

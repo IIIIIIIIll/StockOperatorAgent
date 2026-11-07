@@ -196,4 +196,66 @@ describe('RunArchive · 文件后端(RN 形状)', () => {
     const rebuilt = createFileRunArchive(async () => nodeRunFs(dir));
     expect((await rebuilt.list()).map((s) => s.id)).toEqual(['good']);
   });
+  // R-10:能解析但为空的索引('{}' / '[]')原本直接返回 [] → 磁盘上的记录
+  // 永久消失(只有正文文件是真值来源)。
+  it('索引为空对象/空数组 → 仍从正文重建,记录不消失', async () => {
+    const { dir, archive } = await makeArchive();
+    await archive.put(run({ id: 'r1' }));
+    for (const garbage of ['{}', '[]', 'null']) {
+      await writeFile(path.join(dir, 'index.json'), garbage, 'utf8');
+      const rebuilt = createFileRunArchive(async () => nodeRunFs(dir));
+      expect((await rebuilt.list()).map((s) => s.id)).toEqual(['r1']);
+    }
+  });
+
+  // R-09:索引是读改写 —— 并发 put 不得互相覆盖,同 id 去重。
+  it('并发写入不丢索引条目(同 id 去重)', async () => {
+    const { dir } = await makeArchive();
+    const archive = createFileRunArchive(async () => nodeRunFs(dir));
+    await Promise.all([
+      archive.put(run({ id: 'a', at: '2026-11-01T00:00:00.000Z' })),
+      archive.put(run({ id: 'b', at: '2026-11-02T00:00:00.000Z' })),
+      archive.put(run({ id: 'b', at: '2026-11-02T00:00:00.000Z', final_decision: '减持' })),
+      archive.list(),
+    ]);
+    expect((await archive.list()).map((s) => s.id)).toEqual(['b', 'a']);
+    // 落盘结果一致(新实例从 index 读回两条)
+    const reopened = createFileRunArchive(async () => nodeRunFs(dir));
+    expect((await reopened.list()).map((s) => s.id)).toEqual(['b', 'a']);
+    expect((await reopened.load('b'))?.final_decision).toBe('减持');
+  });
+
+  // R-24:正文写成功但 writeIndex 失败 → 该正文不在索引里,原来既删不掉
+  // 也会在下次重建时复活。
+  it('remove 能删掉不在索引里的孤儿正文', async () => {
+    const { dir, archive } = await makeArchive();
+    await archive.put(run({ id: 'r1' }));
+    await writeFile(path.join(dir, 'r9.json'), JSON.stringify(run({ id: 'r9' })), 'utf8');
+
+    expect(await archive.remove(['r9'])).toBe(0); // 计数只算索引内(调用方面向列表)
+    expect(await readdir(dir)).not.toContain('r9.json'); // 但孤儿文件真的删了
+    expect((await archive.list()).map((s) => s.id)).toEqual(['r1']);
+  });
+
+  // R-24:write/move 抛错留下的 <name>.tmp.* 不得越积越多。
+  it('写失败后清理本次的 tmp 残留', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'soa-run-tmp-'));
+    const base = nodeRunFs(dir);
+    const failing: RunFsAdapter = {
+      ...base,
+      async write(name, data) {
+        if (name === 'r1.json') {
+          await writeFile(path.join(dir, `${name}.tmp.123`), 'partial', 'utf8');
+          throw new Error('disk full');
+        }
+        return base.write(name, data);
+      },
+    };
+    const archive = createFileRunArchive(async () => failing);
+    await expect(archive.put(run({ id: 'r1' }))).rejects.toThrow('disk full');
+    expect(await readdir(dir)).not.toContain('r1.json.tmp.123');
+    // 队列未被污染:失败后仍可正常写入
+    await archive.put(run({ id: 'r2' }));
+    expect((await archive.list()).map((s) => s.id)).toEqual(['r2']);
+  });
 });

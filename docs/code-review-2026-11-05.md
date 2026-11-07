@@ -123,7 +123,7 @@ missing the specified affordance and over-guarding the case that needs no confir
 
 **Done:** `app/screens/HistoryPanel.tsx` — row wrapped in `styles.rowWrap`, `✕` rendered as a **sibling** of the row `Pressable` (not nested, so RN-web taps do not bubble into `onRowPress`), non-select mode only, no confirm. No automated coverage: the panel has no component tests in this repo.
 
-### [ ] R-06 · IDB `remove()` 返回值不是实际删除数
+### [x] R-06 · IDB `remove()` 返回值不是实际删除数
 
 - **Where:** `app/lib/runArchive.ts:169` (contract at `:44`)
 - **Verified:** yes · **Axis:** Standards + Tests
@@ -135,7 +135,11 @@ caller logs `删除历史分析:${removed} 条` — so the IDB path reports dele
 **Fix:** read each id's presence before delete, return the real count, and add
 `expect(await archive.remove(['missing'])).toBe(0)`.
 
-### [ ] R-07 · 「再次 bootstrap 不重复」测试用了一个全新空 store
+**Done** (`681f6e3`): same-transaction `getKey` probe, delete issued inside the `onsuccess`
+callback (IDB activation boundary), real count returned. Tests: `remove(['missing']) → 0`,
+`remove(['b','missing']) → 1` (red without the fix).
+
+### [x] R-07 · 「再次 bootstrap 不重复」测试用了一个全新空 store
 
 - **Where:** `test/analysis-controller-history.test.ts:158`
 - **Verified:** no (agent) · **Axis:** Test
@@ -146,7 +150,11 @@ it cannot detect double migration.
 
 **Fix:** thread the same `store` into the second harness.
 
-### [ ] R-08 · 迁移失败分支零覆盖
+**Done:** `makeHarness({ store })`; the test now shares store + archive across a simulated
+restart, and the 清空后不复活 half is asserted through a fresh controller (deleting the
+`RUN_HISTORY_MIGRATED_KEY` check now fails the test).
+
+### [x] R-08 · 迁移失败分支零覆盖
 
 - **Where:** `app/lib/analysisController.ts:418-425`
 - **Verified:** no (agent) · **Axis:** Test
@@ -157,7 +165,11 @@ silently drops the user's `lastRun` forever.
 
 **Fix:** harness with an archive whose `put` throws + `saveLastRun` + `bootstrap()`.
 
-### [ ] R-09 · 无并发写入测试
+**Done:** flaky archive — first boot asserts `历史迁移失败` warn + marker still `null` +
+`historyError` untouched; `deny = false` then a fresh controller on the same store migrates
+and only then sets the marker.
+
+### [x] R-09 · 无并发写入测试
 
 - **Where:** `app/lib/runArchive.ts:268-276` (`enqueue`), `:288` (same-id dedupe)
 - **Verified:** no (agent) · **Axis:** Test
@@ -166,7 +178,10 @@ The read-modify-write of the summaries index and `writeIndex` are only exercised
 `await Promise.all([put(a), put(b)])` then `list()` → 2 entries would catch index loss; the
 same test can cover the dedupe filter.
 
-### [ ] R-10 · 空索引不触发重建,磁盘上的记录会永久消失
+**Done:** `Promise.all([put(a), put(b), put(b')])` (plus a concurrent `list()`) → index holds
+`['b','a']`, a reopened instance reads the same, and the second `put(b)` wins (dedupe).
+
+### [x] R-10 · 空索引不触发重建,磁盘上的记录会永久消失
 
 - **Where:** `app/lib/runArchive.ts:235-238`, `test/run-archive.test.ts:156`
 - **Verified:** no (agent) · **Axis:** Correctness + Test
@@ -177,6 +192,10 @@ Only the `{oops`-throw path is tested.
 
 **Fix:** treat a non-array/empty result as needing rebuild; test with a valid `r1.json` +
 `index.json='{}'` → expect `list()` = `['r1']`.
+
+**Done:** `loadIndex` rebuilds whenever the parsed index is not an array **or** yields zero
+summaries; test cycles `'{}'`, `'[]'`, `'null'` and expects `['r1']` each time (red without
+the fix).
 
 ---
 
@@ -207,6 +226,11 @@ Only the `{oops`-throw path is tested.
   `list()` (`:281-284`) runs `ensureLoaded()` **outside** `queue`, so a cold-start scan concurrent with a queued `put` clobbers `summaries` and rewrites `index.json` without the new entry. *(verified)*
   `remove()` (`:296-306`) only deletes body files present in the in-memory index, so a body written before a failed `writeIndex` becomes an undeletable orphan that resurrects on the next rebuild. *(verified)*
   A throw in `write`/`moveSync` leaves `<name>.tmp.*` behind; only `clear()` sweeps them.
+
+  **Done:** `list()` now runs `ensureLoaded()` **inside** the queue; `remove()` also deletes
+  body files absent from the index (count still reflects index entries); `put()` sweeps
+  `*.tmp.*` on a write throw. Tests: orphan body deletable, tmp swept + queue still usable
+  after the failure, concurrent list/put.
 
 ### Proxy / fake-IP
 
