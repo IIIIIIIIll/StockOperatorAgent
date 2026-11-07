@@ -7,6 +7,22 @@ paths:
 
 # app 手工 E2E 验证(web 浏览器驱动 + 安卓冒烟)
 
+- **2026-11-07(安卓 debug 包陈旧 bundle —— 会伪装成「代码没生效」)**:
+  - **症状**:代码已改、Metro 在跑、`expo export` 也过,但 app 冷启动后行为仍是旧代码
+    (本次 CR-25 差点被误判为复现 bug:`vol: b.volume` 拿 null 参与算术 → `VOL_RATIO=0.000`,
+    新代码应为 `N/A`)。
+  - **判据(唯一可信)**:`adb shell "run-as <pkg> grep -c '<本次改动的独有串>' files/BridgelessReactNativeDevBundle.js"`。
+    命中 0 = app 载的是旧 bundle,与 `tsc`/`vitest` 结果无关。对照 curl
+    `http://127.0.0.1:8081/index.bundle?platform=android&dev=true` 若含新代码而设备 bundle 不含,
+    则问题在 Metro 涂层而不在代码。
+  - **修复(三步缺一不可)**:`kill <旧 metro pid>` → `npx expo start --port 8081 -c` →
+    `adb reverse tcp:8081 tcp:8081` → `run-as <pkg> rm -f files/BridgelessReactNativeDevBundle.js`
+    → `am force-stop`/`am start` → 重新 grep 应命中。**只重启 app 不删该缓存文件无效**
+    (实测两次重启均仍为旧 bundle;长期运行的 Metro 不会因文件变更而必然重建图)。
+  - **已装包判据**:`dumpsys package <pkg> | grep flags` 无 `DEBUGGABLE` = release
+    (跑内嵌 bundle,永不走 Metro);本次 release 0.1.9 上盖 debug 包时 `adb install -r`
+    **未**触发签名冲突(未清数据),不要默认必须先 `adb uninstall`。
+
 - **2026-11-05(抽屉二级菜单 UI 驱动要点)**:☰ 打开左侧抽屉,一级是菜单(设置/历史),二级页在同一抽屉内切换(← 返回 / ✕ 关闭);右上角原来的「历史」按钮已删。驱动时注意:
   - **抽屉宽度是比例算的**(`App.tsx` `drawerWidthFor`:窄屏 88% 上限 360dp、宽屏 28% clamp 320–420dp),**不要按固定 320dp 断言**;取真实宽度用 `[data-testid="drawer"]` 的 `getBoundingClientRect()`(RN web 把 testID 渲染成 `data-testid`)。
   - **布局只看一个阈值** `DRAWER_OVERLAY_MAX_WIDTH = 760`:窄于此值覆盖式(遮罩 + 绝对定位),否则占位式;窗口 resize 时布局即时切换,不需重挂载。

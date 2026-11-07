@@ -64,7 +64,7 @@
 
 - [x] CR-09 device-collect 去 `vi.mock`
 - [x] CR-10 Yahoo 代理载荷形状门
-- [x] CR-25 volume 缺失不伪造 0 → `DailyBar.volume` 改 `number | null`（null = 数据源未知），贯通四族 store/采集/概览/图表/pipeline；`isBar` 放行 null；换手率与概览走 NaN（显示 N/A）
+- [x] CR-25 (安卓真机已验证) volume 缺失不伪造 0 → `DailyBar.volume` 改 `number | null`（null = 数据源未知），贯通四族 store/采集/概览/图表/pipeline；`isBar` 放行 null；换手率与概览走 NaN（显示 N/A）
 - [x] CR-26 quoteSummary 状态码
 - [x] CR-27 F10 内容长度守卫
 - [x] CR-39 keepalive 走 log.ts
