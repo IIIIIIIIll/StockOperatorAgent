@@ -246,3 +246,23 @@ describe('FileStore 写队列错误隔离(决策 C:失败仅记录不阻断后�
     expect(flaky.getLastPersistError()).toBeNull();
   });
 });
+
+describe('FileStore × CR-25:volume null 跨 JSON 落盘可耐久', () => {
+  it('null 落盘读回仍为 null(不被 JSON 变 0,也不被 hydrate 丢弃)', async () => {
+    const s = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s.ready();
+    // 停牌/半日市:量未知。NaN 经 JSON.stringify 会变 null,故 null 是唯一耐久表示
+    const unknown: DailyBar[] = [
+      { date: '2026-08-21', open: 10, close: 10, high: 10, low: 10, volume: null, amount: null },
+      { date: '2026-08-22', open: 10, close: 10, high: 10, low: 10, volume: 0, amount: null },
+    ];
+    s.addDatas('T', unknown);
+    await s.flush();
+    const raw = JSON.parse(await fsReadFile(join(baseDir, 'T.json'), 'utf8')) as { bars: DailyBar[] };
+    expect(raw.bars.map((b) => b.volume)).toEqual([null, 0]); // 未知与真零成交可区分
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    const back = s2.getDatas('T');
+    expect(back.map((b) => b.volume)).toEqual([null, 0]);
+  });
+});
