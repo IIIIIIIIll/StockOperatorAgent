@@ -4,7 +4,13 @@
 // caps 默认值两处(settings 面板面与 billionsTools env/兜底面)必须同源同值。
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
-import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key } from '../src/metaKeys.ts';
+import {
+  capitalKey,
+  DEMO_F10_KEY,
+  DEMO_TICKER,
+  f10Key,
+  RUN_HISTORY_MIGRATED_KEY,
+} from '../src/metaKeys.ts';
 import { BILLIONS_DEFAULT_MAX } from '../src/billionsTools.ts';
 import { defaultSettings } from '../app/lib/settings.ts';
 
@@ -21,6 +27,11 @@ describe('metaKeys 键模板工厂', () => {
 
   it('DEMO_F10_KEY 钉死 wire 格式 demo:f10(跨会话键名不可漂移)', () => {
     expect(DEMO_F10_KEY).toBe('demo:f10');
+  });
+
+  // R-34:改名会让「已清空的历史」在下次启动被重新迁移一遍。
+  it('RUN_HISTORY_MIGRATED_KEY 钉死 wire 格式 soa:runs-migrated', () => {
+    expect(RUN_HISTORY_MIGRATED_KEY).toBe('soa:runs-migrated');
   });
 });
 

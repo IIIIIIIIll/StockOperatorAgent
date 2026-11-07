@@ -15,7 +15,7 @@ import {
   type AnalysisSnapshot,
 } from '../app/lib/analysisController.ts';
 import { defaultSettings, type SettingsState } from '../app/lib/settings.ts';
-import { createMemoryRunArchive } from '../app/lib/runArchive.ts';
+import { createMemoryRunArchive } from './fixtures/memoryRunArchive.ts';
 
 type RunnerImpl = (ticker: string, opts?: RunOptions) => Promise<FinalReport | undefined>;
 
@@ -77,7 +77,7 @@ function makeHarness(
     store,
     runArchive,
     runner,
-    platform: 'native',
+    platform: 'rn',
     storeReady: async () => {},
     loadDemoData: () => {
       demoLoaded += 1;

@@ -3,11 +3,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   decisionPreview,
+  formatRunClock,
+  formatRunTime,
   groupRunsByDay,
   localDayKey,
   mergeRunSummaries,
   newRunId,
   parseAnalysisRun,
+  parseRunSummary,
   parseRunSummaries,
   sortSummaries,
   toSummary,
@@ -152,6 +155,42 @@ describe('mergeRunSummaries', () => {
     expect(mergeRunSummaries([summary({ id: 'a' })], [])).toHaveLength(1);
     expect(mergeRunSummaries([], [summary({ id: 'a' })])).toHaveLength(1);
     expect(mergeRunSummaries([], [])).toEqual([]);
+  });
+});
+
+describe('parseRunSummary', () => {
+  // R-23:PRD R9「所有失败静默降级」—— preview 坏掉只降级成空串,不整条丢弃。
+  it('preview 缺失/非字符串 → 空串补齐,id/其余字段保留', () => {
+    for (const bad of [undefined, null, 42, {}, ['x']]) {
+      const parsed = parseRunSummary({ ...summary(), decisionPreview: bad });
+      expect(parsed?.id).toBe('r1');
+      expect(parsed?.decisionPreview).toBe('');
+    }
+  });
+
+  it('其余必填字段坏 → 仍然 null(不放过真损坏的条目)', () => {
+    expect(parseRunSummary({ ...summary(), id: '' })).toBeNull();
+    expect(parseRunSummary({ ...summary(), at: '' })).toBeNull();
+    expect(parseRunSummary({ ...summary(), mode: 'live' })).toBeNull();
+    expect(parseRunSummary({ ...summary(), market: 'jp' })).toBeNull();
+    expect(parseRunSummary(null)).toBeNull();
+  });
+});
+
+describe('formatRunClock / formatRunTime', () => {
+  // R-33:本地时钟格式化与非法时间戳(NaN → 空串)零覆盖。
+  const at = new Date(2026, 10, 4, 9, 5).toISOString(); // 本地 11-04 09:05
+
+  it('本地 HH:MM 与 MM-DD HH:MM(零填充)', () => {
+    expect(formatRunClock(at)).toBe('09:05');
+    expect(formatRunTime(at)).toBe('11-04 09:05');
+  });
+
+  it('非法时间戳 → 空串(不抛、不显示 Invalid Date)', () => {
+    for (const bad of ['', 'not-a-date', '2026-13-45T00:00:00.000Z']) {
+      expect(formatRunClock(bad)).toBe('');
+      expect(formatRunTime(bad)).toBe('');
+    }
   });
 });
 

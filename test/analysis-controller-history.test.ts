@@ -11,7 +11,8 @@ import {
   type AnalysisDeps,
   type AnalysisSnapshot,
 } from '../app/lib/analysisController.ts';
-import { createMemoryRunArchive, type RunArchive } from '../app/lib/runArchive.ts';
+import type { RunArchive } from '../app/lib/runArchive.ts';
+import { createMemoryRunArchive } from './fixtures/memoryRunArchive.ts';
 import type { AnalysisRun } from '../src/runHistory.ts';
 import { defaultSettings } from '../app/lib/settings.ts';
 
@@ -72,7 +73,7 @@ function makeHarness(over: { archive?: RunArchive; runner?: PipelineRunner & { e
     store,
     runArchive: archive,
     runner,
-    platform: 'native',
+    platform: 'rn',
     storeReady: async () => {},
     loadDemoData: () => false,
     loadSettings: () => defaultSettings(),
@@ -125,7 +126,19 @@ describe('历史归档 · done 落档', () => {
     expect(h.snap().history.map((s) => s.id)).toEqual([list[0].id]);
   });
 
-  it('error 事件不落档;写盘失败只记日志 + 抽屉错误(不影响已完成结果)', async () => {
+  // R-32:原标题写「error 事件不落档」,但用例根本没发 error 事件 —— 拆成两条。
+  it('error 事件不落档(实时失败不写历史)', async () => {
+    const h = makeHarness();
+    await h.ctrl.start('600036', 'cn');
+    h.runner.emit({ type: 'error', error: 'LLM 超时' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(await h.archive.list()).toEqual([]);
+    expect(h.snap().history).toEqual([]);
+    expect(h.snap().hasDone).toBe(false);
+  });
+
+  it('写盘失败只记日志 + 抽屉错误(不影响已完成结果)', async () => {
     const broken: RunArchive = {
       ...createMemoryRunArchive(),
       async put() {
@@ -382,6 +395,38 @@ describe('历史归档 · 删除 / 清空', () => {
     await expect(h.ctrl.bootstrap()).resolves.toBeUndefined();
     expect(h.snap().historyError).toContain('加载历史失败');
     expect(h.snap().historyLoading).toBe(false);
+  });
+});
+
+describe('历史归档 · 异常分支(R-33)', () => {
+  it('删除/清空/打开三个 catch 分支都落到 historyError,不抛', async () => {
+    const base = createMemoryRunArchive([run({ id: 'r1' })]);
+    const broken: RunArchive = {
+      ...base,
+      async load() {
+        throw new Error('idb blocked');
+      },
+      async remove() {
+        throw new Error('remove failed');
+      },
+      async clear() {
+        throw new Error('clear failed');
+      },
+    };
+    const h = makeHarness({ archive: broken });
+    await h.ctrl.bootstrap();
+    expect(h.snap().history.map((s) => s.id)).toEqual(['r1']); // list 未坏
+
+    await h.ctrl.openRun('r1');
+    expect(h.snap().historyError).toContain('读取历史失败:idb blocked');
+    expect(h.snap().viewingRun).toBeNull();
+
+    await h.ctrl.deleteRuns(['r1']);
+    expect(h.snap().historyError).toContain('删除历史失败:remove failed');
+    expect(h.snap().history.map((s) => s.id)).toEqual(['r1']); // 失败不改列表
+
+    await h.ctrl.clearHistory();
+    expect(h.snap().historyError).toContain('清空历史失败:clear failed');
   });
 });
 

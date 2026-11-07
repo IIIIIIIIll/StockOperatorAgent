@@ -2,7 +2,7 @@
 // 持久化 settingsStore(web:localStorage;RN:expo-file-system 沙盒文件);
 // 开关经 switchesToCapabilities → setCapabilitySwitches 显式注入
 // (src/switches.ts,语义 enabled;消费点惰性读 config——process.env 零写入)。
-import { createLlm, sanitizeLlmValue, type LlmConfig } from '../../src/llm.ts';
+import { sanitizeLlmValue, type LlmConfig } from '../../src/llm.ts';
 import * as settingsStore from './settingsStore.ts';
 import { info, warn, error as logError } from '../../src/log.ts';
 import { BILLIONS_DEFAULT_MAX } from '../../src/billionsTools.ts';
@@ -328,4 +328,3 @@ export async function classifyChatResponse(
   return { ok: false, latencyMs: ms, message: `HTTP ${resp.status}:${text.slice(0, 80)}` };
 }
 
-export { createLlm };

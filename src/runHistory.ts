@@ -141,14 +141,16 @@ export function parseRunSummary(value: unknown): RunSummary | null {
   if (!isMode(value.mode)) return null;
   if (typeof value.ticker !== 'string' || value.ticker.length === 0) return null;
   if (!isMarket(value.market)) return null;
-  if (typeof value.decisionPreview !== 'string') return null;
+  // R-23:PRD R9「所有失败静默降级」—— preview 缺失/非字符串只降级成空串,
+  // 不整条丢弃(丢弃会让这条历史从列表里消失,尽管正文文件还在)。
+  const decisionPreview = typeof value.decisionPreview === 'string' ? value.decisionPreview : '';
   return {
     id: value.id,
     at: value.at,
     mode: value.mode,
     ticker: value.ticker,
     market: value.market,
-    decisionPreview: value.decisionPreview,
+    decisionPreview,
   };
 }
 

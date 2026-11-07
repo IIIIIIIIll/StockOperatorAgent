@@ -89,7 +89,7 @@ function AppContent() {
 
   const missing = missingLlmKeys(a.settings.keys);
   const gateNotice = missing.length
-    ? `未配置 LLM 三键(${missing.join('/')})—— 将使用演示占位报告;在侧边栏「LLM(大模型)」填写后保存。`
+    ? `未配置 LLM 三键(${missing.join('/')})—— 将使用演示占位报告;在 ☰ → 设置 →「LLM(大模型)」填写后保存。`
     : null;
 
   // 主 Tab 列表:[采集数据] + 角色报告(与 Python tabs = [DATA_TAB_TITLE] + report_tabs() 同序)
@@ -471,7 +471,7 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     sidebarOverlay: { position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 20, elevation: 8 },
     hamburger: { paddingVertical: 2, paddingRight: 2 },
     hamburgerIcon: { fontSize: 22, color: theme.colors.text, lineHeight: 24 },
-    // minWidth:0 + flexShrink:窄屏(安卓竖屏 ~411dp)标题+右侧历史按钮总宽超屏时
+    // minWidth:0 + flexShrink:窄屏(安卓竖屏 ~411dp)标题+☰ 按钮总宽超屏时
     // 标题让位并省略号截断 —— 否则按钮被推出屏外不可点(11-04 真机实测)
     heading: { flexShrink: 1, minWidth: 0, fontSize: 24, fontWeight: '800', color: theme.colors.primary, letterSpacing: 0.5 },
     form: { paddingHorizontal: theme.spacing.lg, paddingVertical: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
@@ -501,9 +501,6 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     marketBadge: { alignSelf: 'flex-start', backgroundColor: theme.colors.primary, color: theme.colors.onPrimary, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 2, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
     info: { color: theme.colors.textSecondary, fontSize: 12, marginTop: theme.spacing.sm },
     error: { color: theme.colors.error, fontSize: 12, marginTop: theme.spacing.sm },
-    sidebarTab: { width: 44, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface },
-    sidebarTabIcon: { fontSize: 18, color: theme.colors.primary },
-    sidebarTabText: { fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 },
     main: { flex: 1, flexDirection: 'row' },
     contentColumn: { flex: 1 },
     tabBar: { flexGrow: 0, flexWrap: 'wrap', backgroundColor: theme.colors.background, borderBottomWidth: 1, borderBottomColor: theme.colors.border },

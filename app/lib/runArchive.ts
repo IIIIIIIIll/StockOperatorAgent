@@ -6,7 +6,6 @@
 //   summaries 表,同一 DB 两个 store。
 // - expo-file-system(RN):soa-runs/ 目录,正文 <id>.json + index.json 摘要;
 //   写盘 tmp + 原子替换(对齐 store-file.ts 生产后端)。
-// - 内存(测试/后端不可用兜底)。
 // 失败一律上抛,由调用方(analysisController)记录 + 静默降级 —— 本层不吞错。
 import { error as logError } from '../../src/log.ts';
 import {
@@ -36,36 +35,6 @@ const SAFE_ID_RE = /^[^\\/]+$/;
 
 function assertSafeId(id: string): void {
   if (!SAFE_ID_RE.test(id)) throw new Error(`非法历史 id:${id}`);
-}
-
-// ─── 内存后端(测试 / 后端不可用)──────────────────────────────────────────
-export function createMemoryRunArchive(
-  seed: readonly AnalysisRun[] = [],
-): RunArchive & { size(): number } {
-  const runs = new Map<string, AnalysisRun>(seed.map((r) => [r.id, r]));
-  return {
-    async list() {
-      return sortSummaries([...runs.values()].map(toSummary));
-    },
-    async load(id) {
-      const run = runs.get(id) ?? null;
-      return run ? { ...run, opinions: run.opinions.map((o) => ({ ...o })) } : null;
-    },
-    async put(run) {
-      runs.set(run.id, run);
-    },
-    async remove(ids) {
-      let n = 0;
-      for (const id of ids) if (runs.delete(id)) n += 1;
-      return n;
-    },
-    async clear() {
-      runs.clear();
-    },
-    size() {
-      return runs.size;
-    },
-  };
 }
 
 // ─── IndexedDB 后端(web / 桌面渲染进程)───────────────────────────────────

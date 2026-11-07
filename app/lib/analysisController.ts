@@ -20,6 +20,7 @@ import type { StoreLike } from '../../src/store.ts';
 import type { Market } from '../../src/market.ts';
 import { marketOfStoreTicker, normalizeTicker } from '../../src/market.ts';
 import type { RoleStatus } from '../../src/progress.ts';
+import type { Platform } from '../../src/log.ts';
 import { enabledRoles } from '../../src/committee.ts';
 import { buildStockInformation } from '../../src/pipeline.ts';
 import { asiaToday } from '../../src/gates.ts';
@@ -64,7 +65,7 @@ const RUN_IDLE_TIMEOUT_MS = 300_000;
  *  肉眼仍是流式。 */
 const TOKEN_NOTIFY_MS = 120;
 
-export type ControllerPlatform = 'web' | 'native';
+export type ControllerPlatform = Extract<Platform, 'web' | 'rn'>;
 
 /** 日志面(src/log info/warn/error 同形;测试以捕获数组替换)。 */
 export interface AnalysisLog {
@@ -746,7 +747,7 @@ export class AnalysisController {
       // web 走同源代理(绕开 CORS;绝对 URL——SDK 的 new URL 不接受相对路径);
       // Node/真机直连。代理前缀不含 /v1(SDK 自行拼接路径)
       const proxyBase = d.platform === 'web'
-        ? `${globalThis.location.origin}/llm-proxy`
+        ? (globalThis.location?.origin ? `${globalThis.location.origin}/llm-proxy` : undefined)
         : undefined;
       const llm = llmConfigured(s.settings.keys)
         ? d.buildLlm(toLlmConfig(s.settings.keys), proxyBase)

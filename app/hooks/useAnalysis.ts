@@ -5,7 +5,7 @@
 // + start/onSettingsChange 转发。对外契约不变 —— UseAnalysis 字段与抽取前逐一
 // 对应,新增 hasDone(D15;App 侧 U16 消费)。ticker 由调用方传入(输入框在 App)。
 import React from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState } from 'react-native';
 import {
   switchesToCapabilities,
   loadSettings,
@@ -34,9 +34,14 @@ import {
 } from '../lib/runner';
 import { selectCollector } from '../lib/collectorSelection';
 import { createFileRunArchive, createIdbRunArchive } from '../lib/runArchive';
-import { info, warn, error as logError } from '../../src/log.ts';
-import { AnalysisController, type AnalysisSnapshot, type ViewingRunMarker } from '../lib/analysisController';
+import { detectPlatform, info, warn, error as logError } from '../../src/log.ts';
+import { AnalysisController, type ControllerPlatform, type AnalysisSnapshot, type ViewingRunMarker } from '../lib/analysisController';
 import type { RunSummary } from '../../src/runHistory.ts';
+
+// R-14/R-15:平台判定单一来源(log.ts detectPlatform:web → rn → node),不再用
+// 第二个探针 Platform.OS。控制器词表与 log.ts 一致('web' | 'rn');node 兜底
+// 归 rn(未用 Platform.OS 前的既有行为:非 web 一律走本机链路)。
+const CONTROLLER_PLATFORM: ControllerPlatform = detectPlatform() === 'web' ? 'web' : 'rn';
 
 export interface UseAnalysis {
   events: PipelineEvent[];
@@ -75,9 +80,10 @@ export interface UseAnalysis {
 
 export function useAnalysis(): UseAnalysis {
   // 历史归档后端:web/桌面渲染进程(Chromium)走 IndexedDB,RN 走 expo-file-system。
-  // 模块级单例 —— 两个后端都是惰性打开/惰性 import(首次打开抽屉才发生 I/O)。
+  // R-17:每个 hook 实例一份(useMemo 常驻),不是模块级单例 —— 两个后端都是
+  // 惰性打开/惰性 import(首次打开抽屉才发生 I/O),所以重复构造也不花钱。
   const runArchive = React.useMemo(
-    () => (Platform.OS === 'web' ? createIdbRunArchive() : createFileRunArchive()),
+    () => (CONTROLLER_PLATFORM === 'web' ? createIdbRunArchive() : createFileRunArchive()),
     [],
   );
   // 锁屏期间运行结束不能立即 stopForegroundService:进程会从 foreground 掉回
@@ -109,6 +115,18 @@ export function useAnalysis(): UseAnalysis {
     }, 90_000);
   }, [hardStopKeepAlive]);
 
+  // R-35:卸载时清掉 90s 宽限定时器 —— 否则组件已卸载仍可能在 90s 后触发
+  // stopKeepAlive(定时器持有 ref、不随组件消失)。
+  React.useEffect(
+    () => () => {
+      if (graceTimerRef.current !== null) {
+        clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
   // 控制器随 hook 实例常驻(首渲染构造一次;构造内 loadSettings 与抽取前
   // useState 初始化同时序,启动链 bootstrap 在挂载 effect 再加载一次——同原)。
   const ctrl = React.useMemo(
@@ -117,7 +135,7 @@ export function useAnalysis(): UseAnalysis {
         store,
         runArchive,
         runner,
-        platform: Platform.OS === 'web' ? 'web' : 'native',
+        platform: CONTROLLER_PLATFORM,
         storeReady,
         loadDemoData,
         loadSettings,
@@ -141,7 +159,7 @@ export function useAnalysis(): UseAnalysis {
             hk: (t: string, o?: CollectSkipOpts) => collectForWeb(t, { ...(o ?? {}), market: 'hk' }),
             us: (t: string, o?: CollectSkipOpts) => collectForWeb(t, { ...(o ?? {}), market: 'us', finnhub }),
           };
-          if (Platform.OS === 'web') return (await selectCollector('web', m, webImpls))(ticker);
+          if (CONTROLLER_PLATFORM === 'web') return (await selectCollector('web', m, webImpls))(ticker);
           if (m === 'us' && finnhub) {
             // 真机 + 美股 + Finnhub key:deviceImpls 绑定面不带 finnhub 参 →
             // 直取设备桥传参(与 web 链同契约)。动态 import:deviceBridge 是

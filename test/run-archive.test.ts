@@ -9,9 +9,9 @@ import path from 'node:path';
 import {
   createFileRunArchive,
   createIdbRunArchive,
-  createMemoryRunArchive,
   type RunFsAdapter,
 } from '../app/lib/runArchive.ts';
+import { createMemoryRunArchive } from './fixtures/memoryRunArchive.ts';
 import type { AnalysisRun } from '../src/runHistory.ts';
 
 function run(over: Partial<AnalysisRun> = {}): AnalysisRun {

@@ -205,20 +205,26 @@ the fix).
 
 - [ ] **R-11** `app/App.tsx:281-347` — drawer state machine, menu rows and sub-page routing live in `App.tsx`. `.trellis/spec/ts/chart-ui.md:89-90`: 「后续 UI 逻辑(新页面/新入口)一律进 hooks/ 或 components/,不回流 App.tsx」. Extract to `app/components/DrawerMenu.tsx`; keep only `☰` + `{open ? <DrawerMenu/> : null}`. *(verified)*
 - [ ] **R-12** `app/lib/runArchive.ts:85-113` — `requestResult` / `txDone` / `openRunDb` are near-verbatim copies of `src/store-idb.ts:83-110` (Duplicated Code; two IDB conventions will drift). Export from `store-idb.ts` and import.
-- [ ] **R-13** `app/lib/analysisController.ts:737-738` — `${globalThis.location.origin}` is the only unguarded `location` read in `app/`; `app/lib/runner.ts:220-222` documents the guard house rule. Use `globalThis.location?.origin ?? ''` and return `undefined` when empty. *(verified)*
-- [ ] **R-14** `app/hooks/useAnalysis.ts:80` — `Platform.OS === 'web'` is a second platform-detection source alongside `detectPlatform()` (`ts/index.md:41` rule 5). *(verified)*
-- [ ] **R-15** `app/lib/analysisController.ts:66` — `ControllerPlatform = 'web' | 'native'` invents a third vocabulary next to `src/log.ts:17` `Platform = 'web' | 'rn' | 'node'`. *(verified)*
+- [x] **R-13** `app/lib/analysisController.ts:737-738` — `${globalThis.location.origin}` is the only unguarded `location` read in `app/`; `app/lib/runner.ts:220-222` documents the guard house rule. Use `globalThis.location?.origin ?? ''` and return `undefined` when empty. *(verified)*
+  - **Done:** `globalThis.location?.origin ? … : undefined` — 无 origin 时不传 proxyBase(不再抛)。
+- [x] **R-14** `app/hooks/useAnalysis.ts:80` — `Platform.OS === 'web'` is a second platform-detection source alongside `detectPlatform()` (`ts/index.md:41` rule 5). *(verified)*
+  - **Done:** hook 顶部一个模块级 `CONTROLLER_PLATFORM = detectPlatform() === 'web' ? 'web' : 'rn'`,archive 选择与 collect 分派都读它;`Platform` 导入删除。
+- [x] **R-15** `app/lib/analysisController.ts:66` — `ControllerPlatform = 'web' | 'native'` invents a third vocabulary next to `src/log.ts:17` `Platform = 'web' | 'rn' | 'node'`. *(verified)*
+  - **Done:** `export type ControllerPlatform = Extract<Platform, 'web' | 'rn'>`(`src/log.ts` 词表),调用方/test harness 由 `'native'` 改 `'rn'`。
 - [ ] **R-16** `.trellis/spec/ts/index.md:25-30` — the layer map omits `runArchive.ts`, `analysisController.ts`, `runHistory.ts`, all added by this change.
-- [ ] **R-17** `app/hooks/useAnalysis.ts:78-82` — comment claims 「模块级单例」 but the archive is built in `React.useMemo` = per mount. *(verified)*
-- [ ] **R-18** `app/lib/runArchive.ts:42` — `createMemoryRunArchive` (test-only backend) ships in a production module; `testing.md` lists test-only branches as an anti-pattern.
-- [ ] **R-19** `app/lib/settings.ts:327` — `export { createLlm };` has no consumer (dead re-export, Middle Man). *(verified)*
+- [x] **R-17** `app/hooks/useAnalysis.ts:78-82` — comment claims 「模块级单例」 but the archive is built in `React.useMemo` = per mount. *(verified)*
+- [x] **R-18** `app/lib/runArchive.ts:42` — `createMemoryRunArchive` (test-only backend) ships in a production module; `testing.md` lists test-only branches as an anti-pattern.
+  - **Done:** 移到 `test/fixtures/memoryRunArchive.ts`,四个测试文件改 import;生产模块不再有测试专用后端。
+- [x] **R-19** `app/lib/settings.ts:327` — `export { createLlm };` has no consumer (dead re-export, Middle Man). *(verified)*
+  - **Done:** 死 re-export 与随之无用的 `createLlm` 导入一并删除。
 
 ### Spec alignment (analysis history)
 
 - [ ] **R-20** `app/lib/analysisController.ts:608-612` — `await refreshHistory(true)` sits on the startup critical path **before** the `loadLastRun` restore (`:640`). PRD R4: 「完整正文按需加载(**启动零额外开销**)」, Notes: 「启动成本不随历史增长」. Fire-and-forget after the restore. *(verified)*
 - [ ] **R-21** `app/lib/analysisController.ts:430` — `store.setMeta(RUN_HISTORY_MIGRATED_KEY, '1')` is a `StoreLike` write. PRD R7: 「**不写入 `StoreLike`** → 不阻塞/不变慢既有 store 启动链」. Move the flag into the archive, or record it as a deliberate exception in the PRD. *(verified)*
 - [ ] **R-22** `app/lib/analysisController.ts:287` + `app/App.tsx:321-324` — scope creep: `openRun` also calls `setTicker(row.ticker)` and `setActiveTab('final_decision')`. PRD R5 only says 「点击一条 → 在当前报告 Tab 内打开该次运行」. The ticker mutation silently rewrites form state.
-- [ ] **R-23** `src/runHistory.ts:144` vs `:154-155` — doc comment says 「preview 缺失按空串补齐」 but the code drops the whole summary (`return null`) when `decisionPreview` is not a string. Violates PRD R9 「所有失败静默降级」. *(verified)*
+- [x] **R-23** `src/runHistory.ts:144` vs `:154-155` — doc comment says 「preview 缺失按空串补齐」 but the code drops the whole summary (`return null`) when `decisionPreview` is not a string. Violates PRD R9 「所有失败静默降级」. *(verified)*
+  - **Done:** `decisionPreview` 非字符串 → `''`(其余必填字段仍判 null);新增两条测试钉住边界。
 
 ### File backend (native path)
 
@@ -241,7 +247,8 @@ the fix).
 ### Unspecced commit `6638d15` (☰ drawer)
 
 - [ ] **R-28** Drops the 右上角「历史」 entry point, contradicting archived PRD 「**入口**:右上角独立按钮」 with no amendment note. No automated coverage of drawer navigation. *(verified: entry removed)*
-- [ ] **R-29** Dead style `sidebarTab` at `app/App.tsx:504` (zero usages) and stale copy: `App.tsx:92` 「在侧边栏「LLM(大模型)」填写后保存」, `:2-3`, `:474-475` 「右侧历史按钮」. *(verified)*
+- [x] **R-29** Dead style `sidebarTab` at `app/App.tsx:504` (zero usages) and stale copy: `App.tsx:92` 「在侧边栏「LLM(大模型)」填写后保存」, `:2-3`, `:474-475` 「右侧历史按钮」. *(verified)*
+  - **Done:** 三个零引用 `sidebarTab*` 样式删除;`:92` 文案改「☰ → 设置 →「LLM(大模型)」」,`:474` 注释改「☰ 按钮」。
 
 ### Task artifacts
 
@@ -250,10 +257,14 @@ the fix).
 
 ### Remaining test gaps (lower priority)
 
-- [ ] **R-32** `test/analysis-controller-history.test.ts:128` — the case titled 「error 事件不落档」 never emits an `error` event; it only makes `put` throw. Emit `{type:'error'}` and assert the archive stayed empty.
-- [ ] **R-33** Zero coverage: `formatRunClock` / `formatRunTime` (`src/runHistory.ts:191,199`, incl. NaN→`''`), and the catch branches of `deleteRuns` / `clearHistory` / `openRun` (`analysisController.ts:319,373,393`).
-- [ ] **R-34** `src/metaKeys.ts:24` `'soa:runs-migrated'` is not pinned in `test/metaKeys.test.ts` despite that file's 「跨会话键名不可漂移」 convention — a rename would re-migrate an already-cleared history.
-- [ ] **R-35** `app/hooks/useAnalysis.ts:105-113` — `graceTimerRef` is never cleared on unmount, so a 90 s timer can fire after teardown. *(verified)*
+- [x] **R-32** `test/analysis-controller-history.test.ts:128` — the case titled 「error 事件不落档」 never emits an `error` event; it only makes `put` throw. Emit `{type:'error'}` and assert the archive stayed empty.
+  - **Done:** 拆成两条 —— 一条真的发 `{type:'error'}` 断言归档为空,一条保留写盘失败。
+- [x] **R-33** Zero coverage: `formatRunClock` / `formatRunTime` (`src/runHistory.ts:191,199`, incl. NaN→`''`), and the catch branches of `deleteRuns` / `clearHistory` / `openRun` (`analysisController.ts:319,373,393`).
+  - **Done:** `formatRunClock`/`formatRunTime` 本地值与非法时间戳;`deleteRuns`/`clearHistory`/`openRun` 三个 catch 分支各一条断言。
+- [x] **R-34** `src/metaKeys.ts:24` `'soa:runs-migrated'` is not pinned in `test/metaKeys.test.ts` despite that file's 「跨会话键名不可漂移」 convention — a rename would re-migrate an already-cleared history.
+  - **Done:** `RUN_HISTORY_MIGRATED_KEY === 'soa:runs-migrated'` 钉入 `test/metaKeys.test.ts`。
+- [x] **R-35** `app/hooks/useAnalysis.ts:105-113` — `graceTimerRef` is never cleared on unmount, so a 90 s timer can fire after teardown. *(verified)*
+  - **Done:** 卸载 effect 清 `graceTimerRef`(并置 null)。
 
 ---
 
