@@ -88,7 +88,8 @@ export function composeOverview(input: OverviewInput): OverviewRow {
 
   // 盘中语义：当日 bar 已存在才给 volume/amount（对齐 Python _last_bar_is_today）
   const last = lastBarIsToday(bars, today) ? bars[bars.length - 1] : null;
-  const volume = last ? last.volume : NaN;
+  // volume null = 数据源未知(CR-25):转 NaN 使换手率走 divide() 的 NaN 分支
+  const volume = last && last.volume !== null ? last.volume : NaN;
   const amount = last && last.amount !== null && last.amount !== undefined ? last.amount : NaN;
 
   const zongguben = capital?.zongguben ?? NaN;

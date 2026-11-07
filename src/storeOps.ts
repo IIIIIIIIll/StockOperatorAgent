@@ -34,7 +34,8 @@ function isBar(v: unknown): boolean {
     typeof v.close === 'number' &&
     typeof v.high === 'number' &&
     typeof v.low === 'number' &&
-    typeof v.volume === 'number' &&
+    // volume null/undefined = 数据源未提供(CR-25)，NaN 经 JSON 落盘也会变 null
+    (v.volume == null || typeof v.volume === 'number') &&
     (v.amount == null || typeof v.amount === 'number')
   );
 }

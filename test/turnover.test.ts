@@ -2,7 +2,7 @@
 // (formatStockOutput 60 日行 Turnover Rate / trendIndicatorsText 换手率)。
 import { describe, expect, it } from 'vitest';
 import { parseCapitalStructure } from '../src/f10.ts';
-import { formatStockOutput, trendIndicatorsText } from '../src/pipeline.ts';
+import { formatStockOutput, trendIndicatorsText, turnoverPct } from '../src/pipeline.ts';
 
 /** 构造 F10「股本结构」节文本(通达信 │ 格式,单位万股)。 */
 function capitalText(opts: { zongguben?: string; liutongguben?: string; shiji?: string }): string {
@@ -67,5 +67,30 @@ describe('换手率渲染(pipeline)', () => {
   it('trendIndicatorsText:不传股本 → 换手率 N/A', () => {
     const t = trendIndicatorsText(BARS, '002027');
     expect(t).toContain('换手率: N/A');
+  });
+});
+
+describe('turnoverPct(CR-25:量未知 ≠ 零成交)', () => {
+  const CAP = { liutongguben: 1e10 };
+  const base = { date: '2026-08-21', open: 10, high: 11, low: 9, close: 10.5 };
+
+  it('volume null(数据源未提供)→ NaN,不伪造 0%(cn/hk/us 三市场一致)', () => {
+    const bar = { ...base, volume: null };
+    expect(Number.isNaN(turnoverPct(bar, CAP, 'cn'))).toBe(true);
+    expect(Number.isNaN(turnoverPct(bar, CAP, 'us'))).toBe(true);
+    expect(Number.isNaN(turnoverPct(bar, CAP, 'hk'))).toBe(true);
+  });
+
+  it('volume 0(真·零成交)→ 0%', () => {
+    expect(turnoverPct({ ...base, volume: 0 }, CAP, 'cn')).toBe(0);
+  });
+
+  it('volume 正常 → cn 量(手)×10⁴/股本,us 量(股)/股本×100', () => {
+    expect(turnoverPct({ ...base, volume: 1000 }, CAP, 'cn')).toBeCloseTo((1000 * 1e4) / 1e10, 10);
+    expect(turnoverPct({ ...base, volume: 1000 }, CAP, 'us')).toBeCloseTo((1000 / 1e10) * 100, 10);
+  });
+
+  it('缺股本 → NaN(既有语义不变)', () => {
+    expect(Number.isNaN(turnoverPct({ ...base, volume: 1000 }, null, 'cn'))).toBe(true);
   });
 });

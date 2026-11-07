@@ -84,7 +84,7 @@ describe('composeOverview (22 列,对齐 Python compose_overview)', () => {
     });
     expect(row.market_cap).toBeCloseTo(38.8 * 1e10, 0);
     expect(row.circulating_market_cap).toBeCloseTo(38.8 * 2e10, 0);
-    const vol = fixture.raw[fixture.raw.length - 1].volume;
+    const vol = fixture.raw[fixture.raw.length - 1].volume ?? NaN;
     expect(row.turnover_rate).toBeCloseTo((vol * 100) / 2e10 * 100, 6);
   });
 
@@ -120,5 +120,24 @@ describe('composeOverview (22 列,对齐 Python compose_overview)', () => {
     expect(Object.keys(row)).toHaveLength(22);
     expect(row.ticker).toBe('600036');
     expect(row.name).toBe('招商银行');
+  });
+});
+
+describe('composeOverview(CR-25:当日 bar 量未知)', () => {
+  const lastDate = fixture.raw[fixture.raw.length - 1].date;
+  const barsUnknownVolume: DailyBar[] = fixture.raw.map((b, i) => (
+    i === fixture.raw.length - 1 ? { ...b, volume: null } : b
+  ));
+
+  it('末根 volume null → volume/turnover_rate 均 NaN(不伪造 0.00%)', () => {
+    const row = composeOverview({
+      ticker: '600036', name: '招商银行',
+      snapshot: SNAPSHOT, capital: { zongguben: 1e10, liutongguben: 2e10 },
+      f10, bars: barsUnknownVolume, today: lastDate,
+    });
+    expect(Number.isNaN(row.volume)).toBe(true);
+    expect(Number.isNaN(row.turnover_rate)).toBe(true);
+    // 价格与涨跌幅不受量未知影响
+    expect(row.latest_price).toBe(38.8);
   });
 });

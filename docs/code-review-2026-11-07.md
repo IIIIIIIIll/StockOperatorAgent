@@ -1,9 +1,9 @@
 # Code Review — 2026-11-07（全仓，`HEAD = cbc77a6`）
 
-> 修复状态（2026-11-07）：53/54 已修并分 6 批提交（`cc2450c`→`04c684b`）；
-> CR-25 暂缓（`DailyBar.volume` 可空需贯通四族 store 与图表）。逐条状态见
+> 修复状态（2026-11-07）：54/54 已修并分 7 批提交（`cc2450c`→`CR-25` 批）；
+> CR-25（`DailyBar.volume` 可空 + 贯通四族 store/图表）已补齐，见
 > `docs/review-2026-11-07-remediation.md`。基线：typecheck 0 error，
-> vitest 782 passed / 2 skipped。
+> vitest 793 passed / 2 skipped。
 
 > 状态：**已完成独立验证**。9 个并行 reviewer + 5 个独立 validator。
 > 验证结论：**2 条 P0、5 条 P1、47 条 P2**；原始 11 条 P1 中 4 条降级、1 条升为 P0；

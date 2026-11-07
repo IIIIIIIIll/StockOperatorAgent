@@ -36,9 +36,11 @@ export function changePercentSeries(bars: DailyBar[]): number[] {
 }
 
 /** 换手率%:cn 成交量(手)×100 股 ×100% / 流通股本(股) = 量×10⁴/股本;
- *  hk/us 成交量(股)/流通股本(股)×100(原币股数直除);缺股本 → NaN。 */
+ *  hk/us 成交量(股)/流通股本(股)×100(原币股数直除);缺股本或缺量 → NaN
+ *  (volume null = 数据源未知，不伪造 0%，CR-25)。 */
 export function turnoverPct(b: DailyBar, capital: { liutongguben: number } | null, market: Market = 'cn'): number {
   if (!capital || !capital.liutongguben) return NaN;
+  if (b.volume === null) return NaN;
   if (market === 'cn') return (b.volume * 10_000) / capital.liutongguben;
   return (b.volume / capital.liutongguben) * 100;
 }
@@ -127,7 +129,7 @@ export function trendIndicatorsText(bars: DailyBar[], ticker: string, liutonggub
     ? (market === 'cn' ? liutongguben / 10_000 : liutongguben / 100)
     : null;
   const rows = computeAll(
-    bars.map((b) => ({ datetime: b.date, open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume })),
+    bars.map((b) => ({ datetime: b.date, open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume ?? NaN })),
     shares,
   );
   const last = rows[rows.length - 1];

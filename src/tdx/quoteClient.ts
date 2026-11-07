@@ -122,7 +122,7 @@ export function applyQfq(bars: DailyBar[], events: XdxrEventLike[]): DailyBar[] 
       close: b.close,
       high: b.high,
       low: b.low,
-      volume: b.volume,
+      volume: b.volume ?? NaN,
       amount: b.amount ?? undefined,
     }));
     return qfqAdjust(input, events).map((b) => ({

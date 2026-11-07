@@ -79,7 +79,7 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
   // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 DEMO_TICKER 正确);
   // 图表与 chips 共用同一份结果,窗口切片保持稳定引用避免流式重渲染时重建图表
   const indRows = React.useMemo(
-    () => computeAll(bars.map((b) => ({ open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume }))),
+    () => computeAll(bars.map((b) => ({ open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume ?? NaN }))),
     [bars],
   );
   const klineBars = React.useMemo<Bar[]>(() => bars.slice(-KLINE_N), [bars]);
@@ -153,7 +153,7 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
                 <Text style={[styles.cell, { color: Number.isNaN(pct) ? undefined : pct >= 0 ? theme.colors.up : theme.colors.down }]}>
                   {Number.isNaN(pct) ? 'N/A' : `${fmtNumber(pct, 2)}%`}
                 </Text>
-                <Text style={styles.cell}>{market === 'cn' ? `${(b.volume / 10000).toFixed(1)}万` : `${(b.volume / 1e6).toFixed(2)}M`}</Text>
+                <Text style={styles.cell}>{b.volume === null ? 'N/A' : market === 'cn' ? `${(b.volume / 10000).toFixed(1)}万` : `${(b.volume / 1e6).toFixed(2)}M`}</Text>
                 <Text style={styles.cell}>{Number.isNaN(turnover) ? 'N/A' : `${fmtNumber(turnover, 2)}%`}</Text>
               </View>
             );

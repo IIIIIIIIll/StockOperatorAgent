@@ -120,7 +120,8 @@ function tzDateFmt(meta: Record<string, unknown>): Intl.DateTimeFormat {
 }
 
 /** chart result[0] → DailyBar[](市场时区日期;volume 原样股数;OHLC 非有限
- *  行丢弃(store daily_bars NOT NULL 约束);volume 缺失 → 0)。 */
+ *  行丢弃(store daily_bars NOT NULL 约束);volume 缺失 → null(未知，
+ *  非 0 —— 停牌/半日市不能伪装成零成交量，CR-25)。 */
 function barsFromChart(r: Record<string, unknown>): DailyBar[] {
   const timestampsRaw = r['timestamp'];
   const timestamps = Array.isArray(timestampsRaw) ? timestampsRaw : [];
@@ -143,7 +144,7 @@ function barsFromChart(r: Record<string, unknown>): DailyBar[] {
     const close = closeArr?.[i];
     if (!isFin(open) || !isFin(high) || !isFin(low) || !isFin(close)) continue;
     const vol = volArr?.[i];
-    const volume = isFin(vol) ? vol : 0;
+    const volume = isFin(vol) ? vol : null;
     bars.push({
       date: fmt.format(new Date(ts * 1000)),
       open,

@@ -264,6 +264,25 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(4);
   });
 
+  it('CR-25:chart volume 缺失(停牌/半日市)→ bars.volume = null 未知，不伪造 0', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
+    const body = chartBody('0700.HK') as {
+      chart: { result: Array<{ indicators: { quote: Array<{ volume: unknown[] }> } }> };
+    };
+    body.chart.result[0].indicators.quote[0].volume = [null, null];
+    makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(body) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+    ]);
+    await collectYahooForDevice('0700.HK');
+    const bars = store.getDatas('0700.HK');
+    expect(bars).toHaveLength(2);
+    expect(bars.map((b) => b.volume)).toEqual([null, null]); // 旧行为:两者均为 0
+  });
+
   it('CR-00:change_percent_60d 取最近 61 根收盘,不是上市首日累计涨幅', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));

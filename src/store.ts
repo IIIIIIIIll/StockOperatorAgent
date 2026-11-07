@@ -8,7 +8,7 @@ export interface DailyBar {
   close: number;
   high: number;
   low: number;
-  volume: number; // 手
+  volume: number | null; // 手；null = 数据源未提供(停牌/半日市/字段缺失)，不可当 0（CR-25）
   amount?: number | null;
 }
 

@@ -19,7 +19,7 @@ export interface Bar {
   high: number;
   low: number;
   close: number;
-  volume: number;
+  volume: number | null; // null = 数据源未提供(CR-25)，量柱留空不画 0
 }
 
 // ─── 系列颜色(单点定义:图例与图上线条共用,防漂移) ──────────────────────
@@ -71,7 +71,7 @@ const CHART_HEIGHT = PANE_STRETCH.reduce((a, b) => a + b, 0);
 // ─── 原生分支(WebView)JSON 数据契约 ──────────────────────────────────────
 // 形状与 tools/build-chart-view.mts 头部文档一致:通用多面板渲染器,
 // candles 主图 + 各 pane 线/柱系列 + 图例;stretch 比例与 web 分支同源。
-interface CandlePoint { time: string; open: number; high: number; low: number; close: number; volume: number }
+interface CandlePoint { time: string; open: number; high: number; low: number; close: number; volume: number | null }
 interface ValuePoint { time: string; value: number }
 interface HistPoint { time: string; value: number; color: string }
 type NativeSeriesDef =
@@ -179,11 +179,14 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
       const upA = hexToRgba(theme.colors.up, 0.4);
       const downA = hexToRgba(theme.colors.down, 0.4);
       const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, base: 0 }, 1);
-      volume.setData(bars.map((b) => ({
-        time: fmtDate(b.date),
-        value: b.volume,
-        color: b.close >= b.open ? upA : downA,
-      })));
+      // volume null = 未知 → 该点不画(不以 0 冒充，CR-25)
+      volume.setData(bars
+        .filter((b): b is Bar & { volume: number } => b.volume !== null)
+        .map((b) => ({
+          time: fmtDate(b.date),
+          value: b.volume,
+          color: b.close >= b.open ? upA : downA,
+        })));
       line('VOL_MA5', C.sky, undefined, 1);
 
       // pane 2 涨跌幅柱:正红负绿、base 0(对齐 Python change_percent_chart)
@@ -270,7 +273,10 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
         series: [
           {
             type: 'histogram', title: '成交量', color: upA, base: 0, priceFormat: 'volume',
-            data: bars.map((b) => ({ time: fmtDate(b.date), value: b.volume, color: b.close >= b.open ? upA : downA })),
+            // volume null = 未知 → 该点不画(不以 0 冒充，CR-25)
+            data: bars
+              .filter((b): b is Bar & { volume: number } => b.volume !== null)
+              .map((b) => ({ time: fmtDate(b.date), value: b.volume, color: b.close >= b.open ? upA : downA })),
           },
           lineDef('VOL_MA5', C.sky),
         ],

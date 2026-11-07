@@ -60,6 +60,12 @@ describe('五 op 合法形状全过(null = 放行)', () => {
     expect(checkStoreOpArgs('addDatas', [TICKER, [barWithout('amount')]])).toBeNull();
   });
 
+  it('CR-25:DailyBar.volume 缺值(null/整体缺省)放行 —— 数据源未知不是 0', () => {
+    expect(checkStoreOpArgs('addDatas', [TICKER, [bar({ volume: null })]])).toBeNull();
+    expect(checkStoreOpArgs('replaceDatas', [TICKER, [barWithout('volume')]])).toBeNull();
+    // 非 number 仍拒已在「逐字段类型错拒」钉住(volume: '1000')
+  });
+
   it('addPerformanceReports / setMeta 合法形状(含空串 value)', () => {
     expect(checkStoreOpArgs('addPerformanceReports', [TICKER, [report]])).toBeNull();
     expect(checkStoreOpArgs('setMeta', ['demo:f10', '{}'])).toBeNull();
@@ -113,7 +119,6 @@ describe('ticker 路径分隔符拒(FileStore 以 <ticker>.json 落盘,分隔符
 describe('逐字段类型错拒', () => {
   const BARS_MSG = 'addDatas bars must be an array of DailyBar objects';
   const REPORTS_MSG = 'addPerformanceReports reports must be an array of PerformanceReport objects';
-
   it('putStock:arity 与记录本体形状(null/数组/标量均非 StockRecord)', () => {
     expect(checkStoreOpArgs('putStock', [])).toBe('putStock expects 1 argument (StockRecord)');
     expect(checkStoreOpArgs('putStock', [stock(), {}])).toBe('putStock expects 1 argument (StockRecord)');
