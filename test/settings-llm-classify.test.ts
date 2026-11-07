@@ -2,7 +2,7 @@
 // 上游错误体透传。2026-11-04 实证:代理 SSRF 拒绝曾与 key 错误合流成
 // 「认证失败 —— 检查 API Key」,用户无法区分「key 错」和「请求没发出去」。
 import { describe, expect, it } from 'vitest';
-import { classifyChatResponse } from '../app/lib/settings.ts';
+import { checkLlmReachability, classifyChatResponse } from '../app/lib/settings.ts';
 import { defaultSettings, toLlmConfig, type KeysState } from '../app/lib/settings.ts';
 import { sanitizeLlmValue } from '../src/llm.ts';
 
@@ -83,5 +83,72 @@ describe('classifyChatResponse · 401/403 分流', () => {
     );
     expect(r.ok).toBe(true);
     expect(r.message).toContain('pong');
+  });
+});
+
+describe('checkLlmReachability · 请求头净化(R-04)', () => {
+  // 脏值 = 粘贴带入的 NUL/控制字符 + 首尾空白(安卓实测 11-04:逐字节进 header →
+  // undici/OkHttp 拒收,UI 却报「不可达/路径不存在」)。
+  const dirty: KeysState = {
+    ...KEYS,
+    llmApiKey: '  sk-abc\u0000  ',
+    llmModel: ' deepseek-v4.1-flash\u007F ',
+    llmBaseUrl: `\u0000${KEYS.llmBaseUrl}\u0000`,
+  };
+
+  async function withFetch<T>(
+    impl: (url: string, init?: RequestInit) => Promise<Response>,
+    body: () => Promise<T>,
+  ): Promise<T> {
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => impl(String(url), init)) as unknown as typeof fetch;
+    try {
+      return await body();
+    } finally {
+      globalThis.fetch = orig;
+    }
+  }
+
+  it('代理路径:Authorization 剥掉控制字符;base/model 同源净化', async () => {
+    const seen: Array<{ url: string; headers: Record<string, string>; body: string }> = [];
+    const r = await withFetch(
+      async (url, init) => {
+        seen.push({
+          url,
+          headers: (init?.headers ?? {}) as Record<string, string>,
+          body: String(init?.body ?? ''),
+        });
+        return json(200, { choices: [{ message: { content: 'pong' } }] });
+      },
+      () => checkLlmReachability(dirty),
+    );
+    expect(r.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].headers.Authorization).toBe('Bearer sk-abc');
+    // 整条请求(URL/头/体)不得残留 NUL 或 DEL
+    expect(JSON.stringify(seen[0])).not.toMatch(/[\u0000\u007F]/);
+    expect(JSON.parse(seen[0].body).model).toBe('deepseek-v4.1-flash');
+    expect(JSON.parse(seen[0].body).base).toBe('https://ark.example.com/api/v3');
+  });
+
+  it('直连回退(代理非 JSON):第二个 Authorization 同样净化', async () => {
+    const seen: Array<{ url: string; headers: Record<string, string> }> = [];
+    const r = await withFetch(
+      async (url, init) => {
+        seen.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
+        if (seen.length === 1) {
+          return new Response('<!doctype html><html></html>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          });
+        }
+        return json(200, { choices: [{ message: { content: 'pong' } }] });
+      },
+      () => checkLlmReachability(dirty),
+    );
+    expect(r.ok).toBe(true);
+    expect(seen).toHaveLength(2);
+    expect(seen[1].url).toBe('https://ark.example.com/api/v3/chat/completions');
+    expect(seen[1].headers.Authorization).toBe('Bearer sk-abc');
   });
 });

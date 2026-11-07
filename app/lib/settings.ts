@@ -182,7 +182,11 @@ export interface ReachabilityResult {
  *  回退直连;浏览器 CORS 限制下直连 fetch 可能失败——按错误消息如实展示。 */
 export async function checkLlmReachability(keys: KeysState): Promise<ReachabilityResult> {
   const base = sanitizeLlmValue(keys.llmBaseUrl).replace(/\/+$/, '');
-  if (!base || !sanitizeLlmValue(keys.llmApiKey) || !sanitizeLlmValue(keys.llmModel)) {
+  // R-04:可达性检测也是净化入口 —— Authorization 头直接拼 key 时不能只 trim,
+  // 粘贴带入的 NUL/控制字符会被 undici/OkHttp 拒(400/404),UI 却显示「不可达」。
+  const key = sanitizeLlmValue(keys.llmApiKey);
+  const model = sanitizeLlmValue(keys.llmModel);
+  if (!base || !key || !model) {
     warn(`LLM 可达性检测跳过:三键不齐`);
     return { ok: false, latencyMs: 0, message: '三键不齐,无法检测' };
   }
@@ -192,11 +196,11 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   } catch {
     /* 保留原文 */
   }
-  info(`LLM 可达性检测(同源代理提问):${host} model=${keys.llmModel}`);
+  info(`LLM 可达性检测(同源代理提问):${host} model=${model}`);
   const t0 = Date.now();
   const payload = {
     base,
-    model: sanitizeLlmValue(keys.llmModel),
+    model,
     messages: [{ role: 'user', content: 'ping' }],
     max_tokens: 64, // reasoning 模型会消耗部分预算(max_tokens 16 实测回复为空)
   };
@@ -211,7 +215,7 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${keys.llmApiKey.trim()}`,
+        Authorization: `Bearer ${key}`,
         ...(soaToken ? { 'X-SOA-Token': soaToken } : {}),
       },
       body: JSON.stringify(payload),
@@ -230,7 +234,7 @@ export async function checkLlmReachability(keys: KeysState): Promise<Reachabilit
   try {
     const resp = await fetch(`${base}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${keys.llmApiKey.trim()}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify(payload),
     });
     return await classifyChatResponse(resp, host, keys, Date.now() - t0);
