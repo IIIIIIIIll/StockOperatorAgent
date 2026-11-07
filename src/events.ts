@@ -12,7 +12,7 @@ import type { BillionsClient } from './billionsClient.ts';
 import type { Market } from './market.ts';
 import type { ProgressUpdater, RoleStatus } from './progress.ts';
 import type { PipelineDeps } from './pipeline.ts';
-import type { ToolLike } from './toolLoop.ts';
+import { EXHAUSTED_NO_ANSWER_TEXT, NO_CONCLUSION_TEXT, type ToolLike } from './toolLoop.ts';
 
 export type PipelineEvent =
   | { type: 'progress'; message: string }
@@ -33,6 +33,8 @@ export interface FinalReport {
   stock_information: string; // build_stock_information 输出（采集数据 Tab）
   final_decision: string;
   opinions: Opinion[]; // 各角色报告（含多空初稿+修订版）
+  /** true = 最终结论为空或占位兜底（收尾轮失败/空流）；消费方不得当作成功。 */
+  degraded?: boolean;
 }
 
 export interface RunOptions extends Omit<PipelineDeps, 'store' | 'progress'> {
@@ -192,10 +194,16 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
             opinions.push({ key: r.stateKey!, tabTitle: r.tabTitle!, content: v });
           }
         }
+        const finalDecision = typeof values.final_decision === 'string' ? values.final_decision : '';
         const report: FinalReport = {
           ticker,
           stock_information: info,
-          final_decision: typeof values.final_decision === 'string' ? values.final_decision : '',
+          final_decision: finalDecision,
+          // CR-21:占位/空结论不算成功——消费方(历史缓存/UI)据此区分降级终态
+          degraded:
+            finalDecision.trim() === '' ||
+            finalDecision === EXHAUSTED_NO_ANSWER_TEXT ||
+            finalDecision === NO_CONCLUSION_TEXT,
           opinions,
         };
         emit({ type: 'done', report });

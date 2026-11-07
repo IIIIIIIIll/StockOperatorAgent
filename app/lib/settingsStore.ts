@@ -30,6 +30,8 @@ export interface RnFileLike {
   create(): void;
   write(contents: string): void;
   textSync(): string;
+  /** expo SDK 57 File.moveSync / node 适配器同名;缺席 → 回退直写(不原子)。 */
+  moveSync?(destination: RnFileLike, options?: { overwrite?: boolean }): void;
 }
 export interface RnFileSystem {
   File: new (...uris: unknown[]) => RnFileLike;
@@ -136,7 +138,13 @@ export function createSettingsStore(
       try {
         const file = new fs.File(fs.Paths.document, RN_SETTINGS_FILE);
         if (!file.exists) file.create();
-        file.write(s);
+        // CR-30:tmp + moveSync 原子替换——旧实现直写目标,崩溃/断电留下半截
+        // JSON → 下次 loadSettings 解断失败走默认值,含 API key 的全部设置静默丢失。
+        const tmp = new fs.File(fs.Paths.document, `${RN_SETTINGS_FILE}.tmp`);
+        if (!tmp.exists) tmp.create();
+        tmp.write(s);
+        if (typeof tmp.moveSync === 'function') tmp.moveSync(file, { overwrite: true });
+        else file.write(s); // 无 move 能力的旧运行时:保持原语义
       } catch {
         /* 写入失败 → 静默 */
       }

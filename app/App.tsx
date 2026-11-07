@@ -390,8 +390,9 @@ function AppContent() {
           ) : null}
 
           {/* 内容(N-3:错误边界仅包内容区——DataScreen/ReportContent 渲染崩溃降级
-              为错误卡+重试;App 壳/设置侧边栏不被边界捕获) */}
-          <ErrorBoundary theme={theme}>
+              为错误卡+重试;App 壳/设置侧边栏不被边界捕获)。CR-35:key 随 Tab 变化
+              ——否则一次崩溃后切到其他 Tab 仍停在错误卡,必须手点重试。 */}
+          <ErrorBoundary key={activeTab} theme={theme}>
             <View style={styles.content}>
               {activeTab === 'data' ? (
                 <DataScreen stockInformation={a.stockInformation} dataVersion={a.dataVersion} ticker={a.lastRunTicker} market={a.market} />

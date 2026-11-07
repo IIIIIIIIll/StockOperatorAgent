@@ -126,6 +126,10 @@ dev(metro 中间件)与生产(server.mjs)共用**单份**实现(收敛防漂移)
 - **采集互斥(W4)**:/tdx-collect 45s 超时仅提前回 504,**锁保持到 doCollect
   真正 settle 才释放**(Abort 取消不了 node-tdx-market TCP——TdxClient 无
   AbortSignal 支持),timer 在 finally clearTimeout。
+- **取消语义(CR-23,2026-11-07)**:`events.abort()`/控制器 cancel/看门狗只复位
+  并发守卫(+UI 代数门),**不中断在飞 LLM 请求与工具循环**;后台运行仍可继续
+  最多 15 轮工具 + 退避重试,由上游 SDK 超时兜底。非控制器订阅者若需取消后
+  不误收旧结果,必须自带 runners 代数门。
 - **监听地址**:server.mjs `server.listen(PORT, process.env.HOST || '127.0.0.1')`
   ——默认回环,生产远程访问需显式 HOST=0.0.0.0。
 - **静态服务兜底(C1)**:serveStatic 的 decodeURIComponent 包 try/catch,

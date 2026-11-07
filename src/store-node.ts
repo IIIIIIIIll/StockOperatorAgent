@@ -6,7 +6,7 @@
 // (baseDir, fs) 注入面)。
 // 路径拼接语义复用 store-file.ts(joinPath:baseDir 尾斜杠兼容;FileStore 传给
 // 适配器的 readFile/writeFile 已是拼好的完整路径,listDir 只枚举 baseDir)。
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import {
   readFile as fsReadFile,
   readdir,
@@ -92,7 +92,19 @@ export function nodeSettingsFileSystem(baseDir: string): NodeSettingsFileSystem 
       writeFileSync(this.path, '');
     }
     write(contents: string): void {
-      writeFileSync(this.path, contents);
+      // CR-30:tmp + rename 原子替换(与 store-node 的 FileStore 适配器同手法),
+      // 避免崩溃留下半截设置 JSON(下次启动静默回默认,含 API key)。
+      const tmp = `${this.path}.tmp`;
+      writeFileSync(tmp, contents);
+      renameSync(tmp, this.path);
+    }
+    moveSync(destination: { path?: string }, options?: { overwrite?: boolean }): void {
+      const dest = destination.path;
+      if (!dest) throw new Error('NodeSettingsFile.moveSync: 目标缺少 path');
+      if (!options?.overwrite && existsSync(dest)) {
+        throw new Error(`NodeSettingsFile.moveSync: 目标已存在:${dest}`);
+      }
+      renameSync(this.path, dest);
     }
     textSync(): string {
       return readFileSync(this.path, 'utf8');

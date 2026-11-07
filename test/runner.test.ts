@@ -152,4 +152,21 @@ describe('runner 并发守卫 (C2)', () => {
     expect(tail[tail.length - 1].type).toBe('done');
     expect(tail.some((e) => e.type === 'error')).toBe(false);
   });
+
+  // CR-22(2026-11-07 评审):abort() 只复位并发守卫、不中断在飞 pipeline。
+  // 旧运行迟到 settle 不得清掉新运行的 running(代数门),也不得被 busy 拒绝。
+  it('abort():释放并发守卫;旧运行迟到事件不干扰新运行', async () => {
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const events: PipelineEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    const first = runner.run('600036', runOpts());
+    runner.abort?.();
+    const second = await runner.run('600036', runOpts());
+    expect(second).toBeTruthy();
+    expect(second!.final_decision).toBe('FINAL_REPORT');
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(0);
+    await first; // 孤儿运行收敛(仅验证不挂死)
+  });
 });

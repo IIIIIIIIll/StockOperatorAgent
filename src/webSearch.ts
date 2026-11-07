@@ -212,6 +212,10 @@ export async function ddgSearcher(query: string): Promise<SearchResult[]> {
   return results;
 }
 
+/** CR-24:单次分析的 web_search 调用上限(含同参缓存命中不计数)。与亿信
+ *  三件套的 maxCalls 同语义;超出返回占位文案,不让模型无限重试抓取。 */
+export const WEB_SEARCH_MAX_CALLS = 5;
+
 /** web_search 工具 OpenAI function description（对齐 Python make_web_search_tool docstring）。 */
 const WEB_SEARCH_DESCRIPTION =
   '联网搜索(DuckDuckGo 中文财经源,cn-zh),可验证行业与市场的最新论据(如新闻、公告、政策)。查询失败时返回占位文本。';
@@ -228,15 +232,32 @@ const WEB_SEARCH_SCHEMA = {
 };
 
 /** 构造 web_search 工具（对齐 Python make_web_search_tool：_searcher 注入点）。 */
-export function makeWebSearchTool(_searcher?: (query: string) => Promise<SearchResult[]>): ToolLike {
+export function makeWebSearchTool(
+  _searcher?: (query: string) => Promise<SearchResult[]>,
+  opts?: { maxCalls?: number },
+): ToolLike {
   const search = _searcher ?? defaultSearcher();
+  const maxCalls = opts?.maxCalls ?? WEB_SEARCH_MAX_CALLS;
+  // CR-24:工具实例按「每次分析」创建(committee 一次),计数器/同参缓存即分析级预算。
+  // 之前只有轮数上限(15),单轮可发任意多个调用且同参重复抓取。
+  let calls = 0;
+  const cache = new Map<string, SearchResult[]>();
   return {
     name: 'web_search',
     description: WEB_SEARCH_DESCRIPTION,
     schema: WEB_SEARCH_SCHEMA,
     invoke: async (args: Record<string, unknown>) => {
+      const query = String(args.query ?? '');
+      const cached = cache.get(query);
+      if (cached) return summarizeResults(cached);
+      if (calls >= maxCalls) {
+        return `（本次分析联网搜索已达 ${maxCalls} 次上限，请基于已有信息作答）`;
+      }
+      calls += 1;
       try {
-        return summarizeResults(await search(String(args.query ?? '')));
+        const results = await search(query);
+        cache.set(query, results);
+        return summarizeResults(results);
       } catch (err) {
         return `（联网搜索失败：${(err as Error).message}）`;
       }

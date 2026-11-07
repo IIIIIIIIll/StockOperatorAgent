@@ -96,6 +96,7 @@ export class IdbStore implements StoreLike {
   private readonly dbName: string;
   private queue: Promise<void> = Promise.resolve();
   private closed = false;
+  private persistError: string | null = null;
   private dbPromise: Promise<IdbDatabaseLike> | null = null;
   private readyPromise: Promise<void> | null = null;
 
@@ -175,13 +176,23 @@ export class IdbStore implements StoreLike {
 
   /** 写穿透队列:单 Promise 链串行保证写序;失败仅记录,不阻断后续写(决策 C)。
    *  close() 后不再入队(store 已关闭,写穿禁用;见 close 注释)。 */
+  /** CR-28:最近一次异步落盘失败(成功写入后清空)。 */
+  getLastPersistError(): string | null {
+    return this.persistError;
+  }
+
   private enqueue(op: () => Promise<void>): void {
     if (this.closed) return;
     this.queue = this.queue
       .then(() => this.ready())
       .then(op)
+      .then(() => {
+        this.persistError = null;
+      })
       .catch((err: unknown) => {
-        logError(`IdbStore 落盘失败:${err instanceof Error ? err.message : String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.persistError = msg;
+        logError(`IdbStore 落盘失败:${msg}`);
       });
   }
 

@@ -192,6 +192,8 @@ export class AnalysisController {
   private readonly listeners = new Set<(s: AnalysisSnapshot) => void>();
   // 上次分析运行模式(real|demo):done 写缓存/标记时以 start() 时刻模式为准
   private mode: 'real' | 'demo' = 'demo';
+  /** CR-03:历史读取代数——并发 openRun / closeRun / 删除后到者不得覆盖新状态。 */
+  private historySeq = 0;
   /** 运行代数:每次 start/取消/新一轮都递增。事件订阅、catch/finally、看门狗均按
    *  「是否仍是当前代」作用域化 —— 否则被取消/中止的孤儿运行迟到 settle 时会停掉
    *  新一轮的保活与看门狗,把新一轮重新打回 cached 冻结(正是要修的那个假死)。 */
@@ -303,6 +305,7 @@ export class AnalysisController {
   async openRun(id: string): Promise<void> {
     const s = this.st;
     if (s.running) return;
+    const seq = ++this.historySeq;
     s.historyLoading = true;
     this.notify();
     try {
@@ -310,6 +313,9 @@ export class AnalysisController {
       // R-02:进函数时那次 running 检查在 await 之前 —— 读盘期间用户可能已发起
       // 新分析(start() 全量重置并置 running),此时若继续写正文,历史内容会盖到
       // 实时运行上。补一次检查。
+      // CR-03:并发 openRun(点 A 后立刻点 B)时先发后到会用旧记录覆盖最新选择;
+      // closeRun/删除同样递增代数,迟到的 load 不得把用户拽回历史态。
+      if (seq !== this.historySeq) return;
       if (s.running) return;
       if (!run) {
         s.historyError = '历史记录不存在或已损坏';
@@ -346,6 +352,7 @@ export class AnalysisController {
   closeRun(): void {
     const s = this.st;
     if (!s.viewingRun) return;
+    this.historySeq += 1; // CR-03:使在飞的 openRun 过期
     const stash = this.liveStash;
     this.liveStash = null;
     s.viewingRun = null;
@@ -734,6 +741,7 @@ export class AnalysisController {
         us: '请输入有效的美股代码：字母开头，可含 . 或 -',
       };
       s.error = messages[market];
+      s.market = market; // CR-36:徽标与错误文案同源,不显示上一次的市场
       this.notify();
       return;
     }
@@ -909,6 +917,18 @@ export class AnalysisController {
       // 历史归档(展示层，独立后端)：与 lastRun 并行留档
       this.recordRun(report, at);
       s.hasDone = true; // D15
+      // CR-28:写穿透是异步的,内存成功不代表落盘。落盘失败要告知用户,
+      // 否则重启后静默丢结果(旧行为只有日志)。
+      const persistError = d.store.getLastPersistError?.();
+      if (persistError) {
+        d.log.error(`本地落盘失败:${persistError}`);
+        s.error = `本地保存失败（重启后可能丢失本次结果）：${persistError}`;
+      }
+      // CR-21:收尾轮占位/空结论不算成功——保留报告可见,但去掉「✓分析完成」。
+      if (report.degraded) {
+        d.log.error('分析未产出有效最终结论(已降级保存)');
+        s.hasDone = false;
+      }
     } else if (e.type === 'error') {
       d.log.error(e.error);
       s.error = e.error;

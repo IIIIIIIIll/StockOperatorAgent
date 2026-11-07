@@ -4,6 +4,10 @@
 // + Adler-32 校验,行为对齐 Node zlib 的 inflateSync。
 import { Buffer } from 'buffer';
 
+/** CR-38:解压输出上限。TDX 帧远小于此值；上限用于挡住损坏/恶意 deflate 炸弹
+ *  把 number[]（≈8×内存）撑到 OOM（Node zlib.inflateSync 同样有 maxOutputLength）。 */
+export const MAX_INFLATE_OUTPUT = 8 * 1024 * 1024;
+
 // ─── Adler-32(校验和)──────────────────────────────────────────────────────────
 function adler32(data: ArrayLike<number>): number {
   let s1 = 1;
@@ -159,6 +163,7 @@ function inflateSymbols(
     const sym = decodeSymbol(r, litlen, 15);
     if (sym === 256) return;
     if (sym < 256) {
+      if (out.length >= MAX_INFLATE_OUTPUT) throw new Error('inflate: output too large');
       out.push(sym);
       continue;
     }
@@ -170,6 +175,7 @@ function inflateSymbols(
     const distance = DIST_BASE[distSym] + r.bits(DIST_EXTRA[distSym]);
     if (distance === 0 || distance > out.length) throw new Error('inflate: invalid distance');
     // 允许重叠拷贝(向前引用):逐字节回填即可
+    if (out.length + length > MAX_INFLATE_OUTPUT) throw new Error('inflate: output too large');
     for (let i = 0; i < length; i++) out.push(out[out.length - distance]);
   }
 }
@@ -182,6 +188,7 @@ function inflateBlock(r: BitReader, out: number[]): void {
     const len = r.bits(16);
     const nlen = r.bits(16);
     if ((len ^ 0xffff) !== nlen) throw new Error('inflate: stored block length mismatch');
+    if (out.length + len > MAX_INFLATE_OUTPUT) throw new Error('inflate: output too large');
     for (let i = 0; i < len; i++) out.push(r.bits(8));
     return;
   }

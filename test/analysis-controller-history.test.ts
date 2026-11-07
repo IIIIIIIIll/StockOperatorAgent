@@ -357,6 +357,36 @@ describe('历史归档 · openRun / closeRun', () => {
     settleRun(undefined);
     await inflight;
   });
+
+  // CR-03(2026-11-07 评审):并发 openRun 先发后到 —— 迟到旧记录不得覆盖最新选择。
+  it('并发 openRun:A 后完成不得覆盖后选的 B', async () => {
+    let releaseA!: () => void;
+    const gateA = new Promise<void>((r) => {
+      releaseA = r;
+    });
+    const base = createMemoryRunArchive([
+      run({ id: 'a', at: '2026-11-03T02:00:00.000Z', final_decision: 'A 决策' }),
+      run({ id: 'b', at: '2026-11-04T02:00:00.000Z', final_decision: 'B 决策' }),
+    ]);
+    const slow: RunArchive = {
+      ...base,
+      async load(id: string) {
+        const out = await base.load(id);
+        if (id === 'a') await gateA;
+        return out;
+      },
+    };
+    const h = makeHarness({ archive: slow });
+    await h.boot();
+    const first = h.ctrl.openRun('a');
+    const second = h.ctrl.openRun('b');
+    await second;
+    expect(h.snap().viewingRun?.id).toBe('b');
+    releaseA();
+    await first;
+    expect(h.snap().viewingRun?.id).toBe('b');
+    expect(h.snap().finalDecision).toBe('B 决策');
+  });
 });
 
 describe('历史归档 · 删除 / 清空', () => {

@@ -233,7 +233,15 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
         // '{}' 的索引会让磁盘上所有记录永久消失(正文文件才是真值来源)。
         // 真空档(email 场景)重建结果也是 [],只多一次目录扫描。
         const list = parseRunSummaries(parsed);
-        if (Array.isArray(parsed) && list.length > 0) return list;
+        if (Array.isArray(parsed) && list.length > 0) {
+          // CR-29:索引可解析且非空 ≠ 完整。put() 先写正文再 writeIndex,若后者
+          // 失败/崩溃,该条正文成为孤儿:下次启动索引仍可解析 → 永不重建,
+          // 列表里看不到、UI 也删不掉。以目录正文数为基准对账。
+          const names = await fs.list();
+          const bodyCount = names.filter((n) => n.endsWith('.json') && n !== INDEX_FILE).length;
+          if (bodyCount <= list.length) return list;
+          logInfo(`历史索引少于正文文件(${list.length} < ${bodyCount}),按正文重建`);
+        }
         // 空数组/非数组是**合法**状态(用户清空过全部历史,或写入被截断)——不记
         // error:dev 下每条 error 日志都会弹红条,把正常冷启动标成故障。真正值得
         // 报的是「从正文找回了东西」,在下面按 rebuilt 判。

@@ -69,6 +69,9 @@ export interface StoreLike {
   getPerformanceReports(ticker: string): PerformanceReport[];
   getMeta(key: string): string | null;
   setMeta(key: string, value: string): void;
+  /** 写穿透后端专用诊断(可选):最近一次异步落盘失败,成功写入后清空。
+   *  内存 store 不实现——调用方用可选链读取。 */
+  getLastPersistError?(): string | null;
 }
 
 export class Store implements StoreLike {

@@ -3,7 +3,7 @@
 // 「认证失败 —— 检查 API Key」,用户无法区分「key 错」和「请求没发出去」。
 import { describe, expect, it } from 'vitest';
 import { checkLlmReachability, classifyChatResponse } from '../app/lib/settings.ts';
-import { defaultSettings, toLlmConfig, type KeysState } from '../app/lib/settings.ts';
+import { defaultSettings, llmBaseUrlError, toLlmConfig, type KeysState } from '../app/lib/settings.ts';
 import { sanitizeLlmValue } from '../src/llm.ts';
 
 const KEYS: KeysState = { ...defaultSettings().keys, llmApiKey: 'sk-test', llmModel: 'deepseek-v4.1-flash', llmBaseUrl: 'https://ark.example.com/api/v3' };
@@ -14,6 +14,32 @@ function json(status: number, body: unknown, headers: Record<string, string> = {
     headers: { 'content-type': 'application/json', ...headers },
   });
 }
+
+describe('llmBaseUrlError(CR-37)', () => {
+  it('缺 scheme → 中文错误;http(s) 与空值 → null', () => {
+    expect(llmBaseUrlError('api.deepseek.com/v1')).toContain('http://');
+    expect(llmBaseUrlError('https://api.deepseek.com')).toBeNull();
+    expect(llmBaseUrlError('http://127.0.0.1:11434/v1')).toBeNull();
+    expect(llmBaseUrlError('   ')).toBeNull();
+  });
+
+  it('checkLlmReachability 缺 scheme → 直接失败,不发请求', async () => {
+    let called = 0;
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      called += 1;
+      return json(200, { choices: [{ message: { content: 'pong' } }] });
+    }) as typeof fetch;
+    try {
+      const r = await checkLlmReachability({ ...KEYS, llmBaseUrl: 'api.deepseek.com/v1' });
+      expect(r.ok).toBe(false);
+      expect(r.message).toContain('http://');
+      expect(called).toBe(0);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+});
 
 describe('配置字符串净化(sanitizeLlmValue)', () => {
   it('剥 NUL/控制字符与首尾空白(安卓实测:Base URL 尾部 NUL → 400/404)', () => {

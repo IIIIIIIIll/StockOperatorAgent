@@ -180,7 +180,20 @@ export interface ReachabilityResult {
  *  不到 chat/completions 推理链路(本函数以 chat 2xx 响应为通过判据,见
  *  classifyChatResponse)。同源 /llm-proxy 优先(绕开浏览器 CORS),代理不可用再
  *  回退直连;浏览器 CORS 限制下直连 fetch 可能失败——按错误消息如实展示。 */
+/** CR-37:Base URL 必须带 http(s):// —— 与 src/llm.ts createLlm 的校验同文案。
+ *  面板/可达性检测先过此门,避免存进一个到分析时才炸的值(真机报底层 TypeError)。 */
+export function llmBaseUrlError(baseUrl: string): string | null {
+  const v = sanitizeLlmValue(baseUrl);
+  if (!v) return null; // 空值由三键齐全门负责
+  return /^https?:\/\//.test(v) ? null : 'LLM_BASE_URL 必须以 http:// 或 https:// 开头';
+}
+
 export async function checkLlmReachability(keys: KeysState): Promise<ReachabilityResult> {
+  const baseError = llmBaseUrlError(keys.llmBaseUrl);
+  if (baseError) {
+    warn(`LLM 可达性检测跳过:${baseError}`);
+    return { ok: false, latencyMs: 0, message: baseError };
+  }
   const base = sanitizeLlmValue(keys.llmBaseUrl).replace(/\/+$/, '');
   // R-04:可达性检测也是净化入口 —— Authorization 头直接拼 key 时不能只 trim,
   // 粘贴带入的 NUL/控制字符会被 undici/OkHttp 拒(400/404),UI 却显示「不可达」。

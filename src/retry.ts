@@ -4,6 +4,9 @@
 // 每次退避前 warn(attempt/异常类型/下次间隔),对齐 Python before_sleep。
 // 08-11-ts-streaming-output:streamWithRetry —— invokeWithRetry 的流式孪生,
 // 同退避/可恢复判定/警告模式;迭代 llm.stream() + concat 聚合,onDelta/onRetry 回调。
+// CR-23(2026-11-07):本模块**不接收 AbortSignal** —— cancel()/看门狗只复位 UI 并发
+// 守卫,不中断在飞 LLM 请求(退避计时器也不可取消)。后台运行由上游 SDK 超时兜底;
+// 需要真取消时先给 invoke/stream 加 signal 参数,再在 events.abort 传播。
 import { concat } from '@langchain/core/utils/stream';
 import { warn } from './log.ts';
 

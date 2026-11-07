@@ -5,6 +5,7 @@ import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import {
   checkLlmReachability,
+  llmBaseUrlError,
   loadSettings,
   missingLlmKeys,
   saveSettings,
@@ -78,6 +79,12 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   /** 保存(仅三键齐全时可用)+ LLM 可达性监测。 */
   async function saveAndCheck(): Promise<void> {
     if (!keysComplete) return; // 缺键:按钮已禁用,双保险
+    // CR-37:scheme 不合法时不保存、不请求——文案与 src/llm.ts 同源
+    const baseUrlError = llmBaseUrlError(settings.keys.llmBaseUrl);
+    if (baseUrlError) {
+      setReach({ ok: false, latencyMs: 0, message: baseUrlError });
+      return;
+    }
     saveSettings(settings);
     const seq = ++seqRef.current; // 本次检测的请求序号(新检查/新配置会使其过期)
     setReach('checking');

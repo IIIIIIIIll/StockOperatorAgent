@@ -258,4 +258,19 @@ describe('RunArchive · 文件后端(RN 形状)', () => {
     await archive.put(run({ id: 'r2' }));
     expect((await archive.list()).map((s) => s.id)).toEqual(['r2']);
   });
+
+  // CR-29:put 写正文成功但 writeIndex 失败/崩溃 → 索引可解析且非空,旧实现
+  // 永不重建 → 孤儿正文重启后从列表消失。以目录正文数为基准对账。
+  it('索引可解析但少于正文文件 → 按正文重建(孤儿记录可见)', async () => {
+    const { dir, archive } = await makeArchive();
+    await archive.put(run({ id: 'r1', at: '2026-11-03T02:00:00.000Z' }));
+    // 模拟写完正文、更新索引前崩溃:直接落 r2.json,不改 index.json
+    await writeFile(
+      path.join(dir, 'r2.json'),
+      JSON.stringify(run({ id: 'r2', at: '2026-11-04T02:00:00.000Z' })),
+      'utf8',
+    );
+    const reopened = createFileRunArchive(async () => nodeRunFs(dir));
+    expect((await reopened.list()).map((s) => s.id)).toEqual(['r2', 'r1']);
+  });
 });

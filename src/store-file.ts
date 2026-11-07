@@ -36,10 +36,14 @@ interface ExpoBackend {
   baseDir: string;
 }
 
-let expoBackendPromise: Promise<ExpoBackend> | null = null;
+const expoBackends = new Map<string, Promise<ExpoBackend>>();
 
 function getExpoBackend(relBaseDir: string): Promise<ExpoBackend> {
-  expoBackendPromise ??= (async () => {
+  // CR-31:按目录缓存——旧实现单 Promise 只记首个入参,第二个不同 baseDir 的
+  // FileStore 会静默读写第一个目录(生产单例无影响,注入场景错位)。
+  const cached = expoBackends.get(relBaseDir);
+  if (cached) return cached;
+  const pending = (async () => {
     try {
       // 动态 import 边界(类型见 expo-file-system.d.ts):web/Node 包不含该模块,
       // 仅 RN 运行时触发;vitest(ts/ 根)解析失败 → 上层 catch 降级
@@ -71,11 +75,12 @@ function getExpoBackend(relBaseDir: string): Promise<ExpoBackend> {
       };
     } catch (err) {
       // F04:动态 import/初始化失败清 memo——拒绝不永久缓存,后续可重试
-      expoBackendPromise = null;
+      expoBackends.delete(relBaseDir);
       throw err;
     }
   })();
-  return expoBackendPromise;
+  expoBackends.set(relBaseDir, pending);
+  return pending;
 }
 
 export class FileStore implements StoreLike {
@@ -158,13 +163,26 @@ export class FileStore implements StoreLike {
   }
 
   /** 串行写队列:整文件重写(执行时读内存最新态 → 幂等);失败仅记录不阻断(决策 C)。 */
+  private persistError: string | null = null;
+
+  /** CR-28:异步写穿透的最近失败(成功写入清除)。写事件不返回 Promise,
+   *  调用方(analysisController)在 done 时自检并告知用户。 */
+  getLastPersistError(): string | null {
+    return this.persistError;
+  }
+
   private enqueue(op: () => Promise<void>): void {
     if (this.closed) return; // F10:close 后写穿禁用(与 IdbStore 同款 fail-fast)
     this.queue = this.queue
       .then(() => this.ready())
       .then(op)
+      .then(() => {
+        this.persistError = null;
+      })
       .catch((err: unknown) => {
-        logError(`FileStore 落盘失败:${err instanceof Error ? err.message : String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.persistError = msg;
+        logError(`FileStore 落盘失败:${msg}`);
       });
   }
 

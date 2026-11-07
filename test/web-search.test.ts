@@ -213,3 +213,24 @@ describe('web_search 工具 schema 序列化（AC1：bindTools 请求体 OpenAI 
     });
   });
 });
+
+describe('web_search 调用预算(CR-24)', () => {
+  it('超过 maxCalls → 占位;同参重复命中缓存不计数', async () => {
+    let calls = 0;
+    const tool = makeWebSearchTool(
+      async (q) => {
+        calls += 1;
+        return [{ title: q, link: 'https://example.com', snippet: 's' }];
+      },
+      { maxCalls: 2 },
+    );
+    await tool.invoke({ query: 'a' });
+    await tool.invoke({ query: 'a' }); // 缓存命中:不消耗预算
+    expect(calls).toBe(1);
+    await tool.invoke({ query: 'b' });
+    expect(calls).toBe(2);
+    const capped = await tool.invoke({ query: 'c' });
+    expect(String(capped)).toContain('上限');
+    expect(calls).toBe(2);
+  });
+});

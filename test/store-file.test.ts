@@ -222,4 +222,27 @@ describe('FileStore 写队列错误隔离(决策 C:失败仅记录不阻断后�
     await s2.ready();
     expect(s2.getDatas('T').map((x) => x.date)).toEqual(['2026-01-01', '2026-01-02']);
   });
+
+  // CR-28:写穿透失败不再只有日志 —— 诊断面暴露最近错误,下次成功写入清除。
+  it('CR-28:落盘失败暴露 getLastPersistError,下次成功写入清除', async () => {
+    const base = nodeAdapter(baseDir);
+    let failNow = true;
+    const flaky = new FileStore(baseDir, {
+      ...base,
+      async writeFile(path, data) {
+        if (failNow) {
+          failNow = false;
+          throw new Error('disk full');
+        }
+        await base.writeFile(path, data);
+      },
+    });
+    await flaky.ready();
+    flaky.addDatas('T', bars(['2026-01-01']));
+    await flaky.flush();
+    expect(flaky.getLastPersistError()).toContain('disk full');
+    flaky.addDatas('T', bars(['2026-01-02']));
+    await flaky.flush();
+    expect(flaky.getLastPersistError()).toBeNull();
+  });
 });

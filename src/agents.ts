@@ -15,7 +15,7 @@ import { pushReport, safeProgress, safePushDelta, safePushStatus, type ProgressU
 import { defaultSearcher, summarizeResults, webSearchEnabled, type SearchResult } from './webSearch.ts';
 import { billionsEnabled } from './committee.ts';
 import { BillionsClient } from './billionsClient.ts';
-import { warn } from './log.ts';
+import { error, warn } from './log.ts';
 
 export interface LlmLike {
   invoke(payload: unknown, config?: unknown): Promise<{ content: string }>;
@@ -126,10 +126,15 @@ export class AgentNode {
     safePushStatus(this.progressUpdater, nodeName, 'running');
     safeProgress(this.progressUpdater, startMsg);
     const response = await this.streamOrInvoke(this.llm, { query }, nodeName);
-    const content = typeof response.content === 'string' ? response.content : String(response.content);
+    const rawContent = typeof response.content === 'string' ? response.content : String(response.content);
+    // CR-20:专家路径同样需要空内容兜底——streamWithRetry 空流返回 '' 时,
+    // 之前会 push 空 report 并标 done(用户看到空 Tab 但 chip 为「完成」)。
+    const conclusive = rawContent.trim().length > 0;
+    const content = conclusive ? rawContent : NO_CONCLUSION_TEXT;
+    if (!conclusive) error(`专家节点 ${nodeName} 未产出内容(空流/空回复),已以占位文案兜底`);
     safeProgress(this.progressUpdater, doneMsg);
     pushReport(this.progressUpdater, stateKey, content);
-    safePushStatus(this.progressUpdater, nodeName, 'done');
+    safePushStatus(this.progressUpdater, nodeName, conclusive ? 'done' : 'retry');
     return { messages: [query[0], response], [stateKey]: content };
   }
 

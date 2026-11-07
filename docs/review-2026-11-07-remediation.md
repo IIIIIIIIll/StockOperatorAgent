@@ -11,28 +11,28 @@
 
 ## B2 · P1 安全 / 合规 / 发布
 
-- [ ] CR-02 MCP/亿信代理客户端补 `X-SOA-Token`
-- [ ] CR-05 `app.json` 增 `android.versionCode` + 本地发布脚本版本守卫
-- [ ] CR-06 隐私政策权限章节改为事实清单
-- [ ] CR-07 `allowBackup=false` + 备份规则
-- [ ] CR-08 跨 host 重定向剥离 `Authorization`
+- [x] CR-02 MCP/亿信代理客户端补 `X-SOA-Token`
+- [x] CR-05 `app.json` 增 `android.versionCode` + 本地发布脚本版本守卫
+- [x] CR-06 隐私政策权限章节改为事实清单
+- [x] CR-07 `allowBackup=false` + 备份规则
+- [x] CR-08 跨 host 重定向剥离 `Authorization`
 
 ## B3 · 核心编排 / 存储 / UI 行为
 
-- [ ] CR-20 expert 空内容兜底
-- [ ] CR-21 `done` 增 `degraded`
-- [ ] CR-22 `abort()` 用例 + 注释
-- [ ] CR-23 取消边界写入 spec/注释
-- [ ] CR-24 `web_search` 调用上限
-- [ ] CR-28 hydrate 失败可见信号
-- [ ] CR-29 归档索引与正文对账
-- [ ] CR-30 设置原子写
-- [ ] CR-31 `getExpoBackend` 按目录缓存
-- [ ] CR-03 历史 load 代数门
-- [ ] CR-35 ErrorBoundary 随 Tab 复位
-- [ ] CR-36 校验失败同步 market
-- [ ] CR-37 设置面板 URL scheme 校验
-- [ ] CR-38 inflate 输出上限
+- [x] CR-20 expert 空内容兜底
+- [x] CR-21 `done` 增 `degraded`
+- [x] CR-22 `abort()` 用例 + 注释
+- [x] CR-23 取消边界写入 spec/注释
+- [x] CR-24 `web_search` 调用上限
+- [x] CR-28 hydrate 失败可见信号
+- [x] CR-29 归档索引与正文对账
+- [x] CR-30 设置原子写
+- [x] CR-31 `getExpoBackend` 按目录缓存
+- [x] CR-03 历史 load 代数门
+- [x] CR-35 ErrorBoundary 随 Tab 复位
+- [x] CR-36 校验失败同步 market
+- [x] CR-37 设置面板 URL scheme 校验
+- [x] CR-38 inflate 输出上限
 
 ## B4 · 构建 / CI / 工具 / 许可证
 
