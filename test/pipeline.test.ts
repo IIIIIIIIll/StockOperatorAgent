@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { Store, type DailyBar } from '../src/store.ts';
+import { MCP_NO_KEY_TEXT } from '../src/mcp.ts';
 import {
   buildStockInformation,
   fallbackMarketIntel,
@@ -144,6 +145,12 @@ describe('buildStockInformation (五段唯一组装点)', () => {
     expect(text).toContain('（无 600036 的行情数据，跳过技术指标）');
     expect(text).toContain('（无 600036 的盈利能力指标，跳过）');
     expect(text).toContain(fallbackMarketIntel());
+  });
+
+  // S1-5(评审 2026-11-08):同一句占位文案曾分别在 pipeline.ts 与 mcp.ts 各写一份
+  // 字面量,“单源”无法被漂移检测。现 fallbackMarketIntel() 直接返回 MCP_NO_KEY_TEXT。
+  it('占位文案单源:pipeline 与 mcp 逐字相同', () => {
+    expect(fallbackMarketIntel()).toBe(MCP_NO_KEY_TEXT);
   });
 });
 

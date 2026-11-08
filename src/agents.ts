@@ -63,12 +63,16 @@ export class AgentNode {
       ['system', systemText],
       new MessagesPlaceholder('query'),
     ]);
-    // 工具角色由 committee 传 tools；不支持 bindTools 的 LLM（离线测试 stub）→ 跳过绑定
+    // 工具角色由 committee 传 tools;不支持 bindTools 的 LLM(离线测试 stub)→ 跳过绑定
     if (tools.length && typeof llm.bindTools === 'function') {
       try {
         llm = llm.bindTools(tools);
-      } catch {
-        // NotImplementedError 回退：保持直调
+      } catch (err) {
+        // S1-3(评审 2026-11-08):旧实现静默吞掉 —— 工具角色会在无工具状态下跑,
+        // 报告看起来正常但缺实时数据。error-handling.md 要求降级前必留日志。
+        warn(
+          `bindTools 失败,该角色降级为直调(无工具):${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
     this.boundLlm = llm;

@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Store, type DailyBar } from '../src/store.ts';
 import { FileStore } from '../src/store-file.ts';
 import {
@@ -290,5 +294,57 @@ describe('freshness 接线（C8：同日跳过日K / 同季跳过 F10）', () =>
       expect(store.getDatas('002027')[1].date).toBe('2026-08-14');
       expect(store.getStock('002027')?.lastDataUpdate).toBe('2026-08-14');
     });
+  });
+});
+
+// S3-3/S10-1 + S3-5(评审 2026-11-08):DailyBar.volume 已是 number|null,但 SQLite
+// 声明仍是 `volume INTEGER NOT NULL` → 入库 null 会 `NOT NULL constraint failed`
+// 并回滚整批。同时旧库无法靠 CREATE TABLE IF NOT EXISTS 改列,需要一次重建。
+describe('SQLite volume 可空 + 旧库迁移(S3-3/S10-1/S3-5)', () => {
+  it('volume: null 可入库并原样读回', () => {
+    const s = new Store(':memory:');
+    try {
+      s.putStock({ ticker: 'T', name: 'n', overview: null, overviewLastUpdate: null, lastDataUpdate: null });
+      const bar: DailyBar = { date: '2026-11-07', open: 1, close: 2, high: 3, low: 0.5, volume: null };
+      expect(s.addDatas('T', [bar])).toBe(1);
+      expect(s.getDatas('T')[0].volume).toBeNull();
+    } finally {
+      s.close();
+    }
+  });
+
+  it('旧库(daily_bars.volume NOT NULL)打开时重建为可空,旧数据保留', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'soa-store-mig-'));
+    const dbPath = join(dir, 'soa.sqlite');
+    try {
+      // 手工构造「旧版本」库(与迁移前 SCHEMA 同形)
+      const old = new Database(dbPath);
+      old.exec(`
+        CREATE TABLE stocks (ticker TEXT PRIMARY KEY, name TEXT NOT NULL, overview_json TEXT,
+          overview_last_update TEXT, last_data_update TEXT);
+        CREATE TABLE daily_bars (ticker TEXT NOT NULL, date TEXT NOT NULL, open REAL NOT NULL,
+          close REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, volume INTEGER NOT NULL, amount REAL,
+          PRIMARY KEY (ticker, date));
+        CREATE TABLE performance_reports (ticker TEXT NOT NULL, report_date TEXT NOT NULL,
+          fields_json TEXT NOT NULL, PRIMARY KEY (ticker, report_date));
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      `);
+      old.prepare('INSERT INTO daily_bars VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        'T', '2026-11-06', 1, 2, 3, 0.5, 100, null,
+      );
+      old.close();
+
+      const s = new Store(dbPath);
+      try {
+        expect(s.getDatas('T')).toHaveLength(1); // 迁移不丢旧行
+        expect(s.getDatas('T')[0].volume).toBe(100);
+        expect(s.addDatas('T', [{ date: '2026-11-07', open: 1, close: 2, high: 3, low: 0.5, volume: null }])).toBe(1);
+        expect(s.getDatas('T')[1].volume).toBeNull();
+      } finally {
+        s.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

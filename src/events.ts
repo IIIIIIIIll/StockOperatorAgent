@@ -13,6 +13,7 @@ import type { Market } from './market.ts';
 import type { ProgressUpdater, RoleStatus } from './progress.ts';
 import type { PipelineDeps } from './pipeline.ts';
 import { EXHAUSTED_NO_ANSWER_TEXT, NO_CONCLUSION_TEXT, type ToolLike } from './toolLoop.ts';
+import { warn } from './log.ts';
 
 export type PipelineEvent =
   | { type: 'progress'; message: string }
@@ -90,12 +91,20 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
   // 仍是当前代时才复位 running —— 否则会把新一轮的 running 清掉(同 tick 可重入)。
   let runSeq = 0;
 
+  // S1-4(评审 2026-11-08):订阅者抛错仍不阻断其余订阅者,但不再完全静默 ——
+  // emit 每个 delta 都调,全量打日志会涨掉输出,故前 5 次记 warn + 累计计数留痕。
+  let subscriberErrors = 0;
   function emit(e: PipelineEvent): void {
     for (const fn of listeners) {
       try {
         fn(e);
-      } catch {
-        /* 单个订阅者异常不阻断 */
+      } catch (err) {
+        subscriberErrors += 1;
+        if (subscriberErrors <= 5) {
+          warn(
+            `事件订阅者抛错(已忽略,累计 ${subscriberErrors} 次,事件 ${e.type}):${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     }
   }

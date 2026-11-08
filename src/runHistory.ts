@@ -89,7 +89,9 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function isOpinionList(v: unknown): v is Opinion[] {
+/** S3-4(评审 2026-11-08):导出供 lastRun.loadLastRun 复用 —— 两处读同一份
+ *  opinions 形状,曾各写一套校验(lastRun 只查 Array.isArray)。 */
+export function isOpinionList(v: unknown): v is Opinion[] {
   return (
     Array.isArray(v) &&
     v.every(

@@ -1,6 +1,7 @@
 // SQLite 仓储 —— 对齐 Python ZODBStorage + ChinaStock 语义（见 spec data_storage/data_structure）
 // 单事务批量写：addDatas / addPerformanceReports 一次 commit；0 = 全部重复不写
 import Database from 'better-sqlite3';
+import { warn } from './log.ts';
 
 export interface DailyBar {
   date: string; // YYYY-MM-DD（升序契约）
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS daily_bars (
   close REAL NOT NULL,
   high REAL NOT NULL,
   low REAL NOT NULL,
-  volume INTEGER NOT NULL,
+  volume INTEGER,
   amount REAL,
   PRIMARY KEY (ticker, date)
 );
@@ -80,7 +81,38 @@ export class Store implements StoreLike {
   constructor(dbPath = ':memory:') {
     this.db = new Database(dbPath);
     this.db.exec(SCHEMA);
+    this.migrateVolumeNullable();
     this.db.pragma('journal_mode = WAL');
+  }
+
+  /** S3-5(评审 2026-11-08):CR-25 把 DailyBar.volume 改成 `number | null`,但旧库
+   *  的 daily_bars.volume 仍声明 NOT NULL —— 入库 null 会 `NOT NULL constraint
+   *  failed` 并回滚整批。SQLite 不支持 ALTER 列可空性 → 按官方「建新表 + 拷 + 换名」
+   *  重建一次。best-effort:失败只 warn(本后端仅 Node/dev sun/探针用,不随包发布)。 */
+  private migrateVolumeNullable(): void {
+    try {
+      const cols = this.db.prepare('PRAGMA table_info(daily_bars)').all() as Array<{
+        name: string;
+        notnull: number;
+      }>;
+      const vol = cols.find((c) => c.name === 'volume');
+      if (!vol || vol.notnull === 0) return;
+      this.db.exec(`
+        CREATE TABLE daily_bars_new (
+          ticker TEXT NOT NULL, date TEXT NOT NULL,
+          open REAL NOT NULL, close REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL,
+          volume INTEGER, amount REAL,
+          PRIMARY KEY (ticker, date)
+        );
+        INSERT INTO daily_bars_new (ticker, date, open, close, high, low, volume, amount)
+          SELECT ticker, date, open, close, high, low, volume, amount FROM daily_bars;
+        DROP TABLE daily_bars;
+        ALTER TABLE daily_bars_new RENAME TO daily_bars;
+      `);
+      this.db.pragma('user_version = 2');
+    } catch (err) {
+      warn(`daily_bars.volume 可空迁移失败(旧表继续可用):${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   close(): void {
@@ -214,7 +246,7 @@ export class Store implements StoreLike {
         close: number;
         high: number;
         low: number;
-        volume: number;
+        volume: number | null;
         amount: number | null;
       }>
     ).map((r) => ({ ...r, amount: r.amount ?? null }));

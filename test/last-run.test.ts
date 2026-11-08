@@ -81,4 +81,15 @@ describe('lastRun 缓存 (R1/R5/R6)', () => {
     expect(() => loadLastRun(store)).not.toThrow();
     expect(loadLastRun(store)).toBeNull();
   });
+
+  // S3-4(评审 2026-11-08):旧实现只查 Array.isArray 就 `as Opinion[]`,元素级形状
+  // 未校验 → 缺 key/tabTitle 的陈旧记录会画出空 tab 标题。
+  it('opinions 元素级形状不过(缺 key/tabTitle)→ null', () => {
+    const r = report();
+    store.setMeta(
+      LAST_RUN_KEY,
+      JSON.stringify({ ...r, opinions: [{ content: '只有正文' }], at: '2026-11-08T00:00:00.000Z' }),
+    );
+    expect(loadLastRun(store)).toBeNull();
+  });
 });

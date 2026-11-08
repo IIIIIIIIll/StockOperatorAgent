@@ -3,6 +3,7 @@
 // 键名 `soa:last-run` 对齐现有 `soa:llm-config` 前缀惯例。
 import type { FinalReport, Opinion } from './events.ts';
 import type { StoreLike } from './store.ts';
+import { isOpinionList } from './runHistory.ts';
 
 /** store meta 键:最近一次成功分析结果。 */
 export const LAST_RUN_KEY = 'soa:last-run';
@@ -51,13 +52,17 @@ export function loadLastRun(store: StoreLike): LastRunRecord | null {
   if (typeof rec.stock_information !== 'string') return null;
   if (typeof rec.final_decision !== 'string') return null;
   if (!Array.isArray(rec.opinions)) return null;
+  // S3-4(评审 2026-11-08):只查 Array.isArray 就 `as Opinion[]`,陈旧/异库记录
+  // 会把缺 key/tabTitle 的元素交给 applyReportBody → 空 tab 标题。复用历史条目的
+  // 同一套元素级校验(单源),任一元素不过就整体降级为 null(R6 静默降级)。
+  if (!isOpinionList(rec.opinions)) return null;
   if (typeof rec.at !== 'string') return null;
   if (rec.mode !== 'real' && rec.mode !== 'demo') return null;
   return {
     ticker: rec.ticker,
     stock_information: rec.stock_information,
     final_decision: rec.final_decision,
-    opinions: rec.opinions as Opinion[],
+    opinions: rec.opinions,
     at: rec.at,
     mode: rec.mode,
   };

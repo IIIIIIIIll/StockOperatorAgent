@@ -8,6 +8,7 @@ import { computeAll } from './indicators.ts';
 import { parseIndicatorSection } from './f10.ts';
 import { asiaToday } from './gates.ts';
 import { marketInfo, type Market } from './market.ts';
+import { MCP_NO_KEY_TEXT } from './mcp.ts';
 import type { ProgressUpdater } from './progress.ts';
 
 // ─── 数值格式化（对齐 Python utils/formatting.fmt_number） ───────────────
@@ -268,8 +269,10 @@ function safe(updater: ProgressUpdater | null | undefined, msg: string): void {
   }
 }
 
-/** 无 TDX_API_KEY → 占位（与 Python get_market_intel _FALLBACK_TEXT 逐字一致）。 */
+/** 无 TDX_API_KEY → 占位（与 Python get_market_intel _FALLBACK_TEXT 逐字一致）。
+ *  S1-5：文本单源在 mcp.ts（MCP_NO_KEY_TEXT），两处字面量曾各自复制、漂移
+ *  无法探知。 */
 export function fallbackMarketIntel(): string {
-  return '（未配置 TDX_API_KEY，跳过实时市场情报）';
+  return MCP_NO_KEY_TEXT;
 }
 
