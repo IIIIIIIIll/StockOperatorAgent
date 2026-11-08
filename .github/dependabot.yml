@@ -1,0 +1,25 @@
+# S8-4（评审 2026-11-08）：仓库三份 lockfile 依赖三个 registry 镜像，
+# `npm audit` 因镜像 advisory 端点 404 而不可用 —— 等于没有任何 CVE 可见性。
+# Dependabot 直接对 GitHub Advisory 库，不依赖镜像，是这里唯一可行的兜底。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3

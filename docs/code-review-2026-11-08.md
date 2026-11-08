@@ -24,9 +24,35 @@
 **不可达**而非缺陷。降级 9 条：wave-1 报的 9 条 P1 中有 7 条经复核降为 P2（症状
 不可达、触发条件过窄或影响面被夸大）。
 
-**修复状态（2026-11-08）：F1 + F2 已修，见第 3 节末尾的「已修」行。**
-基线复核：`npm run typecheck` 0 error；`npx vitest run` 64 文件 / **799 passed** / 2 skipped
-（新增 5 条回归用例；删掉修正则用例真红，见“变异验证”）。
+**修复状态（2026-11-08）：全部条目已处理。** 2 条 P1 + 38 条 P2 落地，1 条（S10-1/S3-3）
+被判不可达后仍做了防御性加固。最终门：`npm run typecheck` 0 error；`npx vitest run`
+**68 文件 / 830 passed / 1 skipped**；`SOA_LIVE=1` 的真实 TDX 探针真跑通过；
+`tools/desktop-probe.mts` 本机 PASS。
+
+### 修复批次（按依赖顺序，每批跑 typecheck + vitest 后提交）
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| F1+F2 | `2c8f670` | meta 命名空间隔离；yahoo-collect 断连兜底 |
+| S7 | `80d5e0e` | 三条「删了被测代码仍绿」的用例改为真红 |
+| B1 | `c80708e` | 静默失败留痕、占位文案单源、lastRun 形状校验、volume 可空迁移 |
+| B2 | `bbb0dfa` | 控制器代数门/降级不入档/落盘失败可见/启动兜底 |
+| B3 | `66a346d` | 图表/指标/采集数据正确性（含 S2-1/2-2/2-3） |
+| B4 | `7afe552` | 安卓返回键逐层叠退 |
+| B7 | `9dae0b8` | 静态服务用例不再自跳过 + 清死代码 |
+| B5 | `f1bb437` | versionCode 推导、探针进 CI、settings ack、退出排空 |
+| B6 | `7898b78` | 代理门单源化、类型白名单、背压、明文提示、APK 扫描 |
+
+### 明确不做的（连同理由）
+
+- **S5-1** 守卫已加（`historyListSeq`），但本 harness 构造不出可区分的回归用例 ——
+  按本轮评审自身的纪律（不留「删了也绿」的测试）只保留守卫，不写伪用例。
+- **S6-3 的「打包产物启动烟测」**（`electron-builder --dir` + 真起一次）需要
+  GUI runner，本轮只补了 `tools/desktop-probe.mts` 进 CI 与「零产物即失败」。
+- **workflow 的 yamllint 80 列/document-start 噪声**：仓库现有约定就是长行，
+  不做纯格式化改动。
+- **S10-1/S3-3**：复核判定不可达（`better-sqlite3` 是 devDependency，仅 probe 用它），
+  仍把列改为可空并加了旧库重建迁移，防止将来接进产品时踩坑。
 
 所以：**可以发布，但两条 P1 建议在下一个 tag 前修掉**——一条是桌面端静默数据丢失，
 一条是任意未认证请求可把 proxy/metro 进程打死。
@@ -143,10 +169,10 @@ store/runner 读错键 (S2-2)；`snapshotFromMeta` 读的 4 个 `regularMarketDa
 `analysis-controller-history` 里死代码 + 先使用后声明（S7-3）；
 `server-static.test.ts` 在有真实 `app/dist` 的机器上自跳过（S7-5）。
 
-**安全**：proxy 回显上游 `content-type`，可能把上游 HTML 渲染在同源（那里放着
-API key 的 localStorage）(S8-3)；无 Dependabot、`npm audit` 因镜像 advisory 端点
-不可用而无法跑 (S8-4)；release 两个 build job 的 checkout 未设
-`persist-credentials: false` (S8-5)。
+**安全**（**S8-1/S8-2/S8-3/S8-4/S8-5/S8-6 已修**）：proxy 回显上游 `content-type`
+→ 改白名单（event-stream / json）(S8-3)；无 Dependabot、`npm audit` 因镜像 advisory
+端点不可用而无法跑 → 加 `.github/dependabot.yml` 直连 GitHub Advisory(S8-4)；
+release 两个 build job 的 checkout 未设 `persist-credentials: false` → 已补 (S8-5)。
 
 **代理 / 原生**：流式转发无 backpressure，慢客户端会把整段 SSE 缓冲进内存 (S9-2)；
 释放包密钥扫描只查 `.env` 值 (S9-4)；`KeepAliveService.start()` 重复调用不续期

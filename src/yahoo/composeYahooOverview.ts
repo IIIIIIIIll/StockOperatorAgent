@@ -151,8 +151,23 @@ export function composeYahooOverview(
       change_percent_ytd: NaN, // 本函数无年初基准数据来源
       dividend_yield: firstFinite(summaryDetail['dividendYield']), // 小数（0.005=0.5%）
       eps: firstFinite(defaultKeyStatistics['trailingEps'], summaryDetail['trailingEps']),
-      week_52_high: firstFinite(defaultKeyStatistics['52WeekHigh'], summaryDetail['52WeekHigh'], price['fiftyTwoWeekHigh']),
-      week_52_low: firstFinite(defaultKeyStatistics['52WeekLow'], summaryDetail['52WeekLow'], price['fiftyTwoWeekLow']),
+      // S2-3(评审 2026-11-08):真实 quoteSummary 的键是 fiftyTwoWeekHigh/Low
+      // (price 与 defaultKeyStatistics 都有),旧链路只认 '52WeekHigh' 形 → 只剩最后
+      // 一档活着。两套都认,yahoo 官方键优先。
+      week_52_high: firstFinite(
+        price['fiftyTwoWeekHigh'],
+        defaultKeyStatistics['fiftyTwoWeekHigh'],
+        defaultKeyStatistics['52WeekHigh'],
+        summaryDetail['fiftyTwoWeekHigh'],
+        summaryDetail['52WeekHigh'],
+      ),
+      week_52_low: firstFinite(
+        price['fiftyTwoWeekLow'],
+        defaultKeyStatistics['fiftyTwoWeekLow'],
+        defaultKeyStatistics['52WeekLow'],
+        summaryDetail['fiftyTwoWeekLow'],
+        summaryDetail['52WeekLow'],
+      ),
       currency: str(metaRec['currency']),
     },
     capital: { zongguben, liutongguben },
