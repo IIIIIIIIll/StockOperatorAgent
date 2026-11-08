@@ -25,7 +25,7 @@ jobs:
       # Pin 注释上提一行:保留 SHA 溯源且不让 yml 超长。
       # actions/checkout v4 → 11d5960a326750d5838078e36cf38b85af677262
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # ci 只跑 npm ci + typecheck + test,不需要 git 凭据;避免 token
           # 落在 .git/config 并被后续 artifact 带上(zizmor artipacked)。

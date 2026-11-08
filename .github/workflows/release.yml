@@ -21,7 +21,7 @@ jobs:
       CI: 1
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Setup Node.js 22
@@ -63,7 +63,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4 → 11d5960a326750d5838078e36cf38b85af677262
         with:
           # S8-5:构建 job 不需要凭据;避免 token 落进 .git/config 随 artifact 出去
           persist-credentials: false
@@ -157,7 +157,7 @@ jobs:
       CI: 1
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4 → 11d5960a326750d5838078e36cf38b85af677262
         with:
           # S8-5:构建 job 不需要凭据;避免 token 落进 .git/config 随 artifact 出去
           persist-credentials: false
