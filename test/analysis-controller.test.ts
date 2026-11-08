@@ -602,10 +602,14 @@ describe('AnalysisController.cancel / 看门狗', () => {
       });
       const p = h.ctrl.start('600036', 'cn');
       await entered.promise;
-      for (let i = 0; i < 3; i++) {
-        vi.advanceTimersByTime(90_000); // 每 90s 一个事件 → 永不触发 120s
+      // 看门狗超时 300s;每次只推进 90s(事件间隙 < 超时),但累计 450s > 300s。
+      // 评审 2026-11-08 S7-1:旧版只 3×90s = 270s < 300s —— 删掉 rearmWatchdog()
+      // 用例仍全绿(rearm 路径零覆盖),此处刻意让累计时长越过超时线。
+      for (let i = 0; i < 5; i++) {
+        vi.advanceTimersByTime(90_000);
         h.runner.emit({ type: 'progress', message: `进度 ${i}` });
         expect(h.snap().running).toBe(true);
+        expect(h.snap().error).toBeNull(); // 看门狗未误触发(无“无任何进展”中止)
       }
       release.resolve();
       await p;

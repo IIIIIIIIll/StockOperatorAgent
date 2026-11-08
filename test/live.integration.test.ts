@@ -71,11 +71,21 @@ describe.skipIf(!LIVE)('live TDX integration (AC7)', () => {
       const adj = qfqAdjust(bars, events);
       // F23:ESM 无裸 require —— 顶层 import readFileSync(fixture 块此前恒 ReferenceError)
       const fixture = JSON.parse(readFileSync('test/fixtures/600036_daily.json', 'utf8'));
-      for (let i = 0; i < 250; i++) {
-        const a = adj[adj.length - 250 + i];
-        const e = fixture.adjusted[fixture.adjusted.length - 250 + i];
-        expect(a.date).toBe(e.date);
-        expect(Math.abs(a.close - e.close)).toBeLessThan(1e-6);
+      // 评审 2026-11-08 S7-2:旧版两边都用 `length - 250` 取窗口。夹具是生成时
+      // 冻结的 5835 根(末根 20260807),线上只要多出一根新 bar,两个窗口就整体
+      // 错位一根 → `expect(a.date).toBe(e.date)` 永久红,AC7 的 qfq 验收探针
+      // 等价于没跑。改为按日期对齐:只比对两侧都存在的交易日。
+      const expected = new Map<string, number>(
+        (fixture.adjusted as Array<{ date: string; close: number }>).map((b) => [b.date, b.close]),
+      );
+      const compared = adj.slice(-250).filter((b) => expected.has(b.date));
+      // 空转守卫:夹具损坏或窗口完全不重叠时不能「零比对全绿」。下限不能取
+      // 250——夹具冻结在 20260807,线上每多一个交易日,重合就少一根(2026-11-08
+      // 实测 191/250)。取 100 留约四个月余量;掉到 100 以下说明夹具该重新生成,
+      // 应显式变红而不是继续悄悄少比。
+      expect(compared.length).toBeGreaterThanOrEqual(100);
+      for (const b of compared) {
+        expect(Math.abs(b.close - (expected.get(b.date) as number))).toBeLessThan(1e-6);
       }
     } finally {
       client.disconnect();

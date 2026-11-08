@@ -133,10 +133,15 @@ store/runner 读错键 (S2-2)；`snapshotFromMeta` 读的 4 个 `regularMarketDa
 (S6-3)；CI cache 路径漏 `desktop/package-lock.json` 且从不 `npm ci` desktop (S6-4)；
 退出时队列内写入直接丢弃（无 drain）(S6-5)。
 
-**测试**：看门狗 reset 用例 270s < 300s 实际超时，删掉 rearm 仍绿 (S7-1)；
-`live.integration` 的 `length - 250` 比对永久红 (S7-2)；`analysis-controller-history`
-里死代码 + 先使用后声明 (S7-3)；`architecture.test.ts` 文件收集失败即全绿 (S7-4)；
-`server-static.test.ts` 在有真实 `app/dist` 的机器上自跳过 (S7-5)。
+**测试**（**S7-1 / S7-2 / S7-4 已修**，均做过变异验证——删掉被保护的代码后用例真红）：
+看门狗 reset 用例旧为 270s < 300s 实际超时，删掉 rearm 仍绿 → 改 5×90s=450s，
+删 rearm 即 `expected false to be true`（S7-1）；`live.integration` 的 `length - 250`
+比对永久红（夹具冻结 20260807，线上已多 59 根）→ 改按 date 对齐 + ≥100 重合守卫，
+旧写法复跑实测 `expected '20251028' to be '20250729'`，新写法 `SOA_LIVE=1` 真跑绿
+（191 根重合）（S7-2）；`architecture.test.ts` 文件收集失败即全绿 → 加收集规模守卫，
+置空 collectFiles 即 `src 收集面文件数(src=0)` 红（S7-4）。待办：
+`analysis-controller-history` 里死代码 + 先使用后声明（S7-3）；
+`server-static.test.ts` 在有真实 `app/dist` 的机器上自跳过（S7-5）。
 
 **安全**：proxy 回显上游 `content-type`，可能把上游 HTML 渲染在同源（那里放着
 API key 的 localStorage）(S8-3)；无 Dependabot、`npm audit` 因镜像 advisory 端点

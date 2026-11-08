@@ -35,6 +35,26 @@ const APP_TS = collectFiles('app', ['.ts', '.tsx']);
 const TOOLS_MTS = collectFiles('tools', ['.mts']);
 const TEST_TS = collectFiles('test', ['.ts']);
 
+// ─── 收集守卫(评审 2026-11-08 S7-4)────────────────────────────────────
+// 下面所有契约都是 `expect(violations).toEqual([])` 形:一旦 collectFiles 返回空
+// 数组(工作目录不对、目录改名、SKIP_DIRS 误伤),每条都因「零违规」而全绿——
+// 门禁静默失效。先把收集规模钉住,让空收集变成显式红。
+const COLLECT_FLOORS: Array<[string, number, number]> = [
+  // [面, 实测值(2026-11-08), 下限]——下限留重构余量,只拦「大规模丢失/归零」
+  ['src', SRC_TS.length, 35],
+  ['app', APP_TS.length, 20],
+  ['tools', TOOLS_MTS.length, 3],
+  ['test', TEST_TS.length, 50],
+];
+
+describe('文件收集守卫(防零文件静默全绿)', () => {
+  it('四个收集面规模均在下限之上', () => {
+    for (const [surface, actual, floor] of COLLECT_FLOORS) {
+      expect(actual, `${surface} 收集面文件数(${surface}=${actual})`).toBeGreaterThanOrEqual(floor);
+    }
+  });
+});
+
 // ─── 文本工具 ───────────────────────────────────────────────────────────────
 interface StrippedLine {
   lineNo: number;
