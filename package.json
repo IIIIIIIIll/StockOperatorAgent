@@ -24,7 +24,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.1.0",
     "better-sqlite3": "^13.0.3",
-    "fake-indexeddb": "^6.2.5",
+    "fake-indexeddb": "^6.2.7",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
