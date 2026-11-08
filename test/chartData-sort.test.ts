@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { financialTrendSeries } from '/home/tan/StockOperatorAgent/src/chartData.ts';
+import { financialTrendSeries } from '../src/chartData.ts';
 
 // S4-3(评审 2026-11-08):净利润/每股收益曾按调用方顺序裸推,而同函数里毛利率/ROE
 // 都显式升序 —— lightweight-charts 要求 time 升序,store 顺序变了就会抛。
