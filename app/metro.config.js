@@ -26,9 +26,18 @@ config.resolver.nodeModulesPaths = [
 // 完整 CJS 镜像(延迟 getter 无 TDZ)——全部重定向到 .cjs:
 const LANGSMITH_DIR = path.dirname(require.resolve('langsmith/package.json'));
 
+// langsmith 0.11.x 起包布局改成平铺(root/index.js = CJS、root/index.mjs = ESM),
+// 不再有 dist/。CI 2026-11-08 实证:仍指 dist/ 时 Metro 报
+// `Failed to get the SHA-1 for …/langsmith/dist/index.js`(文件根本不存在)。
+// 两种布局都认,CJS 优先(维持原来的 TDZ 规避意图)。
 function langsmithCjs(sub) {
-  const candidate = path.join(LANGSMITH_DIR, 'dist', `${sub}.cjs`);
-  return fs.existsSync(candidate) ? candidate : path.join(LANGSMITH_DIR, 'dist', `${sub}.js`);
+  const candidates = [
+    path.join(LANGSMITH_DIR, 'dist', `${sub}.cjs`), // 旧布局
+    path.join(LANGSMITH_DIR, `${sub}.cjs`),
+    path.join(LANGSMITH_DIR, `${sub}.js`), // 新布局的 CJS 入口
+    path.join(LANGSMITH_DIR, 'dist', `${sub}.js`),
+  ];
+  return candidates.find((c) => fs.existsSync(c)) ?? path.join(LANGSMITH_DIR, `${sub}.js`);
 }
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
