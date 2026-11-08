@@ -44,7 +44,7 @@ export const SEC_HEADERS = secHeaders.SEC_HEADERS;
 
 /** C1:畸形 URL(如 /%ZZ)decodeURIComponent 抛 URIError → 400 不崩 server。
  *  导出供 vitest 单测;本模块 import 侧无副作用(listen 仅主入口执行)。 */
-export function serveStatic(req, res) {
+export function serveStatic(req, res, distRoot = DIST) {
   let urlPath;
   try {
     urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -56,16 +56,16 @@ export function serveStatic(req, res) {
   try {
     // F29:existsSync→statSync 竞态/读流异常同步抛出会击穿 listener → 整块
     // try/catch(500 兜底,进程存活);下面 stream 'error' 异步路径同样兜底。
-    let file = path.join(DIST, urlPath === '/' ? 'index.html' : urlPath);
+    let file = path.join(distRoot, urlPath === '/' ? 'index.html' : urlPath);
     // F28:锚定 DIST+sep —— 裸 startsWith 会放行 path.join 归一化后逃逸到
     // 兄弟目录的路径(如 '/a/distX/…' 共享 '/a/dist' 字符串前缀)
-    if (!file.startsWith(DIST + path.sep)) {
+    if (!file.startsWith(distRoot + path.sep)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
     }
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-      file = path.join(DIST, 'index.html'); // SPA fallback
+      file = path.join(distRoot, 'index.html'); // SPA fallback
     }
     // dist 未构建(CI 测试/裸跑 server)或缺 index.html:回 404 带安全头,而非
     // 直接 destroy——destroy 会以半截连接结束(客户端 fetch 报

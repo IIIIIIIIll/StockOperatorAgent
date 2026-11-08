@@ -26,14 +26,12 @@ function makeFakeRunner(impl?: (ticker: string, opts?: RunOptions) => Promise<Fi
       };
     },
     async run(ticker, opts) {
-      returns.push({ ticker, opts });
       return impl ? impl(ticker, opts) : undefined;
     },
     emit(e) {
       for (const fn of [...listeners]) fn(e);
     },
   };
-  const returns: Array<{ ticker: string; opts?: RunOptions }> = [];
   return fake;
 }
 

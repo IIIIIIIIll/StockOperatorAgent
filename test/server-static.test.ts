@@ -1,7 +1,8 @@
 // server.mjs serveStatic 单测(C1:畸形 URL → 400 不崩)。serveStatic 已导出,
 // import 侧跳过 listen 副作用(见 server.mjs 底部 isMain 守卫)。
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serveStatic, createAppServer, SEC_HEADERS } from '../app/server.mjs';
@@ -75,21 +76,38 @@ describe('server.mjs serveStatic(C1 畸形 URL)', () => {
     expect(res.calls).toEqual([{ status: 403, body: 'Forbidden' }]);
   });
 
-  it.skipIf(existsSync(join(DIST, 'index.html')))(
-    'fallback 缺文件 → 404 带安全头而非 destroy 半截连接(CI 纯净 checkout 无 dist)',
-    () => {
-    // 08-29 CI 实证:旧实现 fallback 缺文件时 createReadStream 异步 error →
-    // res.destroy(),客户端 fetch 收 UND_ERR_SOCKET: other side closed。
-    // 现走「缺 → 404 带头;在 → 正常 200」;两种环境都断言完整响应(而非
-    // 无 writeHead 的空记录)。
-    const res = fakeRes();
-    serveStatic({ url: '/__soa-missing-404-probe__' }, res);
-    expect(res.calls).toHaveLength(1); // 必有响应:destroy 旧路径会留下空记录
-    expect(res.calls[0].status).toBe(404);
-    const h = res.calls[0].headers ?? {};
-    expect(h['Content-Security-Policy']).toContain("default-src 'self'");
-    expect(h['X-Content-Type-Options']).toBe('nosniff');
-    expect(res.calls[0].body).toBe('Not Found');
+  // S7-5(评审 2026-11-08):旧用例 `it.skipIf(existsSync(index.html))` —— 只要本机
+  // 有真实 expo export 产物就永远跳过,等于这条回归门在开发者机器上不存在。
+  // 现注入临时 dist 根,两条分支在任何环境都真跑。
+  it('fallback 缺文件 → 404 带安全头而非 destroy 半截连接', () => {
+    const emptyDist = mkdtempSync(join(tmpdir(), 'soa-dist-empty-'));
+    try {
+      // 08-29 CI 实证:旧实现 fallback 缺文件时 createReadStream 异步 error →
+      // res.destroy(),客户端 fetch 收 UND_ERR_SOCKET: other side closed。
+      const res = fakeRes();
+      serveStatic({ url: '/__soa-missing-404-probe__' }, res, emptyDist);
+      expect(res.calls).toHaveLength(1); // 必有响应:destroy 旧路径会留下空记录
+      expect(res.calls[0].status).toBe(404);
+      const h = res.calls[0].headers ?? {};
+      expect(h['Content-Security-Policy']).toContain("default-src 'self'");
+      expect(h['X-Content-Type-Options']).toBe('nosniff');
+      expect(res.calls[0].body).toBe('Not Found');
+    } finally {
+      rmSync(emptyDist, { recursive: true, force: true });
+    }
+  });
+
+  it('同一入口:dist 里有 index.html 时走 200(不依赖真实 expo export 产物)', () => {
+    const filledDist = mkdtempSync(join(tmpdir(), 'soa-dist-filled-'));
+    try {
+      writeFileSync(join(filledDist, 'index.html'), '<!doctype html><html><body>fixture</body></html>');
+      const res = fakeRes();
+      serveStatic({ url: '/__soa-spa-fallback-probe__' }, res, filledDist);
+      expect(res.calls[0].status).toBe(200); // SPA fallback 命中
+      expect(res.calls[0].headers?.['Cache-Control']).toBe('no-cache');
+    } finally {
+      rmSync(filledDist, { recursive: true, force: true });
+    }
   });
 
   it('S5:静态 200 响应带 CSP/nosniff/cache 头(index.html no-cache)', () => {

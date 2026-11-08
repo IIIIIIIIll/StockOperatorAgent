@@ -3,6 +3,8 @@
 declare function serveStatic(
   req: { url: string },
   res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
+  /** S7-5:测试注入的 dist 根(缺省 = 真实 app/dist)。 */
+  distRoot?: string,
 ): void;
 declare function createAppServer(opts?: { host?: string }): import('node:http').Server;
 export { serveStatic, createAppServer };
