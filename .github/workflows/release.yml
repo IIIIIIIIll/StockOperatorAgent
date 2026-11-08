@@ -154,7 +154,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb
-          exe=$(find dist/linux-unpacked -maxdepth 1 -type f -perm -u+x | head -1)
+          # 只取应用主程序:同目录还有 chrome-sandbox / chrome_crashpad_handler
+          # 这些 helper(第一版就选错成 chrome-sandbox → setuid 报错)
+          exe=$(find dist/linux-unpacked -maxdepth 1 -type f -perm -u+x \
+                  ! -name 'chrome-sandbox' ! -name 'chrome_crashpad_handler' | head -1)
           echo "binary: $exe"
           "$exe" --version
           xvfb-run -a "$exe" --no-sandbox > /tmp/soa-app.log 2>&1 &
