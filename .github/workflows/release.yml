@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             desktop/dist/*.exe
@@ -240,7 +240,7 @@ jobs:
 
       - name: Upload APK/AAB to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: |
             soa-*.apk
