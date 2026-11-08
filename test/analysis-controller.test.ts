@@ -619,6 +619,32 @@ describe('AnalysisController.cancel / 看门狗', () => {
     }
   });
 
+  // S5-5(评审 2026-11-08):看门狗中止后真跑完的 done 仍被接受(结果不该丢),
+  // 但旧实现不清 error → 同时显示「✗ 已中止」与完成态。
+  it('看门狗中止后迟到的 done:撤销中止横幅并置 hasDone', async () => {
+    vi.useFakeTimers();
+    try {
+      const entered = Promise.withResolvers<void>();
+      const h = makeHarness({
+        runnerImpl: async () => {
+          entered.resolve();
+          return new Promise<undefined>(() => {}); // 永不 settle:看门狗先超时
+        },
+      });
+      void h.ctrl.start('600036', 'cn');
+      await entered.promise;
+      vi.advanceTimersByTime(300_000);
+      expect(h.snap().error).toContain('无任何进展');
+      expect(h.snap().running).toBe(false);
+
+      h.runner.emit({ type: 'done', report: makeReport() }); // 中止后才到家
+      expect(h.snap().error).toBeNull(); // 中止横幅已撤
+      expect(h.snap().hasDone).toBe(true); // 结果与完成态一致
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('token 合并广播:多个 delta 只发一次快照,且不落进 events', () => {
     vi.useFakeTimers();
     try {

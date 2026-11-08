@@ -499,3 +499,32 @@ describe('历史归档 · 列表刷新(R-03)', () => {
     expect(h.snap().history.map((s) => s.id)).toEqual([doneId]);
   });
 });
+
+// ─── 评审 2026-11-08:S5-1(删除复活)+ S10-3(代数门漏点)─────────────────────
+describe('历史归档 · 并发代数(S5-1/S10-3)', () => {
+  // S5-1(2026-11-08):陈旧 list() 快照合并会复活已删行的守卫已落在
+  // refreshHistory(historyListSeq),但本 harness 下构造不出「删后仍合并」的可区分
+  // 用例(注入陈旧快照后 merge 结果仍正确)→ 按本轮评审纪律不留不可失败的测试,
+  // 只保留 S10-3 的代数门用例。
+  it('S10-3:首次 openRun 在飞时 closeRun 必须使其过期(旧实现早退不递增代数)', async () => {
+    const base = createMemoryRunArchive([run({ id: 'run-a' })]);
+    const { promise: gate, resolve: releaseLoad } = Promise.withResolvers<void>();
+    const gated: RunArchive = {
+      ...base,
+      async load(id) {
+        const body = await base.load(id);
+        await gate;
+        return body;
+      },
+    };
+    const h = makeHarness({ archive: gated });
+    const opening = h.ctrl.openRun('run-a'); // viewingRun 仍为 null
+    h.ctrl.closeRun(); // 旧实现在这里早退,代数不变 → 迟到的 load 照样写正文
+    expect(h.snap().viewingRun).toBeNull();
+
+    releaseLoad();
+    await opening;
+    expect(h.snap().viewingRun).toBeNull(); // 不得把用户拽进历史态
+    expect(h.snap().stockInformation).not.toBe('【采集数据】历史快照 A');
+  });
+});

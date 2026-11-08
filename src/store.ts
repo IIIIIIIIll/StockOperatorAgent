@@ -73,6 +73,9 @@ export interface StoreLike {
   /** 写穿透后端专用诊断(可选):最近一次异步落盘失败,成功写入后清空。
    *  内存 store 不实现——调用方用可选链读取。 */
   getLastPersistError?(): string | null;
+  /** S3-2:等待异步写队列排空(可选)。写穿透 store 实现;调用方在读
+   *  getLastPersistError 前 await 它,否则只能看到「上一次」失败。 */
+  flush?(): Promise<void>;
 }
 
 export class Store implements StoreLike {

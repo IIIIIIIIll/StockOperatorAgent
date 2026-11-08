@@ -4,6 +4,7 @@
 // 假 runner/InMemoryStore 注入模式与其一致。
 import { describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../src/store-memory.ts';
+import type { StoreLike } from '../src/store.ts';
 import { LAST_RUN_KEY } from '../src/lastRun.ts';
 import type { FinalReport, PipelineEvent, PipelineRunner, RunOptions } from '../src/events.ts';
 import {
@@ -54,8 +55,10 @@ function makeFakeRunner(impl?: RunnerImpl) {
   return fake;
 }
 
-function makeHarness(opts: { runnerImpl?: RunnerImpl; storeReady?: () => Promise<void> } = {}) {
-  const store = new InMemoryStore();
+function makeHarness(
+  opts: { runnerImpl?: RunnerImpl; storeReady?: () => Promise<void>; store?: StoreLike } = {},
+) {
+  const store = opts.store ?? new InMemoryStore();
   const runner = makeFakeRunner(opts.runnerImpl);
   const deps: AnalysisDeps = {
     store,
@@ -231,5 +234,68 @@ describe('AnalysisController bootstrap/start 交错(N-2)', () => {
     runnerGate.resolve(); // 放行运行 → start() 正常收尾
     await startPromise;
     expect(h.snap().running).toBe(false);
+  });
+});
+
+// ─── 评审 2026-11-08:S1-1/CR-21(降级不入档)+ S3-2/CR-28(落盘失败要等队列)──
+describe('AnalysisController 降级运行不入档(S1-1/CR-21)', () => {
+  it('degraded done:不写 lastRun、不进历史归档、不置 hasDone', async () => {
+    const h = makeHarness({
+      runnerImpl: async () => {
+        const r = { ...makeReport(), degraded: true };
+        h.runner.emit({ type: 'done', report: r });
+        return r;
+      },
+    });
+    await h.ctrl.start('600036', 'cn');
+    expect(h.snap().hasDone).toBe(false);
+    // 旧实现先写后判:重启会复活「✓分析完成」的空壳(LastRunRecord 无 degraded 可回辨)
+    expect(h.store.getMeta(LAST_RUN_KEY)).toBeNull();
+    await h.ctrl.refreshHistory();
+    expect(h.snap().history).toHaveLength(0);
+  });
+
+  it('对照(非 degraded):lastRun 与历史归档照常写入', async () => {
+    const h = makeHarness({
+      runnerImpl: async () => {
+        const r = makeReport();
+        h.runner.emit({ type: 'done', report: r });
+        return r;
+      },
+    });
+    await h.ctrl.start('600036', 'cn');
+    expect(h.snap().hasDone).toBe(true);
+    expect(h.store.getMeta(LAST_RUN_KEY)).toContain('持有观察');
+    await h.ctrl.refreshHistory();
+    expect(h.snap().history).toHaveLength(1);
+  });
+});
+
+describe('AnalysisController 落盘失败可见性(S3-2/CR-28)', () => {
+  it('等写队列排空后再读 getLastPersistError(同步读只能看到上一次)', async () => {
+    const base = new InMemoryStore();
+    let persistError: string | null = null;
+    const { promise: gate, resolve: releaseFlush } = Promise.withResolvers<void>();
+    // flush 排空之前 flag 恒 null:旧实现的同步读必然读不到本次失败
+    const store: StoreLike = Object.assign(base, {
+      getLastPersistError: () => persistError,
+      flush: async () => {
+        await gate;
+        persistError = 'QuotaExceededError: 存储已满';
+      },
+    });
+    const h = makeHarness({
+      store,
+      runnerImpl: async () => {
+        const r = makeReport();
+        h.runner.emit({ type: 'done', report: r });
+        return r;
+      },
+    });
+    await h.ctrl.start('600036', 'cn');
+    expect(h.snap().error).toBeNull(); // 队列未排空 → 还没读
+    releaseFlush();
+    await new Promise((r) => setTimeout(r, 0)); // flush.then 落地
+    expect(h.snap().error).toContain('本地保存失败');
   });
 });

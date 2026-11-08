@@ -73,9 +73,12 @@ function AppContent() {
 
   const a = useAnalysis();
   // 恢复/上次运行后下拉跟随真实市场(a.market 仅 start()/恢复时变更,不影响运行中选择)
+  // S5-3(评审 2026-11-08):查看历史时 applyReportBody 会把 a.market 改成归档市场,
+  // 若照抄进下拉,退出历史后下一次「开始分析」会静默使用归档的市场。历史态不同步。
   React.useEffect(() => {
+    if (a.viewingRun) return;
     setMarket(a.market);
-  }, [a.market]);
+  }, [a.market, a.viewingRun]);
   // 锁屏/切后台时关掉市场下拉的透明 Modal:RN Modal 是真 Dialog 窗口,持有焦点
   // 时 eats 所有触摸+滚动;带着它进后台再回来是「点不动」的一个可达路径。
   React.useEffect(() => {

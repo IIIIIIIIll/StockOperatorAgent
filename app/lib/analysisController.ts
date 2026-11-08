@@ -193,6 +193,9 @@ export class AnalysisController {
   private mode: 'real' | 'demo' = 'demo';
   /** CR-03:历史读取代数——并发 openRun / closeRun / 删除后到者不得覆盖新状态。 */
   private historySeq = 0;
+  /** S5-1:history *列表* 口头代数 —— refreshHistory 的 list() 快照用。与 historySeq
+   *  (openRun/closeRun 的正文选择)分开,否则每次定时刷新都会取消用户正在打开的历史。 */
+  private historyListSeq = 0;
   /** 运行代数:每次 start/取消/新一轮都递增。事件订阅、catch/finally、看门狗均按
    *  「是否仍是当前代」作用域化 —— 否则被取消/中止的孤儿运行迟到 settle 时会停掉
    *  新一轮的保活与看门狗,把新一轮重新打回 cached 冻结(正是要修的那个假死)。 */
@@ -280,22 +283,32 @@ export class AnalysisController {
    *  第一条历史,写迁移标记后不再重复(用户清空历史后不复活,PRD R2)。 */
   async refreshHistory(migrateLastRun = false): Promise<void> {
     const s = this.st;
+    const seq = ++this.historyListSeq;
     s.historyLoading = true;
     this.notify();
     try {
       let list = await this.deps.runArchive.list();
       if (migrateLastRun) list = await this.migrateLastRunOnce(list);
+      // S5-1(评审 2026-11-08):list() 读盘期间用户可能删了/清空了历史 —— 该快照
+      // 已过期,合并会把已删除的行复活(点开即「历史记录不存在或已损坏」)。
+      // 删除/清空/更新的刷新都递增代数,这里只在仍是当前代时落库。
+      if (seq !== this.historyListSeq) return;
       // R-03:list() 快照不含刷新期间新落档的运行(recordRun 已写进 s.history)
       // → 直接赋值会把刚完成的运行从抽屉与徽标里抹掉。按 id 合并,磁盘为权威。
       s.history = mergeRunSummaries(list, s.history);
       s.historyError = null;
     } catch (err) {
-      const msg = describeError(err);
-      this.deps.log.warn(`加载历史归档失败:${msg}`);
-      s.historyError = `加载历史失败:${msg}`;
+      if (seq === this.historyListSeq) {
+        const msg = describeError(err);
+        this.deps.log.warn(`加载历史归档失败:${msg}`);
+        s.historyError = `加载历史失败:${msg}`;
+      }
     } finally {
-      s.historyLoading = false;
-      this.notify();
+      // 陈旧刷新的收尾不得清掉更新那一轮的 loading(会让面板提前结束转圈)
+      if (seq === this.historyListSeq) {
+        s.historyLoading = false;
+        this.notify();
+      }
     }
   }
 
@@ -338,20 +351,27 @@ export class AnalysisController {
       s.historyError = null;
       this.deps.log.info(`查看历史分析:${run.ticker} @ ${run.at}`);
     } catch (err) {
-      const msg = describeError(err);
-      this.deps.log.error(`读取历史分析失败:${msg}`);
-      s.historyError = `读取历史失败:${msg}`;
+      if (seq === this.historySeq) {
+        const msg = describeError(err);
+        this.deps.log.error(`读取历史分析失败:${msg}`);
+        s.historyError = `读取历史失败:${msg}`;
+      }
     } finally {
-      s.historyLoading = false;
-      this.notify();
+      // S10-3:陈旧 load 的收尾不得清掉更新那一轮的 loading
+      if (seq === this.historySeq) {
+        s.historyLoading = false;
+        this.notify();
+      }
     }
   }
 
   /** 退出历史查看，恢复点开前的实时状态(不丢正在看的结果)。 */
   closeRun(): void {
     const s = this.st;
+    // CR-03 + S10-3:代数必须先递增 —— 旧实现只在「有 viewingRun」时递增,首次
+    // openRun 在飞期间点关闭不会让它过期,迟到的 load 仍会把正文写进来。
+    this.historySeq += 1;
     if (!s.viewingRun) return;
-    this.historySeq += 1; // CR-03:使在飞的 openRun 过期
     const stash = this.liveStash;
     this.liveStash = null;
     s.viewingRun = null;
@@ -372,6 +392,7 @@ export class AnalysisController {
   async deleteRuns(ids: string[]): Promise<void> {
     const s = this.st;
     if (!ids.length) return;
+    this.historyListSeq += 1; // S5-1:在飞的 refreshHistory 快照已过期
     s.historyLoading = true;
     this.notify();
     try {
@@ -393,6 +414,7 @@ export class AnalysisController {
   /** 清空全部历史(调用方负责二次确认)。 */
   async clearHistory(): Promise<void> {
     const s = this.st;
+    this.historyListSeq += 1; // S5-1:在飞的 refreshHistory 快照已过期
     s.historyLoading = true;
     this.notify();
     try {
@@ -610,6 +632,21 @@ export class AnalysisController {
    *  → 设置加载 → dataVersion=1。时序与抽取前逐点等价;storeReady 挂起期间
    *  start() 已启动时,恢复段整体跳过(N-2,start() 优先)。 */
   async bootstrap(): Promise<void> {
+    // S5-2(评审 2026-11-08):旧实现的 storeReady 之后的半段(injectDeviceStore /
+    // loadDemoData / buildStockInformation …)都在 try 外,而调用点是
+    // `void ctrl.bootstrap()` —— 任何抛出都是未处理 rejection,启动链静默半截
+    // 而 UI 无任何提示。包一层:记日志 + 错误横幅,不再静默。
+    try {
+      await this.bootstrapInner();
+    } catch (err) {
+      const msg = describeError(err);
+      this.deps.log.error(`启动链异常:${msg}`);
+      this.st.error = `启动失败:${msg}`;
+      this.notify();
+    }
+  }
+
+  private async bootstrapInner(): Promise<void> {
     const d = this.deps;
     const s = this.st;
     const t0 = d.nowMs();
@@ -904,29 +941,49 @@ export class AnalysisController {
       s.finalDecision = report.final_decision;
       s.stockInformation = report.stock_information;
       // 上次分析缓存:仅 done(成功)写;error 不写 → 旧缓存保留(R4)
+      // CR-21 + 评审 S1-1/S10-2:降级报告(收尾轮占位/空结论)不算成功 —— 不写
+      // lastRun、不进历史归档、不置 hasDone。旧实现先写后判,重启与历史抽屉里会
+      // 留下「✓分析完成」的空壳(LastRunRecord 无 degraded 字段,事后无法回辨)。
       const at = d.isoNow();
-      // 写盘异常(配额满/存储损坏)不得吞掉 done:否则 hasDone 与报告都不落地,
-      // 用户看到的是「分析完成但没有结果」且没有任何日志
-      try {
-        saveLastRun(d.store, report, this.mode, at);
-        s.lastRunAt = { at, mode: this.mode };
-      } catch (err) {
-        d.log.error(`写上次分析缓存失败:${describeError(err)}`);
-      }
-      // 历史归档(展示层，独立后端)：与 lastRun 并行留档
-      this.recordRun(report, at);
-      s.hasDone = true; // D15
-      // CR-28:写穿透是异步的,内存成功不代表落盘。落盘失败要告知用户,
-      // 否则重启后静默丢结果(旧行为只有日志)。
-      const persistError = d.store.getLastPersistError?.();
-      if (persistError) {
-        d.log.error(`本地落盘失败:${persistError}`);
-        s.error = `本地保存失败（重启后可能丢失本次结果）：${persistError}`;
-      }
-      // CR-21:收尾轮占位/空结论不算成功——保留报告可见,但去掉「✓分析完成」。
       if (report.degraded) {
-        d.log.error('分析未产出有效最终结论(已降级保存)');
+        d.log.error('分析未产出有效最终结论(降级:不写 lastRun / 历史归档)');
         s.hasDone = false;
+      } else {
+        // 写盘异常(配额满/存储损坏)不得吞掉 done:否则 hasDone 与报告都不落地,
+        // 用户看到的是「分析完成但没有结果」且没有任何日志
+        try {
+          saveLastRun(d.store, report, this.mode, at);
+          s.lastRunAt = { at, mode: this.mode };
+        } catch (err) {
+          d.log.error(`写上次分析缓存失败:${describeError(err)}`);
+        }
+        // 历史归档(展示层，独立后端)：与 lastRun 并行留档
+        this.recordRun(report, at);
+        s.hasDone = true; // D15
+        // CR-28 + 评审 S3-2:写穿透是异步的,同步读 getLastPersistError 只能看到
+        // 「上一次」失败(该次写还在队列里排)。等队列排空后再读并告知用户;
+        // flush 可选 —— 内存 store 不实现,直接读即可。代际门防陈旧错误写进新一轮。
+        const store = d.store;
+        const seqAtDone = this.runSeq;
+        const reportPersistError = (): void => {
+          const persistError = store.getLastPersistError?.();
+          if (!persistError || this.runSeq !== seqAtDone) return;
+          d.log.error(`本地落盘失败:${persistError}`);
+          s.error = `本地保存失败（重启后可能丢失本次结果）：${persistError}`;
+          this.notify();
+        };
+        if (typeof store.flush === 'function') {
+          void store.flush().then(reportPersistError, () => {});
+        } else {
+          reportPersistError();
+        }
+      }
+      // 看门狗已中止但真实结果仍到达:撤掉「已中止」横幅 —— 否则会同时显示
+      // 「✗ 分析已 300 秒…已中止」与完成态(S5-5)。
+      if (this.timedOut) {
+        this.timedOut = false;
+        s.error = null;
+        d.log.info('看门狗中止后收到完整结果:撤销中止提示');
       }
     } else if (e.type === 'error') {
       d.log.error(e.error);
