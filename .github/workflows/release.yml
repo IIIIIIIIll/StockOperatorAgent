@@ -145,6 +145,30 @@ jobs:
           [ "$missing" -eq 0 ] || { echo "packaged tree incomplete"; exit 1; }
           echo "OK: packaged tree has every entry file"
 
+      # 打包产物启动烟测(需要 X 才能建窗口;GH runner 可装 xvfb)。
+      # 先跑 --version:不需要显示器,证明二进制 + 共享库能加载;
+      # 再真起 20 秒,证明主进程不因漏文件/坏配置立刻退出。
+      - name: Packaged app launch smoke
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          exe=$(find dist/linux-unpacked -maxdepth 1 -type f -perm -u+x | head -1)
+          echo "binary: $exe"
+          "$exe" --version
+          xvfb-run -a "$exe" --no-sandbox > /tmp/soa-app.log 2>&1 &
+          pid=$!
+          sleep 20
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "OK: app still running after 20s"
+            kill "$pid" || true
+          else
+            echo "app exited within 20s:"
+            cat /tmp/soa-app.log
+            exit 1
+          fi
+
       - name: Upload to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65

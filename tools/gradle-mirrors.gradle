@@ -1,0 +1,34 @@
+// Gradle 出网兜底 —— 只在 SOA_MAVEN_MIRROR 被设置时生效,否则完全不动(CI 默认路径)。
+//
+// 为什么需要:2026-11-08 本机 `assembleDebug` 连续 6 次失败,每次缺的是不同的
+// com.android.tools.* 构件,而这些构件用 curl 取同一个 URL 都是 200 —— 说明是
+// Gradle JVM 的出网被限,不是仓库缺货。把 Google Maven 指到可直连镜像即可。
+//
+// 用法:
+//   SOA_MAVEN_MIRROR=https://maven.aliyun.com/repository/google \
+//     ./gradlew --init-script ../../tools/gradle-mirrors.gradle :app:assembleDebug
+// 版本对齐的官方源仍是 dl.google.com(CI 走它),这里只换下载路径,不改版本。
+def root = System.getenv('SOA_MAVEN_MIRROR')
+if (!root) {
+  return
+}
+def central = System.getenv('SOA_MAVEN_CENTRAL') ?: 'https://maven.aliyun.com/repository/central'
+
+gradle.beforeSettings { settings ->
+  settings.pluginManagement.repositories {
+    maven { url root }
+    maven { url central }
+    gradlePluginPortal()
+  }
+}
+
+gradle.beforeProject { project ->
+  project.buildscript.repositories {
+    maven { url root }
+    maven { url central }
+  }
+  project.repositories {
+    maven { url root }
+    maven { url central }
+  }
+}

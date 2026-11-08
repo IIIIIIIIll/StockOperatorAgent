@@ -1,0 +1,18 @@
+# yamllint —— 只覆盖本仓既有约定,不放宽真实问题。
+#
+# 现状:workflow 里的注释是中文,且单行脚本/命令本来就长;默认 80 列规则会把
+# 34 处既有写法全标成 blocking(2026-11-08 评审已记录为噪声),导致真正的问题
+# 淹没在噪声里。这里把列宽调到 200 并允许不可断词,其余规则保持 default。
+extends: default
+
+rules:
+  line-length:
+    max: 200
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+  comments:
+    # 中文注释常常是 `key:  # 说明` 这种紧凑写法
+    min-spaces-from-content: 1
+  document-start:
+    # workflow 文件不以 --- 开头是 GitHub 的常规写法
+    present: false

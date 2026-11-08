@@ -45,11 +45,21 @@
 
 ### 明确不做的（连同理由）
 
-- **S5-1** 守卫已加（`historyListSeq`），但本 harness 构造不出可区分的回归用例 ——
-  按本轮评审自身的纪律（不留「删了也绿」的测试）只保留守卫，不写伪用例。
+- ~~**S5-1** 守卫已加（`historyListSeq`），但本 harness 构造不出可区分的回归用例~~ ——
+  **2026-11-08 收尾时推翻了这条结论**：把 `runArchive.list()` 换成手动 resolve 的
+  Promise 就能精确制造「读盘期间删除」的时序，无需多点竞速。
+  `test/analysis-controller-stale-refresh.test.ts` 两个用例都做了变异验证：
+  删掉 `if (seq !== this.historyListSeq) return;` → 用例 1 红（`run-a` 被复活）；
+  把 finally 的 seq 判断改成恒真 → 用例 2 红（loading 被陈旧轮提前清零）。
+  关键陷阱：断言必须读 `ctrl.snapshot()` 实时 state，读订阅缓存会得到假绿
+  （陈旧刷新在 finally 里不 notify，缓存快照看不到合并结果）。
 - **S6-3 的「打包产物启动烟测」**（`electron-builder --dir` + 真起一次）需要
   GUI runner，本轮只补了 `tools/desktop-probe.mts` 进 CI 与「零产物即失败」。
-- **workflow 的 yamllint 80 列/document-start 噪声**：仓库现有约定就是长行，
+- ~~**workflow 的 yamllint 80 列/document-start 噪声**~~：已加 `.yamllint.yml`
+  （max 200 + allow-non-breakable-words + document-start 关闭），噪声消掉，其余
+  规则仍走 default；不是关检查，是把列宽调到本仓既有约定。
+
+- **workflow 的 yamllint 残留说明**：仓库现有约定就是长行，
   不做纯格式化改动。
 - **S10-1/S3-3**：复核判定不可达（`better-sqlite3` 是 devDependency，仅 probe 用它），
   仍把列改为可空并加了旧库重建迁移，防止将来接进产品时踩坑。
@@ -196,3 +206,14 @@ release 两个 build job 的 checkout 未设 `persist-credentials: false` → �
 - **供应链**：workflow 全部 action SHA 钉死，三份 lockfile 均带 `integrity`。
 - **设计偏离但有意**：`app/tsconfig.json` 内联替代 `extends expo/tsconfig.base`
   （CR-04），`test/build-config.test.ts` 守护。
+
+## 附:2026-11-08 版本升级轮的环境实证(不是代码问题)
+
+- **npm 12 与 app lockfile 的幽灵可选依赖**:`npm ci` 在 app/ 下报
+  `Missing: @noxcturnal/noxcturnal-linux-arm64-gnu@ from lock file`,但 CI 的
+  npm 10 安装正常。这是 npm 对平台可选依赖的已知处理差异,不是锁文件坏了。
+  本地安装请用 npm 10(`npx npm@10 ci`),或与 CI 保持一致。
+- **本机 Gradle 出网被限**:`assembleDebug` 连续多次失败,每次缺的是不同的
+  `com.android.tools.*` / `androidx.*` 构件,而同一 URL 用 curl 取都是 200。
+  `tools/gradle-mirrors.gradle`(SOA_MAVEN_MIRROR 门控)是给受限环境用的兜底;
+  版本对齐的官方源仍是 dl.google.com,CI 不受影响。原生构建的权威验证在 CI。
