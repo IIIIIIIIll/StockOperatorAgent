@@ -146,28 +146,32 @@ jobs:
           echo "OK: packaged tree has every entry file"
 
       # 打包产物启动烟测(需要 X 才能建窗口;GH runner 可装 xvfb)。
-      # 先跑 --version:不需要显示器,证明二进制 + 共享库能加载;
-      # 再真起 20 秒,证明主进程不因漏文件/坏配置立刻退出。
+      # 判据用 main.mjs 自己的日志,不用 --version(那会走 Chromium 的快速退出路径):
+      # 出现 `[main] child ready: http://127.0.0.1:…` 或 `[renderer:` 即算真起来了。
       - name: Packaged app launch smoke
         if: runner.os == 'Linux'
         working-directory: desktop
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb
-          # 只取应用主程序:同目录还有 chrome-sandbox / chrome_crashpad_handler
-          # 这些 helper(第一版就选错成 chrome-sandbox → setuid 报错)
+          # 同目录还有 chrome-sandbox / crashpad helper / *.so,按名字与后缀排除
           exe=$(find dist/linux-unpacked -maxdepth 1 -type f -perm -u+x \
-                  ! -name 'chrome-sandbox' ! -name 'chrome_crashpad_handler' | head -1)
+                  ! -name '*.so*' ! -name 'chrome*' | head -1)
           echo "binary: $exe"
-          "$exe" --version
-          xvfb-run -a "$exe" --no-sandbox > /tmp/soa-app.log 2>&1 &
+          xvfb-run -a -s "-screen 0 1280x800x24" \
+            "$exe" --no-sandbox --disable-gpu > /tmp/soa-app.log 2>&1 &
           pid=$!
-          sleep 20
-          if kill -0 "$pid" 2>/dev/null; then
-            echo "OK: app still running after 20s"
-            kill "$pid" || true
+          ok=0
+          for i in $(seq 1 40); do
+            if grep -qE "child ready|\[renderer:" /tmp/soa-app.log; then ok=1; break; fi
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          if [ "$ok" -eq 1 ] && ! grep -q "child exited unexpectedly" /tmp/soa-app.log; then
+            echo "OK: packaged app reached a running state"
+            head -20 /tmp/soa-app.log
           else
-            echo "app exited within 20s:"
+            echo "app never reached a running state:"
             cat /tmp/soa-app.log
             exit 1
           fi
