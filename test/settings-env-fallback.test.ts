@@ -7,7 +7,7 @@
 // 三键、afterEach 原样还原(本文件自建同款,不改既有文件)。NODE_ENV=test 下 log
 // 文件禁写(src/log.ts fileWriteDisabled),不产生 logs/ 污染。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultSettings } from '../app/lib/settings.ts';
+import { cleartextHint, defaultSettings } from '../app/lib/settings.ts';
 
 const ENV_LLM_KEYS = ['EXPO_PUBLIC_LLM_API_KEY', 'EXPO_PUBLIC_LLM_MODEL', 'EXPO_PUBLIC_LLM_BASE_URL'] as const;
 
@@ -99,5 +99,17 @@ describe('loadSettings EXPO_PUBLIC_LLM_* 环境兜底(web 环境真实分发链)
       ...d,
       keys: { ...d.keys, llmApiKey: 'env-key', llmModel: 'env-model', llmBaseUrl: 'https://env.example/v1' },
     });
+  });
+});
+
+// S8-6（评审 2026-11-08）：安卓发布版禁明文 http，失败时只显示裸 Network request
+// failed。cleartextHint 是唯一能指向原因与出路的提示，按平台/协议短路。
+describe('cleartextHint（S8-6）', () => {
+  it('仅 android + http:// 才给提示', () => {
+    expect(cleartextHint('http://192.168.1.9:8000/v1', 'android')).toContain('明文 HTTP');
+    expect(cleartextHint('https://api.example.com/v1', 'android')).toBe('');
+    expect(cleartextHint('http://192.168.1.9:8000/v1', 'ios')).toBe('');
+    expect(cleartextHint('http://192.168.1.9:8000/v1', 'web')).toBe('');
+    expect(cleartextHint('', 'android')).toBe('');
   });
 });

@@ -18,6 +18,7 @@ import {
 } from './lib/proxies.cjs';
 import { handleLogs } from './lib/logs-server.cjs';
 import secHeaders from './lib/sec-headers.cjs';
+import { isLoopbackBind, isLoopbackHostHeader, isLoopbackBindHost, proxyGate } from './lib/request-gate.cjs';
 import { envValue } from '../src/env.ts';
 
 const PORT = Number(process.env.PORT || 8090);
@@ -99,69 +100,6 @@ export function serveStatic(req, res, distRoot = DIST) {
   }
 }
 
-/** A6:Host 头判定(DNS rebinding 硬化)——仅接受 loopback:localhost /
- *  127.0.0.0/8 / [::1](含 IPv4-mapped ::ffff:127.0.0.1),端口可有可无,
- *  大小写不敏感;缺失或非 loopback(攻击者域名)→ false。模块私有:
- *  纯入站策略,不导出(d.ts 声明零漂移)。 */
-function isLoopbackHostHeader(host) {
-  if (typeof host !== 'string' || host === '') return false;
-  let name = host;
-  if (name[0] === '[') {
-    const end = name.indexOf(']');
-    if (end === -1) return false;
-    const ipv6 = name.slice(1, end).toLowerCase();
-    const rest = name.slice(end + 1);
-    if (rest !== '' && !/^:\d{1,5}$/.test(rest)) return false;
-    return ipv6 === '::1' || ipv6 === '::ffff:127.0.0.1';
-  }
-  const parts = name.split(':');
-  if (parts.length > 2) return false; // 非方括号 IPv6 不合法
-  if (parts.length === 2) {
-    if (!/^\d{1,5}$/.test(parts[1]) || Number(parts[1]) > 65535) return false;
-    name = parts[0];
-  }
-  const lower = name.toLowerCase().replace(/\.$/, ''); // 容忍 FQDN 尾点
-  if (lower === 'localhost') return true;
-  const octets = lower.split('.');
-  return (
-    octets.length === 4 &&
-    octets.every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255) &&
-    octets[0] === '127'
-  );
-}
-
-/** 连接本地端点是否 loopback(判定 Host 校验启停;A6 见 createAppServer)。 */
-function isLoopbackBind(addr) {
-  return (
-    typeof addr === 'string' &&
-    (addr === '::1' || addr === '::ffff:127.0.0.1' || /^127\./.test(addr))
-  );
-}
-
-/** S6:bind host 串是否回环(决定 token 门启停)。host 选项 / HOST env 的合法
- *  回环写法:'localhost'、127.0.0.0/8、'[::1]'(经 isLoopbackHostHeader)与
- *  裸 IPv6 回环 '::1' / '::ffff:127.0.0.1'(bind 串无方括号,isLoopbackHostHeader
- *  只认方括号形,需单列);其余('0.0.0.0'、网卡 IP 等)→ false。 */
-function isLoopbackBindHost(h) {
-  if (typeof h !== 'string' || h === '') return false;
-  if (h === '::1' || h === '::ffff:127.0.0.1') return true;
-  return isLoopbackHostHeader(h);
-}
-
-/** S2:代理端点 Origin 允许列表 —— 仅接受 无 Origin / null / 本站 origin
- *  (scheme+host 取自 Host 头,大小写不敏感)。跨站 fetch(带 Origin)→ 403 且
- *  零 CORS 头(读不到响应);表单 POST 同被拦。GET 简单请求(script/img 导航
- *  不带 Origin)不受影响。与 metro.config.js enhanceMiddleware 同款。 */
-function isOriginAllowed(req) {
-  const origin = req.headers.origin;
-  if (origin === undefined || origin === null || origin === 'null') return true;
-  const host = req.headers.host;
-  if (typeof host !== 'string' || host === '') return false;
-  const o = String(origin).toLowerCase();
-  const h = host.toLowerCase();
-  return o === `http://${h}` || o === `https://${h}`;
-}
-
 /** 生产 web server 工厂:静态服务 dist + 同源代理路由。导出供桌面主进程复用
  *  (返回 http.Server,监听与否由调用方决定)。路由体与旧模块级 createServer
  *  完全一致,行为零变化。
@@ -187,41 +125,14 @@ export function createAppServer({ host } = {}) {
       res.end('Forbidden');
       return;
     }
-    // S2:全部 5 个代理端点统一 Origin 门(无 Origin/null/本站放行;跨站 → 403)
-    const isProxyPath =
-      req.url.startsWith('/llm-proxy/') ||
-      req.url.startsWith('/tdx-collect') ||
-      req.url.startsWith('/yahoo-collect') ||
-      req.url.startsWith('/web-search') ||
-      req.url.startsWith('/tdx-mcp') ||
-      req.url.startsWith('/billions-proxy') ||
-      req.url === '/logs';
-    if (isProxyPath && !isOriginAllowed(req)) {
-      res.writeHead(403);
-      res.end('Forbidden');
+    // S2 / CR-53 / S6:代理路径统一门(Origin → Sec-Fetch-Site → 非回环时 X-SOA-Token)。
+    // 单源实现在 lib/request-gate.cjs —— 与 dev 入口 metro.config.js 共用,防止两处
+    // 各写一份而漂移(评审 2026-11-08 S8-1/S9-3:dev 入口此前只有 Origin 判据)。
+    const gate = proxyGate(req, { requireToken, accessToken: ACCESS_TOKEN });
+    if (gate) {
+      res.writeHead(gate.status, gate.headers);
+      res.end(gate.body);
       return;
-    }
-    // CR-53:GET 简单请求(<img>/<script>)不带 Origin;用 Sec-Fetch-Site 补一道
-    // 跨站判据(现代浏览器必带;curl/探针无该头 → 放行,不误伤本地工具)。
-    if (isProxyPath) {
-      const site = req.headers['sec-fetch-site'];
-      if (site === 'cross-site' || site === 'same-site') {
-        res.writeHead(403);
-        res.end('Forbidden');
-        return;
-      }
-    }
-    // S6:非回环监听(有效 bind host 非 loopback)时,代理/日志端点要求
-    // X-SOA-Token == SOA_ACCESS_TOKEN(原始串比对,无 "Bearer " 前缀);
-    // 未设 token → 恒 401(安全默认:宁缺勿开)。回环监听保持原行为,无需 token。
-    // Authorization 头保留给 LLM 供应商 key(/llm-proxy 上游透传),本门不消费。
-    if (isProxyPath && requireToken) {
-      const token = req.headers['x-soa-token'];
-      if (!ACCESS_TOKEN || token !== ACCESS_TOKEN) {
-        res.writeHead(401, { 'Content-Type': 'application/json', ...SEC_HEADERS });
-        res.end(JSON.stringify({ error: '未授权:非回环监听需 X-SOA-Token(SOA_ACCESS_TOKEN)' }));
-        return;
-      }
     }
     if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {
       void handleLlmProxy(req, res);

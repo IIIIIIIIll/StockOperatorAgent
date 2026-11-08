@@ -49,13 +49,17 @@ class KeepAliveService : Service() {
      * PARTIAL_WAKE_LOCK 才是真正保 CPU 的东西(屏幕仍可关)。
      */
     private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == true) return
         val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
-        wakeLock =
-            pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "soa:analysis").apply {
+        val lock =
+            wakeLock ?: pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "soa:analysis").apply {
                 setReferenceCounted(false)
-                acquire(WAKE_LOCK_TIMEOUT_MS)
             }
+        // S9-5(评审 2026-11-08):旧实现 isHeld==true 直接 return —— 重复 start() 不续期,
+        // 分析跨过 30 分钟窗口后静默失去 CPU 保护,而常驻通知仍写着「AI 分析进行中」。
+        // 非引用计数锁重复 acquire(timeout) 会重置超时,正是这里需要的语义。
+        if (lock.isHeld) lock.release()
+        lock.acquire(WAKE_LOCK_TIMEOUT_MS)
+        wakeLock = lock
     }
 
     override fun onDestroy() {

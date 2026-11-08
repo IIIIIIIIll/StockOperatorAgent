@@ -3,6 +3,10 @@ const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 const fs = require('node:fs');
 
+// S8-1/S9-3(评审 2026-11-08):代理门与生产 server.mjs 共用同一份实现,
+// 不再各写一套(旧实现只有 Origin 判据,Sec-Fetch-Site / Host / token 全缺)。
+const { proxyGate, isLoopbackBind } = require('./lib/request-gate.cjs');
+
 const config = getDefaultConfig(__dirname);
 
 // 兜底(S9-1 评审 2026-11-08):dev 中间件的代理 handler 已各自 try/catch,但
@@ -90,32 +94,18 @@ const {
 } = require('./lib/proxies.cjs');
 const { handleLogs } = require('./lib/logs-server.cjs');
 
-// S2:代理端点 Origin 允许列表(与 server.mjs createAppServer 同款)——仅接受
-// 无 Origin / null / 本站 origin;跨站 fetch → 403 零 CORS 头。GET 简单请求
-// (script/img 导航不带 Origin)不受影响。
-function isOriginAllowed(req) {
-  const origin = req.headers.origin;
-  if (origin === undefined || origin === null || origin === 'null') return true;
-  const host = req.headers.host;
-  if (typeof host !== 'string' || host === '') return false;
-  const o = String(origin).toLowerCase();
-  const h = host.toLowerCase();
-  return o === `http://${h}` || o === `https://${h}`;
-}
-
 config.server.enhanceMiddleware = (middleware, _server) => {
   return (req, res, next) => {
-    const isProxyPath =
-      req.url.startsWith('/llm-proxy/') ||
-      req.url.startsWith('/tdx-collect') ||
-      req.url.startsWith('/yahoo-collect') ||
-      req.url.startsWith('/web-search') ||
-      req.url.startsWith('/tdx-mcp') ||
-      req.url.startsWith('/billions-proxy') ||
-      req.url === '/logs';
-    if (isProxyPath && !isOriginAllowed(req)) {
-      res.writeHead(403);
-      res.end('Forbidden');
+    // 与生产入口同一份门:Origin → Sec-Fetch-Site → 非回环连接要求 X-SOA-Token。
+    // Expo 默认 lan 监听,所以局域网访问会落到 token 分支(未设 SOA_ACCESS_TOKEN
+    // → 401):要让手机连 dev server,显式导出 SOA_ACCESS_TOKEN 并带上同一 token。
+    const gate = proxyGate(req, {
+      requireToken: !isLoopbackBind(req.socket?.localAddress),
+      accessToken: process.env.SOA_ACCESS_TOKEN ?? '',
+    });
+    if (gate) {
+      res.writeHead(gate.status, gate.headers);
+      res.end(gate.body);
       return;
     }
     if (req.method === 'POST' && req.url.startsWith('/llm-proxy/')) {

@@ -2,7 +2,7 @@
 // 分节:1) LLM(大模型:模型/BaseURL/Key + 保存 + 可达性)
 //       2) 外部服务密钥(TDX/亿信) 3) LangSmith 4) 能力开关 5) 调用上限
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import {
   checkLlmReachability,
   llmBaseUrlError,
@@ -11,6 +11,7 @@ import {
   saveSettings,
   type ReachabilityResult,
   type SettingsState,
+  cleartextHint,
 } from '../lib/settings';
 import { useTheme, type Theme } from '../theme';
 import { WEB_SEARCH_MAX_CALLS_LIMIT } from '../../src/switches';
@@ -96,7 +97,9 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     setReach('checking');
     const result = await checkLlmReachability(settings.keys);
     if (!mountedRef.current || seq !== seqRef.current) return; // 已卸载或已有更新的检查 → 丢弃过期结果
-    setReach(result);
+    // S8-6:安卓发布版禁明文 http,失败时只有裸 Network request failed —— 补一句
+    // 能指向原因/出路的提示(桌面与 iOS 不受影响,helper 内部按平台短路)。
+    setReach({ ...result, message: `${result.message}${cleartextHint(settings.keys.llmBaseUrl, Platform.OS)}` });
   }
 
   const billionsGreyed = !settings.keys.billionsApiKey.trim() || !settings.switches.billionsMaster;

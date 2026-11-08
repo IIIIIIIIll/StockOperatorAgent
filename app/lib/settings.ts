@@ -203,6 +203,16 @@ export function llmBaseUrlError(baseUrl: string): string | null {
   return /^https?:\/\//.test(v) ? null : 'LLM_BASE_URL 必须以 http:// 或 https:// 开头';
 }
 
+/** S8-6（评审 2026-11-08）：Android 发布版 manifest 未开 usesCleartextTraffic，
+ *  局域网 http:// LLM 网关（隐私政策明确宣传的本地 vLLM/Ollama）会被系统拦下，
+ *  而 UI 只拿到裸 `Network request failed`。这里给出唯一能指向原因与出路的提示。
+ *  纯函数 + 显式 platform 入参：settings.ts 不 import react-native（vitest 友好）。 */
+export function cleartextHint(baseUrl: string, platform: string): string {
+  if (platform !== 'android') return '';
+  if (!/^http:\/\//i.test(baseUrl.trim())) return '';
+  return '\nAndroid 发布版不允许明文 HTTP：本地网关请改用 https，或通过桌面端 / adb reverse 访问。';
+}
+
 export async function checkLlmReachability(keys: KeysState): Promise<ReachabilityResult> {
   const baseError = llmBaseUrlError(keys.llmBaseUrl);
   if (baseError) {

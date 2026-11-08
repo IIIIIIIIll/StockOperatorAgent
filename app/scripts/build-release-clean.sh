@@ -55,29 +55,63 @@ cd ..
 restore
 trap - EXIT
 
-# 验证:APK bundle 不含 app/.env 中的任何键值
+# 验证:APK 里不含任何构建期密钥明文(S9-4,评审 2026-11-08)
+# 旧实现只查 .env 的值、且只查 assets/index.android.bundle —— 两个盲区:
+#   ① 密钥是 shell 里 export 进来的(脚本自己 source ~/.soa-android-env.sh),
+#      根本没出现在 .env 里;
+#   ② 泄漏可能落在别的成员(dex/resources/其它 bundle)。
 python3 - <<'PY'
-import zipfile, sys
-z = zipfile.ZipFile('android/app/build/outputs/apk/release/app-release.apk')
-b = z.read('assets/index.android.bundle')
-leaked = []
+import os, sys, zipfile
+
 SENSITIVE = ('KEY', 'SECRET', 'TOKEN', 'PASSWORD')
-for line in open('.env', encoding='utf-8'):
-    line = line.strip()
-    if not line or line.startswith('#') or '=' not in line:
-        continue
-    k, _, v = line.partition('=')
-    v = v.strip()
-    # 只检查敏感键(API KEY/SECRET/TOKEN/PASSWORD);MODEL/BASE_URL/开关值
-    # 是公开配置,模型名等字符串在 bundle 中正常出现,不构成泄漏。
-    if not v or not any(s in k.upper() for s in SENSITIVE):
-        continue
-    if v.encode('utf-8') in b or v.encode('utf-16-le') in b:
-        leaked.append(k)
+MIN_LEN = 8
+secrets = {}
+
+def add(name, value):
+    v = (value or '').strip().strip('"').strip("'")
+    if len(v) >= MIN_LEN and any(s in name.upper() for s in SENSITIVE):
+        secrets[name] = v
+
+# ① .env(脚本跑完已还原)
+try:
+    with open('.env', encoding='utf-8') as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, _, v = line.partition('=')
+            add(k, v)
+except FileNotFoundError:
+    pass
+
+# ② 构建期 shell 环境(~/.soa-android-env.sh 的 export)
+for k, v in os.environ.items():
+    add(k, v)
+
+apk = 'android/app/build/outputs/apk/release/app-release.apk'
+z = zipfile.ZipFile(apk)
+# 只扫可能承载 JS/配置文本的成员;.so/.png 等二进制跳过(体积大且非注入面)
+TEXT_SUFFIX = ('.bundle', '.js', '.json', '.xml', '.txt', '.properties', '.dex')
+members = [n for n in z.namelist() if n.endswith(TEXT_SUFFIX)]
+leaked = []
+for name, value in secrets.items():
+    needle = value.encode('utf-8')
+    wide = value.encode('utf-16-le')
+    for member in members:
+        try:
+            data = z.read(member)
+        except Exception:
+            continue
+        if needle in data or wide in data:
+            leaked.append(f'{name} @ {member}')
+            break
+
 if leaked:
-    print('FAIL: key(s) found in APK:', ', '.join(leaked))
+    print('FAIL: secret(s) found in APK:')
+    for item in leaked:
+        print('  -', item)
     sys.exit(1)
-print('OK: APK bundle contains none of the .env values')
+print(f'OK: scanned {len(members)} member(s) for {len(secrets)} secret value(s); none found')
 PY
 
 echo "release APK: android/app/build/outputs/apk/release/app-release.apk"

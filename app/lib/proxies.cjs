@@ -217,6 +217,15 @@ async function isPublicHost(u, lookup) {
   return (await pinPublicHost(u, lookup)) !== null;
 }
 
+// ─── 上游响应类型白名单(S8-3,评审 2026-11-08)───────────────────────────────
+// 旧实现把 upstream 的 content-type 原样回显到本站 origin:上游(或重定向跳)给
+// text/html 就会被同源渲染,而 localStorage['soa:settings'] 里放着全部 API key。
+// 只放行 OpenAI 流式(event-stream)与 JSON 两种。
+function safeResponseType(upstream) {
+  const ct = String(upstream.headers.get('content-type') ?? '').toLowerCase();
+  return ct.includes('text/event-stream') ? 'text/event-stream' : 'application/json';
+}
+
 // ─── LLM 同源代理(/llm-proxy/*)─────────────────────────────────────────────
 // 网页请求同源代理 → 转发浏览器配置的 LLM base(经 C2 SSRF 校验;服务端转发
 // 调用 LLM,对齐 Streamlit 架构)。同源即免跨域:页面由本 server 托管(metro
@@ -327,7 +336,7 @@ async function handleLlmProxy(req, res, _fetch = fetch) {
       upstream = await _fetch(target, next.origin === baseUrl.origin ? forwardOpts : crossOriginOpts);
     }
     res.writeHead(upstream.status, {
-      'Content-Type': upstream.headers.get('content-type') || 'application/json',
+      'Content-Type': safeResponseType(upstream),
       ...SEC_HEADERS,
     });
     // R4 流式透传:pipe upstream.body 分块转发,不整体缓冲(await text 曾致
@@ -679,13 +688,17 @@ async function handleTdxMcp(req, res, _fetch = fetch) {
       // Mcp-Session-Id 透传(客户端会话续接);Content-Type 透传上游。
       const sid = upstream.headers.get('Mcp-Session-Id');
       res.writeHead(upstream.status, {
-        'Content-Type': upstream.headers.get('content-type') || 'application/json',
+        'Content-Type': safeResponseType(upstream),
         ...(sid ? { 'Mcp-Session-Id': sid } : {}),
         ...SEC_HEADERS,
       });
       if (upstream.body) {
         for await (const chunk of upstream.body) {
-          res.write(chunk);
+          // S9-2:尊重 write() 背压 —— 旧实现无条件 write,慢客户端会把整段
+          // SSE/JSON 缓冲在内存里(res.once 不存在时退化为原行为,测试友好)
+          if (!res.write(chunk) && typeof res.once === 'function') {
+            await new Promise((resolve) => res.once('drain', resolve));
+          }
         }
       }
       res.end();
@@ -766,7 +779,7 @@ async function handleBillionsProxy(req, res, _fetch = fetch) {
     });
     const text = await upstream.text(); // 亿信响应为 JSON(非流式),整体缓冲
     res.writeHead(upstream.status, {
-      'Content-Type': upstream.headers.get('content-type') || 'application/json',
+      'Content-Type': safeResponseType(upstream),
       ...SEC_HEADERS,
     });
     res.end(text);
