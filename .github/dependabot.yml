@@ -2,11 +2,15 @@
 # `npm audit` 因镜像 advisory 端点 404 而不可用 —— 等于没有任何 CVE 可见性。
 # Dependabot 直接对 GitHub Advisory 库，不依赖镜像，是这里唯一可行的兜底。
 version: 2
+# 2026-11-08:PR 分支是从当时 master 切的。当天 master 上有一次约 11 分钟的
+# typecheck 破损窗口(绝对路径 import),11 个 PR 全切在窗口内 → 全部红。
+# auto = 分支落后/冲突时自行 rebase,不需要人工逐个「Update branch」。
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    rebase-strategy: auto
     # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
     cooldown:
       default-days: 7
@@ -20,6 +24,7 @@ updates:
     directory: /app
     schedule:
       interval: weekly
+    rebase-strategy: auto
     # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
     cooldown:
       default-days: 7
@@ -33,6 +38,7 @@ updates:
     directory: /desktop
     schedule:
       interval: weekly
+    rebase-strategy: auto
     # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
     cooldown:
       default-days: 7
@@ -46,6 +52,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    rebase-strategy: auto
     # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
     cooldown:
       default-days: 7
