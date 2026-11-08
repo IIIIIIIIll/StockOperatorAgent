@@ -17,7 +17,7 @@
     "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-tcp-socket": "^6.4.2",
-    "react-native-web": "^0.21.2",
+    "react-native-web": "^0.21.4",
     "react-native-webview": "13.16.1"
   },
   "devDependencies": {
