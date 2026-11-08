@@ -9,7 +9,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "probe": "node --experimental-transform-types tools/probe.mts"
+    "probe": "node --experimental-transform-types tools/probe.mts",
+    "e2e:web": "node tools/web-e2e.mjs"
   },
   "type": "module",
   "dependencies": {

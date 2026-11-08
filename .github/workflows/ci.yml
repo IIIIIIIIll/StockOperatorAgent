@@ -58,13 +58,28 @@ jobs:
         working-directory: app
         run: npm ci
 
+      # A2(2026-11-08 实证):app 层有独立 tsconfig 与 RN/Expo 类型,根门看不到。
+      # SDK 57→58 那次升级,app 层 13 个类型错、CI 全绿 —— 就是这条缺口。
+      - name: Typecheck app
+        working-directory: app
+        run: npx tsc --noEmit
+
       - name: Typecheck
         run: npm run typecheck
 
       - name: Validate desktop lockfile
         working-directory: desktop
-        # S6-4:不装 electron(体积大),只校验 lockfile 与 package.json 一致
-        run: npm ci --dry-run
+        # S6-4:--ignore-scripts 跳过 electron 二进制下载(~100MB),只校验 lockfile
+        # 与依赖图;probe 不需要 electron 本身。
+        run: npm ci --ignore-scripts
+
+      # A2:打包门 —— 版本错配在类型层未必显形,expo export 一定炸。
+      # 收尾还原 app/tsconfig.json(expo export 会把它改写成 extends 形,CR-04)。
+      - name: Build web bundle
+        working-directory: app
+        run: |
+          npx expo export --platform web
+          node ../tools/restore-app-tsconfig.mjs
 
       - name: Test
         run: npm test

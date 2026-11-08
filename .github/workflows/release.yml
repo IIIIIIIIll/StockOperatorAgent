@@ -39,6 +39,12 @@ jobs:
       - name: Install app dependencies
         working-directory: app
         run: npm ci
+      # A4:desktop lockfile 之前只在 tag 那天的 build job 才第一次被 npm ci
+      # (坏掉的 desktop 依赖要等到发版才暴露)。--ignore-scripts 跳过 electron 下载。
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci --ignore-scripts
+
       - name: Typecheck
         run: npm run typecheck
       - name: Test
@@ -114,6 +120,30 @@ jobs:
         run: |
           npm ci
           npx electron-builder --publish never
+
+      # B2:打包成功 ≠ 能启动。electron-builder 的「漏列入口文件」只有在用户
+      # 装完启动那刻才暴露(desktop-ci spec 的已知坑)。这里断言 resources/ 下
+      # 确实躺着 child 需要的每个入口 —— 确定性检查,不需要 GUI/xvfb。
+      - name: Packaged tree smoke (entry files present)
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: |
+          root=dist/linux-unpacked/resources
+          missing=0
+          for f in main.mjs child.mjs preload.cjs server.mjs lib/proxies.cjs \
+                   lib/logs-server.cjs src/store-node.ts src/store.ts \
+                   package.json node_modules/@langchain/core/package.json; do
+            if [ ! -e "$root/$f" ]; then
+              echo "MISSING: resources/$f"
+              missing=1
+            fi
+          done
+          if [ -d "$root/dist" ] && [ ! -e "$root/dist/index.html" ]; then
+            echo "MISSING: resources/dist/index.html (web bundle 未打进包)"
+            missing=1
+          fi
+          [ "$missing" -eq 0 ] || { echo "packaged tree incomplete"; exit 1; }
+          echo "OK: packaged tree has every entry file"
 
       - name: Upload to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')
