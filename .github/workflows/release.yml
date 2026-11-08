@@ -128,20 +128,20 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: desktop
         run: |
+          # 实际布局(electron-builder --dir 实测):asar:false 时入口在
+          # resources/app/,node_modules 与 src 在 resources/ 根
+          # (→ child.mjs 的 '../app/server.mjs'、'../src/*' 才成立)。
           root=dist/linux-unpacked/resources
           missing=0
-          for f in main.mjs child.mjs preload.cjs server.mjs lib/proxies.cjs \
-                   lib/logs-server.cjs src/store-node.ts src/store.ts \
-                   package.json node_modules/@langchain/core/package.json; do
+          for f in app/main.mjs app/child.mjs app/preload.cjs app/server.mjs \
+                   app/lib/proxies.cjs app/lib/logs-server.cjs app/dist/index.html \
+                   src/store-node.ts src/store.ts package.json \
+                   node_modules/@langchain/core/package.json; do
             if [ ! -e "$root/$f" ]; then
               echo "MISSING: resources/$f"
               missing=1
             fi
           done
-          if [ -d "$root/dist" ] && [ ! -e "$root/dist/index.html" ]; then
-            echo "MISSING: resources/dist/index.html (web bundle 未打进包)"
-            missing=1
-          fi
           [ "$missing" -eq 0 ] || { echo "packaged tree incomplete"; exit 1; }
           echo "OK: packaged tree has every entry file"
 
