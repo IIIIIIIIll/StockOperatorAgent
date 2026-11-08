@@ -7,19 +7,31 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /app
     schedule:
       interval: weekly
+    # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /desktop
     schedule:
       interval: weekly
+    # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    # 新发布的包可能恶意/不稳定:等 7 天再提 PR(semgrep 建议)
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
