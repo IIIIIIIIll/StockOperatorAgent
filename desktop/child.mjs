@@ -19,10 +19,10 @@
 //
 // IPC contract with main.mjs (process.send / on('message')):
 //   child -> main: {type:'ready', port, settings} | {type:'ack', id}
-//                  | {type:'snapshot', id, snapshot} | {type:'settings-saved'}
+//                  | {type:'snapshot', id, snapshot} | {type:'settings-saved', id}
 //                  | {type:'error', id?, message}
 //   main -> child: {type:'op', id, op, args} | {type:'snapshot', id}
-//                  | {type:'settings-save', json} | {type:'shutdown'}
+//                  | {type:'settings-save', id, json} | {type:'shutdown'}
 //   {type:'op'} args pass checkStoreOpArgs (src/storeOps.ts) before dispatch
 //   — malformed or path-separator-bearing args never reach the store.
 // Snapshot = {stocks, datas, reports, meta} four Records, JSON-safe
@@ -160,9 +160,11 @@ async function main() {
     } else if (msg.type === 'settings-save') {
       try {
         saveSettings(String(msg.json));
-        send({ type: 'settings-saved' });
+        // S6-2:带 id 回包 —— 主进程据此 resolve renderer 的 invoke(旧实现无 id,
+        // 失败只能在主进程 console.error,renderer 永远以为保存成功)。
+        send({ type: 'settings-saved', id: msg.id });
       } catch (err) {
-        send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+        send({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
       }
     } else if (msg.type === 'shutdown') {
       gracefulShutdown();

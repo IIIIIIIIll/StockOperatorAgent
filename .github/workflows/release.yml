@@ -43,6 +43,10 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
+      # S6-3:桌面 Node 后端接线探针(store 落盘/快照/store-op 分派/settings)。
+      # 之前它没有任何 npm script 或 workflow 在跑 —— 等于不存在。
+      - name: Desktop backend probe
+        run: node --experimental-transform-types tools/desktop-probe.mts
 
   desktop:
     name: desktop (${{ matrix.os }})
@@ -60,6 +64,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # S8-5:构建 job 不需要凭据;避免 token 落进 .git/config 随 artifact 出去
+          persist-credentials: false
 
       - name: Setup Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 → 49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -134,7 +141,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 → ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-${{ matrix.os }}
-          if-no-files-found: ignore
+          # S6-3:零产物是失败信号,不再 ignore
+          if-no-files-found: error
           path: |
             desktop/dist/*.exe
             desktop/dist/*.AppImage
@@ -150,6 +158,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 → 11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # S8-5:构建 job 不需要凭据;避免 token 落进 .git/config 随 artifact 出去
+          persist-credentials: false
 
       - name: Setup Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 → 49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -189,6 +200,13 @@ jobs:
 
       - name: Install root production dependencies
         run: npm ci --omit=dev
+
+      # S6-1:versionCode 由版本号确定性推导(major*10000+minor*100+patch),
+      # 不再是手改字面量 —— 忘 bump 会在 Play 上传时被拒。必须在 prebuild 之前,
+      # 因为 gradle 的 versionCode 由 app.json 生成。
+      - name: Derive Android versionCode from tag version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node tools/derive-version-code.mjs "${GITHUB_REF_NAME#v}"
 
       - name: Install app dependencies and prebuild Android project
         working-directory: app

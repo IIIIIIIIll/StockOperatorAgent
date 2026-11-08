@@ -66,6 +66,7 @@ let quitting = false;
 let msgId = 0;
 const pendingOps = new Map(); // op id -> {resolve, reject}
 const pendingSnapshots = new Map(); // snapshot id -> {resolve, reject}
+const pendingSettings = new Map(); // settings-save id -> {resolve, reject}
 let mainWindow = null; // BrowserWindow ref; focused by 'second-instance' below
 
 // --- single instance ---------------------------------------------------------
@@ -151,18 +152,27 @@ function spawnChild(storeDir, settingsDir, logDir) {
         break;
       }
       case 'error': {
-        const p = pendingOps.get(msg.id) ?? pendingSnapshots.get(msg.id);
+        const p =
+          pendingOps.get(msg.id) ?? pendingSnapshots.get(msg.id) ?? pendingSettings.get(msg.id);
         if (p) {
           pendingOps.delete(msg.id);
           pendingSnapshots.delete(msg.id);
+          pendingSettings.delete(msg.id);
           p.reject(new Error(msg.message));
         } else {
           console.error(`[child] ${msg.message}`);
         }
         break;
       }
-      case 'settings-saved':
+      case 'settings-saved': {
+        // S6-2:只有 child 真正写盘后 renderer 的 invoke 才 resolve
+        const p = pendingSettings.get(msg.id);
+        if (p) {
+          pendingSettings.delete(msg.id);
+          p.resolve(true);
+        }
         break;
+      }
       default:
         break;
     }
@@ -176,6 +186,8 @@ function spawnChild(storeDir, settingsDir, logDir) {
     pendingOps.clear();
     for (const [, p] of pendingSnapshots) p.reject(err);
     pendingSnapshots.clear();
+    for (const [, p] of pendingSettings) p.reject(err);
+    pendingSettings.clear();
     if (!quitting) console.error('[main] child exited unexpectedly — quitting');
     app.quit();
   });
@@ -208,8 +220,20 @@ function waitChildReady(timeoutMs) {
 function shutdownChild() {
   if (quitting) return;
   quitting = true;
-  console.log('[main] shutting down backend child');
-  sendChild({ type: 'shutdown' });
+  // S6-5(评审 2026-11-08):已排队/在飞的写先落地再 shutdown —— 旧实现直接发
+  // shutdown,渲染层已镜像但未落盘的 mutation 随着 child 退出静默丢失
+  // (app/ 里也没有 beforeunload/pagehide 可拦)。上限复用 ready 超时。
+  const pendingCount = () => pendingOps.size + pendingSettings.size + pendingSnapshots.size;
+  const deadline = Date.now() + CHILD_READY_TIMEOUT_MS;
+  const drain = () => {
+    if (pendingCount() === 0 || Date.now() >= deadline) {
+      console.log(`[main] shutting down backend child (pending=${pendingCount()})`);
+      sendChild({ type: 'shutdown' });
+      return;
+    }
+    setTimeout(drain, 25).unref?.();
+  };
+  drain();
   const killTimer = setTimeout(() => {
     if (child && child.exitCode === null && child.signalCode === null) {
       console.error('[main] child did not exit within 3s; sending SIGKILL');
@@ -269,8 +293,25 @@ function registerIpc() {
   ipcMain.handle('desktop:settings-save-async', (_event, json) => {
     const text = typeof json === 'string' ? json : JSON.stringify(json);
     settingsCache = text; // cache first so a subsequent sync load sees it
-    sendChild({ type: 'settings-save', json: text });
-    return true;
+    // S6-2:旧实现发完就 return true —— child 写盘失败时只在本进程 console.error
+    // (error 回包没 id,匹配不到 pending),renderer 的 .catch 永不触发,API key
+    // 静默丢失。现带 id 等 ack:落盘成功才 resolve,失败/超时 reject(invoke 是
+    // 异步的,不会像 sendSync 那样卡死 renderer)。
+    return new Promise((resolve, reject) => {
+      const id = nextId();
+      pendingSettings.set(id, { resolve, reject });
+      try {
+        sendChild({ type: 'settings-save', id, json: text });
+      } catch (err) {
+        pendingSettings.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      const timer = setTimeout(() => {
+        if (pendingSettings.delete(id)) reject(new Error('settings save timed out'));
+      }, CHILD_READY_TIMEOUT_MS);
+      timer.unref?.();
+    });
   });
 }
 

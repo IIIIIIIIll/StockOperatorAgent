@@ -43,6 +43,9 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             app/package-lock.json
+            desktop/package-lock.json
+          # S6-4:desktop lockfile 之前既不在缓存键里、CI 也从不 npm ci 它 ——
+          # 坏掉的 desktop 依赖只会在打 tag 那天暴露。
 
       - name: Install dependencies
         run: npm ci
@@ -58,5 +61,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Validate desktop lockfile
+        working-directory: desktop
+        # S6-4:不装 electron(体积大),只校验 lockfile 与 package.json 一致
+        run: npm ci --dry-run
+
       - name: Test
         run: npm test
+
+      # S6-3:桌面 Node 后端接线探针(此前无任何 npm script/workflow 在跑)。
+      - name: Desktop backend probe
+        run: node --experimental-transform-types tools/desktop-probe.mts
