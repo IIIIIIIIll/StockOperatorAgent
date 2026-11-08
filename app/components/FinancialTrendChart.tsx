@@ -5,11 +5,10 @@
 // N/A 期已跳过)。空 series → 不渲染(空数据不崩)。
 import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
-import { WebView } from 'react-native-webview';
 import type { IChartApi } from 'lightweight-charts';
 import type { FinancialSeries } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
-import { useChartWebView } from '../hooks/useChartWebView';
+import { ChartWebView, useChartWebView } from '../hooks/useChartWebView';
 import type { Theme } from '../theme';
 
 // 原生分支(WebView)JSON 数据契约:与 tools/build-chart-view.mts 头部文档一致
@@ -36,6 +35,8 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
 
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !ref.current || series.length === 0) return undefined;
+    // SAFETY: 仅在 Platform.OS==='web' 分支执行,RNW 把 View 渲染成 DOM 节点,
+    // 所以 ref.current 确实是 HTMLElement;RN 的类型面里没有 DOM 类型,只能强转。
     const el = ref.current as unknown as HTMLElement;
     let disposed = false;
     let chart: IChartApi | null = null;
@@ -108,7 +109,7 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
     // 原生:WebView 渲染生成的 chart-view.html(财务 3 pane,图例在页内)
     return (
       <View style={{ backgroundColor: theme.colors.background }}>
-        <WebView
+        <ChartWebView
           key={chart.key}
           ref={chart.ref}
           source={chart.source}

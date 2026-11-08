@@ -4,13 +4,12 @@
 // get_trend_indicators 分组:主图(MA/EMA/BOLL 叠加)+ 成交量 + 全部振荡器。
 import React from 'react';
 import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { WebView } from 'react-native-webview';
 import type { IChartApi, LineStyle } from 'lightweight-charts';
 import type { IndicatorRow } from '../../src/indicators.ts';
 import { changePctHistData } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { fmtDate } from '../../src/format.ts';
-import { useChartWebView } from '../hooks/useChartWebView';
+import { ChartWebView, useChartWebView } from '../hooks/useChartWebView';
 import type { Theme } from '../theme';
 
 export interface Bar {
@@ -128,6 +127,8 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
 
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !ref.current) return undefined;
+    // SAFETY: 仅在 Platform.OS==='web' 分支执行,RNW 把 View 渲染成 DOM 节点,
+    // 所以 ref.current 确实是 HTMLElement;RN 的类型面里没有 DOM 类型,只能强转。
     const el = ref.current as unknown as HTMLElement;
     let disposed = false;
     let chart: IChartApi | null = null;
@@ -316,7 +317,7 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
     // 原生:WebView 渲染生成的 chart-view.html(图例在页内由数据构建)
     return (
       <View style={{ backgroundColor: theme.colors.background }}>
-        <WebView
+        <ChartWebView
           key={chart.key}
           ref={chart.ref}
           source={chart.source}

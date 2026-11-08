@@ -53,7 +53,9 @@ function AppContent() {
   const [menuAnchor, setMenuAnchor] = React.useState<{ x: number; y: number; width: number; bottom: number } | null>(null);
   // 菜单浮层实测尺寸(onLayout):翻转/右缘 clamp 用真实宽高,避免估算漂移
   const [menuSize, setMenuSize] = React.useState<{ width: number; height: number } | null>(null);
-  const marketButtonRef = React.useRef<View>(null);
+  // RN 0.88:View 作为「类型」已是组件而非实例 → 实例用 ComponentRef 取
+  // (measureInWindow 在 ReactNativeElement 上;旧写法 ref.current 解析成组件类型)
+  const marketButtonRef = React.useRef<React.ComponentRef<typeof View>>(null);
   // 抽屉:☰ 打开一级菜单(设置/历史),点进去在该抽屉内换成二级页(← 返回菜单)。
   // R-11:页面状态机在 hooks/useDrawer.ts,这里只消费。
   const drawer = useDrawer();

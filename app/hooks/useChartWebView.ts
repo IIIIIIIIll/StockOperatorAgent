@@ -13,15 +13,33 @@
 // 也不该每次换对象)。
 import React from 'react';
 import { AppState } from 'react-native';
-import type { WebView } from 'react-native-webview';
+import { WebView } from 'react-native-webview';
 import { CHART_HTML } from '../lib/chartHtml';
 
 /** 常量 source:引用稳定,渲染多少次都不会让 native 侧重载页面。 */
 const CHART_SOURCE = { html: CHART_HTML };
 
+/** WebView 的命令式面(运行时由 forwardRef 暴露)。 */
+export interface WebViewHandle {
+  injectJavaScript(script: string): void;
+  reload(): void;
+  goBack(): void;
+  goForward(): void;
+  stopLoading(): void;
+  postMessage(data: string): void;
+}
+
+// SAFETY: 上游 react-native-webview 14.0.1 把 WebView 声明成
+// `React.FunctionComponent<WebViewProps>` —— props 里没有 ref,但运行时确实通过
+// forwardRef 暴露命令式方法。TS 无法表达这个「声明缺失」,只能强转:保留上游
+// props 形状,只补上真实存在的 ref 面。上游修好后删掉本段。
+export const ChartWebView = WebView as unknown as React.ComponentType<
+  React.ComponentProps<typeof WebView> & { ref?: React.Ref<WebViewHandle> }
+>;
+
 export interface ChartWebViewHandle {
   /** WebView 引用(injectJavaScript 用) */
-  ref: React.RefObject<WebView | null>;
+  ref: React.RefObject<WebViewHandle | null>;
   /** 挂到 WebView 的 key:渲染进程死亡后递增,触发重挂 */
   key: number;
   /** 稳定的 source prop */
@@ -34,7 +52,7 @@ export interface ChartWebViewHandle {
  * @param chartDataJson 已序列化的图表数据;空串表示无数据(不注入)
  */
 export function useChartWebView(chartDataJson: string): ChartWebViewHandle {
-  const ref = React.useRef<WebView | null>(null);
+  const ref = React.useRef<WebViewHandle | null>(null);
   const loadedRef = React.useRef(false);
   // epoch 作为 WebView 的 key:渲染进程死亡 → 重挂 → 新进程
   const [epoch, setEpoch] = React.useState(0);
