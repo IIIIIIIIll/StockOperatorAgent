@@ -80,7 +80,8 @@ function makeHarness(over: { archive?: RunArchive; runner?: PipelineRunner & { e
     saveSettings: () => {},
     applyCapabilitySwitches: () => {},
     buildLlm: () => ({ stub: 'llm' }),
-    collect: async () => ({
+    collect: async (ticker) => ({
+      ticker,
       f10Text: '',
       snapshot: { price: 1, high: 1, low: 1, open: 1, volume: 1, amount: 1 },
       name: '测试股',

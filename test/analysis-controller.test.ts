@@ -90,6 +90,7 @@ function makeHarness(
     collect: async (ticker, market, finnhub) => {
       collectCalls.push({ ticker, market, finnhub });
       return {
+        ticker,
         f10Text: '【主要财务指标】\n净资产收益率: 15.2',
         snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9, volume: 10000, amount: 380000 },
         name: '测试股',
@@ -711,10 +712,11 @@ describe('AnalysisController 运行代数(P0 回归)', () => {
     const release = Promise.withResolvers<void>();
     const h = makeHarness({
       overrides: {
-        collect: async () => {
+        collect: async (ticker) => {
           entered.resolve();
           await release.promise;
           return {
+            ticker,
             f10Text: '【主要财务指标】\n净资产收益率: 15.2',
             snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9, volume: 10000, amount: 380000 },
             name: '测试股',
@@ -732,5 +734,29 @@ describe('AnalysisController 运行代数(P0 回归)', () => {
 
     expect(h.runner.runs).toHaveLength(0); // 没有进 runner.run
     expect(h.snap().running).toBe(false);
+  });
+});
+
+// S2-2(评审 2026-11-08):HK 候选可能解析成另一种代码形式(请求 9988.HK → 命中
+// 09988.HK)。后续读 store / 拼上下文 / 跑 runner 必须用实际落库的 ticker,
+// 否则静默读到空行情、出一份空报告。
+describe('AnalysisController · 采集解析出另一代码形式(S2-2)', () => {
+  it('用 collect 返回的 ticker 跑 runner 并记 lastRunTicker', async () => {
+    const h = makeHarness({
+      overrides: {
+        collect: async () => ({
+          ticker: '09988.HK',
+          f10Text: '',
+          snapshot: null,
+          name: '阿里巴巴',
+          capital: null,
+        }),
+      },
+    });
+    await h.ctrl.start('0700', 'hk');
+    expect(h.snap().error).toBeNull();
+    expect(h.runner.runs).toHaveLength(1);
+    expect(h.runner.runs[0]?.ticker).toBe('09988.HK');
+    expect(h.snap().lastRunTicker).toBe('09988.HK');
   });
 });

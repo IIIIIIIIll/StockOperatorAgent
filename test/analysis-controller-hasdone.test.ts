@@ -71,7 +71,8 @@ function makeHarness(
     saveSettings: () => {},
     applyCapabilitySwitches: () => {},
     buildLlm: () => ({ stub: 'llm' }),
-    collect: async () => ({
+    collect: async (ticker) => ({
+      ticker,
       f10Text: '【主要财务指标】\n净资产收益率: 15.2',
       snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9, volume: 10000, amount: 380000 },
       name: '测试股',

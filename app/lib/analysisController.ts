@@ -781,7 +781,8 @@ export class AnalysisController {
       this.notify();
       return;
     }
-    const { market: m, ticker: nt } = normalized;
+    const m = normalized.market;
+    let nt = normalized.ticker;
     s.market = m;
     // 能力开关经显式注入(settings 面板语义 enabled → 直映;消费点惰性读 config)
     d.applyCapabilitySwitches(s.settings);
@@ -825,6 +826,13 @@ export class AnalysisController {
         const collected = await d.collect(nt, m, finnhub);
         // 阶段边界中止:用户已取消/已被新一轮取代 → 不再往下跑 LLM(不白烧时间和 token)
         if (seq !== this.runSeq) return;
+        // S2-2(评审 2026-11-08):候选解析可能落成另一个形式(请求 9988.HK、命中
+        // 09988.HK)。下面读 store / 拼上下文 / 跑 runner 必须用实际落库的 ticker,
+        // 否则静默读到空行情出一份空报告。
+        if (collected.ticker && collected.ticker !== nt) {
+          d.log.info(`代码解析为 ${collected.ticker}(请求 ${nt})`);
+          nt = collected.ticker;
+        }
         f10Text = collected.f10Text ?? undefined;
         snapshot = collected.snapshot;
         stockName = collected.name;

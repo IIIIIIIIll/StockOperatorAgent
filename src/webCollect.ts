@@ -27,6 +27,10 @@ export interface CollectSkipOpts {
 }
 
 export interface WebCollectResult {
+  /** S2-2(评审 2026-11-08):实际落库的 ticker(可能是候选解析后的形式,如请求
+   *  '9988.HK' 而命中的是 '09988.HK')。消费方必须用它去读 store / 跑 runner,
+   *  继续用请求值会静默读到空行情。 */
+  ticker: string;
   f10Text: string | null;
   snapshot: CollectedSnapshot | null;
   name: string | null;
@@ -86,6 +90,7 @@ export function applyCollectedToStore(store: StoreLike, payload: CollectedPayloa
     store.setMeta(capitalKey(payload.ticker), payload.capitalText);
   }
   return {
+    ticker: payload.ticker,
     f10Text: payload.f10Text || null,
     snapshot: payload.snapshot,
     name: payload.name,

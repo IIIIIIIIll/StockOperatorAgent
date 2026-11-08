@@ -78,6 +78,9 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
   const klineChangePct = React.useMemo(() => changePct.slice(-KLINE_N), [changePct]);
   // 指标:由本次 ticker 的 bars 实算(原 hardcode demo.indicators 只对 DEMO_TICKER 正确);
   // 图表与 chips 共用同一份结果,窗口切片保持稳定引用避免流式重渲染时重建图表
+  // S4-4(评审 2026-11-08):不传 shares → TURNOVER_RATE 恒 N/A(computeAll 约定),
+  // 本页换手率走下方 turnoverPct 列(capital 从采集链下来)。不要把两者合并:
+  // indicator 版是 pipeline 文本口径,表格版是展示口径。
   const indRows = React.useMemo(
     () => computeAll(bars.map((b) => ({ open: b.open, high: b.high, low: b.low, close: b.close, vol: b.volume ?? NaN }))),
     [bars],

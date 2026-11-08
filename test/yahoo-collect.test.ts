@@ -442,6 +442,37 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(before.getStock('0700.HK')?.overview?.currency).toBe('HKD');
     expect(before.getStock('0700.HK')?.lastDataUpdate).toBe(marketToday('hk'));
   });
+  // S2-1(评审 2026-11-08):skipDaily 时 bars 为空、prevClose 无从推算,chart meta 的
+  // chartPreviousClose 是「5 日窗口之前」的收盘(≠ 昨收);旧实现直接回退并把
+  // ≈5 个交易日陈旧的值覆盖进 store(mergeOverview 只在非有限值时才保留旧值)。
+  it('S2-1:skipDaily 且 meta 无 previousClose → 不把 chartPreviousClose 写进概览', async () => {
+    const before = new InMemoryStore();
+    setYahooStore(before);
+    before.putStock({
+      ticker: '0700.HK',
+      name: '腾讯',
+      overview: { prev_close: 100 } as never,
+      overviewLastUpdate: null,
+      lastDataUpdate: marketToday('hk'),
+    });
+    makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      {
+        match: (u) => u.includes('/v8/finance/chart/'),
+        respond: () => {
+          const body = chartBody('0700.HK') as { chart: { result: Array<{ meta: Record<string, unknown> }> } };
+          body.chart.result[0].meta['chartPreviousClose'] = 50; // 5 日窗口前的收盘
+          return jsonResponse(body);
+        },
+      },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+    ]);
+    await collectYahooForDevice('0700.HK');
+    // 保守旧值:旧实现会写成 50(5 个交易日陈旧,且比真值更「新」所以 merge 不拦)
+    expect(before.getStock('0700.HK')?.overview?.prev_close).toBe(100);
+  });
+
   it('E4 device×finnhub:us 全链 + profile2 合并 industry 入库(finnhub 为第三位置参数,非 opts 内嵌)', async () => {
     vi.useFakeTimers(); // F55:同 0700.HK 全链用例,分页窗口数钉死于 2026-08-20
     vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));

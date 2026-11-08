@@ -130,7 +130,9 @@ function calcRsi(close: number[], periods: number[]): Record<string, number[]> {
     const rsi = avgGain.map((g, t) => {
       const l = avgLoss[t];
       if (Number.isNaN(l)) return NAN; // warmup：avg_loss NaN → 保持 NaN
-      if (l === 0) return 100; // 全涨：除零 → 100
+      // S4-2(评审 2026-11-08):全平窗口(涨=跌=0)是 0/0,旧实现回 100 被读成
+      // 「超买」;与 calcKdj/calcVolumeRatio 的 0/0 → NaN 纪律对齐。
+      if (l === 0) return g === 0 ? NAN : 100; // 全涨 → 100
       const rs = g / l;
       return 100 - 100 / (1 + rs);
     });

@@ -131,6 +131,7 @@ describe('collectForDevice', () => {
 
     // 返回 WebCollectResult(f10Text/snapshot/name;capital 由股本结构文本解析)
     expect(result).toEqual({
+      ticker: TICKER, // S2-2:实际落库的 ticker 随结果返回
       f10Text: '【主要财务指标】\n净资产收益率: 15.2',
       snapshot: collected.snapshot,
       name: '招商银行',

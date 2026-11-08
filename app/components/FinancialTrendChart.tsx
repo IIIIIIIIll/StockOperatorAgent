@@ -66,7 +66,17 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
       // 面板顶位置:纯比例计算(实现与 IndicatorChart 共用 src/chartLayout.ts
       // paneTops——pane.getHeight() 在 createChart 后立即读取返回未布局值,
       // 2026-08-15 实测)
-      setPaneTops(computePaneTops(PANE_STRETCH.map((stretchFactor) => ({ height: CHART_HEIGHT, stretchFactor }))));
+      // S4-1(评审 2026-11-08):只给「真实存在的 pane」算坐标。旧实现用满三档
+      // (series 只有 2 条时就多算一个 pane),浮层标题会比实际 pane 高 ~36px、
+      // 落在上一个 pane 里。
+      setPaneTops(
+        computePaneTops(
+          PANE_STRETCH.slice(0, series.length).map((stretchFactor) => ({
+            height: CHART_HEIGHT,
+            stretchFactor,
+          })),
+        ),
+      );
     });
     return () => { disposed = true; chart?.remove(); };
   }, [series, theme]);

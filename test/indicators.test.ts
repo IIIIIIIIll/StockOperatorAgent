@@ -51,3 +51,13 @@ describe('indicators (AC3)', () => {
     expect(rows[13].K).toBeCloseTo((2 / 3) ** 2 * 50 + (1 / 3) * 75, 6); // gap=2 衰减
   });
 });
+
+// S4-2(评审 2026-11-08):全平窗口(涨=跌=0)是 0/0,旧实现返回 100 被读数成
+// 「超买」;与 KDJ/VOL_RATIO 的 0/0 → NaN 纪律对齐。
+describe('indicators · 全平序列 RSI(S4-2)', () => {
+  it('收盘价恒定 → RSI6 为 N/A(NaN),不是 100', () => {
+    const flat = Array.from({ length: 30 }, () => ({ open: 10, high: 10, low: 10, close: 10, vol: 1000 }));
+    const rows = computeAll(flat);
+    expect(rows[rows.length - 1].RSI6).toBeNull(); // computeAll 把 NaN 归一成 null
+  });
+});

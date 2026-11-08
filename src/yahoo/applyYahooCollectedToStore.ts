@@ -119,6 +119,7 @@ export function applyYahooCollectedToStore(
     store.addPerformanceReports(payload.ticker, unique);
   }
   return {
+    ticker: payload.ticker,
     f10Text: null,
     snapshot: payload.snapshot,
     name: payload.name,

@@ -81,6 +81,11 @@ export function financialTrendSeries(
     if (typeof e === 'number' && Number.isFinite(e)) eps.push({ time, value: e });
   }
 
+  // S4-3(评审 2026-11-08):这两条曾按调用方顺序裸推,而同函数里的毛利率/ROE
+  // 都显式升序 —— lightweight-charts 要求 time 升序,store 顺序变了就会掷。
+  netProfit.sort((a, b) => a.time.localeCompare(b.time));
+  eps.sort((a, b) => a.time.localeCompare(b.time));
+
   const grossMargin: FinancialPoint[] = [];
   for (const rec of profit) {
     if (rec.metric !== '销售毛利率' || Number.isNaN(rec.value_num)) continue;

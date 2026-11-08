@@ -232,12 +232,21 @@ async function fetchFullDailyBars(symbol: string, firstTradeDateSec: number): Pr
  *  prevClose 容错 previousClose → chartPreviousClose 两级回退)。 */
 function snapshotFromMeta(meta: Record<string, unknown>): CollectedSnapshot & { prevClose: number } {
   const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+  // S2-3(评审 2026-11-08):chart meta 的官方键是 regularMarket*;旧实现只认
+  // regularMarketDay*,遇到只给简写键的响应会恒 NaN。两套都认,官方优先。
+  const nOf = (...keys: string[]): number => {
+    for (const k of keys) {
+      const v = n(meta[k]);
+      if (!Number.isNaN(v)) return v;
+    }
+    return NaN;
+  };
   return {
     price: n(meta['regularMarketPrice']),
-    high: n(meta['regularMarketDayHigh']),
-    low: n(meta['regularMarketDayLow']),
-    open: n(meta['regularMarketDayOpen']),
-    volume: n(meta['regularMarketVolume']),
+    high: nOf('regularMarketDayHigh', 'regularMarketHigh'),
+    low: nOf('regularMarketDayLow', 'regularMarketLow'),
+    open: nOf('regularMarketDayOpen', 'regularMarketOpen'),
+    volume: nOf('regularMarketVolume', 'regularMarketDayVolume'),
     amount: NaN, // Yahoo 无标准成交额字段(chart meta 仅部分响应含,概览 same 语义)
     prevClose: n(meta['previousClose'] ?? meta['chartPreviousClose']),
   };
@@ -279,10 +288,15 @@ function stmtDateKey(stmt: unknown): string | null {
  *  F06:年度语句(incomeStatementHistory 模块)不再混入季度池——composeYahooReports
  *  按年度源单独读取成行(率恒 NaN),绝不与季度行互比;此处保留原样,供其直读。
  *  无任何收入表 → 原样返回(compose 返回 [])。 */
-function normalizeIncomeStatements(summary: unknown): unknown {
+/** 归一化后的 quoteSummary 载荷:与输入同形(Yahoo 决定的嵌套结构),
+ *  本模块只重排 incomeStatementHistoryQuarterly。命名类型用于标注边界,不重造
+ *  第三方 schema —— 消费方(composeYahooOverview/Reports)刻意宽松。 */
+type NormalizedQuoteSummary = Record<string, unknown>;
+
+function normalizeIncomeStatements(summary: unknown): NormalizedQuoteSummary {
   const s = rec(summary);
   const result = rec(s['quoteSummary'])['result'];
-  if (!Array.isArray(result) || result.length === 0) return summary;
+  if (!Array.isArray(result) || result.length === 0) return s;
   const r = rec(result[0]);
   const q = rec(r['incomeStatementHistoryQuarterly']);
   const standard = q['incomeStatementStatements'];
@@ -294,7 +308,7 @@ function normalizeIncomeStatements(summary: unknown): unknown {
       if (stmtDateKey(stmt) !== null) merged.push(stmt); // 无 endDate 的语句行丢弃
     }
   }
-  if (!merged.length) return summary;
+  if (!merged.length) return s;
   return {
     ...s,
     quoteSummary: {
@@ -373,6 +387,13 @@ export async function collectYahooPayload(
     typeof metaRaw['previousClose'] === 'number' || !Number.isFinite(prevClose)
       ? metaRaw
       : { ...metaRaw, previousClose: prevClose };
+  // S2-1(评审 2026-11-08):同日跳过时 bars 为空、prevClose 无从推算,而 chart meta
+  // 的 chartPreviousClose 是「5 日窗口之前」的收盘(≠ 昨收)。直接回退会写出 ≈5 个
+  // 交易日陈旧的 prev_close / amplitude / change_amount,且覆盖掉 store 里原本正确的
+  // 值(mergeOverview 只在非有限值时保留旧值)。此时剔除该字段 → 得 NaN → 保留旧值。
+  if (bars.length === 0) {
+    delete (meta as Record<string, unknown>)['chartPreviousClose'];
+  }
   const snapshot = snapshotFromMeta(meta);
   // quoteSummary 失败(crumb 失效)→ 概览仅 chart meta 可映射字段 + reports 空
   const summary = await quoteSummaryOrNull(client, symbol);
