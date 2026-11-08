@@ -24,15 +24,18 @@ const {
 
 interface FakeRes {
   headersSent: boolean;
+  destroyed: boolean;
   calls: Array<{ status: number; body: string; headers?: Record<string, string> }>;
   writeHead(status: number, headers?: Record<string, string>): void;
   write(chunk: unknown): void;
   end(body?: unknown): void;
+  destroy(): void;
 }
 function fakeRes(): FakeRes {
   const calls: Array<{ status: number; body: string; headers?: Record<string, string> }> = [];
   const res = {
     headersSent: false,
+    destroyed: false,
     calls,
     writeHead(status: number, headers?: Record<string, string>) {
       res.headersSent = true;
@@ -47,6 +50,10 @@ function fakeRes(): FakeRes {
     end(body?: unknown) {
       if (calls.length === 0) calls.push({ status: 200, body: '' });
       if (body !== undefined) calls[calls.length - 1].body = String(body);
+    },
+    // S9-1:断连兜底路径用(对齐真实 ServerResponse.destroy)
+    destroy() {
+      res.destroyed = true;
     },
   };
   return res;
@@ -711,8 +718,53 @@ describe('proxies.cjs /yahoo-collect gate(E9:isYahooMarket 与 yahooMarketOfTick
   });
 });
 
-describe('proxies.cjs /tdx-mcp(F2 同源代理)', () => {
-  it('固定目标转发:URL 恒为 TDX_MCP_TARGET,POST + redirect manual + body Buffer 原样', async () => {
+// S9-1(评审 2026-11-08):/yahoo-collect 的 body 读取曾裸露在 try 之外。客户端
+// 谎报 Content-Length 后断开 → req 迭代器 reject → 调用点 `void handleYahoo
+// Collect(...)` 无人接 → Node ≥15 默认 unhandled rejection 终止进程。
+describe('proxies.cjs /yahoo-collect 断连兜底(S9-1)', () => {
+  it('req 迭代器抛错(客户端中途断开)→ 400 且 handler 自身不 reject', async () => {
+    const res = fakeRes();
+    const req = {
+      url: '/yahoo-collect',
+      headers: {},
+      destroyed: false,
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(Object.assign(new Error('aborted'), { code: 'ECONNRESET' })),
+      }),
+    };
+    let collected = false;
+    await expect(
+      handleYahooCollect(
+        req,
+        res,
+        async () => {
+          collected = true;
+          return {};
+        },
+      ),
+    ).resolves.toBeUndefined(); // 关键:不向外抛(调用点 `void ...` 无 catch)
+    expect(collected).toBe(false);
+    expect(res.calls[0].status).toBe(400);
+    expect(res.calls[0].body).toContain('读取 Yahoo 采集请求体失败');
+  });
+
+  it('客户端已 destroy → 只 destroy 响应,不再 writeHead(无对端可回包)', async () => {
+    const res = fakeRes();
+    const req = {
+      url: '/yahoo-collect',
+      headers: {},
+      destroyed: true,
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error('aborted')),
+      }),
+    };
+    await expect(handleYahooCollect(req, res, async () => ({}))).resolves.toBeUndefined();
+    expect(res.calls).toHaveLength(0);
+    expect(res.destroyed).toBe(true);
+  });
+});
+
+describe('proxies.cjs /tdx-mcp(F2 同源代理)', () => {  it('固定目标转发:URL 恒为 TDX_MCP_TARGET,POST + redirect manual + body Buffer 原样', async () => {
     const res = fakeRes();
     let sentUrl = '';
     let sentInit: { method?: string; redirect?: string; body?: unknown; headers?: Record<string, string> } | undefined;

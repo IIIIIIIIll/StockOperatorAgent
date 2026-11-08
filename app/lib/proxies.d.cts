@@ -24,7 +24,12 @@ declare const proxies: {
   ): Promise<void>;
   handleYahooCollect(
     req: unknown,
-    res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
+    res: {
+      writeHead(status: number, headers?: Record<string, string>): void;
+      end(body?: unknown): void;
+      destroy?(): void;
+      headersSent?: boolean;
+    },
     _collect?: (ticker: any, opts?: any) => Promise<any>,
   ): Promise<void>;
   handleWebSearch(

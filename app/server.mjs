@@ -264,6 +264,12 @@ const HOST = envValue('HOST') || '127.0.0.1';
 const ACCESS_TOKEN = envValue('SOA_ACCESS_TOKEN') ?? '';
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
+  // 兜底(S9-1 评审 2026-11-08):代理 handler 内部已各自 try/catch,但任何遗漏的
+  // 路径(浏览器中途断开、上游 socket 销毁)都不应该打死整个静态服务器。
+  // 记录堆栈后继续服务;真正的 bug 仍能从 stderr 看到。
+  process.on('unhandledRejection', (err) => {
+    console.error('[soa] 未处理的 Promise rejection(已兜底,进程继续):', err instanceof Error ? (err.stack ?? err.message) : String(err));
+  });
   createAppServer().listen(PORT, HOST, () => {
     console.log(`[soa] web server: http://${HOST}:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理 + /web-search 搜索代理 + /logs 日志汇聚)`);
   });

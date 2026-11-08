@@ -5,8 +5,10 @@
 // 落盘 = 同目录 tmp 文件 + 原子替换,进程中断只留无害 tmp 或旧文件完整态,
 // 不产生半截 JSON);ready() 读全部文件 hydrate(单文件损坏仅跳过该文件并记
 // error,不中断其余文件加载);getters 同步读内存副本。
-// 布局:<baseDir>/<ticker>.json({stock,bars,reports}) + <baseDir>/meta.json
-// (Record<string,string>)。生产默认适配器 expo-file-system(documentDirectory 下
+// 布局:<baseDir>/<ticker>.json({stock,bars,reports}) + <baseDir>/_meta.json
+// (Record<string,string>)。meta 文件名必须与 <ticker>.json 命名空间不相交:
+// 美股 ticker 强制大写(market.ts),旧名 'meta.json' 在大小写不敏感卷
+// (Windows nsis / macOS dmg)上会被 ticker META 覆盖 → 双向静默丢数据。生产默认适配器 expo-file-system(documentDirectory 下
 // 解析,惰性动态 import,同 log.ts RN 分支先例);测试注入 node fs 适配器。
 import type { DailyBar, PerformanceReport, StockRecord, StoreLike } from './store.ts';
 import { error as logError } from './log.ts';
@@ -23,8 +25,26 @@ interface TickerFile {
   reports: PerformanceReport[];
 }
 
-const META_FILE = 'meta.json';
+const META_FILE = '_meta.json';
+// F1 迁移:旧版本把 meta KV 写在 'meta.json'。新名缺失时回退读旧名(见
+// hydrateMeta),下次 setMeta 落盘即写新名;旧文件保留无害。
+const LEGACY_META_FILE = 'meta.json';
 const DEFAULT_BASE_DIR = 'soa-store';
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** meta KV 形状门:普通对象且所有值都是字符串。旧 'meta.json' 在大小写不敏感卷上
+ *  可能已被行情写入({stock,bars,reports}),那种文件必须交回 ticker 分支解析。 */
+function isMetaMap(v: unknown): v is Record<string, string> {
+  return (
+    v !== null &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    Object.values(v as Record<string, unknown>).every((x) => typeof x === 'string')
+  );
+}
 
 function joinPath(baseDir: string, name: string): string {
   return baseDir.endsWith('/') ? baseDir + name : `${baseDir}/${name}`;
@@ -122,23 +142,63 @@ export class FileStore implements StoreLike {
     return getExpoBackend(this.baseDir);
   }
 
+  /** F1:meta KV 载入(新名优先,旧名兼容。consumed = 该文件名已按 meta 认领,
+   *  主循环据此跳过它,避免同一文件被二次当日志文件解析。 */
+  private async hydrateMeta(
+    fs: FileFsAdapter,
+    baseDir: string,
+    names: string[],
+  ): Promise<{ consumed: boolean }> {
+    const source = names.includes(META_FILE)
+      ? META_FILE
+      : names.includes(LEGACY_META_FILE)
+        ? LEGACY_META_FILE
+        : null;
+    if (source === null) return { consumed: false };
+    let text: string | null;
+    try {
+      text = await fs.readFile(joinPath(baseDir, source));
+    } catch (err) {
+      logError(`FileStore 跳过 meta 文件(不可读):${source}(${errText(err)})`);
+      return { consumed: true };
+    }
+    if (text == null) return { consumed: true };
+    let rows: unknown;
+    try {
+      rows = JSON.parse(text);
+    } catch (err) {
+      logError(`FileStore 跳过 meta 文件(损坏):${source}(${errText(err)})`);
+      return { consumed: true };
+    }
+    if (!isMetaMap(rows)) {
+      // 新名不是 meta 形状 = 真损坏;旧名可能是被覆盖的行情文件 → 交回 ticker
+      // 分支再试一次(否则那条 ticker 的历史会连同旧 meta 一起被丢掉)。
+      if (source === META_FILE) {
+        logError(`FileStore 跳过 meta 文件(形状不符):${source}`);
+        return { consumed: true };
+      }
+      return { consumed: false };
+    }
+    for (const [k, v] of Object.entries(rows)) {
+      if (!this.meta.has(k)) this.meta.set(k, v);
+    }
+    return { consumed: true };
+  }
+
   private async hydrate(): Promise<void> {
     const { fs, baseDir } = await this.backend();
     const names = await fs.listDir();
+    // F1:meta 先认领文件名(新名优先),主循环不再判断 meta 名称。
+    const meta = await this.hydrateMeta(fs, baseDir, names);
     // 单文件容错(评审 08-23 F1):单个坏文件只跳过自身并 logError,不中断其余
     // 文件加载 —— 此前首个坏文件的解析异常会沿 readyPromise 缓存 rejection,
     // 全库不可读直至手工删除该文件。非 .json 后缀的崩溃残留 tmp(原子写中间态)
     // 走不进下方分支,由命名契约天然跳过。
     for (const name of names) {
       try {
-        if (name === META_FILE) {
-          const text = await fs.readFile(joinPath(baseDir, name));
-          if (text == null) continue;
-          const rows = JSON.parse(text) as Record<string, string>;
-          for (const [k, v] of Object.entries(rows)) {
-            if (!this.meta.has(k)) this.meta.set(k, v);
-          }
-        } else if (name.endsWith('.json')) {
+        if (name === META_FILE) continue;
+        if (meta.consumed && name === LEGACY_META_FILE) continue;
+        if (name.endsWith('.json')) {
           const ticker = name.slice(0, -'.json'.length);
           const text = await fs.readFile(joinPath(baseDir, name));
           if (text == null) continue;
@@ -187,6 +247,14 @@ export class FileStore implements StoreLike {
   }
 
   private enqueuePersistTicker(ticker: string): void {
+    const fileName = `${ticker}.json`;
+    // F1 纵深:合法 ticker 不可能生成 '_meta.json'(market.ts 正则 ^[A-Za-z]…),
+    // 但 storeOps.isTicker 只拒路径分隔符 —— 若注入路径传来 '_meta' 会覆写
+    // meta KV,此处硬拦并记录,不排队。
+    if (fileName === META_FILE) {
+      logError(`FileStore 拒绝写入与 meta 同名的 ticker:${ticker}`);
+      return;
+    }
     this.enqueue(async () => {
       const { fs, baseDir } = await this.backend();
       const payload: TickerFile = {
@@ -194,7 +262,7 @@ export class FileStore implements StoreLike {
         bars: this.bars.get(ticker) ?? [],
         reports: this.reports.get(ticker) ?? [],
       };
-      await fs.writeFile(joinPath(baseDir, `${ticker}.json`), JSON.stringify(payload));
+      await fs.writeFile(joinPath(baseDir, fileName), JSON.stringify(payload));
     });
   }
 

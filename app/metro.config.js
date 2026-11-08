@@ -4,6 +4,13 @@ const path = require('path');
 const fs = require('node:fs');
 
 const config = getDefaultConfig(__dirname);
+
+// 兜底(S9-1 评审 2026-11-08):dev 中间件的代理 handler 已各自 try/catch,但
+// 未处理的 rejection(客户端断开等)不应打死整个 metro 进程 —— 开发时那意味着
+// 每次异常断连都要重启。记录后继续服务。
+process.on('unhandledRejection', (err) => {
+  console.error('[soa/metro] 未处理的 Promise rejection(已兜底,进程继续):', err instanceof Error ? (err.stack ?? err.message) : String(err));
+});
 config.watchFolders = [path.resolve(__dirname, '..')];
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, 'node_modules'),

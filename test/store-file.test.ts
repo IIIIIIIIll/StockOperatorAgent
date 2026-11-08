@@ -180,13 +180,13 @@ describe('FileStore 落盘/读回(跨实例 hydrate)', () => {
     expect(s2.getDatas('T').map((x) => x.date)).toEqual(['2026-02-01', '2026-02-02']);
   });
 
-  it('meta 落盘/读回(meta.json 为 Record<string,string>)', async () => {
+  it('meta 落盘/读回(_meta.json 为 Record<string,string>)', async () => {
     await store.ready();
     store.setMeta('f10:600036', '【主要财务指标】\n净资产收益率: 15.2');
     store.setMeta('capital:600036', '总股本: 100000.0万股\n流通股本: 90000.0万股');
     await store.flush();
 
-    const raw = JSON.parse(await fsReadFile(join(baseDir, 'meta.json'), 'utf8')) as Record<string, string>;
+    const raw = JSON.parse(await fsReadFile(join(baseDir, '_meta.json'), 'utf8')) as Record<string, string>;
     expect(raw['f10:600036']).toContain('净资产收益率');
     expect(raw['capital:600036']).toContain('流通股本');
 
@@ -194,6 +194,51 @@ describe('FileStore 落盘/读回(跨实例 hydrate)', () => {
     await s2.ready();
     expect(s2.getMeta('capital:600036')).toContain('流通股本');
     expect(s2.getMeta('missing')).toBeNull();
+  });
+
+  // F1(评审 2026-11-08 ):ticker META 与 meta KV 曾共用 '<name>.json' 命名空间。
+  // 美股 ticker 强制大写,大小写不敏感卷(Windows nsis / macOS dmg)上 'META.json'
+  // 与 'meta.json' 是同一个文件 → 两边互相覆盖。现 meta 固定 '_meta.json'。
+  it('F1:meta 写 _meta.json,与 ticker META 的 META.json 互不覆盖', async () => {
+    await store.ready();
+    store.putStock({ ticker: 'META', name: 'Meta Platforms', overview: null, overviewLastUpdate: null, lastDataUpdate: '2026-11-07' });
+    store.addDatas('META', bars(['2026-11-06', '2026-11-07']));
+    store.setMeta('soa:last-run', '{"hasDone":true}');
+    await store.flush();
+
+    expect((await readdir(baseDir)).sort()).toEqual(['META.json', '_meta.json']);
+    const metaRaw = JSON.parse(await fsReadFile(join(baseDir, '_meta.json'), 'utf8')) as Record<string, string>;
+    expect(metaRaw['soa:last-run']).toContain('hasDone');
+    const tickerRaw = JSON.parse(await fsReadFile(join(baseDir, 'META.json'), 'utf8')) as { bars: DailyBar[] };
+    expect(tickerRaw.bars).toHaveLength(2);
+
+    // 重启后两边都还在
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    expect(s2.getDatas('META')).toHaveLength(2);
+    expect(s2.getMeta('soa:last-run')).toContain('hasDone');
+  });
+
+  it('F1 迁移:只有旧 meta.json 时照常读入,下次 setMeta 写新名且旧键保留', async () => {
+    await fsWriteFile(join(baseDir, 'meta.json'), JSON.stringify({ 'f10:600036': '净资产收益率 15.2' }), 'utf8');
+    const s1 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s1.ready();
+    expect(s1.getMeta('f10:600036')).toContain('净资产收益率');
+
+    s1.setMeta('capital:600036', '总股本: 100000');
+    await s1.flush();
+    expect(await readdir(baseDir)).toContain('_meta.json');
+    const raw = JSON.parse(await fsReadFile(join(baseDir, '_meta.json'), 'utf8')) as Record<string, string>;
+    expect(raw['capital:600036']).toContain('总股本');
+    expect(raw['f10:600036']).toContain('净资产收益率'); // 旧键随内存态一并落盘,未丢
+  });
+
+  it('F1 迁移:_meta.json 存在时压过遗留的 meta.json', async () => {
+    await fsWriteFile(join(baseDir, 'meta.json'), JSON.stringify({ 'soa:last-run': 'legacy' }), 'utf8');
+    await fsWriteFile(join(baseDir, '_meta.json'), JSON.stringify({ 'soa:last-run': 'current' }), 'utf8');
+    const s1 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s1.ready();
+    expect(s1.getMeta('soa:last-run')).toBe('current');
   });
 });
 

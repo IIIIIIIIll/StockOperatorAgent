@@ -488,14 +488,31 @@ async function handleYahooCollect(req, res, _collect = doYahooCollect) {
   // body JSON {ticker}(对齐 MAX_BODY_BYTES 上限;非法/空 body → ticker '' → 400)
   const parts = [];
   let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > MAX_BODY_BYTES) {
-      res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS });
-      res.end(JSON.stringify({ error: 'Yahoo 采集请求体超过 1MB 限制' }));
+  // S9-1(评审 2026-11-08):body 读取必须包 try。客户端提前断开时 Node 以
+  // ConnResetException('aborted') 销毁 IncomingMessage → async iterator reject;
+  // 上一版裸露在外,而调用点是 `void handleYahooCollect(...)`(server.mjs 、
+  // metro.config.js),无人接这个 rejection → Node ≥15 默认 unhandled-rejection
+  // 直接终止进程(未认证 POST 谎报 Content-Length 后断开即可打死 server/metro)。
+  // 兄弟 handler(LLM/TDX/亿信)一直包着,此处是对齐纪律。
+  try {
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        res.writeHead(413, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+        res.end(JSON.stringify({ error: 'Yahoo 采集请求体超过 1MB 限制' }));
+        return;
+      }
+      parts.push(chunk);
+    }
+  } catch (err) {
+    // 对端已断开/已响应:无可回包对端,只 destroy 兜底(与 TDX catch 同款纪律)
+    if (res.headersSent || req.destroyed) {
+      if (typeof res.destroy === 'function') res.destroy();
       return;
     }
-    parts.push(chunk);
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: `读取 Yahoo 采集请求体失败:${String(err?.message ?? err)}` }));
+    return;
   }
   // F02:分块 Buffer 收集 + 一次性 decode(同 handleLlmProxy;不用 setEncoding)
   const body = Buffer.concat(parts).toString('utf8');
