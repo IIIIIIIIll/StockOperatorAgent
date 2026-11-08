@@ -22,6 +22,15 @@ export interface DrawerController {
   showHistory(): void;
   /** ☰ 切换:收起 → 菜单;展开 → 收起(保持原有 toggle 语义)。 */
   toggle(): void;
+  /** 安卓硬件返回键(S5-4):二级页 → 菜单,菜单 → 收起;收起时 false(交回系统)。 */
+  handleBack(): boolean;
+}
+
+/** S5-4(评审 2026-11-08):返回键的页面转移。纯函数 —— 便于不引入 React 测试
+ *  环境就能钉住「先腹腔一层,而不是直接掉到系统返回」的行为。 */
+export function nextDrawerPageOnBack(page: DrawerPage): DrawerPage | null {
+  if (page === 'closed') return null; // 已收起 → 不接管
+  return page === 'menu' ? 'closed' : 'menu'; // 二级页 → 回菜单;菜单 → 收起
 }
 
 export function useDrawer(): DrawerController {
@@ -34,5 +43,11 @@ export function useDrawer(): DrawerController {
     () => setPage((p) => (p === 'closed' ? 'menu' : 'closed')),
     [],
   );
-  return { page, isOpen: page !== 'closed', close, showMenu, showSettings, showHistory, toggle };
+  const handleBack = React.useCallback((): boolean => {
+    const next = nextDrawerPageOnBack(page);
+    if (next === null) return false;
+    setPage(next);
+    return true;
+  }, [page]);
+  return { page, isOpen: page !== 'closed', close, showMenu, showSettings, showHistory, toggle, handleBack };
 }

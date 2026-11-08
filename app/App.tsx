@@ -5,7 +5,7 @@
 // 本组件只保留 UI 状态(activeTab/ticker/drawer)、派生与渲染。
 // 入口合并:☰ 打开抽屉菜单(设置/历史),二级页在抽屉内切换 —— 原右上角历史按钮已取消。
 import React from 'react';
-import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type Role } from 'react-native';
+import { AppState, BackHandler, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type Role } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 import ReportContent from './components/ReportContent';
@@ -87,6 +87,21 @@ function AppContent() {
     });
     return () => sub.remove();
   }, []);
+  // S5-4(评审 2026-11-08):安卓硬件返回键 —— app.json 关了 predictiveBackGestureEnabled,
+  // 又全无 BackHandler,于是抽屉/下拉开着时按返回键直接退出 App。现按逐层叠退:
+  // 市场下拉 → 抽屉二级页 → 抽屉菜单 → 收起后才交回系统。
+  // Platform 门 + 可选链:web(RNW 无 BackHandler)与 iOS 不会进这里。
+  React.useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+    const sub = BackHandler?.addEventListener('hardwareBackPress', () => {
+      if (showMarketMenu) {
+        setShowMarketMenu(false);
+        return true;
+      }
+      return drawer.handleBack();
+    });
+    return () => sub?.remove();
+  }, [drawer.page, drawer.handleBack, showMarketMenu]);
   const roles = reportRoles(); // (stateKey, tabTitle) —— report_tabs() 契约
 
   const missing = missingLlmKeys(a.settings.keys);
