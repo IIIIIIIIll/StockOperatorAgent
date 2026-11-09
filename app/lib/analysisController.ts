@@ -40,6 +40,8 @@ import type { RunArchive } from './runArchive.ts';
 import { RunWatchdog, RUN_IDLE_TIMEOUT_MS } from './runWatchdog.ts';
 // B6(评审 2026-11-09):快照广播器抽成独立单元(泛型 T,不反向依赖控制器类型)。
 import { AnalysisNotifier } from './analysisNotifier.ts';
+// B6(评审 2026-11-09):事件归约抽成纯函数(字段改写 + 日志),副作用留在本类。
+import { reduceEvent, type ReducibleState } from './eventReduce.ts';
 import { envValue } from '../../src/env.ts';
 import type { BillionsClient } from '../../src/billionsClient.ts';
 import type { LlmConfig } from '../../src/llm.ts';
@@ -891,95 +893,80 @@ export class AnalysisController {
   private handleEvent = (e: PipelineEvent): void => {
     const d = this.deps;
     const s = this.st;
-    // 看门狗中止后只接受 done:用户已看到「已中止」,但真跑完的结果不该丢
-    // (孤儿 pipeline 的 token/progress 不再写 UI)
-    if (this.timedOut && e.type !== 'done') return;
-    // 任何事件都算「有进展」→ 重置看门狗(节流 ≥1s,见 rearmWatchdog)
+    // 任何事件都算「有进展」→ 重置看门狗(节流 ≥1s,见 RunWatchdog)
     if (s.running) this.watchdog.rearm();
-    if (e.type === 'progress') {
-      d.log.info(e.message);
-    } else if (e.type === 'report') {
-      d.log.info(`报告[${e.tabTitle}] ${e.content.length} 字符`);
-      // 最终内容权威:清空该 stateKey 对应节点的流式 partial(opinion 含初稿+修订)
-      // 用事件时刻的 enabledRoles() 而非挂载闭包 roles——设置面板中途启用/禁用
-      // 角色后,报告清除仍按当前注册表生效
-      for (const n of enabledRoles()
-        .filter((r) => r.stateKey === e.key)
-        .flatMap((r) => [r.nodeName, r.reviseNodeName].filter((n2): n2 is string => !!n2))) {
-        delete s.partials[n];
-      }
-    } else if (e.type === 'token') {
-      s.partials[e.node] = (s.partials[e.node] ?? '') + e.delta;
-      // token 不入 events:UI 不读它(只读 partials),保存它只会让每帧快照
-      // 拷贝的数组越拉越长(一次分析上万个 delta,拷贝总量 O(n²))
-      this.notifier.scheduleNotify();
-      return;
-    } else if (e.type === 'roleStatus') {
-      d.log.info(`状态[${e.node}] ${e.status}`);
-      s.statuses[e.node] = e.status;
-      if (e.status === 'retry') {
-        // retry 复位:清空该节点已流出文本(工具轮回滚与 LLM 重试共用通道)
-        s.partials[e.node] = '';
-      }
-    } else if (e.type === 'done') {
-      const report: FinalReport = e.report;
-      d.log.info(`分析完成:${report.opinions.length} 份观点,最终决策 ${report.final_decision.length} 字符`);
-      s.finalDecision = report.final_decision;
-      s.stockInformation = report.stock_information;
-      // 上次分析缓存:仅 done(成功)写;error 不写 → 旧缓存保留(R4)
-      // CR-21 + 评审 S1-1/S10-2:降级报告(收尾轮占位/空结论)不算成功 —— 不写
-      // lastRun、不进历史归档、不置 hasDone。旧实现先写后判,重启与历史抽屉里会
-      // 留下「✓分析完成」的空壳(LastRunRecord 无 degraded 字段,事后无法回辨)。
-      const at = d.isoNow();
-      if (report.degraded) {
-        d.log.error('分析未产出有效最终结论(降级:不写 lastRun / 历史归档)');
-        s.hasDone = false;
-      } else {
-        // 写盘异常(配额满/存储损坏)不得吞掉 done:否则 hasDone 与报告都不落地,
-        // 用户看到的是「分析完成但没有结果」且没有任何日志
-        try {
-          saveLastRun(d.store, report, this.mode, at);
-          s.lastRunAt = { at, mode: this.mode };
-        } catch (err) {
-          d.log.error(`写上次分析缓存失败:${describeError(err)}`);
-        }
-        // 历史归档(展示层，独立后端)：与 lastRun 并行留档
-        this.recordRun(report, at);
-        s.hasDone = true; // D15
-        // CR-28 + 评审 S3-2:写穿透是异步的,同步读 getLastPersistError 只能看到
-        // 「上一次」失败(该次写还在队列里排)。等队列排空后再读并告知用户;
-        // flush 可选 —— 内存 store 不实现,直接读即可。代际门防陈旧错误写进新一轮。
-        const store = d.store;
-        const seqAtDone = this.runSeq;
-        const reportPersistError = (): void => {
-          const persistError = store.getLastPersistError?.();
-          if (!persistError || this.runSeq !== seqAtDone) return;
-          d.log.error(`本地落盘失败:${persistError}`);
-          s.error = `本地保存失败（重启后可能丢失本次结果）：${persistError}`;
-          this.notifier.notify();
-        };
-        if (typeof store.flush === 'function') {
-          void store.flush().then(reportPersistError, () => {});
-        } else {
-          reportPersistError();
-        }
-      }
-      // 看门狗已中止但真实结果仍到达:撤掉「已中止」横幅 —— 否则会同时显示
-      // 「✗ 分析已 300 秒…已中止」与完成态(S5-5)。
-      if (this.timedOut) {
-        this.timedOut = false;
-        s.error = null;
-        d.log.info('看门狗中止后收到完整结果:撤销中止提示');
-      }
-    } else if (e.type === 'error') {
-      d.log.error(e.error);
-      s.error = e.error;
-      // #96:error 终态清角色 chips(防「完成/分析中」残留)
-      s.statuses = {};
-      s.hasDone = false; // D15:error 终态撤销完成标记
+    // 纯折叠在 eventReduce.ts:字段改写 + 日志文本;副作用(持久化/广播)留在本类
+    const { outcome, logs } = reduceEvent(s as ReducibleState, e, {
+      timedOut: this.timedOut,
+      roleNodesFor: (key) =>
+        enabledRoles()
+          .filter((r) => r.stateKey === key)
+          .flatMap((r) => [r.nodeName, r.reviseNodeName].filter((n): n is string => !!n)),
+    });
+    for (const line of logs) {
+      if (line.level === 'error') d.log.error(line.message);
+      else d.log.info(line.message);
     }
-    s.events.push(e);
+    if (outcome.kind === 'dropped') return;
+    if (outcome.kind === 'applied') {
+      if (outcome.notify === 'coalesced') this.notifier.scheduleNotify();
+      else this.notifier.notify();
+      return;
+    }
+    // done:状态已由归约写入,这里做持久化副作用
+    this.finishDone(outcome.report);
     this.notifier.notify();
   };
+
+  /** done 的副作用段(降级判定 / lastRun / 历史归档 / 落盘失败可见 / 撤中止横幅)。 */
+  private finishDone(report: FinalReport): void {
+    const d = this.deps;
+    const s = this.st;
+    // 上次分析缓存:仅 done(成功)写;error 不写 → 旧缓存保留(R4)
+    // CR-21 + 评审 S1-1/S10-2:降级报告(收尾轮占位/空结论)不算成功 —— 不写
+    // lastRun、不进历史归档、不置 hasDone。旧实现先写后判,重启与历史抽屉里会
+    // 留下「✓分析完成」的空壳(LastRunRecord 无 degraded 字段,事后无法回辨)。
+    const at = d.isoNow();
+    if (report.degraded) {
+      d.log.error('分析未产出有效最终结论(降级:不写 lastRun / 历史归档)');
+      s.hasDone = false;
+    } else {
+      // 写盘异常(配额满/存储损坏)不得吞掉 done:否则 hasDone 与报告都不落地,
+      // 用户看到的是「分析完成但没有结果」且没有任何日志
+      try {
+        saveLastRun(d.store, report, this.mode, at);
+        s.lastRunAt = { at, mode: this.mode };
+      } catch (err) {
+        d.log.error(`写上次分析缓存失败:${describeError(err)}`);
+      }
+      // 历史归档(展示层，独立后端)：与 lastRun 并行留档
+      this.recordRun(report, at);
+      s.hasDone = true; // D15
+      // CR-28 + 评审 S3-2:写穿透是异步的,同步读 getLastPersistError 只能看到
+      // 「上一次」失败(该次写还在队列里排)。等队列排空后再读并告知用户;
+      // flush 可选 —— 内存 store 不实现,直接读即可。代际门防陈旧错误写进新一轮。
+      const store = d.store;
+      const seqAtDone = this.runSeq;
+      const reportPersistError = (): void => {
+        const persistError = store.getLastPersistError?.();
+        if (!persistError || this.runSeq !== seqAtDone) return;
+        d.log.error(`本地落盘失败:${persistError}`);
+        s.error = `本地保存失败（重启后可能丢失本次结果）：${persistError}`;
+        this.notifier.notify();
+      };
+      if (typeof store.flush === 'function') {
+        void store.flush().then(reportPersistError, () => {});
+      } else {
+        reportPersistError();
+      }
+    }
+    // 看门狗已中止但真实结果仍到达:撤掉「已中止」横幅 —— 否则会同时显示
+    // 「✗ 分析已 300 秒…已中止」与完成态(S5-5)。
+    if (this.timedOut) {
+      this.timedOut = false;
+      s.error = null;
+      d.log.info('看门狗中止后收到完整结果:撤销中止提示');
+    }
+  }
 
 }
