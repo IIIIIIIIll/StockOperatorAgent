@@ -187,7 +187,9 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
       // 用 pane series,过滤 label==paneTitle 避免与标题重复
       var chips = [];
       if (g2 && g2.title) {
-        chips = (g2.series || []).map(function (s) { return { color: s.color, label: s.label }; });
+        chips = (g2.series || [])
+          .filter(function (s) { return s.label && s.label !== g2.title; })
+          .map(function (s) { return { color: s.color, label: s.label }; });
       } else {
         chips = sers3
           .filter(function (s) { return s.title && s.title !== paneTitle; })

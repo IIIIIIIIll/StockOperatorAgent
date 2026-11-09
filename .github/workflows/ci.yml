@@ -67,6 +67,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # P2(评审 2026-11-09):app/lib/chartHtml.ts 是提交进仓库的生成物,运行时被
+      # useChartWebView 直接喂给 WebView。此前没有任何 workflow 跑 chart:check ——
+      # 改了 tools/build-chart-view.mts 却不重新生成,会把陈旧 HTML 发出去且全绿。
+      - name: Chart view guard (generated file in sync)
+        run: npm run chart:check --prefix app
+
       - name: Validate desktop lockfile
         working-directory: desktop
         # S6-4:--ignore-scripts 跳过 electron 二进制下载(~100MB),只校验 lockfile

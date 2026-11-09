@@ -60,9 +60,35 @@ jobs:
       - name: Desktop backend probe
         run: node --experimental-transform-types tools/desktop-probe.mts
 
+      # P2(评审 2026-11-09):原先这段 17 行脚本在 desktop / android 两个 build job
+      # 各存一份(改一份漏一份),且都带 `if: tag` → workflow_dispatch 完全跳过核对。
+      # 现在收成 test job 里唯一一份,并把根 package.json 也纳入比对。
+      - name: Verify versions match release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          verify() {
+            local file="$1" actual="$2"
+            if [ "$actual" != "$tag_version" ]; then
+              echo "Release gate failed: $file is $actual, tag is v${tag_version}" >&2
+              echo "Bump $file to ${tag_version} and re-tag, or delete this tag and create v${tag_version}." >&2
+              exit 1
+            fi
+            echo "OK: $file ${actual}"
+          }
+          verify "package.json"            "$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+          verify "desktop/package.json"    "$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
+          verify "app/package.json"        "$(node -p "JSON.parse(require('fs').readFileSync('app/package.json','utf8')).version")"
+          verify "app/app.json"            "$(node -p "JSON.parse(require('fs').readFileSync('app/app.json','utf8')).expo.version")"
+
   desktop:
     name: desktop (${{ matrix.os }})
     needs: test
+    # P2(评审 2026-11-09):显式声明,不再隐式继承顶层 write。发布动作在本 job 内
+    # (softprops 直接改 release),故仍需 contents: write —— 彻底收窄要把发布拆到
+    # 独立 publish job,属结构改动,留待与 B6 重构一起做。
+    permissions:
+      contents: write
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -93,23 +119,6 @@ jobs:
             app/package-lock.json
             desktop/package-lock.json
 
-      - name: Verify desktop and android versions match release tag
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          tag_version="${GITHUB_REF_NAME#v}"
-          pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
-          app_pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('app/package.json','utf8')).version")"
-          app_json_version="$(node -p "JSON.parse(require('fs').readFileSync('app/app.json','utf8')).expo.version")"
-          if [ "$pkg_version" != "$tag_version" ] || [ "$app_pkg_version" != "$tag_version" ] || [ "$app_json_version" != "$tag_version" ]; then
-            echo "Release gate failed: desktop/app version does not match tag version"
-            echo "expected:             v${tag_version}"
-            echo "desktop/package.json: ${pkg_version}"
-            echo "app/package.json:     ${app_pkg_version}"
-            echo "app/app.json:         ${app_json_version}"
-            echo "Bump desktop/package.json, app/package.json and app/app.json to ${tag_version} and re-tag, or delete this tag and create v${tag_version}."
-            exit 1
-          fi
-          echo "Release gate OK: desktop/package.json ${pkg_version}, app/package.json ${app_pkg_version}, app/app.json ${app_json_version} match tag v${tag_version}"
 
       - name: Install root production dependencies
         run: npm ci --omit=dev
@@ -199,7 +208,7 @@ jobs:
             - **Windows**：`StockOperatorAgent-Setup-<version>.exe`（NSIS 安装包）。产物未签名，SmartScreen 可能提示“未知发布者”，选择“更多信息 → 仍要运行”即可。
             - **macOS**：`StockOperatorAgent-<version>-<arch>.dmg`。产物未签名/未公证，首次打开会触发 Gatekeeper“无法验证开发者”，需在“系统设置 → 隐私与安全性”中手动允许。
             - **Linux**：`StockOperatorAgent-<version>-<arch>.AppImage`（`chmod +x` 后运行）与 `.deb`（`sudo dpkg -i` 安装）。
-            - **Android**：`soa-<version>.apk` 可直接安装；未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
+            - **Android**：`soa-<version>.apk` 可直接安装；`soa-<version>.aab` 为 Google Play 提交包（Play App Signing 会以同一上传密钥自动签名分发）。未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
 
             完整发版步骤、产物清单与签名配置见仓库 README「发布」章节。
 
@@ -219,6 +228,9 @@ jobs:
   android:
     name: android (apk)
     needs: test
+    # 同 desktop:发布动作在本 job 内,故需要 contents: write(见上方说明)。
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     env:
       CI: 1
@@ -241,23 +253,6 @@ jobs:
             package-lock.json
             app/package-lock.json
 
-      - name: Verify desktop and android versions match release tag
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          tag_version="${GITHUB_REF_NAME#v}"
-          pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
-          app_pkg_version="$(node -p "JSON.parse(require('fs').readFileSync('app/package.json','utf8')).version")"
-          app_json_version="$(node -p "JSON.parse(require('fs').readFileSync('app/app.json','utf8')).expo.version")"
-          if [ "$pkg_version" != "$tag_version" ] || [ "$app_pkg_version" != "$tag_version" ] || [ "$app_json_version" != "$tag_version" ]; then
-            echo "Release gate failed: desktop/app version does not match tag version"
-            echo "expected:             v${tag_version}"
-            echo "desktop/package.json: ${pkg_version}"
-            echo "app/package.json:     ${app_pkg_version}"
-            echo "app/app.json:         ${app_json_version}"
-            echo "Bump desktop/package.json, app/package.json and app/app.json to ${tag_version} and re-tag, or delete this tag and create v${tag_version}."
-            exit 1
-          fi
-          echo "Release gate OK: desktop/package.json ${pkg_version}, app/package.json ${app_pkg_version}, app/app.json ${app_json_version} match tag v${tag_version}"
 
       - name: Setup Java 17 (Temurin)
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4 → cf277c60eb25467037889841efdb72551f06f6c3
@@ -309,20 +304,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
+          # P2(评审 2026-11-09):不再各写一份 body —— 两个 job 同时发布同一 tag,
+          # action-gh-release 会改动既有 release,后完成者的 body 覆盖前者,发布说明
+          # 变成"看哪个 job 先跑完"。正文统一由 desktop job 提供(已含 .aab 段)。
           files: |
             soa-*.apk
             soa-*.aab
-          body: |
-            本 Release 由 tag `${{ github.ref_name }}` 自动构建，挂载桌面安装包与 Android APK。
-
-            ## 安装与签名提示
-
-            - **Windows**：`StockOperatorAgent-Setup-<version>.exe`（NSIS 安装包）。产物未签名，SmartScreen 可能提示“未知发布者”，选择“更多信息 → 仍要运行”即可。
-            - **macOS**：`StockOperatorAgent-<version>-<arch>.dmg`。产物未签名/未公证，首次打开会触发 Gatekeeper“无法验证开发者”，需在“系统设置 → 隐私与安全性”中手动允许。
-            - **Linux**：`StockOperatorAgent-<version>-<arch>.AppImage`（`chmod +x` 后运行）与 `.deb`（`sudo dpkg -i` 安装）。
-            - **Android**：`soa-<version>.apk` 可直接安装；`soa-<version>.aab` 为 Google Play 提交包（Play App Signing 会以同一上传密钥自动签名分发，上传 Play 时使用）。未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
-
-            完整发版步骤、产物清单与签名配置见仓库 README「发布」章节。
 
       - name: Upload APK/AAB artifact (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
