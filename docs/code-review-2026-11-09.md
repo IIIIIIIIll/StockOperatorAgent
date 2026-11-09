@@ -398,9 +398,16 @@
 `analysisController.ts`：**1020 → 730 行**，**5 个接缝全部抽出**（看门狗 / 通知 /
 事件归约 / start 守卫 / 历史域），另有 `src/billionsFormat.ts` 单源化。
 
-真机复核（Android 15 emulator，release APK，重构后重装实跑）：完整分析 5.4s、
+真机复核（Android emulator，release APK，重构后重装实跑）：完整分析 5.4s、
 历史列表落档、`openRun` 正文复现、`closeRun` 恢复实时态、`deleteRuns` 删除 —— 全部
 走日志与 UI 双向确认，0 FATAL。
+
+端到端两条链路已固化成工具（此前 Android 只有手敲 adb，属一次性验证）：
+
+| 命令 | 覆盖 | 状态 |
+| --- | --- | --- |
+| `npm run e2e:web` | 打包产物加载 / demo 分析 / 7 chips / 抽屉 / 设置页 / 0 异常 | ✅ 重构后重跑通过 |
+| `npm run e2e:android` | 安装 release APK → 启动 → 点 CTA（断言 `content-desc`）→ 分析完成 → 0 FATAL → 7 chips → 抽屉 → 历史 → `openRun` → `closeRun` | ✅ 新增，本次实跑通过 |
 
 仍未做（B6 剩余，均与控制器无关）：
 

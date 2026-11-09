@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "probe": "node --experimental-transform-types tools/probe.mts",
-    "e2e:web": "node tools/web-e2e.mjs"
+    "e2e:web": "node tools/web-e2e.mjs",
+    "e2e:android": "node tools/android-e2e.mjs"
   },
   "type": "module",
   "dependencies": {
