@@ -25,7 +25,14 @@
 import type { DailyBar } from '../store.ts';
 import type { CollectedSnapshot } from '../tdx/quoteClient.ts';
 import type { CollectSkipOpts, WebCollectResult } from '../webCollect.ts';
-import { YahooClient, YahooApiError, parseA3FromSetCookie, fetchWithTimeout } from './yahooClient.ts';
+import {
+  YahooClient,
+  YahooApiError,
+  parseA3FromSetCookie,
+  fetchWithTimeout,
+  readBodyWithTimeout,
+  YAHOO_REQUEST_TIMEOUT_MS,
+} from './yahooClient.ts';
 import { applyYahooCollectedToStore, requireYahooStore, type YahooCollectedPayload } from './applyYahooCollectedToStore.ts';
 import { composeYahooOverview } from './composeYahooOverview.ts';
 import { composeYahooReports } from './composeYahooReports.ts';
@@ -177,8 +184,11 @@ async function fetchChartWindow(symbol: string, period1: number, period2: number
     throw new YahooApiError(null, resp.status, `Yahoo chart 错误：HTTP ${resp.status}`);
   }
   try {
-    return await resp.json();
+    // P1-3(评审 2026-11-09):fetchWithTimeout 的 40s 只覆盖到响应头，body 读取
+    // 必须自己圈进计时窗口 —— 否则卡住的 body 让整条采集链永不 settle。
+    return await readBodyWithTimeout(() => resp.json(), YAHOO_REQUEST_TIMEOUT_MS, 'Yahoo chart');
   } catch (exc) {
+    if (exc instanceof YahooApiError) throw exc; // body 超时：与头部超时同族
     const detail = exc instanceof Error ? exc.message : String(exc);
     throw new YahooApiError(null, resp.status, `Yahoo chart 响应非 JSON：${detail}`);
   }

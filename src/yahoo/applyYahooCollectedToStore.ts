@@ -20,7 +20,7 @@ import type { StoreLike } from '../store.ts';
 import type { DailyBar, PerformanceReport } from '../store.ts';
 import type { CollectedSnapshot } from '../tdx/quoteClient.ts';
 import type { WebCollectResult } from '../webCollect.ts';
-import { marketToday } from '../gates.ts';
+import { marketToday, marketSessionClosed } from '../gates.ts';
 import type { Market } from '../market.ts';
 import type { YahooCapital } from './composeYahooOverview.ts';
 
@@ -84,8 +84,20 @@ export function applyYahooCollectedToStore(
   store: StoreLike,
   payload: YahooCollectedPayload,
   market: Market,
+  /** 时钟注入（测试/探针）；缺省取当前时刻。仅用于"是否已收盘"判定。 */
+  now: Date = new Date(),
 ): WebCollectResult {
   const existing = store.getStock(payload.ticker);
+  // 末根是否为"今天但还没收盘"的进行中 bar(见下方 lastDataUpdate 处的注释)
+  const lastBarDate = payload.bars.length ? payload.bars[payload.bars.length - 1]!.date : null;
+  const intradayBar = lastBarDate === marketToday(market) && !marketSessionClosed(market, now);
+  // lastDataUpdate 是 dailyFresh 的唯一依据,三种情形分开写清楚:
+  //   同日跳过 → 维持既有戳;盘中残缺 bar → 不前进(下次仍需重取);其余 → 今天
+  const nextLastDataUpdate = (): string | null => {
+    if (payload.skipDaily) return existing?.lastDataUpdate ?? marketToday(market);
+    if (intradayBar) return existing?.lastDataUpdate ?? null;
+    return marketToday(market);
+  };
   // 全量替换(采集返回全量历史;防 demo 预载数据与真实数据合并混入)。
   // 同日跳过 → bars 为空:guard 免误清(InMemory replaceDatas 先删后加,空数组会
   // 清空既有日K——注释同 src/webCollect.ts:51-53)
@@ -100,9 +112,9 @@ export function applyYahooCollectedToStore(
     overviewLastUpdate: marketToday(market),
     // 同日跳过:保留既有 lastDataUpdate(维持下次跳过判定);否则记市场本地今天
     // (Yahoo 链 fresh 语义;须在 replaceDatas 之后覆盖其末根日期)
-    lastDataUpdate: payload.skipDaily
-      ? (existing?.lastDataUpdate ?? marketToday(market))
-      : marketToday(market),
+    // P1-7(评审 2026-11-09):末根就是今天且**尚未收盘** → 那是进行中 bar,
+    // 不能盖今天的戳,否则收盘后的分析按 skipDaily 复用这根残缺 bar 一整天。
+    lastDataUpdate: nextLastDataUpdate(),
   });
   // 业绩报告入库(report_date PK 幂等,重复拉取无害;全量拉取 + 幂等,无 F10 门)
   if (payload.reports.length) {

@@ -11,6 +11,12 @@ import { detectMarket } from '../market.ts';
 import { FinnhubClient } from '../finnhub/finnhubClient.ts';
 import { warn } from '../log.ts';
 import { requireYahooStore, applyYahooCollectedToStore, type YahooCollectedPayload } from './applyYahooCollectedToStore.ts';
+import { readBodyWithTimeout } from './yahooClient.ts';
+
+/** 客户端→代理单次采集超时:代理自身 45s 采集超时(YAHOO_COLLECT_TIMEOUT_MS)
+ *  之后还要把结果序列化回包,故留 15s 余量。P1-3(评审 2026-11-09):此前这一跳
+ *  完全没有超时,代理挂住 → spinner 永不 resolve。 */
+const PROXY_COLLECT_TIMEOUT_MS = 60_000;
 
 /** Finnhub 美股增强合并:companyProfile2 的 finnhubIndustry → payload.overview
  *  .industry(消费方 build_stock_information 等按需读取)。
@@ -64,6 +70,10 @@ export async function collectYahooViaProxy(
   let url = `${base}/yahoo-collect`;
   if (opts?.skipDaily) url += '?skipDaily=1';
   let res: Response;
+  // P1-3(评审 2026-11-09):客户端→代理这一跳此前完全没有超时 —— 代理挂住时
+  // RN/web 的分析 spinner 永不 resolve。代理自己有 45s 采集超时,故这里取 60s。
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), PROXY_COLLECT_TIMEOUT_MS);
   try {
     // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
     // 直接成员访问(EXPO_PUBLIC_* 内联契约,architecture 契约 6 豁免);未设 → 不带头。
@@ -75,13 +85,24 @@ export async function collectYahooViaProxy(
         ...(soaToken ? { 'X-SOA-Token': soaToken } : {}),
       },
       body: JSON.stringify({ ticker }),
+      signal: ctl.signal,
     });
   } catch (err) {
+    if (ctl.signal.aborted) {
+      throw new Error(`Yahoo 采集代理超时(${PROXY_COLLECT_TIMEOUT_MS / 1000}s):服务端未在时限内回包`);
+    }
     throw new Error(
       `Yahoo 采集代理不可达(需用 npm run web 起的 server):${String((err as Error)?.message ?? err)}`,
     );
+  } finally {
+    clearTimeout(timer);
   }
-  const body = (await res.json().catch(() => null)) as unknown;
+  // body 读取同样要圈进计时窗口(fetch 已 resolve 不等于 body 到齐)
+  const body = (await readBodyWithTimeout(
+    () => res.json().catch(() => null),
+    PROXY_COLLECT_TIMEOUT_MS,
+    'Yahoo 采集代理',
+  ).catch(() => null)) as unknown;
   if (!res.ok) {
     const errBody = body as { error?: string } | null;
     throw new Error(`Yahoo 采集失败(${res.status}):${errBody?.error ?? '未知错误'}`);

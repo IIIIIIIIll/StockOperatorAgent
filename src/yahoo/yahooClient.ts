@@ -101,6 +101,38 @@ export async function fetchWithTimeout(
   }
 }
 
+/** 读取响应体，并把「body 流完」圈进超时窗口（评审 2026-11-09 P1-3）。
+ *
+ *  背景：`fetchWithTimeout` 的计时器在 fetch resolve（响应头到达）时就 clear 了 ——
+ *  body 是独立流，卡住的 body 会让整条 promise 链永不 settle。代理侧
+ *  `app/lib/proxies.cjs:564-569` 断言的「单请求 40s → collectingYahoo 锁必有界
+ *  释放」依赖的正是这条链，body 卡住时锁就跟着挂住（后续采集吃 429）。
+ *
+ *  取舍：只让 promise 链有界（把锁释放回来），不主动 abort 底层 socket ——
+ *  fetchWithTimeout 的 controller 已随 timer 一起释放，此处拿不到；socket 由
+ *  undici 自身的超时或 GC 回收。要真取消需把 fetch+read 合并成一个带
+ *  controller 的请求，属重构，不在本次修复范围。 */
+export async function readBodyWithTimeout<T>(
+  read: () => Promise<T>,
+  timeoutMs: number = YAHOO_REQUEST_TIMEOUT_MS,
+  label: string = 'Yahoo',
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new YahooApiError('timeout', null, `${label} 响应体读取超时(${timeoutMs / 1000}s)`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export interface ChartOptions {
   /** 日K窗口；缺省 'max'（全量）。 */
   range?: string;
@@ -222,8 +254,9 @@ export class YahooClient {
     if (!resp.ok) throw await this._errorFrom(resp, 'getcrumb');
     let text: string;
     try {
-      text = (await resp.text()).trim();
+      text = (await readBodyWithTimeout(() => resp.text(), YAHOO_REQUEST_TIMEOUT_MS, 'Yahoo getcrumb')).trim();
     } catch (exc) {
+      if (exc instanceof YahooApiError) throw exc; // body 超时：与头部超时同族，原样透传
       const detail = exc instanceof Error ? exc.message : String(exc);
       throw new YahooApiError('crumb', resp.status, `Yahoo getcrumb 响应读取失败：${detail}`);
     }
@@ -270,7 +303,7 @@ export class YahooClient {
   private async _errorFrom(resp: Response, what: string): Promise<YahooApiError> {
     let code: string | null = null;
     try {
-      const body: unknown = await resp.json();
+      const body: unknown = await readBodyWithTimeout(() => resp.json(), YAHOO_REQUEST_TIMEOUT_MS, `Yahoo ${what}`);
       code = extractErrorCode(body);
     } catch {
       // 非 JSON body → code null
@@ -282,9 +315,9 @@ export class YahooClient {
   /** 解析响应 JSON；非 JSON body → YahooApiError（status_code=resp.status）。 */
   private async _json(resp: Response, what: string): Promise<unknown> {
     try {
-      const body: unknown = await resp.json();
-      return body;
+      return await readBodyWithTimeout(() => resp.json(), YAHOO_REQUEST_TIMEOUT_MS, `Yahoo ${what}`);
     } catch (exc) {
+      if (exc instanceof YahooApiError) throw exc; // body 超时：原样透传，不被误标成「非 JSON」
       const detail = exc instanceof Error ? exc.message : String(exc);
       throw new YahooApiError(null, resp.status, `Yahoo ${what} 响应非 JSON：${detail}`);
     }

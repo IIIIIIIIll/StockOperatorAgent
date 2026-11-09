@@ -992,3 +992,62 @@ describe('applyYahooCollectedToStore B3:字段级合并(降级不覆盖既有好
     expect(overview?.change_percent).toBe(1.2);
   });
 });
+
+// ─── P1-7(评审 2026-11-09):盘中残缺 bar 不得盖上"今天已更新"戳 ────────────────
+// lastDataUpdate 是 dailyFresh 的唯一依据。盘中采到的末根 close=当时价、量未累计
+// 完;若照样盖今天的戳,收盘后的分析会按 skipDaily 复用这根 bar 一整天。
+describe('P1-7 盘中 bar 与 lastDataUpdate 戳', () => {
+  const bar = (date: string) => ({ date, open: 10, high: 11, low: 9, close: 10.5, volume: 100 });
+
+  function payloadWith(bars: ReturnType<typeof bar>[]): YahooCollectedPayload {
+    return {
+      ticker: '0700.HK',
+      name: '腾讯控股',
+      bars,
+      snapshot: null,
+      overview: {},
+      reports: [],
+      capital: { zongguben: 9_300_000_000, liutongguben: 9_000_000_000 },
+    };
+  }
+
+  it('盘中(未到收盘)采到的当日 bar:不推进戳,下次仍会重取', () => {
+    const store = new InMemoryStore();
+    const today = marketToday('hk');
+    // 港市 10:30(UTC+8)→ 尚未到 16:00 收盘
+    const intraday = new Date(`${today}T10:30:00+08:00`);
+    const out = applyYahooCollectedToStore(store, payloadWith([bar(today)]), 'hk', intraday);
+    expect(out.ticker).toBe('0700.HK');
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBeNull();
+    // 数据本身照样入库(不因不盖戳而丢 bar)
+    expect(store.getDatas('0700.HK')).toHaveLength(1);
+  });
+
+  it('盘中采集保留既有戳(不前进):已有一更早的戳时不改成今天', () => {
+    const store = new InMemoryStore();
+    const today = marketToday('hk');
+    store.putStock({
+      ticker: '0700.HK',
+      name: '腾讯控股',
+      overview: {},
+      overviewLastUpdate: '2026-01-05',
+      lastDataUpdate: '2026-01-05',
+    });
+    applyYahooCollectedToStore(store, payloadWith([bar(today)]), 'hk', new Date(`${today}T10:30:00+08:00`));
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe('2026-01-05');
+  });
+
+  it('收盘后采到的当日 bar:照常推进到今天', () => {
+    const store = new InMemoryStore();
+    const today = marketToday('hk');
+    applyYahooCollectedToStore(store, payloadWith([bar(today)]), 'hk', new Date(`${today}T16:30:00+08:00`));
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe(today);
+  });
+
+  it('末根不是今天(隔日补采):戳照样推进到今天', () => {
+    const store = new InMemoryStore();
+    const today = marketToday('hk');
+    applyYahooCollectedToStore(store, payloadWith([bar('2020-01-02')]), 'hk', new Date(`${today}T10:30:00+08:00`));
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe(today);
+  });
+});

@@ -20,6 +20,42 @@ export function asiaToday(): string {
   return marketToday('cn');
 }
 
+/** 各市场收盘时刻（本地时区 时:分）。无集合竞价/半日市建模（与 marketToday
+ *  的周末口径一致保留）。 */
+const MARKET_CLOSE_HHMM: Record<Market, readonly [number, number]> = {
+  cn: [15, 0],
+  hk: [16, 0],
+  us: [16, 0],
+};
+
+/** 该市场"当日交易是否已收盘"（按市场时区判定）。
+ *
+ *  用途（评审 2026-11-09 P1-7）：日K 的 lastDataUpdate 戳会被 dailyFresh 当作
+ *  "今天已经采过、可跳过"的依据。盘中采集到的末根是**未收盘**的进行中 bar
+ *  （close=当时价、量未累计完），若照样盖今天的戳，收盘后的分析就会按
+ *  skipDaily 复用这根残缺 bar 一整天（仓库已在
+ *  .trellis/spec/data_source/tdx.md:165-168 记录同类问题）。
+ *
+ *  周末恒 true（无交易）。Intl 解析失败 → 保守返回 true（维持旧行为，不因
+ *  时区/ICU 差异改变持久化语义）。 */
+export function marketSessionClosed(market: Market, now: Date = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: marketInfo(market).timeZone,
+    hourCycle: 'h23',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(now);
+  const pick = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
+  const weekday = pick('weekday');
+  if (weekday === 'Sat' || weekday === 'Sun') return true;
+  const hh = Number(pick('hour'));
+  const mm = Number(pick('minute'));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return true;
+  const [closeH, closeM] = MARKET_CLOSE_HHMM[market];
+  return hh * 60 + mm >= closeH * 60 + closeM;
+}
+
 /** get_last_business_day：周六 → 周五(-1)，周日 → 周五(-2)，其余当天。 */
 export function getLastBusinessDay(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00Z`);

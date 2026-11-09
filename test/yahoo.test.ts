@@ -1,8 +1,8 @@
 // YahooClient + composeYahooOverview + composeYahooReports 单测
 // （fake fetch 注入，house style 无 mock 框架——对齐 billions-client.test.ts /
 // web-search.test.ts 的 handler 路由模式）。
-import { describe, expect, it } from 'vitest';
-import { YahooClient, YAHOO_HOSTS } from '../src/yahoo/yahooClient.ts';
+import { describe, expect, it, vi } from 'vitest';
+import { YahooClient, YAHOO_HOSTS, readBodyWithTimeout } from '../src/yahoo/yahooClient.ts';
 import { composeYahooOverview } from '../src/yahoo/composeYahooOverview.ts';
 import { composeYahooReports } from '../src/yahoo/composeYahooReports.ts';
 
@@ -624,5 +624,34 @@ describe('composeYahooReports', () => {
     expect(rows[0].fields.ticker).toBe('AAPL');
     expect(rows[0].fields.industry).toBe('');
     expect(rows[0].fields.eps).toBeNaN(); // dilutedEPS 缺失 → NaN
+  });
+});
+
+// ─── P1-3(评审 2026-11-09):body 读取必须自带超时 ──────────────────────────
+// fetchWithTimeout 的计时器在响应头到达时就清了,body 是独立流。卡住的 body 会让
+// 整条采集链永不 settle —— 代理侧 collectingYahoo 锁随之挂住(后续采集全是 429)。
+describe('readBodyWithTimeout', () => {
+  it('body 永不 settle → 超时后 reject 为 YahooApiError(timeout)', async () => {
+    vi.useFakeTimers();
+    try {
+      const never = new Promise<unknown>(() => {});
+      const p = readBodyWithTimeout(() => never, 1_000, 'Yahoo chart');
+      const assertion = expect(p).rejects.toMatchObject({ code: 'timeout' });
+      await vi.advanceTimersByTimeAsync(1_050);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('正常 body:原样返回,且不残留计时器(不被迟到超时打断)', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = readBodyWithTimeout(async () => ({ ok: 1 }), 1_000, 'Yahoo');
+      await expect(p).resolves.toEqual({ ok: 1 });
+      await vi.advanceTimersByTimeAsync(5_000); // 定时器已清 → 不产生副作用
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
