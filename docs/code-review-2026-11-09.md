@@ -393,16 +393,18 @@
 | `0d32e44` | `app/lib/runWatchdog.ts` + `app/lib/analysisNotifier.ts` | 时钟/回调注入，新增 5 例看门狗单测 |
 | `63ec880` | `app/lib/eventReduce.ts` | 事件折叠纯函数化，副作用留控制器；7 例单测 |
 | `7e00374` | `app/lib/startGuards.ts` | 输入校验 + 契约文案抽成纯函数；6 例单测 |
+| `5eb1915` | `app/lib/historyController.ts` | 历史域整块迁出（含 `historySeq`/`historyListSeq`/`liveStash` 三份状态）；350 行带 CR-03/S5-1/S10-3/R-01/R-02/R-03/R-21 原注释 |
 
-`analysisController.ts`：**1020 → 963 行**，5 个接缝中已抽出 4 个（看门狗 / 通知 /
-事件归约 / start 守卫），共新增 358 行**带测试**的独立模块。
+`analysisController.ts`：**1020 → 730 行**，**5 个接缝全部抽出**（看门狗 / 通知 /
+事件归约 / start 守卫 / 历史域），另有 `src/billionsFormat.ts` 单源化。
 
-仍未做（B6 剩余）：
+真机复核（Android 15 emulator，release APK，重构后重装实跑）：完整分析 5.4s、
+历史列表落档、`openRun` 正文复现、`closeRun` 恢复实时态、`deleteRuns` 删除 —— 全部
+走日志与 UI 双向确认，0 FATAL。
 
-1. **历史域接缝**（`~:284-450` 的 refresh/open/close/delete/clear + `~:464-532`
-   的 applyReportBody/recordRun）—— 5 个接缝里最大的一个，牵动
-   `historySeq`/`historyListSeq`/`liveStash` 三份可变状态。
-2. **图表「建一次 + 更新」拆分**（两个组件）。
+仍未做（B6 剩余，均与控制器无关）：
+
+1. **图表「建一次 + 更新」拆分**（两个组件）。
 3. **`store-file.ts` 读侧失败信号**（`getLastLoadError`）。
 4. **shim 测试**：需先把 `net-shim` 参数归一抽成纯函数（house style 禁 `vi.mock`）。
 5. **release `publish` job 拆分** —— **刻意不做**：需要新增钉 SHA 的 action 或
