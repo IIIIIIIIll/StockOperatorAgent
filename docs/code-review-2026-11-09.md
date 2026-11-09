@@ -21,7 +21,7 @@
 | 降级终态复用 `RoleStatus 'retry'` → chip 永远显示「重试中」 | `src/agents.ts:141,180` → `app/App.tsx:388`；`RoleStatus` 只有 `'running'\|'done'\|'retry'`（`src/progress.ts:8`） | **VERIFIED**。`done` 分支（`analysisController.ts:946-995`）从不写 `statuses`，degraded 只翻 `hasDone` → 重试中挂到下一轮 run 为止 |
 | release 无密钥/泄漏扫描 | `release.yml` 全文；`.github/` grep `gitleaks\|detect-secrets\|trufflehog\|codeql\|npm audit` 零命中 | **VERIFIED** |
 | 桌面打包烟测只在 Linux 跑 | `release.yml:128`、`:151-152`（`if: runner.os == 'Linux'`，且断言的是 `linux-unpacked` 与 `xvfb-run`） | **VERIFIED**。`:180-186` 照样上传 `*.exe`/`*.dmg`，无第二道断言；`ci.yml` 从不跑 `electron-builder` |
-| APK 签名静默降级 debug，无 `apksigner` 校验 | `tools/configure-android-signing.mjs:214-219`（缺 `ANDROID_KEYSTORE_B64` → 打印 → `exit(0)`）；workflow grep `apksigner\|jarsigner\|keytool` 零命中 | **VERIFIED**。绿 ≠ 正式签名；需人工确认 Secrets 是否存在（本机 PAT 无 `secrets:read`） |
+| APK 签名静默降级 debug，无 `apksigner` 校验 | `tools/configure-android-signing.mjs:214-219`（缺 `ANDROID_KEYSTORE_B64` → 打印 → `exit(0)`）；workflow grep `apksigner\|jarsigner\|keytool` 零命中 | **VERIFIED**（降级路径仍在）· **发布侧已实证**：v0.1.12 的 apk 用 `apksigner` 验签为 `CN=SOA Release`（非 `CN=Android Debug`），说明 Secrets 已配置、正式签名生效；但 CI 仍不校验，回归时没人会发现 |
 | 两套 workflow 均无 `concurrency:` | `.github/workflows/*` grep 零命中 | **VERIFIED**。重推同名 tag 会再触发一次；同一 run 内 desktop/android 两个 job 已互相覆盖 `body:` |
 | `ci.yml:2-7` 注释过期（称 app tsc / expo export「本轮不做」） | `ci.yml:63-65`、`:78-82` 已是实际 step | ○ 未验（纯注释） |
 
