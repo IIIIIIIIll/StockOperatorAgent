@@ -23,44 +23,12 @@ export const BILLIONS_DEFAULT_MAX: Record<BillionsCapKey, number> = {
 
 /** 亿信响应 result[].content[] 条目收集（非 dict 脏条目跳过，字段缺失容错）。
  *  对齐 Python _items.collect_content_items。 */
-export function collectContentItems(data: Record<string, unknown>): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  for (const entry of (data.result ?? []) as unknown[]) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
-    const content = (entry as Record<string, unknown>).content;
-    if (!Array.isArray(content)) continue;
-    for (const item of content) {
-      if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-        items.push(item as Record<string, unknown>);
-      }
-    }
-  }
-  return items;
-}
+// P3(评审 2026-11-09):三个格式化函数已抽到 src/billionsFormat.ts(与 agents.ts
+// 的信息面预抓路径共用一份实现,此前两处已双向分叉)。这里重导出保持本模块公共
+// API 与既有测试不变。
+import { collectContentItems, formatSearchItem, formatTweetItem } from './billionsFormat.ts';
 
-function _extra(item: Record<string, unknown>): Record<string, unknown> {
-  const e = item.extra;
-  return typeof e === 'object' && e !== null && !Array.isArray(e) ? (e as Record<string, unknown>) : {};
-}
-
-/** 单条检索结果 → Markdown 行；无有效字段（无标题且无链接）→ null。
- *  对齐 Python billions_search._format_item。 */
-export function formatSearchItem(item: Record<string, unknown>): string | null {
-  const title = String(item.title ?? '');
-  const link = String(item.link ?? '');
-  if (!(title || link)) return null;
-  const extra = _extra(item);
-  const parts: string[] = [];
-  if (title && link) parts.push(`[${title}](${link})`);
-  else if (link) parts.push(link);
-  else parts.push(title);
-  if (item.date !== undefined && item.date !== null && item.date !== '') parts.push(String(item.date));
-  if (extra.institution) parts.push(String(extra.institution));
-  if (extra.doc_id) parts.push(`doc_id: ${extra.doc_id}`);
-  let line = parts.join(' — ');
-  if (item.snippet) line += `(${item.snippet})`;
-  return `- ${line}`;
-}
+export { collectContentItems, formatSearchItem, formatTweetItem };
 
 /** search 响应 → 带标题的 Markdown 列表；无有效条目 → 占位文本（不 raise）。 */
 export function summarizeSearchResults(data: Record<string, unknown>): string {
@@ -71,26 +39,6 @@ export function summarizeSearchResults(data: Record<string, unknown>): string {
   }
   if (!lines.length) return '（亿信检索失败：无返回结果）';
   return `【亿信检索结果】\n${lines.join('\n')}`;
-}
-
-/** 单条推文 → Markdown 行；无正文 → null。对齐 Python billions_twitter._format_tweet。 */
-export function formatTweetItem(item: Record<string, unknown>): string | null {
-  const snippet = String(item.snippet ?? '');
-  if (!snippet) return null;
-  const extra = _extra(item);
-  let username = extra.username !== undefined && extra.username !== null ? String(extra.username) : '';
-  if (!username) {
-    const title = String(item.title ?? '');
-    if (title.startsWith('@')) username = title.split(':', 1)[0];
-  }
-  if (username && !username.startsWith('@')) username = `@${username}`;
-  const parts: string[] = [];
-  if (username) parts.push(username);
-  if (extra.view_count !== undefined && extra.view_count !== null) parts.push(`${extra.view_count} 次浏览`);
-  if (item.date !== undefined && item.date !== null && item.date !== '') parts.push(String(item.date));
-  let line = `${parts.join(' — ')} — ${snippet}`;
-  if (item.link) line += ` [${item.link}]`;
-  return `- ${line}`;
 }
 
 /** twitter 响应 → 带标题的 Markdown 列表；无有效条目 → 占位文本。 */

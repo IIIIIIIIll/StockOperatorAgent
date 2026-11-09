@@ -8,6 +8,9 @@ import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts
 import type { RunnableLike } from '@langchain/core/runnables';
 import { system_prompt, marketPromptRules, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';
 import { getLastBusinessDay, marketToday } from './gates.ts';
+// P3(评审 2026-11-09):这三个格式化函数与 src/billionsTools.ts 曾各存一份且已双向
+// 分叉(数组守卫/date 判空两版不一致)。现统一由 src/billionsFormat.ts 提供。
+import { collectContentItems, formatSearchItem, formatTweetItem } from './billionsFormat.ts';
 import type { Market } from './market.ts';
 import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts';
 import { invokeWithTools, NO_CONCLUSION_TEXT, type ToolLike } from './toolLoop.ts';
@@ -279,69 +282,6 @@ function excMsg(exc: unknown): string {
 /** result[].content[] 条目收集（非 dict 脏条目跳过——对齐 Python
  *  core/llms/tools/_items.collect_content_items；响应契约 research：
  *  result 允许缺失，status 失败已被 client 归一化）。 */
-function collectContentItems(data: Record<string, unknown>): Array<Record<string, unknown>> {
-  const items: Array<Record<string, unknown>> = [];
-  const result = data['result'];
-  if (!Array.isArray(result)) return items;
-  for (const entry of result) {
-    if (typeof entry !== 'object' || entry === null) continue;
-    const content = (entry as Record<string, unknown>)['content'];
-    if (!Array.isArray(content)) continue;
-    for (const item of content) {
-      if (typeof item === 'object' && item !== null) items.push(item as Record<string, unknown>);
-    }
-  }
-  return items;
-}
-
-/** 单条检索结果 → Markdown 行；无有效字段（无标题且无链接）→ null（对齐
- *  Python billions_search._format_item）。字段契约：title/link/snippet(≤500)/
- *  date(YYYY-MM-DD 可空)/extra{institution(仅 report)/doc_id(仅 announcement)}；
- *  字段允许缺失，调用方容错（脏条目跳过）。 */
-function formatSearchItem(item: Record<string, unknown>): string | null {
-  const title = item['title'] === undefined || item['title'] === null ? '' : String(item['title']);
-  const link = item['link'] === undefined || item['link'] === null ? '' : String(item['link']);
-  if (!(title || link)) return null;
-  const extra = typeof item['extra'] === 'object' && item['extra'] !== null
-    ? (item['extra'] as Record<string, unknown>)
-    : {};
-  const parts: string[] = [];
-  if (title && link) parts.push(`[${title}](${link})`);
-  else if (link) parts.push(link);
-  else parts.push(title);
-  if (item['date']) parts.push(String(item['date']));
-  if (extra['institution']) parts.push(String(extra['institution'])); // 研报机构名
-  if (extra['doc_id']) parts.push(`doc_id: ${extra['doc_id']}`); // 公告全文 id
-  let line = parts.join(' — ');
-  if (item['snippet']) line += `(${item['snippet']})`;
-  return `- ${line}`;
-}
-
-/** 单条推文 → Markdown 行；无正文 → null（对齐 Python billions_twitter.
- *  _format_tweet）。字段契约：title("@user: 前缀")/link(x.com/...)/snippet
- *  (正文)/date(北京时间)/extra{username/view_count/post_id/...}。 */
-function formatTweetItem(item: Record<string, unknown>): string | null {
-  const snippet = item['snippet'] === undefined || item['snippet'] === null ? '' : String(item['snippet']);
-  if (!snippet) return null;
-  const extra = typeof item['extra'] === 'object' && item['extra'] !== null
-    ? (item['extra'] as Record<string, unknown>)
-    : {};
-  let username = extra['username'] ? String(extra['username']) : '';
-  if (!username) {
-    // title 形如 "@user: 正文预览"——取 @ 前缀兜底
-    const title = item['title'] === undefined || item['title'] === null ? '' : String(item['title']);
-    if (title.startsWith('@')) username = title.split(':', 1)[0];
-  }
-  if (username && !username.startsWith('@')) username = `@${username}`;
-  const parts: string[] = [];
-  if (username) parts.push(username);
-  if (extra['view_count'] !== undefined && extra['view_count'] !== null) parts.push(`${extra['view_count']} 次浏览`);
-  if (item['date']) parts.push(String(item['date']));
-  let line = parts.join(' — ') + ` — ${snippet}`;
-  if (item['link']) line += ` [${item['link']}]`;
-  return `- ${line}`;
-}
-
 export class BillionsInformationAnalyst extends AgentNode {
   constructor(
     llm: LlmLike,
