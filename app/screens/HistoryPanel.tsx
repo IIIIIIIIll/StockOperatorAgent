@@ -241,7 +241,9 @@ function makeStyles(theme: Theme) {
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     title: { flex: 1, fontSize: 15, fontWeight: '700', color: theme.colors.text },
     headerActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
-    iconButton: { fontSize: 16, color: theme.colors.textSecondary, paddingHorizontal: 4 },
+    // P3(评审 2026-11-09):fontSize 16 + paddingH 4 ≈ 24×20,靠 hitSlop 8 也只到
+    // ≈40×36;补最小盒尺寸让命中区稳定 ≥44。
+    iconButton: { fontSize: 16, color: theme.colors.textSecondary, paddingHorizontal: 4, minWidth: 36, minHeight: 36, textAlignVertical: 'center' },
     iconDisabled: { opacity: 0.4 },
     error: { color: theme.colors.error, fontSize: 12, paddingHorizontal: theme.spacing.md, paddingTop: theme.spacing.sm },
     hint: { color: theme.colors.warn, fontSize: 12, paddingHorizontal: theme.spacing.md, paddingTop: theme.spacing.sm },

@@ -32,7 +32,8 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
   const ref = React.useRef<View | null>(null);
   // 各 pane 顶 y 坐标(web 分支浮层标题定位;stretch 后按实际高度累积)
   const [paneTops, setPaneTops] = React.useState<number[]>([]);
-  const styles = makeStyles(theme);
+  // P3(评审 2026-11-09):theme 是模块常量,别每次渲染都重建样式表
+  const styles = React.useMemo(() => makeStyles(theme), [theme]);
   // 引导失败态(评审 2026-11-09 P2):动态 chunk 加载失败 / createChart 抛错此前
   // 完全静默 → 永久空白且无文案。与 IndicatorChart 同款降级。
   const [chartFailed, setChartFailed] = React.useState(false);

@@ -23,7 +23,8 @@ const KLINE_N = 60;
 export default React.memo(function DataScreen({ stockInformation, dataVersion, ticker, market }: { stockInformation: string; dataVersion?: number; ticker: string; market: Market }) {
   void dataVersion; // 父组件数据就绪信号:触发本组件重渲染以读取 store
   const theme = useTheme();
-  const styles = makeStyles(theme);
+  // P3(评审 2026-11-09):theme 是模块常量,别每次渲染都重建样式表
+  const styles = React.useMemo(() => makeStyles(theme), [theme]);
   const bars = React.useMemo(() => store.getDatas(ticker), [ticker, dataVersion]);
   const stock = store.getStock(ticker);
   // F05:reports/profit 派生 memo 化(ticker+dataVersion 变化才重算)——原每渲染

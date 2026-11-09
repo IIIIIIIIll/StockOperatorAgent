@@ -141,6 +141,15 @@ describe('gates (AC5)', () => {
     expect(latestPastQuarterEnd('2026-01-15')).toBe('20251231');
   });
 
+  // P3(评审 2026-11-09):±7 天窗口——非日历财年(如 AAPL 财年 Q3 收在 06-27)
+  // 原先永远不满足,该源每轮重取。相邻季度末至少相隔 90 天,窗口不会串期。
+  it('reportsFresh: 季度末 ±7 天内视为新鲜,超出则不新鲜', () => {
+    expect(reportsFresh('20260627', '2026-08-10')).toBe(true); // 差 3 天
+    expect(reportsFresh('20260623', '2026-08-10')).toBe(true); // 差 7 天(边界内)
+    expect(reportsFresh('20260622', '2026-08-10')).toBe(false); // 差 8 天
+    expect(reportsFresh('20260705', '2026-08-10')).toBe(true); // 晚于季度末 5 天
+  });
+
   it('reportsFresh: latest == past quarter end → fresh', () => {
     expect(reportsFresh('20260630', '2026-08-10')).toBe(true);
     expect(reportsFresh('20260331', '2026-08-10')).toBe(false); // 未披露当期 → 不新鲜

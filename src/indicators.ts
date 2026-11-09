@@ -243,7 +243,10 @@ export function computeAll(bars: IndicatorInput[], shares?: number | null): Indi
   return bars.map((b, t) => {
     const row: IndicatorRow = { ...b };
     for (const [k, arr] of Object.entries(cols)) {
-      row[k] = Number.isNaN(arr[t]) ? null : arr[t];
+      // P3(评审 2026-11-09):只防 NaN 会漏掉 ±Infinity(如 close=0 → 乖离率为
+      // -Infinity,shares=0 → 换手率 Infinity),而 pipeline 的 fmtNumber 只防 isNaN
+      // → 提示词里会直接出现 "-Infinity%"。统一收成 null(与 NaN 同语义)。
+      row[k] = Number.isFinite(arr[t]) ? arr[t] : null;
     }
     return row;
   });

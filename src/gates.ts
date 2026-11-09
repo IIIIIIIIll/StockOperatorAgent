@@ -81,7 +81,20 @@ export function latestPastQuarterEnd(today: string): string | null {
 /** 业绩门：最新 report_date == 最近已过季度末 → 新鲜（不拉远端）。 */
 export function reportsFresh(latestReportDate: string | null, today: string): boolean {
   if (latestReportDate === null) return false;
-  return latestReportDate === latestPastQuarterEnd(today);
+  const quarterEnd = latestPastQuarterEnd(today);
+  if (quarterEnd === null) return false;
+  // P3(评审 2026-11-09):原先要求与日历季度末**精确相等**,非日历财年(如 AAPL
+  // 财年 Q3 收在 2026-06-27)永远不满足 → 该源每轮都重取。给 ±7 天窗口:
+  // 相邻季度末至少相隔 90 天,不会串期。
+  const days = Math.abs(diffDays(quarterEnd, latestReportDate.replace(/-/g, '')));
+  return days <= 7;
+}
+
+/** 两个 YYYYMMDD 之间相差的天数(无时区歧义:按 UTC 日算)。 */
+function diffDays(a: string, b: string): number {
+  const toUtc = (s: string): number =>
+    Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
+  return Math.round((toUtc(a) - toUtc(b)) / 86_400_000);
 }
 
 /** 日K 门：lastDataUpdate == 北京时间今天 → 同日已采集，跳过重拉（对齐 Python

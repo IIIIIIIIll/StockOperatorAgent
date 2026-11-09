@@ -7,6 +7,12 @@ afterEach(() => {
 });
 
 describe('createGraceStopper(CR-49)', () => {
+  // P2(评审 2026-11-09):此前所有边界都写成 GRACE±delta,常量本身从未被断言 ——
+  // 把 90s 改成 10s(提前杀服务)或 6h(超 Android dataSync 上限)仍然全绿。
+  it('宽限常量本身被钉住(90s)', () => {
+    expect(KEEP_ALIVE_GRACE_MS).toBe(90_000);
+  });
+
   it('前台 active:defer 立即 hardStop,不挂定时器', () => {
     vi.useFakeTimers();
     const hardStop = vi.fn();

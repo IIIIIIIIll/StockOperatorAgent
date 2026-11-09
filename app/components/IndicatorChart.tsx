@@ -127,7 +127,8 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
   // setData 拒收(如 period 非 YYYY-MM-DD)此前是完全静默的 —— 用户看到一块
   // 永久空白,既无文案也无重试。chartHtml.ts 的原生侧已有同类降级范式。
   const [chartFailed, setChartFailed] = React.useState(false);
-  const styles = makeStyles(theme);
+  // P3(评审 2026-11-09):theme 是模块常量,别每次渲染都重建样式表
+  const styles = React.useMemo(() => makeStyles(theme), [theme]);
 
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !ref.current) return undefined;

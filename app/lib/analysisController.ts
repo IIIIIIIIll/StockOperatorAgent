@@ -55,7 +55,7 @@ import {
  *  真机锁屏后基站/NAT 会静默丢弃 TCP(无 FIN/RST),而 RN 侧 OkHttp 的
  *  connect/read/write 超时全是 0(无限)、LLM 客户端也刻意不设 timeout
  *  (src/llm.ts:~69)→ await 永不返回,running 卡在 true、保活通知不落,
- *  用户唯一出路是重启 App。120s 远大于最长正常停顿(单次 LLM 调用可达
+ *  用户唯一出路是重启 App。300s 远大于最长正常停顿(单次 LLM 调用可达
  *  数分钟,但期间工具轮/进度事件不断流,不会触发)。 */
 const RUN_IDLE_TIMEOUT_MS = 300_000;
 

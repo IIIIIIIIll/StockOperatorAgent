@@ -180,6 +180,15 @@ function AppContent() {
             placeholder={`${DEMO_TICKER} / 00700 / AAPL`}
             maxLength={10}
             autoCapitalize="characters"
+            // 可见标题是兄弟 <Text>,未与输入框关联 → 读屏只念 placeholder;
+            // 安卓回车键此前完全没反应(单行默认 blurOnSubmit,只收键盘)。
+            accessibilityLabel="股票代码"
+            returnKeyType="go"
+            onSubmitEditing={() => {
+              if (a.running) return;
+              setShowMarketMenu(false);
+              void a.start(ticker, market);
+            }}
           />
           {/* 市场下拉面板:手动选市场(默认沪深A股) */}
           <View style={styles.marketSelectWrap}>
@@ -204,7 +213,16 @@ function AppContent() {
               <Text style={styles.marketSelectCaret}>▾</Text>
             </Pressable>
           </View>
-          <Pressable style={[styles.startButton, a.running && styles.buttonDisabled]} disabled={a.running} onPress={() => { setShowMarketMenu(false); void a.start(ticker, market); }}>
+          {/* P3(评审 2026-11-09):同屏其他按钮都有 role+label,唯独主 CTA 没有;
+              读屏只念文字且不播报"不可用"状态。 */}
+          <Pressable
+            style={[styles.startButton, a.running && styles.buttonDisabled]}
+            disabled={a.running}
+            onPress={() => { setShowMarketMenu(false); void a.start(ticker, market); }}
+            accessibilityRole="button"
+            accessibilityLabel={a.running ? '分析进行中' : '开始分析'}
+            accessibilityState={{ disabled: a.running }}
+          >
             <Text style={styles.startButtonText}>{a.running ? '分析中…' : '开始分析'}</Text>
           </Pressable>
           {/* 取消:唯一的「卡住也能自己停」出口。之前 running 时开始按钮 disabled,
@@ -516,7 +534,9 @@ function makeStyles(theme: Theme, insets: EdgeInsets) {
     // D5:maxWidth 与右缘 clamp 同源;3 个短标签下菜单宽 ~110px < 280,无视觉变化
     marketModalMenu: { position: 'absolute', maxWidth: 280 },
     marketMenuInner: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.sm, elevation: 4, shadowColor: theme.colors.shadow, shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, paddingVertical: 2 },
-    marketOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 9 },
+    // P3(评审 2026-11-09):paddingVertical 9 + fontSize 13 ≈ 35dp,低于 44dp 建议值,
+    // 且三行相邻 → 近失误选市场。提到 12(≈41dp)并补 hitSlop。
+    marketOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 12 },
     marketOptionActive: { backgroundColor: theme.colors.background },
     marketOptionText: { fontSize: 13, color: theme.colors.text },
     marketOptionTextActive: { color: theme.colors.primary, fontWeight: '700' },

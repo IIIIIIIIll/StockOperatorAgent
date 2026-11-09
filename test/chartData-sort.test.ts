@@ -12,7 +12,10 @@ describe('chartData · 财务序列时间升序(S4-3)', () => {
       { report_date: '20251231', fields: { net_profit: 2e8, eps: 2 } },
     ];
     const series = financialTrendSeries(reports, [], 'cn');
-    for (const s of series) {
+    // P2(评审 2026-11-09):循环遍历函数自身输出,空数组时零断言执行仍绿 ——
+  // 先钉住"确实产出两条序列"和标签。
+  expect(series.map((x) => x.label)).toEqual(['净利润 (亿元)', '每股收益 (元)']);
+  for (const s of series) {
       const times = s.points.map((p) => p.time);
       expect(times, s.label).toEqual([...times].sort());
     }
