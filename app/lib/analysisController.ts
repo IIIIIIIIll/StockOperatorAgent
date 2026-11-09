@@ -36,6 +36,10 @@ import {
   type RunSummary,
 } from '../../src/runHistory.ts';
 import type { RunArchive } from './runArchive.ts';
+// B6(评审 2026-11-09):看门狗抽成独立单元(注入时钟/回调,可直接单测边界)。
+import { RunWatchdog, RUN_IDLE_TIMEOUT_MS } from './runWatchdog.ts';
+// B6(评审 2026-11-09):快照广播器抽成独立单元(泛型 T,不反向依赖控制器类型)。
+import { AnalysisNotifier } from './analysisNotifier.ts';
 import { envValue } from '../../src/env.ts';
 import type { BillionsClient } from '../../src/billionsClient.ts';
 import type { LlmConfig } from '../../src/llm.ts';
@@ -57,7 +61,6 @@ import {
  *  (src/llm.ts:~69)→ await 永不返回,running 卡在 true、保活通知不落,
  *  用户唯一出路是重启 App。300s 远大于最长正常停顿(单次 LLM 调用可达
  *  数分钟,但期间工具轮/进度事件不断流,不会触发)。 */
-const RUN_IDLE_TIMEOUT_MS = 300_000;
 
 /** token 合并广播窗口:一次分析上万个 delta,每个都全量快照 + React 重渲染
  *  会把 JS 线程打满(快照里 events 数组的拷贝是 O(n²))。120ms ≈ 8fps,
@@ -188,7 +191,8 @@ interface MutableState {
 export class AnalysisController {
   private readonly deps: AnalysisDeps;
   private readonly st: MutableState;
-  private readonly listeners = new Set<(s: AnalysisSnapshot) => void>();
+  /** 快照广播器(订阅集合 + token 合并窗口);构造函数里注入 getSnapshot。 */
+  private readonly notifier: AnalysisNotifier<AnalysisSnapshot>;
   // 上次分析运行模式(real|demo):done 写缓存/标记时以 start() 时刻模式为准
   private mode: 'real' | 'demo' = 'demo';
   /** CR-03:历史读取代数——并发 openRun / closeRun / 删除后到者不得覆盖新状态。 */
@@ -204,9 +208,8 @@ export class AnalysisController {
   private runHandler: ((e: PipelineEvent) => void) | null = null;
   /** 看门狗已中止但底层 pipeline 可能仍在跑:此时只接受 done(真跑完的结果不该丢)。 */
   private timedOut = false;
-  private watchdog: ReturnType<typeof setTimeout> | null = null;
-  private notifyTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastWatchdogArm = 0;
+  /** 空闲看门狗(独立单元;this.deps 就绪后在构造函数里实例化)。 */
+  private readonly watchdog: RunWatchdog;
   /** 打开历史前的实时状态快照(closeRun 逐字段写回;null = 当前不是查看历史态)。 */
   private liveStash: {
     events: PipelineEvent[];
@@ -221,6 +224,26 @@ export class AnalysisController {
 
   constructor(deps: AnalysisDeps) {
     this.deps = deps;
+    // 看门狗:到期即中止本轮(不递增运行代数 —— 真跑完的 done 仍要落地,见 timedOut 门)
+    this.watchdog = new RunWatchdog({
+      nowMs: () => this.deps.nowMs(),
+      onTimeout: () => {
+        if (!this.st.running) return;
+        const msg = `分析已 ${Math.round(RUN_IDLE_TIMEOUT_MS / 1000)} 秒无任何进展,已中止等待(网络可能在锁屏期间断开)`;
+        this.deps.log.error(msg);
+        this.timedOut = true;
+        // 复位并发守卫,让用户能立即重试(孤儿 pipeline 继续跑,事件由 timedOut 门过滤)
+        this.deps.runner.abort?.();
+        this.st.error = msg;
+        this.st.statuses = {};
+        this.finishRun();
+        this.notifier.notify();
+      },
+    });
+    this.notifier = new AnalysisNotifier<AnalysisSnapshot>({
+      getSnapshot: () => this.snapshot(),
+      windowMs: TOKEN_NOTIFY_MS,
+    });
     this.st = {
       events: [],
       finalDecision: '',
@@ -271,14 +294,14 @@ export class AnalysisController {
     s.error = '已取消分析';
     s.statuses = {};
     this.finishRun();
-    this.notify();
+    this.notifier.notify();
   }
 
   /** 回到前台时补一次广播:锁屏期间压下的 token 合并帧可能在后台被节流,
    *  回前台刷新一次让用户看到最新进度,而不是等下一个事件。 */
   refresh(): void {
-    this.clearNotify();
-    this.notify();
+    this.notifier.clear();
+    this.notifier.notify();
   }
 
   // ─── 分析历史归档(展示层;不进 StoreLike)───────────────────────────────
@@ -289,7 +312,7 @@ export class AnalysisController {
     const s = this.st;
     const seq = ++this.historyListSeq;
     s.historyLoading = true;
-    this.notify();
+    this.notifier.notify();
     try {
       let list = await this.deps.runArchive.list();
       if (migrateLastRun) list = await this.migrateLastRunOnce(list);
@@ -311,7 +334,7 @@ export class AnalysisController {
       // 陈旧刷新的收尾不得清掉更新那一轮的 loading(会让面板提前结束转圈)
       if (seq === this.historyListSeq) {
         s.historyLoading = false;
-        this.notify();
+        this.notifier.notify();
       }
     }
   }
@@ -323,7 +346,7 @@ export class AnalysisController {
     if (s.running) return;
     const seq = ++this.historySeq;
     s.historyLoading = true;
-    this.notify();
+    this.notifier.notify();
     try {
       const run = await this.deps.runArchive.load(id);
       // R-02:进函数时那次 running 检查在 await 之前 —— 读盘期间用户可能已发起
@@ -364,7 +387,7 @@ export class AnalysisController {
       // S10-3:陈旧 load 的收尾不得清掉更新那一轮的 loading
       if (seq === this.historySeq) {
         s.historyLoading = false;
-        this.notify();
+        this.notifier.notify();
       }
     }
   }
@@ -389,7 +412,7 @@ export class AnalysisController {
       s.lastRunTicker = stash.lastRunTicker;
       s.market = stash.market;
     }
-    this.notify();
+    this.notifier.notify();
   }
 
   /** 删除历史条目(单条/批量同路径)。删除正在查看的条目 → 自动退出查看态。 */
@@ -398,7 +421,7 @@ export class AnalysisController {
     if (!ids.length) return;
     this.historyListSeq += 1; // S5-1:在飞的 refreshHistory 快照已过期
     s.historyLoading = true;
-    this.notify();
+    this.notifier.notify();
     try {
       const removed = await this.deps.runArchive.remove(ids);
       s.history = s.history.filter((h) => !ids.includes(h.id));
@@ -411,7 +434,7 @@ export class AnalysisController {
       s.historyError = `删除历史失败:${msg}`;
     } finally {
       s.historyLoading = false;
-      this.notify();
+      this.notifier.notify();
     }
   }
 
@@ -420,7 +443,7 @@ export class AnalysisController {
     const s = this.st;
     this.historyListSeq += 1; // S5-1:在飞的 refreshHistory 快照已过期
     s.historyLoading = true;
-    this.notify();
+    this.notifier.notify();
     try {
       await this.deps.runArchive.clear();
       s.history = [];
@@ -433,7 +456,7 @@ export class AnalysisController {
       s.historyError = `清空历史失败:${msg}`;
     } finally {
       s.historyLoading = false;
-      this.notify();
+      this.notifier.notify();
     }
   }
 
@@ -533,15 +556,15 @@ export class AnalysisController {
       const msg = describeError(err);
       this.deps.log.error(`写历史归档失败:${msg}`);
       s.historyError = `历史归档写入失败:${msg}`;
-      this.notify();
+      this.notifier.notify();
     });
   }
 
   /** 结束运行态:先释放保活(可能同步抛错)再清标志 —— 否则保活的同步异常会
    *  逃出 finally,让 running 永远停在 true、按钮永远「分析中…」。 */
   private finishRun(): void {
-    this.clearWatchdog();
-    this.clearNotify();
+    this.watchdog.clear();
+    this.notifier.clear();
     this.st.running = false;
     try {
       this.deps.stopKeepAlive();
@@ -550,63 +573,9 @@ export class AnalysisController {
     }
   }
 
-  private clearWatchdog(): void {
-    if (this.watchdog !== null) {
-      clearTimeout(this.watchdog);
-      this.watchdog = null;
-    }
-  }
-
-  /** 每个事件重置一次;到期即中止并报错,把「无限等」变成「可恢复的失败」。
-   *  不递增 runSeq:底层 pipeline 可能只是安静(大包 tool 调用),真跑完的 done
-   *  仍应该落地 —— 见 timedOut 门。 */
-  private armWatchdog(): void {
-    this.clearWatchdog();
-    this.lastWatchdogArm = this.deps.nowMs();
-    this.watchdog = setTimeout(() => {
-      this.watchdog = null;
-      if (!this.st.running) return;
-      const msg = `分析已 ${Math.round(RUN_IDLE_TIMEOUT_MS / 1000)} 秒无任何进展,已中止等待(网络可能在锁屏期间断开)`;
-      this.deps.log.error(msg);
-      this.timedOut = true;
-      // 复位并发守卫,让用户能立即重试(孤儿 pipeline 继续跑,事件由 timedOut 门过滤)
-      this.deps.runner.abort?.();
-      this.st.error = msg;
-      this.st.statuses = {};
-      this.finishRun();
-      this.notify();
-    }, RUN_IDLE_TIMEOUT_MS);
-  }
-
-  /** 事件驱动的重置节流 ≥1s:每个 token 都重建 timer 会新增成千上万次 JSI 调用
-   *  (setTimeout/clearTimeout),把本批次刚优化的线程负载又加回去。 */
-  private rearmWatchdog(): void {
-    if (this.deps.nowMs() - this.lastWatchdogArm < 1000) return;
-    this.armWatchdog();
-  }
-
-  private clearNotify(): void {
-    if (this.notifyTimer !== null) {
-      clearTimeout(this.notifyTimer);
-      this.notifyTimer = null;
-    }
-  }
-
-  /** token 专用尾部合并广播(见 TOKEN_NOTIFY_MS);非 token 事件仍即时 notify。 */
-  private scheduleNotify(): void {
-    if (this.notifyTimer !== null) return;
-    this.notifyTimer = setTimeout(() => {
-      this.notifyTimer = null;
-      this.notify();
-    }, TOKEN_NOTIFY_MS);
-  }
-
   /** UI 快照订阅(hook 挂载 effect 调用;返回退订函数,同 runner.subscribe 契约)。 */
   subscribe(fn: (s: AnalysisSnapshot) => void): () => void {
-    this.listeners.add(fn);
-    return () => {
-      this.listeners.delete(fn);
-    };
+    return this.notifier.subscribe(fn);
   }
 
   snapshot(): AnalysisSnapshot {
@@ -649,7 +618,7 @@ export class AnalysisController {
       const msg = describeError(err);
       this.deps.log.error(`启动链异常:${msg}`);
       this.st.error = `启动失败:${msg}`;
-      this.notify();
+      this.notifier.notify();
     }
   }
 
@@ -666,7 +635,7 @@ export class AnalysisController {
       const msg = describeError(err);
       d.log.error(`存储就绪失败:${msg}`);
       s.error = msg;
-      this.notify();
+      this.notifier.notify();
       return;
     }
     // native(RN 真机)采集注入先于任何采集(保持原时序:setDeviceStore 在
@@ -715,7 +684,7 @@ export class AnalysisController {
     // 「启动成本不随历史增长」)——恢复完 lastRun 再后台发一次(带首次迁移),
     // 不 await。写穿异步语义同 recordRun;失败只落 historyError。
     void this.refreshHistory(true);
-    this.notify();
+    this.notifier.notify();
     const loaded = d.loadSettings(); // 与面板保存同步(用户已保存的三键立即生效)
     s.settings = loaded;
     const miss = missingLlmKeys(loaded.keys);
@@ -725,7 +694,7 @@ export class AnalysisController {
     else d.log.info(`LLM 已配置:${describeLlmKeys(loaded.keys)}`);
     d.log.info(`联网搜索供应商:${envValue('TAVILY_API_KEY') ? 'Tavily(优先)' : 'DuckDuckGo(免 key)'}`);
     s.dataVersion = 1; // store 为模块级对象:显式触发重渲染
-    this.notify();
+    this.notifier.notify();
   }
 
   /** 设置面板变更:更新状态 + 持久化 + 能力开关注入。D9:错误横幅仅在非运行态
@@ -735,7 +704,7 @@ export class AnalysisController {
     this.deps.saveSettings(next);
     this.deps.applyCapabilitySwitches(next);
     if (!this.st.running) this.st.error = null;
-    this.notify();
+    this.notifier.notify();
   }
 
   /** 分析编排(ticker 由调用方传入,market 由下拉选择):重置 → 北交所拦截 →
@@ -763,13 +732,13 @@ export class AnalysisController {
     s.statuses = {};
     s.lastRunAt = null;
     s.hasDone = false;
-    this.notify();
+    this.notifier.notify();
     const code = ticker.trim();
     // 北交所拦截(仅沪深市场;文案逐字保留既有契约——手动选港股/美股时 6 位
     // 数字归各自格式校验,不落北交所文案)
     if (market === 'cn' && /^\d{6}$/.test(code) && (code.startsWith('4') || code.startsWith('8'))) {
       s.error = '北交所(BJ)股票暂不支持分析:TDX 数据源不覆盖 BJ 证券,请使用沪深 A 股代码';
-      this.notify();
+      this.notifier.notify();
       return;
     }
     // 市场归一化:按所选市场强制校验(CN 6 位原样 / HK 1-5 位 → 首候选 /
@@ -784,7 +753,7 @@ export class AnalysisController {
       };
       s.error = messages[market];
       s.market = market; // CR-36:徽标与错误文案同源,不显示上一次的市场
-      this.notify();
+      this.notifier.notify();
       return;
     }
     const m = normalized.market;
@@ -797,9 +766,9 @@ export class AnalysisController {
     d.log.info(`开始分析 ${nt}(市场:${m},模式:${modeLabel})`);
     const t0 = d.nowMs();
     s.running = true;
-    this.notify();
+    this.notifier.notify();
     // 看门狗早于采集启动:卡死也可能发生在 collect/intel 阶段(锁屏后 socket 静默死掉)
-    this.armWatchdog();
+    this.watchdog.arm();
     // 前台服务保活:分析分钟级,切后台/锁屏保持进程前台;结束在 finally 停止
     d.keepAliveStart(`正在分析 ${nt}`, 'AI 分析进行中,可切到后台等待完成');
     try {
@@ -847,13 +816,13 @@ export class AnalysisController {
         s.dataVersion += 1; // 采集数据 Tab 立即刷新
         // 采集阶段不发任何事件(TDX 逐 host 重试可能合法地跑几分钟)→ 阶段边界重置
         // 看门狗,避免把慢但健康的采集误判为死连接
-        if (this.runSeq === seq) this.armWatchdog();
-        this.notify();
+        if (this.runSeq === seq) this.watchdog.arm();
+        this.notifier.notify();
       } catch (err) {
         const detail = describeError(err);
         d.log.error(`采集失败:${detail}`);
         s.error = `行情采集失败:${detail}`;
-        this.notify();
+        this.notifier.notify();
         return;
       }
       s.lastRunTicker = nt;
@@ -863,7 +832,7 @@ export class AnalysisController {
       // 同上:取消后不再进 runner.run
       if (seq !== this.runSeq) return;
       // 同上:intel 预查询也是事件静默段
-      if (this.runSeq === seq) this.armWatchdog();
+      if (this.runSeq === seq) this.watchdog.arm();
       // 亿信预抓 client 注入(phaseout C1):带 key → 信息面分析师预抓三源+twitter
       // 生效;无 key → undefined(现状 DDG 回退不变)。安全:key 仅进 client 私有
       // 字段——不打印/不落日志/不经服务端代理。
@@ -881,7 +850,7 @@ export class AnalysisController {
         ...(intel.billions ? { billions: intel.billions } : {}),
         ...(intel.mcp ? { mcp: intel.mcp } : {}),
       });
-      this.notify();
+      this.notifier.notify();
       const report = await d.runner.run(nt, {
         // P1-1(评审 2026-11-09):把本代标签交给 runner，它会给本运行的每个事件
         // 回填 runTag；订阅侧据此丢弃孤儿运行的迟到事件。
@@ -905,14 +874,14 @@ export class AnalysisController {
       const detail = describeError(err);
       d.log.error(`分析失败:${detail}`);
       s.error = detail;
-      this.notify();
+      this.notifier.notify();
     } finally {
       // 只有当前代才收尾:取消/新一轮之后,旧运行的 settle 不得停掉新一轮的
       // 保活与看门狗(那会把新一轮重新打回 cached 冻结的假死)
       if (seq === this.runSeq) {
         // finishRun 内部 try/catch 保活释放:同步异常不得让 running 卡在 true
         this.finishRun();
-        this.notify();
+        this.notifier.notify();
       }
     }
   }
@@ -926,7 +895,7 @@ export class AnalysisController {
     // (孤儿 pipeline 的 token/progress 不再写 UI)
     if (this.timedOut && e.type !== 'done') return;
     // 任何事件都算「有进展」→ 重置看门狗(节流 ≥1s,见 rearmWatchdog)
-    if (s.running) this.rearmWatchdog();
+    if (s.running) this.watchdog.rearm();
     if (e.type === 'progress') {
       d.log.info(e.message);
     } else if (e.type === 'report') {
@@ -943,7 +912,7 @@ export class AnalysisController {
       s.partials[e.node] = (s.partials[e.node] ?? '') + e.delta;
       // token 不入 events:UI 不读它(只读 partials),保存它只会让每帧快照
       // 拷贝的数组越拉越长(一次分析上万个 delta,拷贝总量 O(n²))
-      this.scheduleNotify();
+      this.notifier.scheduleNotify();
       return;
     } else if (e.type === 'roleStatus') {
       d.log.info(`状态[${e.node}] ${e.status}`);
@@ -987,7 +956,7 @@ export class AnalysisController {
           if (!persistError || this.runSeq !== seqAtDone) return;
           d.log.error(`本地落盘失败:${persistError}`);
           s.error = `本地保存失败（重启后可能丢失本次结果）：${persistError}`;
-          this.notify();
+          this.notifier.notify();
         };
         if (typeof store.flush === 'function') {
           void store.flush().then(reportPersistError, () => {});
@@ -1010,11 +979,7 @@ export class AnalysisController {
       s.hasDone = false; // D15:error 终态撤销完成标记
     }
     s.events.push(e);
-    this.notify();
+    this.notifier.notify();
   };
 
-  private notify(): void {
-    const snap = this.snapshot();
-    for (const fn of [...this.listeners]) fn(snap);
-  }
 }
