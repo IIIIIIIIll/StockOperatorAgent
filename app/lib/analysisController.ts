@@ -42,6 +42,8 @@ import { RunWatchdog, RUN_IDLE_TIMEOUT_MS } from './runWatchdog.ts';
 import { AnalysisNotifier } from './analysisNotifier.ts';
 // B6(评审 2026-11-09):事件归约抽成纯函数(字段改写 + 日志),副作用留在本类。
 import { reduceEvent, type ReducibleState } from './eventReduce.ts';
+// B6(评审 2026-11-09):输入校验抽成纯函数(北交所/格式文案是契约,可逐字单测)。
+import { checkStartInput } from './startGuards.ts';
 import { envValue } from '../../src/env.ts';
 import type { BillionsClient } from '../../src/billionsClient.ts';
 import type { LlmConfig } from '../../src/llm.ts';
@@ -735,31 +737,20 @@ export class AnalysisController {
     s.lastRunAt = null;
     s.hasDone = false;
     this.notifier.notify();
-    const code = ticker.trim();
-    // 北交所拦截(仅沪深市场;文案逐字保留既有契约——手动选港股/美股时 6 位
-    // 数字归各自格式校验,不落北交所文案)
-    if (market === 'cn' && /^\d{6}$/.test(code) && (code.startsWith('4') || code.startsWith('8'))) {
-      s.error = '北交所(BJ)股票暂不支持分析:TDX 数据源不覆盖 BJ 证券,请使用沪深 A 股代码';
+    // 输入校验(北交所拦截 + 市场格式归一)已抽成纯函数 app/lib/startGuards.ts:
+    // 文案是 UI/PRD 契约,单测可逐字钉住,不必搭起整个控制器。
+    const guard = checkStartInput(ticker, market);
+    if (!guard.ok) {
+      s.error = guard.message;
+      // CR-36:格式错误时徽标与文案同源,不显示上一次的市场(北交所分支不改市场)
+      if (guard.market !== null) s.market = guard.market;
       this.notifier.notify();
       return;
     }
-    // 市场归一化:按所选市场强制校验(CN 6 位原样 / HK 1-5 位 → 首候选 /
-    // US 字母大写);格式不符 → 明确文案,不发起分析
-    const normalized = normalizeTicker(code, market);
-    if (normalized === null) {
-      // 校验文案按所选市场定制(北交所文案在上一分支逐字保留,不归此处)
-      const messages: Record<Market, string> = {
-        cn: '请输入有效的沪深A股代码：六位数字',
-        hk: '请输入有效的港股代码：一至五位数字',
-        us: '请输入有效的美股代码：字母开头，可含 . 或 -',
-      };
-      s.error = messages[market];
-      s.market = market; // CR-36:徽标与错误文案同源,不显示上一次的市场
-      this.notifier.notify();
-      return;
-    }
-    const m = normalized.market;
-    let nt = normalized.ticker;
+    const m = guard.market;
+    // S2-2:采集阶段可能把代码解析成另一形式(请求 9988.HK、落库 09988.HK),
+    // 后续读 store / 拼上下文 / 跑 runner 都用实际落库值 → 必须是 let。
+    let nt = guard.ticker;
     s.market = m;
     // 能力开关经显式注入(settings 面板语义 enabled → 直映;消费点惰性读 config)
     d.applyCapabilitySwitches(s.settings);
