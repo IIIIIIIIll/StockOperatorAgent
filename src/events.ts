@@ -15,13 +15,21 @@ import type { PipelineDeps } from './pipeline.ts';
 import { EXHAUSTED_NO_ANSWER_TEXT, NO_CONCLUSION_TEXT, type ToolLike } from './toolLoop.ts';
 import { warn } from './log.ts';
 
-export type PipelineEvent =
+/** 单个运行内发生的事件体。与 PipelineEvent 分开,便于 run() 统一追盖 runTag。 */
+type PipelineEventBody =
   | { type: 'progress'; message: string }
   | { type: 'report'; key: string; tabTitle: string; content: string }
   | { type: 'token'; roleKey: string; node: string; delta: string }
   | { type: 'roleStatus'; roleKey: string; node: string; status: RoleStatus }
   | { type: 'done'; report: FinalReport }
   | { type: 'error'; error: string };
+
+/** runTag:发起该事件的运行标签(调用方经 RunOptions.runTag 提供)。
+ *  用途(评审 2026-11-09 P1-1):取消/看门狗中止后的孤儿 pipeline 仍在 emit,
+ *  而订阅集合是共享的、事件本身不带来源 —— 没有标签时控制器无法把孤儿事件
+ *  与当前运行分开(旧代 token 会混进新运行的 partials、旧 done 会被当新运行归档)。
+ *  缺省 undefined = 未经 runner 的直推事件(测试/探针),消费方保持旧行为。 */
+export type PipelineEvent = PipelineEventBody & { runTag?: number };
 
 export interface Opinion {
   key: string;
@@ -41,6 +49,9 @@ export interface FinalReport {
 export interface RunOptions extends Omit<PipelineDeps, 'store' | 'progress'> {
   llm?: unknown; // 注入;缺省 makeLlm()
   config?: unknown;
+  /** 运行标签(评审 2026-11-09 P1-1):由控制器的运行代数提供,回填到本运行
+   *  发出的每个事件的 runTag 上 —— 订阅方据此丢弃孤儿运行的迟到事件。 */
+  runTag?: number;
   /** 工具注入（亿信三件套 + web_search；App 层组装，web 端 key 在 localStorage）。 */
   tools?: ToolLike[];
   /** 亿信客户端注入（web 端 localStorage key → 信息面分析师预抓三源+twitter；
@@ -111,21 +122,25 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
 
   // node → roleKey 映射契约:初稿节点查 nodeName,修订节点查 reviseNodeName
   // (同 stateKey);查不到 → 原样用 node(events 仍可消费)。
-  const updater: ProgressUpdater = {
-    info: (message) => emit({ type: 'progress', message }),
-    pushReport: (key, content) => {
-      const role = enabledRoles().find((r) => r.stateKey === key);
-      emit({ type: 'report', key, tabTitle: role?.tabTitle ?? key, content });
-    },
-    pushDelta: (node, delta) => {
-      const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
-      emit({ type: 'token', roleKey: role?.stateKey ?? node, node, delta });
-    },
-    pushStatus: (node, status) => {
-      const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
-      emit({ type: 'roleStatus', roleKey: role?.stateKey ?? node, node, status });
-    },
-  };
+  // 按运行构造(评审 2026-11-09 P1-1):每个运行必须把自己的 runTag 刷到事件上,
+  // 共享一份 updater 就只能盖最近一次 run 的标签 —— 那正是孤儿事件被误收的成因。
+  function makeUpdater(emitRun: (e: PipelineEventBody) => void): ProgressUpdater {
+    return {
+      info: (message) => emitRun({ type: 'progress', message }),
+      pushReport: (key, content) => {
+        const role = enabledRoles().find((r) => r.stateKey === key);
+        emitRun({ type: 'report', key, tabTitle: role?.tabTitle ?? key, content });
+      },
+      pushDelta: (node, delta) => {
+        const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
+        emitRun({ type: 'token', roleKey: role?.stateKey ?? node, node, delta });
+      },
+      pushStatus: (node, status) => {
+        const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
+        emitRun({ type: 'roleStatus', roleKey: role?.stateKey ?? node, node, status });
+      },
+    };
+  }
 
   return {
     subscribe(listener) {
@@ -146,17 +161,22 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
       // __soa.start 直调)即可见 running=true,以 error 事件(busy 语义)拒绝并
       // resolve(undefined);不得启动第二个 pipeline、不得交错事件。
       if (running) {
-        emit({ type: 'error', error: '上一次分析仍在进行中,请等待完成后再试' });
+        emit({ type: 'error', error: '上一次分析仍在进行中,请等待完成后再试', ...(opts.runTag === undefined ? {} : { runTag: opts.runTag }) });
         return undefined;
       }
       running = true;
       const mySeq = ++runSeq;
+      // 本次运行的事件标签:调用方给定优先(控制器用自己的运行代数),否则用
+      // runner 内部代数 —— 两者都只用于“把事件归到哪一次运行”,不参与并发守卫判定。
+      const runTag = opts.runTag ?? mySeq;
+      const emitRun = (e: PipelineEventBody): void => emit({ ...e, runTag });
+      const updater = makeUpdater(emitRun);
       // 仅当自己仍是当前代时才复位(abort()/新一轮会让旧代失效)
       const releaseRunning = () => {
         if (mySeq === runSeq) running = false;
       };
       try {
-        emit({ type: 'progress', message: `开始分析 ${ticker}...` });
+        emitRun({ type: 'progress', message: `开始分析 ${ticker}...` });
 
         // S4:市场线程(缺省 cn 逐字节不变)。mcp 情报注入点在 App 层
         // (runner.makeMcpIntel → deps.mcp)——本文件不调 makeMcpIntel,
@@ -215,7 +235,7 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
             finalDecision === NO_CONCLUSION_TEXT,
           opinions,
         };
-        emit({ type: 'done', report });
+        emitRun({ type: 'done', report });
         releaseRunning(); // done 路径复位:状态变可用,后续 run 正常执行
         return report;
       } catch (err) {
@@ -224,7 +244,7 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         // 上报,run() resolve(undefined)而非 rethrow —— 失败信号唯一通道是
         // 事件,UI/探针经 subscribe 消费,不越过事件边界抛错。
         const message = describeError(err);
-        emit({ type: 'error', error: message });
+        emitRun({ type: 'error', error: message });
         releaseRunning(); // catch 路径复位:失败终态后 runner 回到可用状态
         return undefined;
       }

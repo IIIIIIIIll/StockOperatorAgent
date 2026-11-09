@@ -707,6 +707,59 @@ describe('AnalysisController 运行代数(P0 回归)', () => {
     expect(h.snap().running).toBe(false);
   });
 
+  // P1-1(评审 2026-11-09):runHandler 的闭包比的是处理器自己的 seq，新一轮 start()
+  // 装上新闭包后，孤儿运行的事件会“恰好匹配” —— 必须按事件自带的 runTag 判来源。
+  // 不修的后果：取消 A 后立即分析 B，A 的迟到 token 混进 B 的 partials、
+  // A 的 done 会把 A 的内容当 B 归档。
+  it('取消后立即重开:孤儿运行的事件(带旧 runTag)不得污染新一轮', async () => {
+    const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const tags: Array<number | undefined> = [];
+    let call = 0;
+    const h = makeHarness({
+      runnerImpl: async (_ticker, opts) => {
+        const i = call++;
+        tags[i] = opts?.runTag;
+        entered[i]?.resolve();
+        await gates[i]?.promise;
+        return undefined;
+      },
+    });
+
+    const pA = h.ctrl.start('600036', 'cn');
+    await entered[0]!.promise;
+    const tagA = tags[0];
+    h.ctrl.cancel();
+
+    const pB = h.ctrl.start('000001', 'cn');
+    await entered[1]!.promise;
+    const tagB = tags[1];
+    expect(typeof tagA).toBe('number');
+    expect(tagB).not.toBe(tagA); // 新一轮必须拿到不同标签(否则下面的用例无意义)
+
+    // 孤儿运行 A 的迟到事件：token + done
+    const orphanToken = { type: 'token' as const, roleKey: 'fundamental_analysis', node: 'fundamental_analysis_expert', delta: '旧代残余', runTag: tagA };
+    const orphanDone = { type: 'done' as const, report: makeReport({ ticker: '600036' }), runTag: tagA };
+    h.runner.emit(orphanToken);
+    h.runner.emit(orphanDone);
+
+    expect(h.snap().partials.fundamental_analysis_expert).toBeUndefined(); // token 没混进来
+    expect(h.snap().events).toHaveLength(0); // done 没被当本轮终态
+    expect(h.snap().hasDone).toBe(false);
+    expect(h.snap().running).toBe(true);
+
+    // 本轮(新 tag)的事件正常生效
+    h.runner.emit({ ...orphanToken, delta: '本轮正文', runTag: tagB });
+    // token 走 TOKEN_NOTIFY_MS(120ms) 尾部合并广播,等真实定时器落地再断言快照
+    await new Promise((r) => setTimeout(r, 200));
+    expect(h.snap().partials.fundamental_analysis_expert).toBe('本轮正文');
+
+    gates[0]!.resolve();
+    gates[1]!.resolve();
+    await pA;
+    await pB;
+  });
+
   it('采集阶段取消:阶段边界中止,不再发起 runner.run(不白烧 LLM)', async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();

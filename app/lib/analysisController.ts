@@ -243,7 +243,11 @@ export class AnalysisController {
     // runner 订阅随控制器生命周期存在(构造即订阅;根 hook 常驻不卸载)。
     // 按代分派:订阅本身不动,换 runHandler 即隔离孤儿运行的事件。
     // 无运行时的游离事件(测试/探针直推)仍交给 handleEvent,保持旧行为。
+    // P1-1(评审 2026-11-09):runHandler 的闭包比的是「处理器自己的 seq」,只要
+    // 新一轮 start() 装了新闭包,孤儿运行的事件也会匹配 —— 必须在派发前按事件
+    // 自带的 runTag 判来源。runTag 缺省 = 未经 runner 的直推事件,照旧放行。
     deps.runner.subscribe((e) => {
+      if (e.runTag !== undefined && e.runTag !== this.runSeq) return;
       if (this.runHandler) this.runHandler(e);
       else this.handleEvent(e);
     });
@@ -744,8 +748,7 @@ export class AnalysisController {
     this.closeRun();
     this.runHandler = (e) => {
       if (seq === this.runSeq) this.handleEvent(e);
-    };
-    this.timedOut = false;
+    };    this.timedOut = false;
     const d = this.deps;
     const s = this.st;
     // 新分析开始:全量重置(R4:lastRun 标记清除;hasDone 撤销——D15)
@@ -877,6 +880,9 @@ export class AnalysisController {
       });
       this.notify();
       const report = await d.runner.run(nt, {
+        // P1-1(评审 2026-11-09):把本代标签交给 runner，它会给本运行的每个事件
+        // 回填 runTag；订阅侧据此丢弃孤儿运行的迟到事件。
+        runTag: seq,
         llm, f10Text, snapshot, name: stockName, capital, market: m, today: asiaToday(), // F20 同上
         tools: d.assembleTools(s.settings.keys, s.settings.caps),
         ...(intel.billions ? { billions: intel.billions } : {}),
