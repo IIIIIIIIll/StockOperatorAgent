@@ -104,8 +104,11 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
 
   const billionsGreyed = !settings.keys.billionsApiKey.trim() || !settings.switches.billionsMaster;
 
+  // keyboardShouldPersistTaps='handled':键盘弹出时第一次点保存/开关会被 RN 默认
+  // 'never' 吞掉去收键盘(用户以为按钮坏了);web 端 RNW 无此分支,原生才生效。
+  // 评审 2026-11-09 P2。
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
       {/* 标题不在此渲染:抽屉二级页标题栏已给「← 设置 ✕」,再写一遍就是重复 */}
 
       {/* ── 1. LLM(大模型)────────────────────────────────────── */}

@@ -7,6 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useTheme, type Theme } from '../theme';
 import MarkdownText from './MarkdownText';
 import type { RoleStatus } from '../../src/progress.ts';
+import { useThrottledText } from '../hooks/useThrottledText';
 
 const CURSOR = '▍';
 
@@ -43,9 +44,17 @@ export default React.memo(function ReportContent({
   const styles = makeStyles(theme);
   // 展开态按槽位索引记录;跨角色泄漏由 App.tsx 的 key={stateKey} remount 兜底
   const [expanded, setExpanded] = React.useState<Record<number, boolean>>({});
+  // 节点 live 文本(partial 优先),节流后再交给 markdown 解析 —— 见 useThrottledText:
+  // 快照 120ms 一帧,而全量重解析每帧都是数百节点,安卓表现为打字卡顿。
+  const liveNode = partials[reviseNodeName ?? ''] ? (reviseNodeName as string) : nodeName;
+  const throttledNode = useThrottledText(partials[liveNode] ?? '');
+  const throttledPartials = React.useMemo(
+    () => (throttledNode ? { ...partials, [liveNode]: throttledNode } : partials),
+    [partials, liveNode, throttledNode],
+  );
 
   if (roleKey === 'final_decision') {
-    const { text } = streamText(partials, statuses, nodeName, finalDecision);
+    const { text } = streamText(throttledPartials, statuses, nodeName, finalDecision);
     return (
       <ScrollView style={styles.container}>
         {text ? (
@@ -76,7 +85,7 @@ export default React.memo(function ReportContent({
     return (
       <ScrollView style={styles.container}>
         {slots.map((slot, i) => {
-          const { text, streaming } = streamText(partials, statuses, slot.node, slot.fallback);
+          const { text, streaming } = streamText(throttledPartials, statuses, slot.node, slot.fallback);
           if (!text) return null; // 槽位暂无内容(如修订尚未开始)
           const open = expanded[i] ?? streaming; // 流式中的槽位默认展开
           return (
@@ -93,7 +102,7 @@ export default React.memo(function ReportContent({
   }
 
   // 非观点 → 平铺:partial ?? 最新报告(最终内容权威)
-  const { text } = streamText(partials, statuses, nodeName, reports[reports.length - 1]?.content);
+  const { text } = streamText(throttledPartials, statuses, nodeName, reports[reports.length - 1]?.content);
   if (!text) {
     return (
       <ScrollView style={styles.container}>

@@ -142,7 +142,11 @@ export function saveSettings(s: SettingsState): void {
       langsmithProject: clean(keys.langsmithProject),
     },
   };
-  settingsStore.save(JSON.stringify(sanitized));
+  // P2(评审 2026-11-09):写失败必须留痕 —— 否则用户以为存上了,下次启动静默回落
+  // 默认值(空 key → demoLlm 演示模式),且日志里一个字都没有。
+  if (!settingsStore.save(JSON.stringify(sanitized))) {
+    logError('设置保存失败(配额/只读存储/文件系统未就绪):本次修改重启后会丢失');
+  }
 }
 
 /** 面板开关(语义 enabled) → 能力开关直映(与旧 DISABLED 语义取反映射等价)。

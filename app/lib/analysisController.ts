@@ -625,7 +625,10 @@ export class AnalysisController {
       market: s.market,
       settings: s.settings,
       hasDone: s.hasDone,
-      history: [...s.history],
+      // P2(评审 2026-11-09):直接交回内部数组 —— s.history 只做整替换
+      // (:298/:400/:422/:527 全是赋值,无就地修改),每帧拷贝会让 HistoryPanel 的
+      // memo 恒失效(快照 120ms 一帧,抽屉开着跑分析时整列表重渲染)。
+      history: s.history,
       historyLoading: s.historyLoading,
       historyError: s.historyError,
       viewingRun: s.viewingRun ? { ...s.viewingRun } : null,

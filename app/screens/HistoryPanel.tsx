@@ -54,9 +54,14 @@ export default React.memo(function HistoryPanel({
   /** 待确认的破坏性动作(行内确认条,失败可取消)。 */
   const [confirm, setConfirm] = React.useState<'delete' | 'clear' | null>(null);
 
-  // 历史列表变化(删除/新分析)后清掉已不存在的选中项
+  // 历史列表变化(删除/新分析)后清掉已不存在的选中项。
+  // P2(评审 2026-11-09):快照 120ms 一帧,而 filter 每次都返回新数组 →
+  // 即使什么都没删掉也会多排一次渲染。无变化时返回原引用,下游 memo 才能生效。
   React.useEffect(() => {
-    setSelected((prev) => prev.filter((id) => history.some((h) => h.id === id)));
+    setSelected((prev) => {
+      const next = prev.filter((id) => history.some((h) => h.id === id));
+      return next.length === prev.length ? prev : next;
+    });
   }, [history]);
 
   const groups = React.useMemo(() => groupRunsByDay(history), [history]);

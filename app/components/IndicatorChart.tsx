@@ -11,6 +11,7 @@ import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { fmtDate } from '../../src/format.ts';
 import { ChartWebView, useChartWebView } from '../hooks/useChartWebView';
 import type { Theme } from '../theme';
+import { warn } from '../../src/log.ts';
 
 export interface Bar {
   date: string;
@@ -96,18 +97,17 @@ function lineData(rows: IndicatorRow[], dates: string[], key: string): Array<{ t
   return out;
 }
 
-/** 柱数据:按正负着色(成交量按涨跌,在调用方给出 upColor/downColor 语义) */
+/** 柱数据:按正负着色。P2(评审 2026-11-09):规则单源 —— 委托给
+ *  src/chartData.ts 的 changePctHistData(它被 test/chartData.test.ts 逐点钉住)。
+ *  此前这里另有一份同规则实现且无测试覆盖:改零轴归红/绿约定时曾经只有一份会变。 */
 function histData(
   rows: IndicatorRow[], dates: string[], key: string, upColor: string, downColor: string,
 ): Array<{ time: string; value: number; color: string }> {
-  const out: Array<{ time: string; value: number; color: string }> = [];
-  const n = Math.min(rows.length, dates.length);
-  for (let i = 0; i < n; i++) {
-    const v = rows[i][key];
-    if (v === null || v === undefined || !Number.isFinite(v)) continue;
-    out.push({ time: dates[i], value: v, color: v >= 0 ? upColor : downColor });
-  }
-  return out;
+  const values = rows.map((r) => {
+    const v = r[key];
+    return typeof v === 'number' ? v : NaN;
+  });
+  return changePctHistData(values, dates, upColor, downColor);
 }
 
 /** #RRGGBB → rgba(...,alpha);柱半透明沿用原 volume 柱做法 */
@@ -123,6 +123,10 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
   const ref = React.useRef<View | null>(null);
   // 各 pane 顶 y 坐标(web 分支浮层标题定位;stretch 后按实际高度累积)
   const [paneTops, setPaneTops] = React.useState<number[]>([]);
+  // 图表引导失败态(评审 2026-11-09 P2):chunk 加载失败 / createChart 抛错 /
+  // setData 拒收(如 period 非 YYYY-MM-DD)此前是完全静默的 —— 用户看到一块
+  // 永久空白,既无文案也无重试。chartHtml.ts 的原生侧已有同类降级范式。
+  const [chartFailed, setChartFailed] = React.useState(false);
   const styles = makeStyles(theme);
 
   React.useEffect(() => {
@@ -136,98 +140,112 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
     // 顶层 import type(不把 lightweight-charts 拉进 RN 原生 bundle)
     void import('lightweight-charts').then(({ createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries, LineStyle: LineStyleValue }) => {
       if (disposed || !el) return;
-      chart = createChart(el, {
-        height: CHART_HEIGHT,
-        // autoSize:ResizeObserver 驱动,窗口缩放时 canvas 随容器宽度回流(高度仍由容器 style 固定)
-        autoSize: true,
-        layout: {
-          background: { type: ColorType.Solid, color: theme.colors.background },
-          textColor: theme.colors.textSecondary,
-        },
-        grid: {
-          vertLines: { color: theme.colors.border },
-          horzLines: { color: theme.colors.border },
-        },
-        timeScale: { borderColor: theme.colors.border },
-        // 刻度区最小宽度:默认下价格标签紧贴 canvas 右缘(视觉拥挤/截断风险),
-        // 给足宽度让标签舒展
-        rightPriceScale: { borderColor: theme.colors.border, minimumWidth: 56 },
-      });
+      try {
+        chart = createChart(el, {
+          height: CHART_HEIGHT,
+          // autoSize:ResizeObserver 驱动,窗口缩放时 canvas 随容器宽度回流(高度仍由容器 style 固定)
+          autoSize: true,
+          layout: {
+            background: { type: ColorType.Solid, color: theme.colors.background },
+            textColor: theme.colors.textSecondary,
+          },
+          grid: {
+            vertLines: { color: theme.colors.border },
+            horzLines: { color: theme.colors.border },
+          },
+          timeScale: { borderColor: theme.colors.border },
+          // 刻度区最小宽度:默认下价格标签紧贴 canvas 右缘(视觉拥挤/截断风险),
+          // 给足宽度让标签舒展
+          rightPriceScale: { borderColor: theme.colors.border, minimumWidth: 56 },
+        });
 
-      const dates = bars.map((b) => fmtDate(b.date));
-      const line = (key: string, color: string, style?: LineStyle, pane = 0) => {
-        const s = chart!.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: style ?? LineStyleValue.Solid }, pane);
-        s.setData(lineData(rows, dates, key));
-      };
+        const dates = bars.map((b) => fmtDate(b.date));
+        const line = (key: string, color: string, style?: LineStyle, pane = 0) => {
+          const s = chart!.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: style ?? LineStyleValue.Solid }, pane);
+          s.setData(lineData(rows, dates, key));
+        };
 
-      // pane 0 主图:蜡烛 + MA(实线) + EMA(虚线) + BOLL(点线)
-      const candle = chart.addSeries(CandlestickSeries, {
-        upColor: theme.colors.up,
-        downColor: theme.colors.down,
-        borderVisible: false,
-        wickUpColor: theme.colors.up,
-        wickDownColor: theme.colors.down,
-      });
-      candle.setData(bars.map((b) => ({
-        time: fmtDate(b.date),
-        open: b.open, high: b.high, low: b.low, close: b.close,
-      })));
-      for (const [k, color] of [['MA5', C.amber], ['MA10', C.sky], ['MA20', C.purple], ['MA60', C.gray]] as const) line(k, color);
-      for (const [k, color] of [['EMA5', C.amber], ['EMA10', C.sky], ['EMA20', C.purple], ['EMA60', C.gray]] as const) line(k, color, LineStyleValue.Dashed);
-      for (const [k, color] of [['BOLL_UP', C.green], ['BOLL_MB', C.green], ['BOLL_DN', C.green]] as const) line(k, color, LineStyleValue.Dotted);
-
-      // pane 1 成交量:量柱(涨跌着色) + VOL_MA5
-      const upA = hexToRgba(theme.colors.up, 0.4);
-      const downA = hexToRgba(theme.colors.down, 0.4);
-      const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, base: 0 }, 1);
-      // volume null = 未知 → 该点不画(不以 0 冒充，CR-25)
-      volume.setData(bars
-        .filter((b): b is Bar & { volume: number } => b.volume !== null)
-        .map((b) => ({
+        // pane 0 主图:蜡烛 + MA(实线) + EMA(虚线) + BOLL(点线)
+        const candle = chart.addSeries(CandlestickSeries, {
+          upColor: theme.colors.up,
+          downColor: theme.colors.down,
+          borderVisible: false,
+          wickUpColor: theme.colors.up,
+          wickDownColor: theme.colors.down,
+        });
+        candle.setData(bars.map((b) => ({
           time: fmtDate(b.date),
-          value: b.volume,
-          color: b.close >= b.open ? upA : downA,
+          open: b.open, high: b.high, low: b.low, close: b.close,
         })));
-      line('VOL_MA5', C.sky, undefined, 1);
+        for (const [k, color] of [['MA5', C.amber], ['MA10', C.sky], ['MA20', C.purple], ['MA60', C.gray]] as const) line(k, color);
+        for (const [k, color] of [['EMA5', C.amber], ['EMA10', C.sky], ['EMA20', C.purple], ['EMA60', C.gray]] as const) line(k, color, LineStyleValue.Dashed);
+        for (const [k, color] of [['BOLL_UP', C.green], ['BOLL_MB', C.green], ['BOLL_DN', C.green]] as const) line(k, color, LineStyleValue.Dotted);
 
-      // pane 2 涨跌幅柱:正红负绿、base 0(对齐 Python change_percent_chart)
-      const changePctHist = chart.addSeries(HistogramSeries, { base: 0 }, 2);
-      changePctHist.setData(changePctHistData(changePct, dates, upA, downA));
+        // pane 1 成交量:量柱(涨跌着色) + VOL_MA5
+        const upA = hexToRgba(theme.colors.up, 0.4);
+        const downA = hexToRgba(theme.colors.down, 0.4);
+        const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, base: 0 }, 1);
+        // volume null = 未知 → 该点不画(不以 0 冒充，CR-25)
+        volume.setData(bars
+          .filter((b): b is Bar & { volume: number } => b.volume !== null)
+          .map((b) => ({
+            time: fmtDate(b.date),
+            value: b.volume,
+            color: b.close >= b.open ? upA : downA,
+          })));
+        line('VOL_MA5', C.sky, undefined, 1);
 
-      // pane 3 MACD:DIF/DEA 线 + MACD 柱(0 轴上下着色)
-      line('DIF', C.amber, undefined, 3);
-      line('DEA', C.sky, undefined, 3);
-      const macd = chart.addSeries(HistogramSeries, { base: 0 }, 3);
-      macd.setData(histData(rows, dates, 'MACD', upA, downA));
+        // pane 2 涨跌幅柱:正红负绿、base 0(对齐 Python change_percent_chart)
+        const changePctHist = chart.addSeries(HistogramSeries, { base: 0 }, 2);
+        changePctHist.setData(changePctHistData(changePct, dates, upA, downA));
 
-      // pane 4 KDJ
-      line('K', C.amber, undefined, 4);
-      line('D', C.sky, undefined, 4);
-      line('J', C.purple, undefined, 4);
+        // pane 3 MACD:DIF/DEA 线 + MACD 柱(0 轴上下着色)
+        line('DIF', C.amber, undefined, 3);
+        line('DEA', C.sky, undefined, 3);
+        const macd = chart.addSeries(HistogramSeries, { base: 0 }, 3);
+        macd.setData(histData(rows, dates, 'MACD', upA, downA));
 
-      // pane 5 RSI
-      line('RSI6', C.amber, undefined, 5);
-      line('RSI12', C.sky, undefined, 5);
-      line('RSI24', C.purple, undefined, 5);
+        // pane 4 KDJ
+        line('K', C.amber, undefined, 4);
+        line('D', C.sky, undefined, 4);
+        line('J', C.purple, undefined, 4);
 
-      // pane 6 MACD-VH:MACD_V/SIGNAL 线 + VH 柱
-      line('MACD_V', C.amber, undefined, 6);
-      line('SIGNAL', C.sky, undefined, 6);
-      const vh = chart.addSeries(HistogramSeries, { base: 0 }, 6);
-      vh.setData(histData(rows, dates, 'MACD_VH', upA, downA));
+        // pane 5 RSI
+        line('RSI6', C.amber, undefined, 5);
+        line('RSI12', C.sky, undefined, 5);
+        line('RSI24', C.purple, undefined, 5);
 
-      // pane 7-9 单线:ATR / 量比 / 乖离率
-      line('ATR', C.yellow, undefined, 7);
-      line('VOL_RATIO', C.sky, undefined, 8);
-      line('LIU_BIAS', C.purple, undefined, 9);
+        // pane 6 MACD-VH:MACD_V/SIGNAL 线 + VH 柱
+        line('MACD_V', C.amber, undefined, 6);
+        line('SIGNAL', C.sky, undefined, 6);
+        const vh = chart.addSeries(HistogramSeries, { base: 0 }, 6);
+        vh.setData(histData(rows, dates, 'MACD_VH', upA, downA));
 
-      // 面板比例:全部 series 建完后设置 stretch(比例布局,与当前高度无关)
-      chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 70));
-      // 面板顶位置:纯比例计算(stretch/总和 × 总高,实现抽到 src/chartLayout.ts
-      // paneTops 公共函数)——不用 pane.getHeight():真实 lightweight-charts v5.2
-      // createChart 后立即读取返回未布局值(≈全高,2026-08-15 真机/Chromium 实测),
-      // 会导致附图标签全部堆到图表底部。
-      setPaneTops(computePaneTops(PANE_STRETCH.map((stretchFactor) => ({ height: CHART_HEIGHT, stretchFactor }))));
+        // pane 7-9 单线:ATR / 量比 / 乖离率
+        line('ATR', C.yellow, undefined, 7);
+        line('VOL_RATIO', C.sky, undefined, 8);
+        line('LIU_BIAS', C.purple, undefined, 9);
+
+        // 面板比例:全部 series 建完后设置 stretch(比例布局,与当前高度无关)
+        chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 70));
+        // 面板顶位置:纯比例计算(stretch/总和 × 总高,实现抽到 src/chartLayout.ts
+        // paneTops 公共函数)——不用 pane.getHeight():真实 lightweight-charts v5.2
+        // createChart 后立即读取返回未布局值(≈全高,2026-08-15 真机/Chromium 实测),
+        // 会导致附图标签全部堆到图表底部。
+        setPaneTops(computePaneTops(PANE_STRETCH.map((stretchFactor) => ({ height: CHART_HEIGHT, stretchFactor }))));
+        setChartFailed(false);
+      } catch (err) {
+        // 建图/setData 抛错(如 lightweight-charts 拒收非 YYYY-MM-DD 的 time)
+        setChartFailed(true);
+        chart?.remove();
+        chart = null;
+        warn(`指标图渲染失败:${err instanceof Error ? err.message : String(err)}`);
+      }
+    }).catch((err: unknown) => {
+      // 动态 chunk 加载失败(dev 重载 / OTA 后旧 chunk 失效)
+      if (disposed) return;
+      setChartFailed(true);
+      warn(`指标图模块加载失败:${err instanceof Error ? err.message : String(err)}`);
     });
     return () => { disposed = true; chart?.remove(); };
   }, [bars, rows, changePct, theme]);
@@ -350,6 +368,12 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
       ) : null}
       <View style={{ position: 'relative', width: '100%' }}>
         <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
+        {/* 引导失败:保留容器高度占位,给出可读原因(而不是一块永久空白) */}
+        {chartFailed ? (
+          <View pointerEvents="none" style={styles.chartFailedOverlay}>
+            <Text style={styles.chartFailedText}>指标图渲染失败:图表引擎未就绪或数据日期格式不合法,可切到「最新指标」表格查看同源数值。</Text>
+          </View>
+        ) : null}
         {paneTops.map((top, i) => (LEGEND[i] && !(narrow && i === 0) ? (
           <View key={i} pointerEvents="none" style={[styles.paneLabel, { top }]}>
             <Text style={styles.paneLabelTitle}>{LEGEND[i].title}</Text>
@@ -371,7 +395,18 @@ function makeStyles(theme: Theme) {
     // 窄屏主图图例:图表容器上方文档流内换行块(复用下面 paneLabel* 各样式)
     mainLegendBlock: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, marginLeft: 8, paddingBottom: 8 },
     // 浮层图例:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
-    paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 10, maxWidth: '92%' },
+    chartFailedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  chartFailedText: { fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 10, maxWidth: '92%' },
     paneLabelTitle: { fontWeight: '700', fontSize: 11, color: theme.colors.textSecondary },
     paneLabelChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     paneLabelDot: { width: 8, height: 8, borderRadius: 4 },

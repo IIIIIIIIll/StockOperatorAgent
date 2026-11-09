@@ -131,7 +131,10 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
       {/* 日K 表 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>日K(尾 {DAILY_TABLE_N} / 共 {bars.length} 根)</Text>
-        <View style={styles.table}>
+        {/* P2(评审 2026-11-09):8 列在 360dp 上每列约 37dp,「1234.5万」这类值
+            会折行、行高参差且无横向逃逸。给单元格最小宽度并允许横向滚动。 */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={[styles.table, styles.tableWide]}>
           <View style={[styles.row, styles.headerRow]}>
             <Text style={[styles.cell, styles.dateCell]}>日期</Text>
             <Text style={styles.cell}>开</Text>
@@ -161,7 +164,8 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
               </View>
             );
           })}
-        </View>
+          </View>
+        </ScrollView>
       </View>
 
       {/* 盈利能力(F10 最新期) */}
@@ -239,8 +243,10 @@ function makeStyles(theme: Theme) {
     table: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' },
     row: { flexDirection: 'row', paddingVertical: 5, paddingHorizontal: theme.spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
     headerRow: { backgroundColor: theme.colors.surface },
-    cell: { flex: 1, fontSize: 11, textAlign: 'right', color: theme.colors.text },
-    dateCell: { flex: 1.5, textAlign: 'left', color: theme.colors.textSecondary },
+    cell: { flex: 1, minWidth: 52, fontSize: 11, textAlign: 'right', color: theme.colors.text },
+    dateCell: { flex: 1.5, minWidth: 64, textAlign: 'left', color: theme.colors.textSecondary },
+    // 横向滚动容器内的表格需要确定宽度,否则 flex 列会拿到 0 宽
+    tableWide: { minWidth: 460 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     chip: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.sm, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: theme.spacing.sm, paddingVertical: 5 },
     chipLabel: { fontSize: 10, color: theme.colors.textSecondary },

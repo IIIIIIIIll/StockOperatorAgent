@@ -10,6 +10,7 @@ import type { FinancialSeries } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { ChartWebView, useChartWebView } from '../hooks/useChartWebView';
 import type { Theme } from '../theme';
+import { warn } from '../../src/log.ts';
 
 // 原生分支(WebView)JSON 数据契约:与 tools/build-chart-view.mts 头部文档一致
 // (财务 3 pane 折线,stretch 等比例;图例单行 chips)。
@@ -32,6 +33,9 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
   // 各 pane 顶 y 坐标(web 分支浮层标题定位;stretch 后按实际高度累积)
   const [paneTops, setPaneTops] = React.useState<number[]>([]);
   const styles = makeStyles(theme);
+  // 引导失败态(评审 2026-11-09 P2):动态 chunk 加载失败 / createChart 抛错此前
+  // 完全静默 → 永久空白且无文案。与 IndicatorChart 同款降级。
+  const [chartFailed, setChartFailed] = React.useState(false);
 
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !ref.current || series.length === 0) return undefined;
@@ -42,42 +46,54 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
     let chart: IChartApi | null = null;
     void import('lightweight-charts').then(({ createChart, ColorType, HistogramSeries }) => {
       if (disposed || !el) return;
-      chart = createChart(el, {
-        height: CHART_HEIGHT,
-        layout: {
-          background: { type: ColorType.Solid, color: theme.colors.background },
-          textColor: theme.colors.textSecondary,
-        },
-        grid: {
-          vertLines: { color: theme.colors.border },
-          horzLines: { color: theme.colors.border },
-        },
-        timeScale: { borderColor: theme.colors.border },
-        rightPriceScale: { borderColor: theme.colors.border },
-      });
-      // 每指标一 pane(独立价格轴,单位不混);series 顺序即 pane 顺序。
-      // 柱状图(用户 2026-08-15 反馈:折线 9 期太短奇怪,改柱状,base=0 便于比高低)
-      series.forEach((s, i) => {
-        const bar = chart!.addSeries(HistogramSeries, { color: s.color }, i);
-        bar.setData(s.points);
-      });
-      // 稀疏季度轴(9 期):fitContent 铺满,避免柱群挤在时间轴一侧(2026-08-15)
-      chart.timeScale().fitContent();
-      chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
-      // 面板顶位置:纯比例计算(实现与 IndicatorChart 共用 src/chartLayout.ts
-      // paneTops——pane.getHeight() 在 createChart 后立即读取返回未布局值,
-      // 2026-08-15 实测)
-      // S4-1(评审 2026-11-08):只给「真实存在的 pane」算坐标。旧实现用满三档
-      // (series 只有 2 条时就多算一个 pane),浮层标题会比实际 pane 高 ~36px、
-      // 落在上一个 pane 里。
-      setPaneTops(
-        computePaneTops(
-          PANE_STRETCH.slice(0, series.length).map((stretchFactor) => ({
-            height: CHART_HEIGHT,
-            stretchFactor,
-          })),
-        ),
-      );
+      try {
+        chart = createChart(el, {
+          height: CHART_HEIGHT,
+          layout: {
+            background: { type: ColorType.Solid, color: theme.colors.background },
+            textColor: theme.colors.textSecondary,
+          },
+          grid: {
+            vertLines: { color: theme.colors.border },
+            horzLines: { color: theme.colors.border },
+          },
+          timeScale: { borderColor: theme.colors.border },
+          rightPriceScale: { borderColor: theme.colors.border },
+        });
+        // 每指标一 pane(独立价格轴,单位不混);series 顺序即 pane 顺序。
+        // 柱状图(用户 2026-08-15 反馈:折线 9 期太短奇怪,改柱状,base=0 便于比高低)
+        series.forEach((s, i) => {
+          const bar = chart!.addSeries(HistogramSeries, { color: s.color }, i);
+          bar.setData(s.points);
+        });
+        // 稀疏季度轴(9 期):fitContent 铺满,避免柱群挤在时间轴一侧(2026-08-15)
+        chart.timeScale().fitContent();
+        chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
+        // 面板顶位置:纯比例计算(实现与 IndicatorChart 共用 src/chartLayout.ts
+        // paneTops——pane.getHeight() 在 createChart 后立即读取返回未布局值,
+        // 2026-08-15 实测)
+        // S4-1(评审 2026-11-08):只给「真实存在的 pane」算坐标。旧实现用满三档
+        // (series 只有 2 条时就多算一个 pane),浮层标题会比实际 pane 高 ~36px、
+        // 落在上一个 pane 里。
+        setPaneTops(
+          computePaneTops(
+            PANE_STRETCH.slice(0, series.length).map((stretchFactor) => ({
+              height: CHART_HEIGHT,
+              stretchFactor,
+            })),
+          ),
+        );
+        setChartFailed(false);
+      } catch (err) {
+        setChartFailed(true);
+        chart?.remove();
+        chart = null;
+        warn(`业绩趋势图渲染失败:${err instanceof Error ? err.message : String(err)}`);
+      }
+    }).catch((err: unknown) => {
+      if (disposed) return;
+      setChartFailed(true);
+      warn(`业绩趋势图模块加载失败:${err instanceof Error ? err.message : String(err)}`);
     });
     return () => { disposed = true; chart?.remove(); };
   }, [series, theme]);
@@ -129,6 +145,11 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
          不再集中渲染顶部大图例块(用户 2026-08-15 反馈:图例应跟随各自图) */}
       <View style={{ position: 'relative', width: '100%' }}>
         <View ref={ref as never} style={{ height: CHART_HEIGHT, width: '100%' }} />
+        {chartFailed ? (
+          <View pointerEvents="none" style={styles.failedOverlay}>
+            <Text style={styles.failedText}>业绩趋势图渲染失败:图表引擎未就绪或数据日期格式不合法,可切到表格查看同源数值。</Text>
+          </View>
+        ) : null}
         {paneTops.map((top, i) => (series[i] ? (
           <View key={series[i].label} pointerEvents="none" style={[styles.paneLabel, { top }]}>
             <Text style={styles.paneLabelTitle}>{series[i].label}</Text>
@@ -144,5 +165,7 @@ function makeStyles(theme: Theme) {
     // 浮层标题:绝对定位叠加在各 pane 顶部(pointerEvents none,不挡缩放/十字线)
     paneLabel: { position: 'absolute', left: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 10, maxWidth: '85%' },
     paneLabelTitle: { fontWeight: '700', fontSize: 11, color: theme.colors.textSecondary },
+    failedOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+    failedText: { fontSize: 12, lineHeight: 18, textAlign: 'center' },
   });
 }

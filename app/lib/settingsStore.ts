@@ -15,7 +15,10 @@ import { bridgeStorage, isDesktopBridge } from './desktopBridge.ts';
 
 export interface SettingsStore {
   load(): string | null;
-  save(s: string): void;
+  /** 返回是否真的写成功(评审 2026-11-09 P2)。此前返回 void 且两处 catch 静默:
+   *  配额超限/只读沙箱/文件系统未就绪都表现为"已保存",下次启动回落默认值并以
+   *  演示 LLM 跑,用户完全不知道为什么 key 没了。 */
+  save(s: string): boolean;
 }
 
 /** localStorage 最小使用面(测试注入 fake;web 分支)。 */
@@ -121,19 +124,21 @@ export function createSettingsStore(
       }
       return loadFromFile(_fs ?? rnFs);
     },
-    save(s: string): void {
+    save(s: string): boolean {
       if (web !== undefined) {
         try {
           web.setItem(KEY, s);
+          return true;
         } catch {
-          /* 写入失败 → 静默(同原 settings.ts 语义) */
+          /* 写入失败 → 交回调用方留痕(原实现静默丢弃) */
+          return false;
         }
-        return;
       }
       const fs = _fs ?? rnFs;
       if (!fs) {
+        // 文件系统尚未就绪:异步补齐后本次仍然没写上 —— 必须如实报告失败
         void getRnFileSystem();
-        return;
+        return false;
       }
       try {
         const file = new fs.File(fs.Paths.document, RN_SETTINGS_FILE);
@@ -145,8 +150,10 @@ export function createSettingsStore(
         tmp.write(s);
         if (typeof tmp.moveSync === 'function') tmp.moveSync(file, { overwrite: true });
         else file.write(s); // 无 move 能力的旧运行时:保持原语义
+        return true;
       } catch {
-        /* 写入失败 → 静默 */
+        /* 写入失败 → 交回调用方留痕 */
+        return false;
       }
     },
   };
@@ -160,6 +167,6 @@ const singleton = isDesktopBridge() ? createSettingsStore(bridgeStorage(), null)
 export function load(): string | null {
   return singleton.load();
 }
-export function save(s: string): void {
-  singleton.save(s);
+export function save(s: string): boolean {
+  return singleton.save(s);
 }
