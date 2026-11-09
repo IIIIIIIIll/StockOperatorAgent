@@ -1,5 +1,9 @@
 # 代码改进巡检 — 2026-11-09（`HEAD = 87e22f3`）
 
+> **状态(2026-11-09 收尾)**：25 条 VERIFIED 中的 **P1 全部已修 + P2/P3 绝大部分已修**，
+> 余项见文末「§8 未修与理由」。修复提交：`2f9aa8d` / `9bdd6da` / `f2a4f62` / `d3bbd21` /
+> `097b754` / `dc85563` / `801ef64`。
+>
 > **两轮流程**：7 个只读 reviewer 分区扫出 30 条 → 6 个独立 validator 逐条**尝试推翻**
 > （要求给出 VERIFIED / NUANCED / REFUTED 与反证行号）。
 > **裁决：41 条送验 → 25 VERIFIED · 15 NUANCED · 1 REFUTED**（无一条机制被推翻；
@@ -361,3 +365,33 @@
 | 41 | `app/lib/request-gate.d.cts` 未使用（knip 报告） | **REFUTED** | 它是 `test/request-gate.test.ts:5` 引 `request-gate.cjs` 的类型来源；`tsconfig.json:17` include `test/**`、无 `allowJs`、`strict:true` → 删掉 `npm run typecheck` 会红。**不要删** |
 
 未送验的小项：§2 拆分缝（设计建议）、§3 读侧失败信号、§3 看门狗注释、§0 `ci.yml` 过期注释。
+
+---
+
+## 8. 修复进度（2026-11-09 全部批次完成）
+
+| 批次 | 提交 | 内容 |
+| --- | --- | --- |
+| B1a | `2f9aa8d` | P1-2 `maxRetries:0`；P1-4 release 补 app tsc；P1-5 CI 接 web e2e |
+| B1b | `9bdd6da` | P1-1 事件带 `runTag`（孤儿运行不再污染下一轮）+ 变异验证用例 |
+| B1c | `f2a4f62` | P1-3 `readBodyWithTimeout` + 客户端→代理跳超时；P1-7 盘中残缺 bar 不盖新鲜戳 |
+| B2 | `d3bbd21` | `degraded` 终态（chip 不再「重试中」）、信息面并发预取、MCP 降级留痕 |
+| B3 | `097b754` | 设置保存可见、流式渲染节流、图表失败态、历史 memo、键盘首点、K 表溢出 |
+| B4/B5 | `dc85563` | 发布说明单源、版本门去重+根包、`chart:check` 接线（并修出真实生成物漂移） |
+| B4/B5 | `801ef64` | 测试补钉（宽限常量/序列长度/±7 天窗）、a11y、±Infinity、F10 窗口、样式表 memo |
+
+每批均跑 `npm run typecheck` + `cd app && npx tsc --noEmit` + `npm test`；最终
+**841 passed / 1 skipped，两层 typecheck 0 error**。
+
+### 仍未修（需单独决策，不在本次范围）
+
+1. **B6 结构性重构**：`app/lib/analysisController.ts` 1011 行拆 5 段（历史域 / 事件归约 /
+   看门狗 / 通知 / start 守卫）；`src/agents.ts` 与 `src/billionsTools.ts` 的格式化函数抽
+   `src/billionsFormat.ts`；`release.yml` 拆独立 `publish` job（把 build job 的
+   `contents: write` 真正收窄）。
+2. **图表「建一次 + 更新」拆分**：裁决为 NUANCED（每次采集完成重建一次，非每帧），
+   收益是消除数据页一次闪烁，风险是动主可视化生命周期 → 与 B6 一起做。
+3. **`net-shim` / `polyfill` / `async-hooks-shim` 测试**：house style 禁 `vi.mock`，
+   需要先把参数归一抽成纯函数（重构），故留 B6。
+4. **`src/store-file.ts` 读侧失败信号**（§3 未验项）：需要新的 `getLastLoadError` 面，
+   与写侧 `getLastPersistError` 合并属接口改动，留 B6。
