@@ -81,6 +81,12 @@ jobs:
           npx expo export --platform web
           node ../tools/restore-app-tsconfig.mjs
 
+      # 2026-11-09 巡检 P1-5:expo export 只证明「能编译」,挂载即抛的 bundle
+      # 一样绿。web-e2e.mjs 需要 app/dist(上一步刚好产出),ubuntu-latest 自带
+      # /usr/bin/google-chrome(脚本默认路径),零额外依赖。
+      - name: Web e2e smoke
+        run: npm run e2e:web
+
       - name: Test
         run: npm test
 

@@ -76,6 +76,10 @@ export function createLlm(cfg: LlmConfig, opts?: { proxyBase?: string }): ChatOp
   return new ChatOpenAI({
     model,
     apiKey,
+    // 2026-11-09 巡检 P1-2:AsyncCaller 默认 maxRetries=6,叠上 retry.ts 的 3 次
+    // → 单节点最坏 21 次请求,且内层重发完整 prompt、对外完全不可见(无日志无
+    // onRetry)。钉成 0 让 retry.ts 成为唯一重试权威(它带日志与 roleStatus)。
+    maxRetries: 0,
     configuration: {
       baseURL: viaProxy ? opts.proxyBase : baseUrl,
       // 不设 timeout:基本面分析师长 prompt/长生成可达数分钟(Python 版

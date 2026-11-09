@@ -47,6 +47,12 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+      # 2026-11-09 巡检 P1-4:release 与 ci.yml 必须同一道门。根 tsconfig 的
+      # include 只有 src/test/tools,app 层对根门完全不可见;expo export 走
+      # Babel 转译不做类型检查。历史证据:SDK 57→58 那次 app 层 13 个类型错、CI 全绿。
+      - name: Typecheck app
+        working-directory: app
+        run: npx tsc --noEmit
       - name: Test
         run: npm test
       # S6-3:桌面 Node 后端接线探针(store 落盘/快照/store-op 分派/settings)。
