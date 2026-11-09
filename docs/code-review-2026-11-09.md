@@ -383,6 +383,33 @@
 每批均跑 `npm run typecheck` + `cd app && npx tsc --noEmit` + `npm test`；最终
 **841 passed / 1 skipped，两层 typecheck 0 error**。
 
+### B6 结构重构进度（用户选择 B6-full）
+
+已拆（每步独立提交 + 全绿门禁）：
+
+| 提交 | 内容 | 结果 |
+| --- | --- | --- |
+| `410785e` | `src/billionsFormat.ts` | 两版分叉的格式化函数收口，守卫取并集 |
+| `0d32e44` | `app/lib/runWatchdog.ts` + `app/lib/analysisNotifier.ts` | 时钟/回调注入，新增 5 例看门狗单测 |
+| `63ec880` | `app/lib/eventReduce.ts` | 事件折叠纯函数化，副作用留控制器；7 例单测 |
+| `7e00374` | `app/lib/startGuards.ts` | 输入校验 + 契约文案抽成纯函数；6 例单测 |
+
+`analysisController.ts`：**1020 → 963 行**，5 个接缝中已抽出 4 个（看门狗 / 通知 /
+事件归约 / start 守卫），共新增 358 行**带测试**的独立模块。
+
+仍未做（B6 剩余）：
+
+1. **历史域接缝**（`~:284-450` 的 refresh/open/close/delete/clear + `~:464-532`
+   的 applyReportBody/recordRun）—— 5 个接缝里最大的一个，牵动
+   `historySeq`/`historyListSeq`/`liveStash` 三份可变状态。
+2. **图表「建一次 + 更新」拆分**（两个组件）。
+3. **`store-file.ts` 读侧失败信号**（`getLastLoadError`）。
+4. **shim 测试**：需先把 `net-shim` 参数归一抽成纯函数（house style 禁 `vi.mock`）。
+5. **release `publish` job 拆分** —— **刻意不做**：需要新增钉 SHA 的 action 或
+   gh-CLI 管道，且无法在本地验证，只能靠一次真实 tag 推送检验；现状态是显式
+   `permissions: contents: write`（正确但非最小权限）。
+6. `src/agents.ts` 的 `systemText` / 三专家报告块去重（§3 P3 项，纯机械）。
+
 ### 仍未修（需单独决策，不在本次范围）
 
 1. **B6 结构性重构**：`app/lib/analysisController.ts` 1011 行拆 5 段（历史域 / 事件归约 /
