@@ -385,8 +385,19 @@ function AppContent() {
               const st = r.reviseNodeName && a.statuses[r.reviseNodeName]
                 ? a.statuses[r.reviseNodeName] // opinion 角色取修订节点(最新阶段)
                 : a.statuses[r.nodeName];
-              const label = st === 'running' ? '分析中' : st === 'done' ? '完成' : st === 'retry' ? '重试中' : '待运行';
-              const color = st === 'done' ? theme.colors.ok : st === 'retry' ? theme.colors.warn : st === 'running' ? theme.colors.primary : theme.colors.textSecondary;
+              // 'degraded' 是**终态**(本轮跑完但无有效产出),不能复用 'retry' 的
+              // 文案 —— 否则 chip 永远停在「重试中」而运行早已结束(评审 2026-11-09 P2)。
+              const label =
+                st === 'running' ? '分析中'
+                  : st === 'done' ? '完成'
+                    : st === 'retry' ? '重试中'
+                      : st === 'degraded' ? '无结论'
+                        : '待运行';
+              const color =
+                st === 'done' ? theme.colors.ok
+                  : st === 'retry' || st === 'degraded' ? theme.colors.warn
+                    : st === 'running' ? theme.colors.primary
+                      : theme.colors.textSecondary;
               return (
                 <View key={r.nodeName} style={[styles.statusChip, { borderColor: color }]}>
                   <Text style={[styles.statusChipText, { color }]}>{r.tabTitle} · {label}</Text>

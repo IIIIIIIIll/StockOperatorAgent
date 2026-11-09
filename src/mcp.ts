@@ -6,6 +6,7 @@
 // 每次实时查询（与 Python 交易时段行为一致；mcp_intel_cache.py 不移植）。
 // 密钥纪律：apiKey 只进请求头，任何路径不 log 密钥值。
 import { envValue } from './env.ts';
+import { warn } from './log.ts';
 import { getCapabilitySwitches } from './switches.ts';
 
 export const MCP_URL = 'https://mcp.tdx.com.cn:3001/mcp';
@@ -258,8 +259,13 @@ export async function queryMarketIntel(
     if (!rows.length) return '（通达信 MCP 无返回数据）';
     const lines = rows.slice(0, 10).map(rowToText);
     return '【实时市场情报】\n' + lines.join('\n');
-  } catch {
-    // MCP 网络/解析异常不阻断主流程（图可继续）
+  } catch (exc) {
+    // MCP 网络/解析异常不阻断主流程（图可继续）。
+    // P2(评审 2026-11-09):必须留痕 —— 此前完全静默,密钥过期(401 在 _post 抛
+    // "TDX MCP HTTP 401")与网络抖动在日志里不可区分,而每次分析都会静默降级
+    // 成「无实时情报」。本域其他降级点(agents.ts 的 bindTools/twitter/web)
+    // 都先 warn 再降级。
+    warn(`通达信 MCP 查询失败(${ticker}):${exc instanceof Error ? exc.message : String(exc)}`);
     return `（通达信 MCP 查询异常，跳过${ticker}的实时情报）`;
   }
 }

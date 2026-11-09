@@ -64,7 +64,7 @@ async function runComplete(script: Array<() => AIMessage>) {
 }
 
 describe('completeWithTools 收尾状态守卫(AL2)', () => {
-  it('收尾轮不服从(仍返 tool_calls)→ 报告为兜底占位文案,终态 retry(非 done)', async () => {
+  it('收尾轮不服从(仍返 tool_calls)→ 报告为兜底占位文案,终态 degraded(非 done)', async () => {
     const { updater, out } = await runComplete([
       () => toolCall('web_search', {}),
       () => toolCall('web_search', {}),
@@ -74,11 +74,11 @@ describe('completeWithTools 收尾状态守卫(AL2)', () => {
       { key: 'bullish_opinions', content: '搜索轮数已用尽，未能生成最终回答' },
     ]);
     const last = updater.statuses[updater.statuses.length - 1];
-    expect(last).toEqual({ node: 'bullish_trader', status: 'retry' });
+    expect(last).toEqual({ node: 'bullish_trader', status: 'degraded' });
     expect(out.bullish_opinions).toBe('搜索轮数已用尽，未能生成最终回答');
   });
 
-  it('轮内早退空 content(空白串)→ agents 空串守卫占位「（本轮未产出结论）」+ retry', async () => {
+  it('轮内早退空 content(空白串)→ agents 空串守卫占位「（本轮未产出结论）」+ degraded', async () => {
     const { updater, out } = await runComplete([
       () => new AIMessage({ content: '   ' }), // 无 tool_calls 且空白 → 首轮早退
     ]);
@@ -86,7 +86,7 @@ describe('completeWithTools 收尾状态守卫(AL2)', () => {
       { key: 'bullish_opinions', content: '（本轮未产出结论）' },
     ]);
     const last = updater.statuses[updater.statuses.length - 1];
-    expect(last).toEqual({ node: 'bullish_trader', status: 'retry' });
+    expect(last).toEqual({ node: 'bullish_trader', status: 'degraded' });
     expect(out.bullish_opinions).toBe('（本轮未产出结论）');
   });
 

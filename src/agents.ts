@@ -138,7 +138,7 @@ export class AgentNode {
     if (!conclusive) error(`专家节点 ${nodeName} 未产出内容(空流/空回复),已以占位文案兜底`);
     safeProgress(this.progressUpdater, doneMsg);
     pushReport(this.progressUpdater, stateKey, content);
-    safePushStatus(this.progressUpdater, nodeName, conclusive ? 'done' : 'retry');
+    safePushStatus(this.progressUpdater, nodeName, conclusive ? 'done' : 'degraded');
     return { messages: [query[0], response], [stateKey]: content };
   }
 
@@ -171,13 +171,13 @@ export class AgentNode {
     safeProgress(this.progressUpdater, doneMsg);
     // AL2 配合守卫:收尾轮非合规时 toolLoop 已替换占位并标记 closingFallback;
     // 此处再防其余路径(直调/轮内早退)的空串报告——占位文案与 toolLoop 单源。
-    // roleStatus 不再无条件 'done':空结论或兜底终态 → 'retry'(chip 显式呈现
-    // 异常,并经控制器 retry 通道清该节点 partial),真实结论照旧 'done'。
+    // roleStatus 不再无条件 'done':空结论或兜底终态 → 'degraded'(终态;chip 显式呈现
+    // 异常),真实结论照旧 'done'。'retry' 只用于「还会再试」的在途复位。
     const rawContent = typeof response.content === 'string' ? response.content : String(response.content);
     const conclusive = closingFallback === null && rawContent.trim().length > 0;
     const content = rawContent.trim() ? rawContent : NO_CONCLUSION_TEXT;
     pushReport(this.progressUpdater, stateKey, content);
-    safePushStatus(this.progressUpdater, nodeName, conclusive ? 'done' : 'retry');
+    safePushStatus(this.progressUpdater, nodeName, conclusive ? 'done' : 'degraded');
     return { messages, [stateKey]: content };
   }
 
@@ -444,14 +444,16 @@ export class BillionsInformationAnalyst extends AgentNode {
     if (searchOn || twitterOn) {
       const client = this._getClient();
       const keyOn = client.hasApiKey; // 主闸：无 key 亿信路径静默关闭
+      // P2(评审 2026-11-09):三源 + twitter 并发拉取。原实现逐个 await(每个
+      // fast 模式 25s 超时)→ 最坏约 100s 没有任何进度事件,而看门狗是 300s,
+      // 用户只看到「开始信息面素材检索。。。之后长时间不动」。
+      // Promise.all 保序 → 报告段落顺序与串行版逐字节一致。
+      const tasks: Array<Promise<string>> = [];
       if (searchOn && keyOn) {
-        for (const source of _SEARCH_SOURCES) {
-          sections.push(await this._searchSection(client, ticker, source));
-        }
+        for (const source of _SEARCH_SOURCES) tasks.push(this._searchSection(client, ticker, source));
       }
-      if (twitterOn && keyOn) {
-        sections.push(await this._twitterSection(client, ticker));
-      }
+      if (twitterOn && keyOn) tasks.push(this._twitterSection(client, ticker));
+      for (const section of await Promise.all(tasks)) sections.push(section);
     }
     let foundContent = sections.some((s) => s.includes('检索结果】'));
     if (!foundContent && webOn) {

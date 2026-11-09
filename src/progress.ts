@@ -4,8 +4,11 @@
 // 08-11-ts-streaming-output 新增(可选):pushDelta/pushStatus —— agent 级流式
 // token 增量 + 角色生命周期(方案 B,D1);方法可选 → 现有 fake/调用方零改动。
 
-/** 角色生命周期状态(running 于首调前、done 于 pushReport 后、retry 复位)。 */
-export type RoleStatus = 'running' | 'done' | 'retry';
+/** 角色生命周期状态(running 于首调前、done 于 pushReport 后、retry 复位)。
+ *  degraded(评审 2026-11-09 P2):**终态**——本轮跑完了但没产出有效内容(空流/
+ *  占位兜底/降级结论)。此前复用 'retry',而运行已经结束、不会有下一次重试,
+ *  chip 就永远停在「重试中」。与 'retry'(运行中、还会再试)必须区分开。 */
+export type RoleStatus = 'running' | 'done' | 'retry' | 'degraded';
 
 export interface ProgressUpdater {
   info(msg: string): void;
