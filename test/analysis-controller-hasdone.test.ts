@@ -299,4 +299,57 @@ describe('AnalysisController 落盘失败可见性(S3-2/CR-28)', () => {
     await new Promise((r) => setTimeout(r, 0)); // flush.then 落地
     expect(h.snap().error).toContain('本地保存失败');
   });
+
+  it('读侧损坏文件可见(getLastLoadError):提示下次采集可能覆盖历史', async () => {
+    const base = new InMemoryStore();
+    const store: StoreLike = Object.assign(base, {
+      getLastLoadError: () => 'BROKEN.json(Unexpected end of JSON input)',
+    });
+    const h = makeHarness({
+      store,
+      runnerImpl: async () => {
+        const r = makeReport();
+        h.runner.emit({ type: 'done', report: r });
+        return r;
+      },
+    });
+    await h.ctrl.start('600036', 'cn');
+    expect(h.snap().hasDone).toBe(true); // 读侧告警不得吞掉 done
+    expect(h.snap().error).toContain('本地数据部分损坏');
+    expect(h.snap().error).toContain('BROKEN.json');
+  });
+
+  it('读侧告警与写侧失败共存时,写侧更紧急(后者覆盖 error 文案)', async () => {
+    const base = new InMemoryStore();
+    const store: StoreLike = Object.assign(base, {
+      getLastLoadError: () => 'BROKEN.json(bad)',
+      getLastPersistError: () => 'QuotaExceededError: 存储已满',
+      flush: async () => {},
+    });
+    const h = makeHarness({
+      store,
+      runnerImpl: async () => {
+        const r = makeReport();
+        h.runner.emit({ type: 'done', report: r });
+        return r;
+      },
+    });
+    await h.ctrl.start('600036', 'cn');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.snap().error).toContain('本地保存失败');
+    expect(h.snap().error).not.toContain('本地数据部分损坏');
+  });
+
+  it('无读侧错误时不写 error(空库不报噪声)', async () => {
+    const h = makeHarness({
+      runnerImpl: async () => {
+        const r = makeReport();
+        h.runner.emit({ type: 'done', report: r });
+        return r;
+      },
+    });
+    await h.ctrl.start('600036', 'cn');
+    expect(h.snap().hasDone).toBe(true);
+    expect(h.snap().error).toBeNull();
+  });
 });

@@ -292,6 +292,78 @@ describe('FileStore 写队列错误隔离(决策 C:失败仅记录不阻断后�
   });
 });
 
+describe('FileStore 读侧失败信号(§3 未验项:getLastLoadError)', () => {
+  it('健康库返回 null(不是空串)', async () => {
+    store.addDatas('T', bars(['2026-01-01']));
+    await store.flush();
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    expect(s2.getLastLoadError()).toBeNull();
+    expect(s2.getDatas('T')).toHaveLength(1);
+  });
+
+  it('损坏 ticker 文件:记录文件名,且不阻断其余文件加载', async () => {
+    store.addDatas('HEALTHY', bars(['2026-01-01']));
+    store.addDatas('BROKEN', bars(['2026-01-02']));
+    await store.flush();
+    await fsWriteFile(join(baseDir, 'BROKEN.json'), '{"stock":', 'utf8');
+
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    // 单文件容错仍在(这是本信号存在的理由:坏文件被跳过后看起来像新股票)
+    expect(s2.getDatas('HEALTHY')).toHaveLength(1);
+    expect(s2.getDatas('BROKEN')).toEqual([]);
+    expect(s2.getLastLoadError()).toContain('BROKEN.json');
+    expect(s2.getLastLoadError()).not.toContain('HEALTHY.json');
+  });
+
+  it('多个坏文件 + 损坏 meta 逐条累积', async () => {
+    store.addDatas('A', bars(['2026-01-01']));
+    store.addDatas('B', bars(['2026-01-02']));
+    store.setMeta('k', 'v');
+    await store.flush();
+    await fsWriteFile(join(baseDir, 'A.json'), 'nope', 'utf8');
+    await fsWriteFile(join(baseDir, 'B.json'), 'nope', 'utf8');
+    await fsWriteFile(join(baseDir, '_meta.json'), 'nope', 'utf8');
+
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    const err = s2.getLastLoadError();
+    expect(err).toContain('A.json');
+    expect(err).toContain('B.json');
+    expect(err).toContain('_meta.json');
+  });
+
+  it('文件修好后重新 hydrate 清回 null(每次从磁盘重新推导,不复用旧结果)', async () => {
+    store.addDatas('T', bars(['2026-01-01']));
+    await store.flush();
+    const good = await fsReadFile(join(baseDir, 'T.json'), 'utf8');
+    await fsWriteFile(join(baseDir, 'T.json'), 'broken', 'utf8');
+
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    expect(s2.getLastLoadError()).toContain('T.json');
+
+    await fsWriteFile(join(baseDir, 'T.json'), good, 'utf8');
+    const s3 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s3.ready();
+    expect(s3.getLastLoadError()).toBeNull();
+    expect(s3.getDatas('T')).toHaveLength(1);
+  });
+
+  it('ready 失败(整库不可读)时返回 null —— 拒绝已直接抛出,不重复记账', async () => {
+    const base = nodeAdapter(baseDir);
+    const s2 = new FileStore(baseDir, {
+      ...base,
+      async listDir() {
+        throw new Error('EACCES: 目录不可读');
+      },
+    });
+    await expect(s2.ready()).rejects.toThrow('EACCES');
+    expect(s2.getLastLoadError()).toBeNull();
+  });
+});
+
 describe('FileStore × CR-25:volume null 跨 JSON 落盘可耐久', () => {
   it('null 落盘读回仍为 null(不被 JSON 变 0,也不被 hydrate 丢弃)', async () => {
     const s = new FileStore(baseDir, nodeAdapter(baseDir));

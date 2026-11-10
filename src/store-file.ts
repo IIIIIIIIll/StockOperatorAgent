@@ -160,6 +160,7 @@ export class FileStore implements StoreLike {
       text = await fs.readFile(joinPath(baseDir, source));
     } catch (err) {
       logError(`FileStore 跳过 meta 文件(不可读):${source}(${errText(err)})`);
+      this.noteLoadFailure(source, errText(err));
       return { consumed: true };
     }
     if (text == null) return { consumed: true };
@@ -168,6 +169,7 @@ export class FileStore implements StoreLike {
       rows = JSON.parse(text);
     } catch (err) {
       logError(`FileStore 跳过 meta 文件(损坏):${source}(${errText(err)})`);
+      this.noteLoadFailure(source, errText(err));
       return { consumed: true };
     }
     if (!isMetaMap(rows)) {
@@ -175,6 +177,7 @@ export class FileStore implements StoreLike {
       // 分支再试一次(否则那条 ticker 的历史会连同旧 meta 一起被丢掉)。
       if (source === META_FILE) {
         logError(`FileStore 跳过 meta 文件(形状不符):${source}`);
+        this.noteLoadFailure(source, '形状不符');
         return { consumed: true };
       }
       return { consumed: false };
@@ -185,7 +188,17 @@ export class FileStore implements StoreLike {
     return { consumed: true };
   }
 
+  /** 读侧对偶:记录 hydrate 期间被跳过的文件(CR-28 写侧 `getLastPersistError` 的
+   *  镜像)。单文件名 + 原因,多个用 '；' 串起 —— 与写侧同样返回人可读串。 */
+  private noteLoadFailure(name: string, detail: string): void {
+    const line = `${name}(${detail})`;
+    this.loadError = this.loadError === null ? line : `${this.loadError}；${line}`;
+  }
+
   private async hydrate(): Promise<void> {
+    // 每次 hydrate 重新从磁盘推导诊断,不复用上一次的结果(文件可能已修好)。
+    // 放在最前:后端/目录列举失败时返回 null,与「整库不可读已直接抛出」一致。
+    this.loadError = null;
     const { fs, baseDir } = await this.backend();
     const names = await fs.listDir();
     // F1:meta 先认领文件名(新名优先),主循环不再判断 meta 名称。
@@ -217,7 +230,8 @@ export class FileStore implements StoreLike {
       } catch (err) {
         // F12:hydrate 逐文件兜底 —— 损坏 JSON 或不可读(EACCES 等,store-node
         // 适配器上抛非 ENOENT 错误)都只跳过该文件并记录,不中断其余文件
-        logError(`FileStore 跳过文件(损坏或不可读):${name}(${err instanceof Error ? err.message : String(err)})`);
+        logError(`FileStore 跳过文件(损坏或不可读):${name}(${errText(err)})`);
+        this.noteLoadFailure(name, errText(err));
       }
     }
   }
@@ -225,10 +239,22 @@ export class FileStore implements StoreLike {
   /** 串行写队列:整文件重写(执行时读内存最新态 → 幂等);失败仅记录不阻断(决策 C)。 */
   private persistError: string | null = null;
 
+  /** 读侧对偶(§3 P3 未验项):hydrate 期间被跳过的文件,与写侧
+   *  `getLastPersistError` 同构。此前只有 logError —— 损坏文件读不出来就等于
+   *  「这只股票不存在」,下一轮采集会把它当新股票整文件重写,原历史静默丢失。
+   *  null = 本次 hydrate 全部文件读取成功;`ready()` 重复调用会重新推导。 */
+  private loadError: string | null = null;
+
   /** CR-28:异步写穿透的最近失败(成功写入清除)。写事件不返回 Promise,
    *  调用方(analysisController)在 done 时自检并告知用户。 */
   getLastPersistError(): string | null {
     return this.persistError;
+  }
+
+  /** 读侧诊断:本次 hydrate 跳过的文件清单(空 = 全部读取成功)。调用方在
+   *  `ready()` 之后读才有效;`ready()` 失败时返回 null(整库不可读已直接抛出)。 */
+  getLastLoadError(): string | null {
+    return this.loadError;
   }
 
   private enqueue(op: () => Promise<void>): void {

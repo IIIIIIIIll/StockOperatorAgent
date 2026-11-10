@@ -705,6 +705,14 @@ export class AnalysisController {
       // flush 可选 —— 内存 store 不实现,直接读即可。代际门防陈旧错误写进新一轮。
       const store = d.store;
       const seqAtDone = this.runSeq;
+      // 读侧对偶(§3 未验项):hydrate 跳过过的文件 = 这只股票的本地历史不全,
+      // 下一轮采集会把它当新股票整文件重写。与写侧同款「完成了但本地数据有问题」
+      // 横幅;写侧错误更紧急,稍后覆盖本条。
+      const loadError = store.getLastLoadError?.();
+      if (loadError && this.runSeq === seqAtDone) {
+        d.log.error(`本地数据读取失败:${loadError}`);
+        s.error = `本地数据部分损坏（已跳过，下次采集可能覆盖该股票历史）：${loadError}`;
+      }
       const reportPersistError = (): void => {
         const persistError = store.getLastPersistError?.();
         if (!persistError || this.runSeq !== seqAtDone) return;
