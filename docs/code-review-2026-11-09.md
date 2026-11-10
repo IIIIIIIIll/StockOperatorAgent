@@ -471,3 +471,28 @@ apksigner 风格的 v2 签名方案）。
 `fail-fast: false`，谁先跑完谁先挂 Release，一个 OS 失败就留下永远缺一个平台的
 Release 且流水线全绿。现在 publish `needs: [test, desktop, android]`，缺任一平台
 由 `fail_on_unmatched_files` 当场报错。
+
+### v0.1.13 发版实证（2026-11-10，run 42848052304）
+
+新增的 CI 门禁在真实发布里全部生效，并且把拆分的价值兑现了一次：
+
+| 面 | 实测 |
+| --- | --- |
+| `secret-scan`（gitleaks） | ✅ 首轮 CI 通过，SHA 有效 |
+| APK 签名校验 | ✅ Passed；发布出的 `soa-0.1.13.apk` 本地验签为 `CN=SOA Release`（非 debug） |
+| AAB `jarsigner` 校验 | ✅ Passed |
+| 全 OS 安装包断言 | ✅ 三个 OS 都绿（此前 Windows/macOS 零断言） |
+| `publish` 拆分 | ✅ 下载 6 个产物后一次发布 |
+
+发布结果：6 个产物（`.deb` 108.5MB / `arm64.dmg` 137.6MB / `.AppImage` 144.6MB /
+`Setup.exe` 136.5MB / `.aab` 47.5MB / `.apk` 71.6MB），无残缺。
+
+**关键证据（原子性）**：首轮尝试中 `desktop (macos-latest)` 一直没排到 runner
+（0 个 step、卡 15 分钟后被 cancelled）→ 整轮 failed → `publish` 被 skipped，
+**一个 Release 都没建**（`gh release view v0.1.13` → `release not found`）。
+旧结构下这时 ubuntu / windows / android 已经各自把产物挂上去了。
+
+**运作摩擦（记下来备用）**：当前 PAT 只有 contents 权限，`gh run rerun --failed`
+返回 403（`Resource not accessible by personal access token`）。重试只能走两条路：
+UI 点「Re-run failed jobs」，或删 tag 重推（`git push --delete origin v0.1.13`
+再重推）—— 后者安全的前提正是 publish 未执行、没有 Release 存在。本次走的是后者。
