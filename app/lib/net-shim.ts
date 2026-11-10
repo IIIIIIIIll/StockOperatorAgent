@@ -6,6 +6,7 @@
 // 类型只能从 default 命名空间取(包的类型声明把 Socket/isIP 等都挂在
 // `export default _default` 下;运行时 module.exports 则直接具名导出,两者一致)。
 import net from 'react-native-tcp-socket';
+import { normalizeConnectArgs, normalizeWriteArgs } from './net-shim-args';
 
 const { Socket: TcpSocket, isIP, isIPv4, isIPv6 } = net;
 
@@ -23,12 +24,11 @@ export class Socket extends TcpSocket {
     hostOrCallback?: string | (() => void),
     maybeCallback?: () => void
   ): this {
-    if (typeof portOrOptions === 'number') {
-      const host = typeof hostOrCallback === 'string' ? hostOrCallback : undefined;
-      const callback = typeof hostOrCallback === 'function' ? hostOrCallback : maybeCallback;
-      return super.connect({ port: portOrOptions, host }, callback) as this;
+    const args = normalizeConnectArgs(portOrOptions as number | object, hostOrCallback, maybeCallback);
+    if (args.kind === 'options') {
+      return super.connect(args.options as ConnectOptions, args.callback) as this;
     }
-    return super.connect(portOrOptions, hostOrCallback as () => void) as this;
+    return super.connect({ port: args.port, host: args.host }, args.callback) as this;
   }
 
   write(buffer: string | Buffer | Uint8Array, callback?: WriteCallback): boolean;
@@ -42,10 +42,8 @@ export class Socket extends TcpSocket {
     encodingOrCallback?: WriteEncoding | WriteCallback,
     maybeCallback?: WriteCallback
   ): boolean {
-    if (typeof encodingOrCallback === 'function') {
-      return super.write(buffer, undefined, encodingOrCallback);
-    }
-    return super.write(buffer, encodingOrCallback, maybeCallback);
+    const args = normalizeWriteArgs<WriteEncoding>(encodingOrCallback, maybeCallback);
+    return super.write(buffer, args.encoding, args.callback);
   }
 
   setKeepAlive(enable?: boolean, initialDelay?: number): this {
@@ -63,13 +61,8 @@ export function createConnection(
   maybeCallback?: () => void
 ): Socket {
   const socket = new Socket();
-  if (typeof portOrOptions === 'number') {
-    const host = typeof hostOrCallback === 'string' ? hostOrCallback : undefined;
-    const callback = typeof hostOrCallback === 'function' ? hostOrCallback : maybeCallback;
-    socket.connect(portOrOptions, host, callback);
-  } else {
-    socket.connect(portOrOptions, hostOrCallback as () => void);
-  }
+  // 两种形态的重载归一已收在 Socket#connect(→ net-shim-args),这里不再重复一份
+  socket.connect(portOrOptions as number, hostOrCallback as string, maybeCallback);
   return socket;
 }
 

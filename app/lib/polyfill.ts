@@ -3,6 +3,7 @@
 // 早于 index.ts 的函数体——所以本模块必须作为 index.ts 的**第一个 import** 求值,
 // 在 App 依赖图(含 node-tdx-market)之前装上全局。
 import { Buffer } from 'buffer';
+import { createTimerRegistry, fillRandomView, formatUuid, randomBytes, wrapSubarray } from './polyfill-parts';
 
 (globalThis as { Buffer?: unknown }).Buffer = Buffer;
 
@@ -13,11 +14,11 @@ import { Buffer } from 'buffer';
 // 统一包一层:仍是共享内存视图(零拷贝),但恢复完整 Buffer API;Buffer 自身已
 // 覆盖 subarray 的实现(本包)经 isBuffer 短路,不重复包装。
 const origSubarray = Buffer.prototype.subarray;
-Buffer.prototype.subarray = function subarrayView(start?: number, end?: number): Buffer {
-  const view = origSubarray.call(this, start, end) as Uint8Array;
-  if (Buffer.isBuffer(view)) return view;
-  return Buffer.from(view.buffer, view.byteOffset, view.byteLength);
-};
+Buffer.prototype.subarray = wrapSubarray<Buffer>(
+  (view): view is Buffer => Buffer.isBuffer(view),
+  (buffer, byteOffset, byteLength) => Buffer.from(buffer, byteOffset, byteLength),
+  origSubarray,
+);
 
 // Node 契约:setTimeout/setInterval 返回带 unref()/ref() 的 Timeout 句柄
 // (node-tdx-market startHeartbeat/scheduleReconnect 调 timer.unref()——"不让
@@ -28,40 +29,17 @@ const rawSetTimeout = globalThis.setTimeout.bind(globalThis);
 const rawClearTimeout = globalThis.clearTimeout.bind(globalThis);
 const rawSetInterval = globalThis.setInterval.bind(globalThis);
 const rawClearInterval = globalThis.clearInterval.bind(globalThis);
-const wrappedToRaw = new WeakMap<object, unknown>();
-
-function wrapTimer(raw: unknown): object {
-  const wrapper = {
-    unref(): object {
-      return wrapper;
-    },
-    ref(): object {
-      return wrapper;
-    },
-    hasRef(): boolean {
-      return true;
-    },
-  };
-  wrappedToRaw.set(wrapper, raw);
-  return wrapper;
-}
-
-function unwrapTimer(handle: unknown): ReturnType<typeof setTimeout> | undefined {
-  if (handle !== null && typeof handle === 'object') {
-    const raw = wrappedToRaw.get(handle);
-    if (raw !== undefined) return raw as ReturnType<typeof setTimeout>;
-  }
-  return handle as ReturnType<typeof setTimeout> | undefined;
-}
+// 包装/反查逻辑抽到 polyfill-parts(可单测);这里只做安装。
+const timers = createTimerRegistry();
 
 (globalThis as { setTimeout?: unknown }).setTimeout = ((fn: (...a: unknown[]) => void, ms?: number, ...args: unknown[]) =>
-  wrapTimer(rawSetTimeout(fn, ms, ...args))) as typeof setTimeout;
+  timers.wrap(rawSetTimeout(fn, ms, ...args))) as typeof setTimeout;
 (globalThis as { clearTimeout?: unknown }).clearTimeout = ((handle: unknown) =>
-  rawClearTimeout(unwrapTimer(handle))) as typeof clearTimeout;
+  rawClearTimeout(timers.unwrap(handle) as ReturnType<typeof setTimeout>)) as typeof clearTimeout;
 (globalThis as { setInterval?: unknown }).setInterval = ((fn: (...a: unknown[]) => void, ms?: number, ...args: unknown[]) =>
-  wrapTimer(rawSetInterval(fn, ms, ...args))) as typeof setInterval;
+  timers.wrap(rawSetInterval(fn, ms, ...args))) as typeof setInterval;
 (globalThis as { clearInterval?: unknown }).clearInterval = ((handle: unknown) =>
-  rawClearInterval(unwrapTimer(handle))) as typeof clearInterval;
+  rawClearInterval(timers.unwrap(handle) as ReturnType<typeof setInterval>)) as typeof clearInterval;
 
 // Hermes 的 navigator 只有 product('ReactNative'),无 userAgent——langchain
 // env 检测(isJsDom)读 navigator.userAgent.includes('jsdom') 直接崩
@@ -105,24 +83,14 @@ if (signalProto && typeof signalProto.throwIfAborted !== 'function') {
 
 const cryptoGlobal = globalThis as { crypto?: CryptoLike };
 if (!cryptoGlobal.crypto) {
-  const randomBytes = (n: number): Uint8Array => {
-    const out = new Uint8Array(n);
-    for (let i = 0; i < n; i++) out[i] = Math.floor(Math.random() * 256);
-    return out;
-  };
+  const rand = (): number => Math.random();
   cryptoGlobal.crypto = {
     getRandomValues<T extends ArrayBufferView | null>(array: T): T {
       if (array === null) return array;
-      const view = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
-      view.set(randomBytes(view.byteLength));
-      return array;
+      return fillRandomView(array, rand);
     },
     randomUUID(): string {
-      const b = randomBytes(16);
-      b[6] = (b[6] & 0x0f) | 0x40;
-      b[8] = (b[8] & 0x3f) | 0x80;
-      const hex = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      return formatUuid(randomBytes(16, rand));
     },
   };
 }
