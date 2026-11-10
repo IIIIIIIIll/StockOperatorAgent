@@ -453,8 +453,16 @@
 1MB `maxBuffer` 截断导致目标行永远匹配不到；分析等待上限硬编码 180s（演示模式够用，
 真实 LLM 完整跑实测 593-789s）→ 改 `SOA_E2E_ANALYSIS_TIMEOUT_MS` 可覆盖，默认 30 分钟。
 
-### 另记：§0 的 5 条 CI 门禁缺口至今未修（不在本次范围，需单独排期）
+### 另记：§0 的 5 条 CI 门禁缺口已补（`a737685`）
 
-`concurrency:` 两套 workflow 均无 · APK 签名无 `apksigner` 校验 · 无密钥/CVE 扫描 ·
-桌面打包烟测只跑 Linux（`.exe`/`.dmg` 无断言）· `ci.yml:4-7` 表头注释仍称 app tsc
-与 expo export「本轮不做」。以上均为 §0 已 VERIFIED 项，非本轮 reviewer 产出。
+| §0 缺口 | 现状 |
+| --- | --- |
+| 两套 workflow 无 `concurrency:` | ✅ ci 取消旧 run；release 刻意不取消（避免半发布） |
+| APK 签名无 `apksigner` 校验 | ✅ tag 发布检出 `CN=Android Debug` 即失败；dispatch 仅告警 |
+| 无密钥/CVE 扫描 | ✅ 密钥半边已接（gitleaks v2.3.9）；CVE 半边需换源，`dependabot.yml:2` 记的镜像 advisory 404 仍成立 |
+| 桌面打包烟测只跑 Linux | ✅ 全 OS 安装包存在性 + ≥20MB 断言；非 Linux 资源树只打日志（路径未验证过，不拿猜测硬失败） |
+| `ci.yml:4-7` 表头注释过期 | ✅ 改为陈述现状 |
+
+未做且仍成立：**`release.yml` 拆独立 `publish` job**（需钉 SHA 的 action 或 gh-CLI
+管道，无法本地验证）；**AAB 的 v2/v3 签名方案校验**（`jarsigner` 只看 jar 签名，
+不验证 apksigner 风格的 v2 签名方案）。
