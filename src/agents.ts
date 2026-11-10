@@ -57,11 +57,7 @@ export class AgentNode {
     roleMessage: string,
     market: Market = 'cn',
   ) {
-    const rules = marketPromptRules(market);
-    const systemText = system_prompt
-      .replace('{system_message}', roleMessage.replace('{market_cycle}', rules.market_cycle))
-      .replace('{market_rules}', rules.market_rules)
-      .replace('{current_date}', getLastBusinessDay(marketToday(market)));
+    const systemText = buildSystemText(roleMessage, market);
     const prompt = ChatPromptTemplate.fromMessages([
       ['system', systemText],
       new MessagesPlaceholder('query'),
@@ -88,15 +84,14 @@ export class AgentNode {
 
   /** 第二条链（对抗修订轮）：复用构造时已绑定实例（双链共享）。 */
   buildChain(roleMessage: string, llm?: LlmLike): unknown {
-    const rules = marketPromptRules(this.market);
-    const systemText = system_prompt
-      .replace('{system_message}', roleMessage.replace('{market_cycle}', rules.market_cycle))
-      .replace('{market_rules}', rules.market_rules)
-      .replace('{current_date}', getLastBusinessDay(marketToday(this.market)));
+    const systemText = buildSystemText(roleMessage, this.market);
     const prompt = ChatPromptTemplate.fromMessages([
       ['system', systemText],
       new MessagesPlaceholder('query'),
     ]);
+    // SAFETY: `prompt.pipe()` 返回 LangChain 自定义泛型 Runnable,与本仓窄化的
+    // RunnableLike(只要求 invoke/stream 可能地存在)结构上兼容但名义不兼容 ——
+    // 调用方(streamOrInvoke)会自行探测 .stream 并在缺失时回退直调。
     return prompt.pipe((llm ?? this.boundLlm) as unknown as RunnableLike);
   }
 
@@ -192,6 +187,12 @@ export class AgentNode {
     }
     return '';
   }
+
+  /** 多/空交易员的 query 主体(R2:442 行与 468 行此前逐字节重复)。
+   *  尾部缩进与投资经理不同,不可与 investment_manager 共用。 */
+  protected traderBrief(state: StateLike): string {
+    return `\n        现在请基于以下信息，给出你对股票代码${target(state)}的看法：\n        ${expertReportsBlock(state)}\n        \n        ${this.infoSection(state)}`;
+  }
 }
 
 // ─── 角色类（查询构建对齐 Python agents/chinese_mainland/*.py——f-string 逐字：
@@ -204,6 +205,22 @@ function target(state: StateLike): string {
 /** 专家报告文本（completeExpert 写字符串 key）。 */
 function expertReport(state: StateLike, key: string): string {
   return String(state[key] ?? '');
+}
+
+/** 三专家报告块(R2 单源:多/空/投资经理三处逐字相同)。逐字节敏感 —— 缩进
+ *  与 `\n        \n` 分隔符是提示词的一部分,由 agents-prompt-golden.test.ts 锁死。 */
+function expertReportsBlock(state: StateLike): string {
+  return `基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}`;
+}
+
+/** 系统提示词骨架填充(R2 单源:构造函数与 buildChain 此前逐字重复)。
+ *  `system_prompt` 必须逐字节一致 —— 查询模板容错空白,system 不容。 */
+function buildSystemText(roleMessage: string, market: Market): string {
+  const rules = marketPromptRules(market);
+  return system_prompt
+    .replace('{system_message}', roleMessage.replace('{market_cycle}', rules.market_cycle))
+    .replace('{market_rules}', rules.market_rules)
+    .replace('{current_date}', getLastBusinessDay(marketToday(market)));
 }
 
 /** 图前 enrichment 组装的数据文本（build_stock_information 输出）。 */
@@ -436,9 +453,7 @@ export class BullishTrader extends AgentNode {
   }
   private reviseLlm: unknown;
   async bullish_trader(state: StateLike) {
-    const info = this.infoSection(state);
-    const q = `\n        现在请基于以下信息，给出你对股票代码${target(state)}的看法：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n        ${info}`;
-    return this.completeWithTools(q, 'bullish_opinions', {
+    return this.completeWithTools(this.traderBrief(state), 'bullish_opinions', {
       startMsg: '多头交易员开始分析...', doneMsg: '多头交易员完成分析', logLabel: 'Bullish Trader',
       nodeName: 'bullish_trader',
     });
@@ -462,9 +477,7 @@ export class BearishTrader extends AgentNode {
   }
   private reviseLlm: unknown;
   async bearish_trader(state: StateLike) {
-    const info = this.infoSection(state);
-    const q = `\n        现在请基于以下信息，给出你对股票代码${target(state)}的看法：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n        ${info}`;
-    return this.completeWithTools(q, 'bearish_opinions', {
+    return this.completeWithTools(this.traderBrief(state), 'bearish_opinions', {
       startMsg: '空头交易员开始分析...', doneMsg: '空头交易员完成分析', logLabel: 'Bearish Trader',
       nodeName: 'bearish_trader',
     });
@@ -491,7 +504,7 @@ export class InvestmentManager extends AgentNode {
     const bearish = String((state['bearish_opinions'] as Array<{ content: string }> | undefined)?.at(-1)?.content ?? '');
     const info = this.infoSection(state);
     return this.completeWithTools(
-      `\n        现在请基于以下信息，给出你对股票代码${target(state)}的最终投资建议：\n        基本面报告: \n        ${expertReport(state, 'fundamental_analysis')}\n        \n        趋势报告: \n        ${expertReport(state, 'trend_analysis')}\n        \n        技术指标分析报告: \n        ${expertReport(state, 'technical_indicator_analysis')}\n        \n${info}\n        多头观点: \n        ${bullish}\n        \n        空头观点: \n        ${bearish}\n        \n`,
+      `\n        现在请基于以下信息，给出你对股票代码${target(state)}的最终投资建议：\n        ${expertReportsBlock(state)}\n        \n${info}\n        多头观点: \n        ${bullish}\n        \n        空头观点: \n        ${bearish}\n        \n`,
       'final_decision',
       { startMsg: '投资经理开始终审...', doneMsg: '投资经理完成终审', logLabel: 'Investment Manager',
         nodeName: 'investment_manager' },
