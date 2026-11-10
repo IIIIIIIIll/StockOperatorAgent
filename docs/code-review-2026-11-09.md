@@ -463,6 +463,11 @@
 | 桌面打包烟测只跑 Linux | ✅ 全 OS 安装包存在性 + ≥20MB 断言；非 Linux 资源树只打日志（路径未验证过，不拿猜测硬失败） |
 | `ci.yml:4-7` 表头注释过期 | ✅ 改为陈述现状 |
 
-未做且仍成立：**`release.yml` 拆独立 `publish` job**（需钉 SHA 的 action 或 gh-CLI
-管道，无法本地验证）；**AAB 的 v2/v3 签名方案校验**（`jarsigner` 只看 jar 签名，
-不验证 apksigner 风格的 v2 签名方案）。
+未做且仍成立：**AAB 的 v2/v3 签名方案校验**（`jarsigner` 只看 jar 签名，不验证
+apksigner 风格的 v2 签名方案）。
+
+**`release.yml` 拆独立 `publish` job —— 已做（`65a3623`）。** 之前不做的理由
+（「无法本地验证」）仍然成立，但顺带发现它不只是权限问题：desktop 矩阵是
+`fail-fast: false`，谁先跑完谁先挂 Release，一个 OS 失败就留下永远缺一个平台的
+Release 且流水线全绿。现在 publish `needs: [test, desktop, android]`，缺任一平台
+由 `fail_on_unmatched_files` 当场报错。
