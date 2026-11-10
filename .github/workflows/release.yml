@@ -9,6 +9,14 @@ on:
 permissions:
   contents: write
 
+# 同一 tag 的重复推送 / 重复 dispatch 不再并行双跑。这里**刻意不取消**:
+# release 包含「两次把产物挂到同一个 Release」的动作,已开始的那次跑到一半被杀
+# 会留下半发布的 Release(桌面传了、APK 没传),比多跑一次更危险。
+# cancel-in-progress: false 的语义 = 同 group 只排队一个待跑者,更早的待跑者被丢弃。
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # CR-43:tag/dispatch 发布前先跑与 ci.yml 相同的门禁——任意 commit 打 tag
   # 都可能直接产出并挂出 Release 产物,不能绕过 typecheck/vitest。
@@ -135,6 +143,43 @@ jobs:
         run: |
           npm ci
           npx electron-builder --publish never
+
+      # 复核 §0 遗留(VERIFIED):三个 OS 都上传 .exe/.dmg/.AppImage,但断言只有
+      # Linux 那两步(if: runner.os == 'Linux')。Windows/macOS 是「打包命令没报错
+      # 就算过」—— electron-builder 的 target 配错时会静默跳过该 target,结果是
+      # 一个空 dist 目录 + 一次全绿的发版。这里补一道与 OS 无关的产物断言。
+      - name: Assert installer artifact produced (all OSes)
+        shell: bash
+        run: |
+          case "${RUNNER_OS}" in
+            Linux)   glob='desktop/dist/*.AppImage' ;;
+            Windows) glob='desktop/dist/*.exe' ;;
+            macOS)   glob='desktop/dist/*.dmg' ;;
+            *) echo "::error::未知 RUNNER_OS=${RUNNER_OS}"; exit 1 ;;
+          esac
+          shopt -s nullglob
+          files=( $glob )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::${RUNNER_OS} 没产出匹配 ${glob} 的安装包(electron-builder target 配错?)"
+            ls -la desktop/dist || true
+            exit 1
+          fi
+          min=$((20 * 1024 * 1024))
+          for f in "${files[@]}"; do
+            size=$(wc -c < "$f" | tr -d ' ')
+            echo "${f}: ${size} 字节"
+            if [ "$size" -lt "$min" ]; then
+              echo "::error::${f} 过小(${size} < ${min}),可能是空壳产物"
+              exit 1
+            fi
+          done
+          echo "OK: ${RUNNER_OS} 安装包齐备(共 ${#files[@]} 个)"
+          # 非 Linux 的资源树只打不判:layout 未在本仓库真机验证过,
+          # 不拿猜测的路径去硬失败发版链路(平匀失败只剩日志可查)。
+          if [ "${RUNNER_OS}" != "Linux" ]; then
+            echo '--- dist 资源树(仅供参考) ---'
+            find desktop/dist -maxdepth 3 -name resources -o -maxdepth 2 -type d | head -20 || true
+          fi
 
       # B2:打包成功 ≠ 能启动。electron-builder 的「漏列入口文件」只有在用户
       # 装完启动那刻才暴露(desktop-ci spec 的已知坑)。这里断言 resources/ 下
@@ -299,6 +344,39 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           cp "app/android/app/build/outputs/bundle/release/app-release.aab" "soa-${version}.aab"
+
+      # 复核 §0 遗留(VERIFIED):此前 CI 从不校验签名。tools/configure-android-signing.mjs
+      # 在缺 ANDROID_KEYSTORE_B64 时只打一行提示就 exit(0),APK 静默降级成 debug
+      # 签名 —— 可安装、可自测,发出去也没人拦。v0.1.12 是人工拿 apksigner 验的
+      # (CN=SOA Release 正式签名),但只要 Secrets 哪天没配,回归就没人发现。
+      - name: Verify APK signature (apksigner)
+        run: |
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          apksigner=$(ls -d "$sdk"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ ! -x "$apksigner" ]; then
+            echo "::error::找不到 apksigner($sdk/build-tools/*/),runner 镜像的 Android SDK 布局变了?"
+            exit 1
+          fi
+          echo "apksigner: $apksigner"
+          soa_apk=$(ls soa-*.apk | head -1)
+          certs=$("$apksigner" verify --print-certs "$soa_apk")
+          echo "$certs"
+          if grep -q 'CN=Android Debug' <<<"$certs"; then
+            echo "::warning::APK 使用 debug 签名(ANDROID_KEYSTORE_B64 未配置?)"
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              echo "::error::tag 发布不得产 debug 签名的 APK —— 配好四个签名 Secrets 后重打 tag"
+              exit 1
+            fi
+          else
+            echo "OK: $soa_apk 已用正式证书签名"
+          fi
+
+      # AAB 侧对称检查:Play 上传包同样不能无签名(上传密钥就是这里的 keystore)。
+      - name: Verify AAB signature (jarsigner)
+        run: |
+          soa_aab=$(ls soa-*.aab | head -1)
+          jarsigner -verify "$soa_aab" | tail -5
+          echo "OK: $soa_aab 已签名"
 
       - name: Upload APK/AAB to GitHub Release (tag push)
         if: startsWith(github.ref, 'refs/tags/')

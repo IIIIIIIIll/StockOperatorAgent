@@ -1,9 +1,11 @@
 # CI 测试门:typecheck + vitest(push master / PR)。
 # push 必须 branches 过滤:裸 on:push 对 tag push 同样触发,v* tag 推送会与
 # release.yml 并行双跑(审计裁定);branch 过滤天然排除 tag ref。
-# 可选增强(本轮不做,防遗忘):app 层 tsc、expo export 编译门——app 用独立
-# tsconfig(Expo SDK 模板钉版 typescript ~6.0.3,见 app/package.json 注释),与根
-# 门(TS 7)互不兼容;发布链路(release.yml)的 expo export 已兜底编译 app 层。
+#
+# app 层门禁(E2 已落地,不再是「本轮不做」):
+#   - app 用独立 tsconfig(Expo SDK 模板钉版 typescript ~6.0.3,见 app/package.json
+#     注释),与根门(TS 7)不互兼容 → 单独一步 `Typecheck app`。
+#   - expo export 编译门在「Build web bundle」,并顺带把产物喂给 web e2e。
 name: ci
 
 on:
@@ -11,6 +13,12 @@ on:
     branches:
       - master
   pull_request:
+
+# 同一 ref 的重复推送只保留最新一次:PR 连推 5 个 commit 时旧 run 无意义,
+# 继续跑完会白占 runner 配额、并让「最后一条 check 是绿的」这句话不可信。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -99,3 +107,31 @@ jobs:
       # S6-3:桌面 Node 后端接线探针(此前无任何 npm script/workflow 在跑)。
       - name: Desktop backend probe
         run: node --experimental-transform-types tools/desktop-probe.mts
+
+  # 复核 §0 遗留(VERIFIED):此前 .github/ 下 grep
+  # gitleaks|detect-secrets|trufflehog|codeql|npm audit 全零命中 —— 密钥入库没有
+  # 任何门禁。
+  #
+  # 为什么先只补这一半:dependabot.yml:2 已记录本仓镜像的 npm advisory 端点 404,
+  # 所以 CVE 那一半(npm audit / osv-scanner)要先换源;密钥扫描不依赖 registry。
+  # 已确认不会一开就红:git ls-files 无 *.keystore / *.jks / *.pem / *.key,
+  # .env 与 release.keystore 均在 .gitignore。
+  secret-scan:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v4 → 11d5960a326750d5838078e36cf38b85af677262
+      - name: Checkout (full history)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # gitleaks 要扫提交历史,shallow clone 会漏掉旧提交里的密钥
+          fetch-depth: 0
+          persist-credentials: false
+
+      # gitleaks/gitleaks-action v2.3.9 → ff98106e4c7b2bc287b24eaf42907196329070c7
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 个人仓库免费(空值即不校验);组织仓库需补配 GITLEAKS_LICENSE。
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
