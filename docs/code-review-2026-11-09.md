@@ -4,6 +4,12 @@
 > 余项见文末「§8 未修与理由」。修复提交：`2f9aa8d` / `9bdd6da` / `f2a4f62` / `d3bbd21` /
 > `097b754` / `dc85563` / `801ef64`。
 >
+> **2026-11-10 复核（`HEAD = fd78861`）**：B6 结构性重构已全部落地
+> （`410785e` / `0d32e44` / `63ec880` / `7e00374` / `5eb1915`），§8 末节的旧待办
+> 清单已重写为真实剩余项 —— **5 项未做**（图表拆分 / shim 测试 / `getLastLoadError` /
+> `agents.ts` 去重 / `release.yml` publish 拆分）。§0 的 5 条 CI 门禁缺口**仍未修**，
+> 单列在 §8 末尾。
+>
 > **两轮流程**：7 个只读 reviewer 分区扫出 30 条 → 6 个独立 validator 逐条**尝试推翻**
 > （要求给出 VERIFIED / NUANCED / REFUTED 与反证行号）。
 > **裁决：41 条送验 → 25 VERIFIED · 15 NUANCED · 1 REFUTED**（无一条机制被推翻；
@@ -409,25 +415,39 @@
 | `npm run e2e:web` | 打包产物加载 / demo 分析 / 7 chips / 抽屉 / 设置页 / 0 异常 | ✅ 重构后重跑通过 |
 | `npm run e2e:android` | 安装 release APK → 启动 → 点 CTA（断言 `content-desc`）→ 分析完成 → 0 FATAL → 7 chips → 抽屉 → 历史 → `openRun` → `closeRun` | ✅ 新增，本次实跑通过 |
 
-仍未做（B6 剩余，均与控制器无关）：
+「仍未做」清单已收口到下方【仍未修】一节（本节旧列表重且编号断层，移除）。
 
-1. **图表「建一次 + 更新」拆分**（两个组件）。
-3. **`store-file.ts` 读侧失败信号**（`getLastLoadError`）。
-4. **shim 测试**：需先把 `net-shim` 参数归一抽成纯函数（house style 禁 `vi.mock`）。
-5. **release `publish` job 拆分** —— **刻意不做**：需要新增钉 SHA 的 action 或
-   gh-CLI 管道，且无法在本地验证，只能靠一次真实 tag 推送检验；现状态是显式
+### 仍未修（2026-11-10 按 `HEAD = fd78861` 复核，原清单已过期）
+
+原 v1 清单里的「B6 结构性重构」三条**已完成**，不再挂在待办：
+
+| 原待办 | 现状 | 证据 |
+| --- | --- | --- |
+| `analysisController.ts` 1011 行拆 5 段 | ✅ 730 行，5 接缝全出 | `0d32e44` / `63ec880` / `7e00374` / `5eb1915` |
+| `billionsFormat.ts` 单源化 | ✅ 已抽 | `410785e` |
+| 图表建一次 + 更新拆分 | ❌ 仍未做 | 见下 1 |
+| `net-shim` / `polyfill` / `async-hooks-shim` 测试 | ❌ 仍未做 | 见下 2 |
+| `store-file.ts` 读侧失败信号 | ❌ 仍未做 | 见下 3 |
+
+剩余 5 项（复核方式：`grep` 对 `HEAD` 逐条验证）：
+
+1. **图表「建一次 + 更新」拆分**：`app/components/IndicatorChart.tsx`（416 行）与
+   `FinancialTrendChart.tsx` 每次采集完成整块重建 WebView 源。裁决 NUANCED（非每帧），
+   收益是消除数据页一次闪烁，风险是动主可视化生命周期。
+2. **shim 测试**：`app/lib/net-shim.ts` / `app/lib/async-hooks-shim.ts` /
+   `app/lib/polyfill.ts` 三个文件在 `test/` 下**零命中**；house style 禁 `vi.mock`，
+   需先把参数归一抽成纯函数。
+3. **`src/store-file.ts` 读侧失败信号**：`grep getLastLoadError` 零命中，写侧
+   `getLastPersistError`（`store-file.ts:230` / `store-idb.ts:180`）已有；损坏文件
+   至今看起来像新股票。
+4. **`src/agents.ts` 去重**：替换链 `:62-64` 与 `:93-95` 仍逐字重复；三专家报告块
+   `:440` / `:466` 仍逐字节相同，`:494` 仅差 `\n${info}\n`。system prompt 逐字节敏感。
+5. **`release.yml` 拆独立 `publish` job** —— **刻意不做**：需要新增钉 SHA 的 action 或
+   gh-CLI 管道，无法本地验证，只能靠一次真实 tag 推送检验；现状态是显式
    `permissions: contents: write`（正确但非最小权限）。
-6. `src/agents.ts` 的 `systemText` / 三专家报告块去重（§3 P3 项，纯机械）。
 
-### 仍未修（需单独决策，不在本次范围）
+### 另记：§0 的 5 条 CI 门禁缺口至今未修（不在本次范围，需单独排期）
 
-1. **B6 结构性重构**：`app/lib/analysisController.ts` 1011 行拆 5 段（历史域 / 事件归约 /
-   看门狗 / 通知 / start 守卫）；`src/agents.ts` 与 `src/billionsTools.ts` 的格式化函数抽
-   `src/billionsFormat.ts`；`release.yml` 拆独立 `publish` job（把 build job 的
-   `contents: write` 真正收窄）。
-2. **图表「建一次 + 更新」拆分**：裁决为 NUANCED（每次采集完成重建一次，非每帧），
-   收益是消除数据页一次闪烁，风险是动主可视化生命周期 → 与 B6 一起做。
-3. **`net-shim` / `polyfill` / `async-hooks-shim` 测试**：house style 禁 `vi.mock`，
-   需要先把参数归一抽成纯函数（重构），故留 B6。
-4. **`src/store-file.ts` 读侧失败信号**（§3 未验项）：需要新的 `getLastLoadError` 面，
-   与写侧 `getLastPersistError` 合并属接口改动，留 B6。
+`concurrency:` 两套 workflow 均无 · APK 签名无 `apksigner` 校验 · 无密钥/CVE 扫描 ·
+桌面打包烟测只跑 Linux（`.exe`/`.dmg` 无断言）· `ci.yml:4-7` 表头注释仍称 app tsc
+与 expo export「本轮不做」。以上均为 §0 已 VERIFIED 项，非本轮 reviewer 产出。
