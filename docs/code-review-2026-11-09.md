@@ -6,9 +6,14 @@
 >
 > **2026-11-10 复核（`HEAD = fd78861`）**：B6 结构性重构已全部落地
 > （`410785e` / `0d32e44` / `63ec880` / `7e00374` / `5eb1915`），§8 末节的旧待办
-> 清单已重写为真实剩余项 —— **5 项未做**（图表拆分 / shim 测试 / `getLastLoadError` /
-> `agents.ts` 去重 / `release.yml` publish 拆分）。§0 的 5 条 CI 门禁缺口**仍未修**，
-> 单列在 §8 末尾。
+> 清单已重写为真实剩余项。
+>
+> **2026-11-10 当日收尾（`HEAD = cd40708`）**：剩余待办 **R1-R4 全部做完**
+> （`86f24ee` 读侧 `getLastLoadError` / `152001e` agents 提示词单源 /
+> `df778a5` 图表建一次+更新 / `cd40708` 三个 shim 首次有测试），每步均有
+> Chrome DevTools 或 Android 真机实跑佐证（见 §8）。**只剩 1 项刻意不做**
+> （`release.yml` publish job 拆分）。§0 的 5 条 CI 门禁缺口**仍未修**，单列在
+> §8 末尾。
 >
 > **两轮流程**：7 个只读 reviewer 分区扫出 30 条 → 6 个独立 validator 逐条**尝试推翻**
 > （要求给出 VERIFIED / NUANCED / REFUTED 与反证行号）。
@@ -417,34 +422,36 @@
 
 「仍未做」清单已收口到下方【仍未修】一节（本节旧列表重且编号断层，移除）。
 
-### 仍未修（2026-11-10 按 `HEAD = fd78861` 复核，原清单已过期）
+### 仍未修（2026-11-10 当日收尾，`HEAD = cd40708`）
 
-原 v1 清单里的「B6 结构性重构」三条**已完成**，不再挂在待办：
+`2026-11-09` 原清单里的 B6 结构化重构与后续 R1-R4 **已全部做完**：
 
 | 原待办 | 现状 | 证据 |
 | --- | --- | --- |
 | `analysisController.ts` 1011 行拆 5 段 | ✅ 730 行，5 接缝全出 | `0d32e44` / `63ec880` / `7e00374` / `5eb1915` |
 | `billionsFormat.ts` 单源化 | ✅ 已抽 | `410785e` |
-| 图表建一次 + 更新拆分 | ❌ 仍未做 | 见下 1 |
-| `net-shim` / `polyfill` / `async-hooks-shim` 测试 | ❌ 仍未做 | 见下 2 |
-| `store-file.ts` 读侧失败信号 | ❌ 仍未做 | 见下 3 |
+| 图表建一次 + 更新拆分 | ✅ 两个组件已拆 | `df778a5` |
+| `net-shim` / `polyfill` / `async-hooks-shim` 测试 | ✅ 参数归一抽出 + 33 例 | `cd40708` |
+| `store-file.ts` 读侧失败信号 | ✅ `getLastLoadError` | `86f24ee` |
+| `src/agents.ts` 去重 | ✅ 三个纯函数单源 | `152001e` |
 
-剩余 5 项（复核方式：`grep` 对 `HEAD` 逐条验证）：
+真实运行实证（非纯单测）：
 
-1. **图表「建一次 + 更新」拆分**：`app/components/IndicatorChart.tsx`（416 行）与
-   `FinancialTrendChart.tsx` 每次采集完成整块重建 WebView 源。裁决 NUANCED（非每帧），
-   收益是消除数据页一次闪烁，风险是动主可视化生命周期。
-2. **shim 测试**：`app/lib/net-shim.ts` / `app/lib/async-hooks-shim.ts` /
-   `app/lib/polyfill.ts` 三个文件在 `test/` 下**零命中**；house style 禁 `vi.mock`，
-   需先把参数归一抽成纯函数。
-3. **`src/store-file.ts` 读侧失败信号**：`grep getLastLoadError` 零命中，写侧
-   `getLastPersistError`（`store-file.ts:230` / `store-idb.ts:180`）已有；损坏文件
-   至今看起来像新股票。
-4. **`src/agents.ts` 去重**：替换链 `:62-64` 与 `:93-95` 仍逐字重复；三专家报告块
-   `:440` / `:466` 仍逐字节相同，`:494` 仅差 `\n${info}\n`。system prompt 逐字节敏感。
-5. **`release.yml` 拆独立 `publish` job** —— **刻意不做**：需要新增钉 SHA 的 action 或
-   gh-CLI 管道，无法本地验证，只能靠一次真实 tag 推送检验；现状态是显式
+| 面 | 方法 | 结果 |
+| --- | --- | --- |
+| 图表拆分 | Chrome DevTools（CDP）探针：两轮完整分析后比对 chart 宿主 DOM 节点身份 | 第二轮仍是第一轮那两个节点 → 未重建；图表区域截图逐像素相同（0.000000%）；切走/切回正常重建 |
+| net-shim 新参数归一 | Android release 真机跑一只从未采集的票（000001）强制走 TDX 直连 | 「采集完成：8488 根日K」3.5s |
+| 整条安卓链路 | `npm run e2e:android` | 全绿（788.8s、0 FATAL、7 chips、openRun/closeRun） |
+
+仅剩 1 项（**刻意不做**）：
+
+1. **`release.yml` 拆独立 `publish` job**：需要新增钉 SHA 的 action 或 gh-CLI 管道，
+   无法本地验证，只能靠一次真实 tag 推送检验；现状态是显式
    `permissions: contents: write`（正确但非最小权限）。
+
+顺带修了 `tools/android-e2e.mjs` 两处假失败（`df778a5`）：`adb logcat -d` 的默认
+1MB `maxBuffer` 截断导致目标行永远匹配不到；分析等待上限硬编码 180s（演示模式够用，
+真实 LLM 完整跑实测 593-789s）→ 改 `SOA_E2E_ANALYSIS_TIMEOUT_MS` 可覆盖，默认 30 分钟。
 
 ### 另记：§0 的 5 条 CI 门禁缺口至今未修（不在本次范围，需单独排期）
 
