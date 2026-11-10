@@ -55,7 +55,10 @@ const ADB = (() => {
 
 function adb(...rest) {
   const argv = SERIAL ? ['-s', SERIAL, ...rest] : rest;
-  const r = spawnSync(ADB, argv, { encoding: 'utf8', timeout: 120_000 });
+  // maxBuffer:默认 1MB —— `logcat -d` 一次全量转储在模拟器上很容易超过(系统
+  // 服务刷屏),超限后 Node 截断输出,目标行落在截断区就永远匹配不到(实测:
+  // 分析已在 593.6s 完成,工具仍polll 满 1800s 报「分析未完成」)。
+  const r = spawnSync(ADB, argv, { encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
   return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() };
 }
 
@@ -64,7 +67,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitForLog(pattern, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const { out } = adb('logcat', '-d');
+    // 只取 JS 日志(本工具所有等待目标都由 src/log.ts 经 ReactNativeJS 打出)。
+    // 全量 `-d` 会被系统服务刷屏淹没,既慢又容易撞上缓冲截断。
+    const { out } = adb('logcat', '-d', 'ReactNativeJS:*', '*:S');
     if (regexTest(pattern, out)) return out;
     await sleep(1000);
   }
@@ -153,10 +158,15 @@ async function main() {
   adb('shell', 'input', 'tap', ...center(start).map(String));
   ok('点击「开始分析」(content-desc 命中)');
 
-  // ④⑤ 等分析完成
-  const done = await waitForLog('分析结束', 180_000);
+  // ④⑤ 等分析完成。
+  // 上限两种模式差很大:演示模式(无 LLM 键)约 5s;真实 LLM 一次完整多智能体
+  // 分析(8 份报告 + 多次联网搜索)在模拟器上实测 ~730s。旧实现硬钉 180s ——
+  // 设备上残留真实按键时会稳定误报。默认给 30 分钟,可用
+  // SOA_E2E_ANALYSIS_TIMEOUT_MS 覆盖(演示模式调小可以更快失败)。
+  const analysisTimeoutMs = Number(process.env.SOA_E2E_ANALYSIS_TIMEOUT_MS ?? 1_800_000);
+  const done = await waitForLog('分析结束', analysisTimeoutMs);
   if (!done) {
-    fail('分析未完成', '180s 内未见「分析结束」');
+    fail('分析未完成', `${Math.round(analysisTimeoutMs / 1000)}s 内未见「分析结束」`);
     return;
   }
   const elapsed = /分析结束:耗时 ([\d.]+)s/.exec(done)?.[1] ?? '?';

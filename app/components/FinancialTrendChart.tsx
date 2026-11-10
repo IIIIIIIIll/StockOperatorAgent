@@ -5,7 +5,7 @@
 // N/A 期已跳过)。空 series → 不渲染(空数据不崩)。
 import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
-import type { IChartApi } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi } from 'lightweight-charts';
 import type { FinancialSeries } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { ChartWebView, useChartWebView } from '../hooks/useChartWebView';
@@ -28,6 +28,12 @@ interface NativeTrendData {
 const PANE_STRETCH = [100, 100, 100];
 const CHART_HEIGHT = PANE_STRETCH.reduce((a, b) => a + b, 0);
 
+/** 已建好的 web 图句柄:建图 effect 产出(每指标一 pane,数组下标即 pane),数据 effect 消费。 */
+interface TrendChartHandle {
+  chart: IChartApi;
+  bars: Array<ISeriesApi<'Histogram'>>;
+}
+
 export default function FinancialTrendChart({ series, theme }: { series: FinancialSeries[]; theme: Theme }) {
   const ref = React.useRef<View | null>(null);
   // 各 pane 顶 y 坐标(web 分支浮层标题定位;stretch 后按实际高度累积)
@@ -37,6 +43,13 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
   // 引导失败态(评审 2026-11-09 P2):动态 chunk 加载失败 / createChart 抛错此前
   // 完全静默 → 永久空白且无文案。与 IndicatorChart 同款降级。
   const [chartFailed, setChartFailed] = React.useState(false);
+
+  // 建图句柄 + 完成门(§8「建一次 + 更新」拆分,与 IndicatorChart 同款)。
+  // 旧实现把 createChart + addSeries + setData 塞进同一 effect(依赖含 series):
+  // 每次业绩数据变一次就整块重建 chart,数据页闪一下。拆成建图(依赖 theme 与
+  // series 条数)与灌数(依赖 series 内容)两个 effect。
+  const handleRef = React.useRef<TrendChartHandle | null>(null);
+  const [chartReady, setChartReady] = React.useState(false);
 
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !ref.current || series.length === 0) return undefined;
@@ -63,12 +76,7 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
         });
         // 每指标一 pane(独立价格轴,单位不混);series 顺序即 pane 顺序。
         // 柱状图(用户 2026-08-15 反馈:折线 9 期太短奇怪,改柱状,base=0 便于比高低)
-        series.forEach((s, i) => {
-          const bar = chart!.addSeries(HistogramSeries, { color: s.color }, i);
-          bar.setData(s.points);
-        });
-        // 稀疏季度轴(9 期):fitContent 铺满,避免柱群挤在时间轴一侧(2026-08-15)
-        chart.timeScale().fitContent();
+        const bars = series.map((s, i) => chart!.addSeries(HistogramSeries, { color: s.color }, i));
         chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 100));
         // 面板顶位置:纯比例计算(实现与 IndicatorChart 共用 src/chartLayout.ts
         // paneTops——pane.getHeight() 在 createChart 后立即读取返回未布局值,
@@ -84,9 +92,13 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
             })),
           ),
         );
+        handleRef.current = { chart, bars };
         setChartFailed(false);
+        setChartReady(true);
       } catch (err) {
+        // 建图抛错(createChart 失败 / series 选项被拒)
         setChartFailed(true);
+        handleRef.current = null;
         chart?.remove();
         chart = null;
         warn(`业绩趋势图渲染失败:${err instanceof Error ? err.message : String(err)}`);
@@ -96,8 +108,36 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
       setChartFailed(true);
       warn(`业绩趋势图模块加载失败:${err instanceof Error ? err.message : String(err)}`);
     });
-    return () => { disposed = true; chart?.remove(); };
-  }, [series, theme]);
+    return () => {
+      disposed = true;
+      handleRef.current = null;
+      setChartReady(false);
+      chart?.remove();
+    };
+    // 条数变化必须重建(每指标一 pane,series 数量即 pane 数量)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, series.length]);
+
+  // 灌数:只重灌 series,不重建 chart。稀疏季度轴(9 期)fitContent 铺满,
+  // 避免柱群挤在时间轴一侧(2026-08-15),每次灌数后重新贴合。
+  React.useEffect(() => {
+    if (!chartReady) return;
+    const h = handleRef.current;
+    if (!h) return;
+    try {
+      series.forEach((s, i) => h.bars[i]?.setData(s.points));
+      h.chart.timeScale().fitContent();
+      setChartFailed(false);
+    } catch (err) {
+      // setData 拒收(如 time 非 YYYY-MM-DD):移除坏图 + 文案,不留永久空白。
+      // 不自动重建 —— 数据持续非法时会 建图→抛→重建 死循环。
+      setChartFailed(true);
+      handleRef.current = null;
+      setChartReady(false);
+      h.chart.remove();
+      warn(`业绩趋势图数据更新失败:${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [series, chartReady]);
 
   // ─── 原生分支:WebView 渲染同一数据(web 分支保持原样)─────────────────────
   const nativeData = React.useMemo<NativeTrendData | null>(() => {

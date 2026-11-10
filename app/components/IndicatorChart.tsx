@@ -4,7 +4,7 @@
 // get_trend_indicators 分组:主图(MA/EMA/BOLL 叠加)+ 成交量 + 全部振荡器。
 import React from 'react';
 import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import type { IChartApi, LineStyle } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, LineStyle } from 'lightweight-charts';
 import type { IndicatorRow } from '../../src/indicators.ts';
 import { changePctHistData } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
@@ -116,6 +116,87 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
+// ─── web 分支系列编排(建图与更新单源:两处都读这张表,防 key 漂移) ──────
+type WebLineStyle = 'solid' | 'dashed' | 'dotted';
+interface WebLineSpec {
+  key: string;
+  color: string;
+  style: WebLineStyle;
+  pane: number;
+}
+
+const WEB_LINES: WebLineSpec[] = [
+  // pane 0 主图:MA(实线) + EMA(虚线) + BOLL(点线)
+  ...([['MA5', C.amber], ['MA10', C.sky], ['MA20', C.purple], ['MA60', C.gray]] as const)
+    .map(([key, color]): WebLineSpec => ({ key, color, style: 'solid', pane: 0 })),
+  ...([['EMA5', C.amber], ['EMA10', C.sky], ['EMA20', C.purple], ['EMA60', C.gray]] as const)
+    .map(([key, color]): WebLineSpec => ({ key, color, style: 'dashed', pane: 0 })),
+  ...([['BOLL_UP', C.green], ['BOLL_MB', C.green], ['BOLL_DN', C.green]] as const)
+    .map(([key, color]): WebLineSpec => ({ key, color, style: 'dotted', pane: 0 })),
+  // pane 1 成交量
+  { key: 'VOL_MA5', color: C.sky, style: 'solid', pane: 1 },
+  // pane 3 MACD
+  { key: 'DIF', color: C.amber, style: 'solid', pane: 3 },
+  { key: 'DEA', color: C.sky, style: 'solid', pane: 3 },
+  // pane 4 KDJ
+  { key: 'K', color: C.amber, style: 'solid', pane: 4 },
+  { key: 'D', color: C.sky, style: 'solid', pane: 4 },
+  { key: 'J', color: C.purple, style: 'solid', pane: 4 },
+  // pane 5 RSI
+  { key: 'RSI6', color: C.amber, style: 'solid', pane: 5 },
+  { key: 'RSI12', color: C.sky, style: 'solid', pane: 5 },
+  { key: 'RSI24', color: C.purple, style: 'solid', pane: 5 },
+  // pane 6 MACD-VH
+  { key: 'MACD_V', color: C.amber, style: 'solid', pane: 6 },
+  { key: 'SIGNAL', color: C.sky, style: 'solid', pane: 6 },
+  // pane 7-9 单线:ATR / 量比 / 乖离率
+  { key: 'ATR', color: C.yellow, style: 'solid', pane: 7 },
+  { key: 'VOL_RATIO', color: C.sky, style: 'solid', pane: 8 },
+  { key: 'LIU_BIAS', color: C.purple, style: 'solid', pane: 9 },
+];
+
+/** 已建好的 web 图句柄:建图 effect 产出,数据 effect 消费。
+ *  theme 在建图时捕获(颜色已烘进 series 选项),更新时只用于柱状图逐点着色。 */
+interface WebChartHandle {
+  chart: IChartApi;
+  candle: ISeriesApi<'Candlestick'>;
+  volume: ISeriesApi<'Histogram'>;
+  changePct: ISeriesApi<'Histogram'>;
+  macd: ISeriesApi<'Histogram'>;
+  vh: ISeriesApi<'Histogram'>;
+  lines: Map<string, ISeriesApi<'Line'>>;
+  theme: Theme;
+}
+
+/** 把当前数据灌进已建好的 chart(不碰 chart 生命周期)。数据语义与原实现逐项一致:
+ *  warmup NaN 由 lineData 过滤;volume null 不画(CR-25);柱按正负着色。 */
+function applyWebData(h: WebChartHandle, bars: Bar[], rows: IndicatorRow[], changePct: number[]): void {
+  const dates = bars.map((b) => fmtDate(b.date));
+  const upA = hexToRgba(h.theme.colors.up, 0.4);
+  const downA = hexToRgba(h.theme.colors.down, 0.4);
+
+  h.candle.setData(bars.map((b) => ({
+    time: fmtDate(b.date),
+    open: b.open, high: b.high, low: b.low, close: b.close,
+  })));
+
+  for (const spec of WEB_LINES) h.lines.get(spec.key)?.setData(lineData(rows, dates, spec.key));
+
+  h.volume.setData(bars
+    .filter((b): b is Bar & { volume: number } => b.volume !== null)
+    .map((b) => ({
+      time: fmtDate(b.date),
+      value: b.volume,
+      color: b.close >= b.open ? upA : downA,
+    })));
+
+  // 涨跌幅柱:正红负绿、base 0(对齐 Python change_percent_chart)
+  h.changePct.setData(changePctHistData(changePct, dates, upA, downA));
+  // MACD 柱(0 轴上下着色)
+  h.macd.setData(histData(rows, dates, 'MACD', upA, downA));
+  h.vh.setData(histData(rows, dates, 'MACD_VH', upA, downA));
+}
+
 export default function IndicatorChart({ bars, rows, changePct, theme }: { bars: Bar[]; rows: IndicatorRow[]; changePct: number[]; theme: Theme }) {
   const { width } = useWindowDimensions();
   // 窄屏(<560px)下主图图例改文档流内换行块(浮层换行会遮挡 K 线,见 design.md)
@@ -129,6 +210,16 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
   const [chartFailed, setChartFailed] = React.useState(false);
   // P3(评审 2026-11-09):theme 是模块常量,别每次渲染都重建样式表
   const styles = React.useMemo(() => makeStyles(theme), [theme]);
+
+  // 建图句柄 + 完成门(§8「图表建一次 + 更新」拆分)。
+  // 旧实现把 createChart + addSeries + setData 全塞进一个 effect,依赖含数据 ——
+  // 每次采集完成(数据变一次)就整块销毁重建 chart:数据页闪一下,缩放/十字线
+  // 状态也一并丢失。裁决 NUANCED(重建次数是「每次采集」而非每帧),收益即消除
+  // 这次闪烁。拆成两个 effect:建图只依赖 theme,数据只重灌 series。
+  const handleRef = React.useRef<WebChartHandle | null>(null);
+  // 动态 import 是异步的 → 首帧 update effect 必然还没句柄;ready 翻真后由
+  // update effect 补首屏数据。
+  const [chartReady, setChartReady] = React.useState(false);
 
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !ref.current) return undefined;
@@ -160,72 +251,44 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
           rightPriceScale: { borderColor: theme.colors.border, minimumWidth: 56 },
         });
 
-        const dates = bars.map((b) => fmtDate(b.date));
-        const line = (key: string, color: string, style?: LineStyle, pane = 0) => {
-          const s = chart!.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: style ?? LineStyleValue.Solid }, pane);
-          s.setData(lineData(rows, dates, key));
+        const styleOf = (style: WebLineSpec['style']): LineStyle =>
+          style === 'dashed' ? LineStyleValue.Dashed : style === 'dotted' ? LineStyleValue.Dotted : LineStyleValue.Solid;
+        const lines = new Map<string, ISeriesApi<'Line'>>();
+        const addLine = (spec: WebLineSpec): void => {
+          lines.set(
+            spec.key,
+            chart!.addSeries(LineSeries, { color: spec.color, lineWidth: 1, lineStyle: styleOf(spec.style) }, spec.pane),
+          );
+        };
+        const addLinesIn = (...panes: number[]): void => {
+          for (const spec of WEB_LINES) if (panes.includes(spec.pane)) addLine(spec);
         };
 
-        // pane 0 主图:蜡烛 + MA(实线) + EMA(虚线) + BOLL(点线)
+        // 创建顺序 = pane 内绘制层叠顺序(后建者在上),必须与原实现逐位一致:
+        // candle 先于 pane 0 各线、volume 先于 VOL_MA5、MACD 线先于 MACD 柱。
         const candle = chart.addSeries(CandlestickSeries, {
           upColor: theme.colors.up,
           downColor: theme.colors.down,
           borderVisible: false,
           wickUpColor: theme.colors.up,
           wickDownColor: theme.colors.down,
-        });
-        candle.setData(bars.map((b) => ({
-          time: fmtDate(b.date),
-          open: b.open, high: b.high, low: b.low, close: b.close,
-        })));
-        for (const [k, color] of [['MA5', C.amber], ['MA10', C.sky], ['MA20', C.purple], ['MA60', C.gray]] as const) line(k, color);
-        for (const [k, color] of [['EMA5', C.amber], ['EMA10', C.sky], ['EMA20', C.purple], ['EMA60', C.gray]] as const) line(k, color, LineStyleValue.Dashed);
-        for (const [k, color] of [['BOLL_UP', C.green], ['BOLL_MB', C.green], ['BOLL_DN', C.green]] as const) line(k, color, LineStyleValue.Dotted);
+        }, 0);
+        addLinesIn(0);
 
-        // pane 1 成交量:量柱(涨跌着色) + VOL_MA5
-        const upA = hexToRgba(theme.colors.up, 0.4);
-        const downA = hexToRgba(theme.colors.down, 0.4);
         const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, base: 0 }, 1);
-        // volume null = 未知 → 该点不画(不以 0 冒充，CR-25)
-        volume.setData(bars
-          .filter((b): b is Bar & { volume: number } => b.volume !== null)
-          .map((b) => ({
-            time: fmtDate(b.date),
-            value: b.volume,
-            color: b.close >= b.open ? upA : downA,
-          })));
-        line('VOL_MA5', C.sky, undefined, 1);
+        addLinesIn(1);
 
-        // pane 2 涨跌幅柱:正红负绿、base 0(对齐 Python change_percent_chart)
-        const changePctHist = chart.addSeries(HistogramSeries, { base: 0 }, 2);
-        changePctHist.setData(changePctHistData(changePct, dates, upA, downA));
+        const changePctSeries = chart.addSeries(HistogramSeries, { base: 0 }, 2);
 
-        // pane 3 MACD:DIF/DEA 线 + MACD 柱(0 轴上下着色)
-        line('DIF', C.amber, undefined, 3);
-        line('DEA', C.sky, undefined, 3);
+        addLinesIn(3);
         const macd = chart.addSeries(HistogramSeries, { base: 0 }, 3);
-        macd.setData(histData(rows, dates, 'MACD', upA, downA));
 
-        // pane 4 KDJ
-        line('K', C.amber, undefined, 4);
-        line('D', C.sky, undefined, 4);
-        line('J', C.purple, undefined, 4);
+        addLinesIn(4, 5);
 
-        // pane 5 RSI
-        line('RSI6', C.amber, undefined, 5);
-        line('RSI12', C.sky, undefined, 5);
-        line('RSI24', C.purple, undefined, 5);
-
-        // pane 6 MACD-VH:MACD_V/SIGNAL 线 + VH 柱
-        line('MACD_V', C.amber, undefined, 6);
-        line('SIGNAL', C.sky, undefined, 6);
+        addLinesIn(6);
         const vh = chart.addSeries(HistogramSeries, { base: 0 }, 6);
-        vh.setData(histData(rows, dates, 'MACD_VH', upA, downA));
 
-        // pane 7-9 单线:ATR / 量比 / 乖离率
-        line('ATR', C.yellow, undefined, 7);
-        line('VOL_RATIO', C.sky, undefined, 8);
-        line('LIU_BIAS', C.purple, undefined, 9);
+        addLinesIn(7, 8, 9);
 
         // 面板比例:全部 series 建完后设置 stretch(比例布局,与当前高度无关)
         chart.panes().forEach((p, i) => p.setStretchFactor(PANE_STRETCH[i] ?? 70));
@@ -234,10 +297,13 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
         // createChart 后立即读取返回未布局值(≈全高,2026-08-15 真机/Chromium 实测),
         // 会导致附图标签全部堆到图表底部。
         setPaneTops(computePaneTops(PANE_STRETCH.map((stretchFactor) => ({ height: CHART_HEIGHT, stretchFactor }))));
+        handleRef.current = { chart, candle, volume, changePct: changePctSeries, macd, vh, lines, theme };
         setChartFailed(false);
+        setChartReady(true);
       } catch (err) {
-        // 建图/setData 抛错(如 lightweight-charts 拒收非 YYYY-MM-DD 的 time)
+        // 建图抛错(createChart 失败 / series 选项被拒)
         setChartFailed(true);
+        handleRef.current = null;
         chart?.remove();
         chart = null;
         warn(`指标图渲染失败:${err instanceof Error ? err.message : String(err)}`);
@@ -248,8 +314,34 @@ export default function IndicatorChart({ bars, rows, changePct, theme }: { bars:
       setChartFailed(true);
       warn(`指标图模块加载失败:${err instanceof Error ? err.message : String(err)}`);
     });
-    return () => { disposed = true; chart?.remove(); };
-  }, [bars, rows, changePct, theme]);
+    return () => {
+      disposed = true;
+      handleRef.current = null;
+      setChartReady(false);
+      chart?.remove();
+    };
+  }, [theme]);
+
+  // 数据更新:只重灌 series,不重建 chart(缩放/十字线/面板尺寸全部保持)。
+  // 首屏由 chartReady 翻真触发的这次跑补上。
+  React.useEffect(() => {
+    if (!chartReady) return;
+    const h = handleRef.current;
+    if (!h) return;
+    try {
+      applyWebData(h, bars, rows, changePct);
+      setChartFailed(false);
+    } catch (err) {
+      // setData 拒收(如 time 非 YYYY-MM-DD / 时间轴非升序):与建图失败同样降级
+      // —— 移除坏图 + 文案,不留一块永久空白。重建需等组件重挂或 theme 变更;
+      // 不在这里自动重建(会在数据持续非法时 建图→抛→重建 死循环)。
+      setChartFailed(true);
+      handleRef.current = null;
+      setChartReady(false);
+      h.chart.remove();
+      warn(`指标图数据更新失败:${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [bars, rows, changePct, chartReady]);
 
   // ─── 原生分支:WebView 渲染同一数据(HTML 由 tools/build-chart-view.mts 生成)──
   // 序列化 web 分支同款数据(bars + lineData/histData 结果 + 颜色)→ JSON;
