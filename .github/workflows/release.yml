@@ -6,8 +6,11 @@ on:
       - "v*"
   workflow_dispatch:
 
+# 默认最小权限:写 Release 的令牌只发给 publish job。顶层写成 write 意味着
+# 任何漏写 permissions 的 job 自动获得写 token —— 而 desktop/android 要跑
+# npm ci(数百个 install script)和 gradle,不该持有能改 Release 的令牌。
 permissions:
-  contents: write
+  contents: read
 
 # 同一 tag 的重复推送 / 重复 dispatch 不再并行双跑。这里**刻意不取消**:
 # release 包含「两次把产物挂到同一个 Release」的动作,已开始的那次跑到一半被杀
@@ -92,11 +95,10 @@ jobs:
   desktop:
     name: desktop (${{ matrix.os }})
     needs: test
-    # P2(评审 2026-11-09):显式声明,不再隐式继承顶层 write。发布动作在本 job 内
-    # (softprops 直接改 release),故仍需 contents: write —— 彻底收窄要把发布拆到
-    # 独立 publish job,属结构改动,留待与 B6 重构一起做。
+    # 只读:发布已拆到 publish job。此前本 job 内联 softprops 改 Release,
+    # 所以必须持 contents: write。
     permissions:
-      contents: write
+      contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -236,34 +238,19 @@ jobs:
             exit 1
           fi
 
-      - name: Upload to GitHub Release (tag push)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          files: |
-            desktop/dist/*.exe
-            desktop/dist/*.AppImage
-            desktop/dist/*.deb
-            desktop/dist/*.dmg
-          body: |
-            本 Release 由 tag `${{ github.ref_name }}` 自动构建，挂载桌面安装包与 Android APK。
-
-            ## 安装与签名提示
-
-            - **Windows**：`StockOperatorAgent-Setup-<version>.exe`（NSIS 安装包）。产物未签名，SmartScreen 可能提示“未知发布者”，选择“更多信息 → 仍要运行”即可。
-            - **macOS**：`StockOperatorAgent-<version>-<arch>.dmg`。产物未签名/未公证，首次打开会触发 Gatekeeper“无法验证开发者”，需在“系统设置 → 隐私与安全性”中手动允许。
-            - **Linux**：`StockOperatorAgent-<version>-<arch>.AppImage`（`chmod +x` 后运行）与 `.deb`（`sudo dpkg -i` 安装）。
-            - **Android**：`soa-<version>.apk` 可直接安装；`soa-<version>.aab` 为 Google Play 提交包（Play App Signing 会以同一上传密钥自动签名分发）。未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
-
-            完整发版步骤、产物清单与签名配置见仓库 README「发布」章节。
-
-      - name: Upload build artifacts (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
+      # 产物一律上传(tag 与 dispatch 都传):publish job 靠它取件。此前这步只在
+      # dispatch 时跑,因为 tag 路径由本 job 直接挂 Release —— 现在两条路径统一走
+      # publish。
+      - name: Upload build artifacts
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 → ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-${{ matrix.os }}
           # S6-3:零产物是失败信号,不再 ignore
           if-no-files-found: error
+          # 现在 tag 推送也上传(供 publish 取件)。产物只在本次 run 内用得上,
+          # 7 天足够人工取证,不占 90 天配额。
+          retention-days: 7
           path: |
             desktop/dist/*.exe
             desktop/dist/*.AppImage
@@ -273,9 +260,9 @@ jobs:
   android:
     name: android (apk)
     needs: test
-    # 同 desktop:发布动作在本 job 内,故需要 contents: write(见上方说明)。
+    # 同 desktop:只读,发布动作在 publish job。
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     env:
       CI: 1
@@ -378,22 +365,69 @@ jobs:
           jarsigner -verify "$soa_aab" | tail -5
           echo "OK: $soa_aab 已签名"
 
-      - name: Upload APK/AAB to GitHub Release (tag push)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          # P2(评审 2026-11-09):不再各写一份 body —— 两个 job 同时发布同一 tag,
-          # action-gh-release 会改动既有 release,后完成者的 body 覆盖前者,发布说明
-          # 变成"看哪个 job 先跑完"。正文统一由 desktop job 提供(已含 .aab 段)。
-          files: |
-            soa-*.apk
-            soa-*.aab
-
-      - name: Upload APK/AAB artifact (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
+      # 同 desktop:产物一律上传,由 publish job 统一发布。
+      - name: Upload APK/AAB artifact
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 → ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: soa-android
+          # 与 desktop 对齐:零产物是失败信号(原来这里漏了这一行)
+          if-no-files-found: error
+          retention-days: 7
           path: |
             soa-*.apk
             soa-*.aab
+
+  # 复核 §0 遗留 + 评审 P2:此前 desktop(×3 matrix 行)与 android 都在各自 job
+  # 内直接用 softprops 改 Release,三个后果:
+  #   1) 发布不是原子的 —— 矩阵是 fail-fast: false,谁先跑完谁先挂。一个 OS 构建
+  #      失败就留下永远缺一个平台的 Release,而整条流水线仍是绿的;
+  #   2) 两个构建 job 都必须持 contents: write(而它们在跑 npm ci / gradle);
+  #   3) 三条 matrix 行同时写同一个 release body —— 内容一样才没出事。
+  # 现在:构建 job 只读 + 一律上传 artifact,由本 job 一次发布。
+  publish:
+    name: publish release
+    needs: [test, desktop, android]
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write   # 建/改 Release
+      actions: read     # gh run download 取本 run 的 artifact
+    runs-on: ubuntu-latest
+    steps:
+      # 用 gh CLI 取件而不是 actions/download-artifact:本仓第三方 action 全部钉
+      # commit SHA,新增一个 action 就要多钉一个 SHA;gh 是 runner 预装,零新增依赖。
+      - name: Download build artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 本 job 没有 checkout,gh 无从推断仓库,必须显式给
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" -D artifacts
+          echo '--- 取到的产物 ---'
+          find artifacts -type f -printf '%p %s bytes\n' | sort
+
+      # softprops 保留(已钉 SHA,且负责建 Release / body / prerelease 语义),
+      # 只把 files 的来源换成下载下来的 artifact。
+      # fail_on_unmatched_files: 缺任一平台当场红,而不是发一个静默残缺的 Release。
+      - name: Publish release with all artifacts
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 → 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/desktop-ubuntu-latest/*.AppImage
+            artifacts/desktop-ubuntu-latest/*.deb
+            artifacts/desktop-windows-latest/*.exe
+            artifacts/desktop-macos-latest/*.dmg
+            artifacts/soa-android/*.apk
+            artifacts/soa-android/*.aab
+          body: |
+            本 Release 由 tag `${{ github.ref_name }}` 自动构建，挂载桌面安装包与 Android APK。
+
+            ## 安装与签名提示
+
+            - **Windows**：`StockOperatorAgent-Setup-<version>.exe`（NSIS 安装包）。产物未签名，SmartScreen 可能提示“未知发布者”，选择“更多信息 → 仍要运行”即可。
+            - **macOS**：`StockOperatorAgent-<version>-<arch>.dmg`。产物未签名/未公证，首次打开会触发 Gatekeeper“无法验证开发者”，需在“系统设置 → 隐私与安全性”中手动允许。
+            - **Linux**：`StockOperatorAgent-<version>-<arch>.AppImage`（`chmod +x` 后运行）与 `.deb`（`sudo dpkg -i` 安装）。
+            - **Android**：`soa-<version>.apk` 可直接安装；`soa-<version>.aab` 为 Google Play 提交包（Play App Signing 会以同一上传密钥自动签名分发）。未配置签名 Secrets 时为 debug 签名（可安装、仅供自测），配置后自动改为正式签名。
+
+            完整发版步骤、产物清单与签名配置见仓库 README「发布」章节。
