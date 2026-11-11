@@ -5,9 +5,9 @@
 > （REFUTED 是 reviewer 凭空推断 `app/android/` 未忽略 —— 实际在 `app/.gitignore` 里）。
 >
 > **范围**：上一轮全量评审 `87e22f3` 之后的 32 个提交、65 个文件、+3775/−962。
-> **门禁现状**：root `tsc` 0 error、app `tsc` 0 error、`vitest` **909 passed / 1 skipped**。
-> **结论：4 条阻断项已全部修复并各带一条会失败的回归用例（见 §1 的 ✅）。
-> 可以打 `v1.0.0`。剩余 P2/P3 见 §2/§3，不挡发版。**
+> **门禁现状**：root `tsc` 0 error、app `tsc` 0 error、`vitest` **916 passed / 1 skipped**。
+> **结论：4 条阻断项 + 6 条 P2 已全部修复并各带可失败的回归用例（§1/§2 的 ✅）。
+> 可以打 `v1.0.0`。剩余 P3 见 §3，不挡发版。**
 
 ---
 
@@ -82,16 +82,16 @@
 
 ---
 
-## 2. 应修（P2，可与 1.0.0 同批或紧随其后）
+## 2. 应修（P2）—— ✅ 6 条全部已修
 
-| # | 项 | 位置 | 裁决 |
-| --- | --- | --- | --- |
-| S1 | `release.yml` 的 test job 不是它自称的「与 ci.yml 相同门禁」：缺 `chart:check` / `e2e:web` / `secret-scan` | `release.yml:31-74` vs `ci.yml:79-133` | **NUANCED**（ci 只在 master push 上跑，master 上的 tag 已经过了这些门；缺口只在「tag 打在 CI 没见过的提交上」时生效） |
-| S2 | `android-e2e.mjs` 的超时环境变量不校验：`"30m"` → `NaN` → 首次轮询就报「分析未完成」 | `tools/android-e2e.mjs:166` | **VERIFIED**（与它刚修掉的两类假失败同型） |
-| S3 | 新广播单元 `AnalysisNotifier` 零测试，而它的注入口径是「测试用」却无人消费 | `app/lib/analysisNotifier.ts:18-19` | **VERIFIED**（删掉 `if (this.timer !== null) return;` 一行，每个 token 都广播 —— P1-6 的卡顿回归，测试全绿） |
-| S4 | `historyLoading` 可能永久卡 true：`closeRun()` 无条件递增 `historySeq` 却不复位 loading | `historyController.ts:136,176-188` | **VERIFIED**（窗口窄：载入中点了「开始分析」） |
-| S5 | 合并节流的唯一断言是 `setTimeout(200)` 真实睡眠，且只证明「来了一帧」不证明「N token → 1 帧」 | `test/analysis-controller.test.ts:754` | **VERIFIED** |
-| S6 | 「删除后列表快照复活」的代数门**自认没有可区分用例** | `historyController.ts:114`；`test/analysis-controller-history.test.ts:504-507` | **VERIFIED**（守卫是搬过来的，没带新测试） |
+| # | 项 | 位置 | 裁决 | 修法 |
+| --- | --- | --- | --- | --- |
+| S1 | `release.yml` 的 test job 不是它自称的「与 ci.yml 相同门禁」 | `release.yml:31-74` | **NUANCED** | tag 路径补 `chart:check` + 独立 `secret-scan` job；再加一道「tag 提交必须在 master 上」门（merge-base 祖先判定）—— master 上每个提交都已被 ci.yml 全量覆盖，比把 e2e 整条搬进发版路径更便宜 |
+| S2 | `android-e2e.mjs` 的超时环境变量不校验 | `tools/android-e2e.mjs:166` | **VERIFIED** | 非有限值/负值直接 fail 并打出原值，不再静默退回 30 分钟（静默回退同样是假失败） |
+| S3 | 新广播单元 `AnalysisNotifier` 零测试 | `app/lib/analysisNotifier.ts` | **VERIFIED** | 新增 `test/analysis-notifier.test.ts` 5 例，全走注入式定时器，不用假时钟 |
+| S4 | `historyLoading` 可能永久卡 true | `historyController.ts:184-192` | **VERIFIED** | `closeRun()` 早退分支复位 `historyLoading` + notify；用例：openRun 在飞时 close |
+| S5 | 合并节流的唯一断言是真实 200ms 睡眠 | `test/analysis-controller.test.ts` | **NUANCED** | 合并节流本身已由假定时器用例钉住（`notifies === 1`，reviewer 引用的行号是错的）；真正的问题是孤儿用例里的真实睡眠 —— 改为同步断言 `ctrl.snapshot()` 状态 |
+| S6 | 「删除后列表快照复活」的代数门自认没有可区分用例 | `historyController.ts:114` | **VERIFIED** | `list()` 取完快照后挂住 → 删行 → 放行；**注意**：必须断言 `ctrl.snapshot()` 而不是广播快照，否则 finally 的 notify 门会把失败掩盖掉（实测） |
 
 ---
 
