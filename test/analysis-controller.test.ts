@@ -786,11 +786,12 @@ describe('AnalysisController 运行代数(P0 回归)', () => {
     expect(h.snap().hasDone).toBe(false);
     expect(h.snap().running).toBe(true);
 
-    // 本轮(新 tag)的事件正常生效
+    // 本轮(新 tag)的事件正常生效。断言的是**状态**,不是广播帧:reduceEvent
+    // 同步写入 partials,合并广播只是通知层(它由「token 合并广播」用例用假定时器
+    // 钉住)。这里原先 await 真实 200ms 等定时器落地 —— CI 负载高时假红,而且
+    // 200ms 并不是被验证的契约。
     h.runner.emit({ ...orphanToken, delta: '本轮正文', runTag: tagB });
-    // token 走 TOKEN_NOTIFY_MS(120ms) 尾部合并广播,等真实定时器落地再断言快照
-    await new Promise((r) => setTimeout(r, 200));
-    expect(h.snap().partials.fundamental_analysis_expert).toBe('本轮正文');
+    expect(h.ctrl.snapshot().partials.fundamental_analysis_expert).toBe('本轮正文');
 
     gates[0]!.resolve();
     gates[1]!.resolve();
