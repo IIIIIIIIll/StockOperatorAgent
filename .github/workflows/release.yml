@@ -34,6 +34,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # S1(1.0.0 评审):下面的「tag 提交必须在 master 上」门要用 merge-base
+          # 判祖先关系,shallow clone 没有 merge-base。
+          fetch-depth: 0
           persist-credentials: false
       - name: Setup Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -50,6 +53,11 @@ jobs:
       - name: Install app dependencies
         working-directory: app
         run: npm ci
+
+      # S1(1.0.0 评审):app/lib/chartHtml.ts 是提交进仓库的生成物,运行时直接嗂给
+      # WebView。它此前只在 ci.yml 校验 —— tag 路径不跑,发出去一份陈旧 HTML 也全绿。
+      - name: Chart view guard (generated file in sync)
+        run: npm run chart:check --prefix app
       # A4:desktop lockfile 之前只在 tag 那天的 build job 才第一次被 npm ci
       # (坏掉的 desktop 依赖要等到发版才暴露)。--ignore-scripts 跳过 electron 下载。
       - name: Install desktop dependencies
@@ -74,6 +82,22 @@ jobs:
       # P2(评审 2026-11-09):原先这段 17 行脚本在 desktop / android 两个 build job
       # 各存一份(改一份漏一份),且都带 `if: tag` → workflow_dispatch 完全跳过核对。
       # 现在收成 test job 里唯一一份,并把根 package.json 也纳入比对。
+      # S1(1.0.0 评审):本 job 之前只跑 ci.yml 的一个子集 —— chart:check /
+      # e2e:web / secret-scan 都不在,而 ci.yml 只在 push:branches master 与 PR 上
+      # 触发。tag 打在 CI 从没见过的提交上时,那三道门永远不会跑,却照样发版。
+      # 直接要求 tag 的提交在 master 上:master 上每个提交都已被 ci.yml 全量覆盖。
+      # (chart:check 仍在本 job 重跑一道 —— 它保护的是随包发出的生成物。)
+      - name: Verify tag commit is on master
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch --no-tags origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "Release gate failed: tag ${GITHUB_REF_NAME} 指向的提交不在 master 上。" >&2
+            echo "先合并到 master(让 ci.yml 全量门禁跑过)再重新打 tag。" >&2
+            exit 1
+          fi
+          echo "OK: tag commit is on master"
+
       - name: Verify versions match release tag
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -91,6 +115,30 @@ jobs:
           verify "desktop/package.json"    "$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
           verify "app/package.json"        "$(node -p "JSON.parse(require('fs').readFileSync('app/package.json','utf8')).version")"
           verify "app/app.json"            "$(node -p "JSON.parse(require('fs').readFileSync('app/app.json','utf8')).expo.version")"
+
+  # S1(1.0.0 评审):与 ci.yml 同款密钥扫描。故意与 chart:check 重复 ——
+  # 「tag 提交在 master 上」已经保证 ci.yml 跑过一遍,但发版路径自己再做一次
+  # 密钥扫描的成本是一分钟,而漏一次就是把凭据发进公开 Release。
+  secret-scan:
+    name: secret scan (gitleaks)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v4 → 11d5960a326750d5838078e36cf38b85af677262
+      - name: Checkout (full history)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # gitleaks 要扫提交历史,shallow clone 会漏掉旧提交里的密钥
+          fetch-depth: 0
+          persist-credentials: false
+
+      # gitleaks/gitleaks-action v2.3.9 → ff98106e4c7b2bc287b24eaf42907196329070c7
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
 
   desktop:
     name: desktop (${{ matrix.os }})
@@ -387,7 +435,7 @@ jobs:
   # 现在:构建 job 只读 + 一律上传 artifact,由本 job 一次发布。
   publish:
     name: publish release
-    needs: [test, desktop, android]
+    needs: [test, secret-scan, desktop, android]
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write   # 建/改 Release
