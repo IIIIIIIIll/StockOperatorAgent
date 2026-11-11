@@ -167,6 +167,81 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     expect(count).toBe(0);
   });
 
+  // P1-1(1.0.0 评审 B4):runTag 的**唯一**打标点是 run() 里的 emitRun 展开。
+  // 此前没有任何用例验证它 —— 删掉 `{ ...e, runTag }` 这个 spread,或把
+  // runTag/emitRun 提升到模块作用域(原 bug 就是模块级共享),套件全绿,
+  // 而取消/看门狗中止后孤儿运行的 token/done 会重新落到下一轮。
+  it('runTag: 每个事件都带调用方给的 tag(emitRun 展开的单点守卫)', async () => {
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const events: PipelineEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    await runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-09',
+      llm: stubLlm(),
+      runTag: 7,
+    });
+
+    expect(events.length).toBeGreaterThan(0);
+    // token/report/done 是被截断事件包住的三类,缺一不可
+    expect(events.some((e) => e.type === 'token')).toBe(true);
+    expect(events.some((e) => e.type === 'done')).toBe(true);
+    expect(events.filter((e) => e.runTag !== 7)).toEqual([]);
+  });
+
+  it('runTag: abort 后重开,两条运行的事件各自带自己的 tag(模块级变量即失败)', async () => {
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const seen: PipelineEvent[] = [];
+    runner.subscribe((e) => seen.push(e));
+
+    // 闸门:第一次 LLM 调用挂住,保证 run A 在 abort/run B 时仍在途
+    let openGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const routed = stubLlm();
+    let calls = 0;
+    const gated = async (payload: unknown) => {
+      calls += 1;
+      if (calls === 1) await gate;
+      return routed(payload);
+    };
+    (gated as unknown as { invoke: unknown }).invoke = gated;
+
+    const runA = runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-09',
+      llm: gated,
+      runTag: 7,
+    });
+    await Promise.resolve();
+    runner.abort?.();
+
+    await runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-09',
+      llm: stubLlm(),
+      runTag: 9,
+    });
+    const atBEnd = seen.length;
+
+    openGate();
+    await runA;
+
+    // A 在 B 结束后仍继续发事件 —— 这些必须仍是 7。若 runTag 被提升到模块
+    // 作用域,B 一开跑就把它改成 9,A 的后续事件会全部冒充成 9(零命中)。
+    expect(seen.length).toBeGreaterThan(atBEnd);
+    expect(seen.slice(atBEnd).filter((e) => e.runTag === 7).length).toBeGreaterThan(0);
+    // 两个 tag 之外不得有其它值(尤其不得为 undefined)
+    expect(seen.filter((e) => e.runTag !== 7 && e.runTag !== 9)).toEqual([]);
+  });
+
   it('retry 注入 → roleStatus 序列 running→retry→done,后续 token 全量重来', async () => {
     const store = seededStore();
     const runner = createPipelineRunner(store);
