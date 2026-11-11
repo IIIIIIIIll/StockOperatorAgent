@@ -501,10 +501,38 @@ describe('历史归档 · 列表刷新(R-03)', () => {
 
 // ─── 评审 2026-11-08:S5-1(删除复活)+ S10-3(代数门漏点)─────────────────────
 describe('历史归档 · 并发代数(S5-1/S10-3)', () => {
-  // S5-1(2026-11-08):陈旧 list() 快照合并会复活已删行的守卫已落在
-  // refreshHistory(historyListSeq),但本 harness 下构造不出「删后仍合并」的可区分
-  // 用例(注入陈旧快照后 merge 结果仍正确)→ 按本轮评审纪律不留不可失败的测试,
-  // 只保留 S10-3 的代数门用例。
+  // S5-1(2026-11-08):陈旧 list() 快照合并会复活已删行的守卫落在 refreshHistory
+  // 的 historyListSeq。此前注释写的是「本 harness 下构造不出可区分用例」——
+  // 1.0.0 评审把它变成了可失败的用例:list() 取完快照后挂住,期间删掉该行,
+  // 再放行 —— 陈旧快照若参与合并,已删行就复活。
+  it('S5-1:list() 快照里的已删行不得复活', async () => {
+    const base = createMemoryRunArchive([run({ id: 'run-a' })]);
+    const listGate = Promise.withResolvers<void>();
+    let calls = 0;
+    const gated: RunArchive = {
+      ...base,
+      async list() {
+        calls += 1;
+        const snapshot = await base.list(); // 快照里含 run-a
+        if (calls >= 2) await listGate.promise; // 第 2 次刷新:取完快照再挂住
+        return snapshot;
+      },
+    };
+    const h = makeHarness({ archive: gated });
+    await h.boot(); // 第 1 次 list:不挂
+    expect(h.ctrl.snapshot().history.map((s) => s.id)).toEqual(['run-a']);
+
+    const refreshing = h.ctrl.refreshHistory(); // 第 2 次:拿到含 run-a 的快照后挂住
+    await h.ctrl.deleteRuns(['run-a']); // 删除:historyListSeq 递增,那次刷新作废
+    expect(h.ctrl.snapshot().history).toHaveLength(0);
+
+    listGate.resolve();
+    await refreshing;
+    // 断言**状态**而非广播快照:代数门没拦住时,finally 里的 notify 同样按
+    // seq 门控 → 广播不会发生,只看广播快照会得到一条不会失败的用例。
+    expect(h.ctrl.snapshot().history).toHaveLength(0); // 陈旧快照不得把 run-a 合并回来
+  });
+
   it('S10-3:首次 openRun 在飞时 closeRun 必须使其过期(旧实现早退不递增代数)', async () => {
     const base = createMemoryRunArchive([run({ id: 'run-a' })]);
     const { promise: gate, resolve: releaseLoad } = Promise.withResolvers<void>();
@@ -525,5 +553,32 @@ describe('历史归档 · 并发代数(S5-1/S10-3)', () => {
     await opening;
     expect(h.snap().viewingRun).toBeNull(); // 不得把用户拽进历史态
     expect(h.snap().stockInformation).not.toBe('【采集数据】历史快照 A');
+  });
+
+  // S4(1.0.0 评审):closeRun 的那次早退只递增了代数,没有复位 historyLoading ——
+  // 而作废的那次 load 的 finally 因为 seq 不匹配也不会再清。两者叠在一起,抽屉就
+  // 永久停在「载入中…」(只剩下一次刷新碰巧自愈)。
+  it('S4:首次 openRun 在飞时 closeRun,historyLoading 必须复位', async () => {
+    const base = createMemoryRunArchive([run({ id: 'run-a' })]);
+    const { promise: gate, resolve: releaseLoad } = Promise.withResolvers<void>();
+    const gated: RunArchive = {
+      ...base,
+      async load(id) {
+        const body = await base.load(id);
+        await gate;
+        return body;
+      },
+    };
+    const h = makeHarness({ archive: gated });
+    const opening = h.ctrl.openRun('run-a'); // viewingRun 仍为 null
+    expect(h.snap().historyLoading).toBe(true);
+
+    h.ctrl.closeRun();
+    expect(h.snap().historyLoading).toBe(false); // 不卡在「载入中…」
+
+    releaseLoad();
+    await opening;
+    expect(h.snap().viewingRun).toBeNull();
+    expect(h.snap().historyLoading).toBe(false); // 迟到 load 的 finally 也不得重新置回
   });
 });

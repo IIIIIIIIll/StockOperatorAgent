@@ -186,7 +186,16 @@ export class RunHistoryController {
     // CR-03 + S10-3:代数必须先递增 —— 旧实现只在「有 viewingRun」时递增,首次
     // openRun 在飞期间点关闭不会让它过期,迟到的 load 仍会把正文写进来。
     this.historySeq += 1;
-    if (!s.viewingRun) return;
+    if (!s.viewingRun) {
+      // S4(1.0.0 评审):首次 openRun 在飞时点关闭 —— 没有 viewingRun 可恢复,
+      // 但那次 load 已被作废,它的 finally 不会再清 loading。不在这里复位,
+      // 抽屉会永久停在「载入中…」(只能等下一次刷新/删除碰巧自愈)。
+      if (s.historyLoading) {
+        s.historyLoading = false;
+        this.deps.notify();
+      }
+      return;
+    }
     const stash = this.liveStash;
     this.liveStash = null;
     s.viewingRun = null;
