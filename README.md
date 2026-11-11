@@ -124,18 +124,28 @@ Actions artifact 供自测。
 
 ### 发版步骤
 
-1. 更新 `desktop/package.json`、`app/package.json` 与 `app/app.json` 的
-   `version`（如 `1.1.0`；Android 产物版本取自 `app/app.json`，三处需一致）。
-2. 打 tag 并推送（tag 必须为 `v<version>`，与上述三处 version 对齐）：
+1. 更新**四处** `version`（如 `1.1.0`）：根 `package.json`、
+   `desktop/package.json`、`app/package.json`、`app/app.json`。缺根包会在 tag
+   门禁（`release.yml` 的「Verify version matches tag」）直接失败 —— 该门禁校验
+   的是四处，不是三处。
+2. 推导 Android `versionCode` 并一起提交：
 
-```bash
-git tag v1.1.0
-git push origin master --tags
-```
+   ```bash
+   node tools/derive-version-code.mjs 1.1.0   # → app/app.json 的 versionCode = 11100
+   ```
 
-3. 打开仓库 **Actions** 页确认 `release` 工作流（`desktop` + `android` 两个 job）
-   全绿；tag 推送会自动在 **Releases** 页创建 Release 并挂载产物（私有仓库的
-   Release 资产需登录 GitHub 后下载）。
+   `test/app-config.test.ts` 断言 `versionCode === major*10000 + minor*100 + patch`，
+   而 `test` job 跑在 CI 的 derive 步骤**之前** —— 忘跑这步 `v*` tag 直接红。
+3. 打 tag 并推送（tag 必须为 `v<version>`，与上述四处 version 对齐）：
+
+   ```bash
+   git tag v1.1.0
+   git push origin master --tags
+   ```
+
+4. 打开仓库 **Actions** 页确认 `release` 工作流（`test` + `desktop` + `android`
+   + `publish`）全绿；tag 推送会自动在 **Releases** 页创建 Release 并挂载产物
+   （私有仓库的 Release 资产需登录 GitHub 后下载）。
 
 ### 产物清单
 
