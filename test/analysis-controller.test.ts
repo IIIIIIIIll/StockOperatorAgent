@@ -589,6 +589,44 @@ describe('AnalysisController.cancel / 看门狗', () => {
     }
   });
 
+  // B2(1.0.0 评审):采集/情报段是刻意的事件静默段,看门狗到期时它们仍在
+  // await 中。onTimeout 不递增 runSeq(已起跑的 pipeline 要允许真 done 落地),
+  // 所以边界守卫必须自己看 timedOut —— 否则「已中止」之后照跑一整轮 LLM。
+  it('看门狗在采集段到期 → 采集返回后不得再启动 runner', async () => {
+    vi.useFakeTimers();
+    try {
+      const collectGate = Promise.withResolvers<void>();
+      let runCalls = 0;
+      const h = makeHarness({
+        runnerImpl: async () => {
+          runCalls += 1;
+          return undefined;
+        },
+        overrides: {
+          collect: async (ticker: string) => {
+            await collectGate.promise;
+            return {
+              ticker,
+              f10Text: '【主要财务指标】\n净资产收益率: 15.2',
+              snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9, volume: 10000, amount: 380000 },
+              name: '测试股',
+              capital: null,
+            };
+          },
+        },
+      });
+      const p = h.ctrl.start('600036', 'cn');
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(h.snap().error).toContain('无任何进展');
+
+      collectGate.resolve();
+      await p;
+      expect(runCalls).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('看门狗被事件重置:连续事件期间不中止', async () => {
     vi.useFakeTimers();
     try {

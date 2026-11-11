@@ -560,7 +560,10 @@ export class AnalysisController {
         // start() 归一化结果分派)——平台接线在 glue 层 collect 注入内
         const collected = await d.collect(nt, m, finnhub);
         // 阶段边界中止:用户已取消/已被新一轮取代 → 不再往下跑 LLM(不白烧时间和 token)
-        if (seq !== this.runSeq) return;
+        // B2(1.0.0 评审):看门狗在采集/情报段到期时也不得继续 —— onTimeout 刻意
+        // 不递增 runSeq(已起跑的 pipeline 要允许真 done 落地),所以那两段静默
+        // 阶段超时后必须靠 timedOut 自己挡住,否则会「已中止」之后照跑一整轮 LLM。
+        if (this.timedOut || seq !== this.runSeq) return;
         // S2-2(评审 2026-11-08):候选解析可能落成另一个形式(请求 9988.HK、命中
         // 09988.HK)。下面读 store / 拼上下文 / 跑 runner 必须用实际落库的 ticker,
         // 否则静默读到空行情出一份空报告。
@@ -589,8 +592,8 @@ export class AnalysisController {
       // 亿信/mcp 情报段(phase out 能力补齐):预查询一次 → 缓存闭包,供
       // buildStockInformation 与 runner.run 双算共享(不重复触发网络)
       const intel = await d.fetchIntel(nt, m, s.settings.keys);
-      // 同上:取消后不再进 runner.run
-      if (seq !== this.runSeq) return;
+      // 同上:取消后不再进 runner.run(B2:看门狗已中止同理)
+      if (this.timedOut || seq !== this.runSeq) return;
       // 同上:intel 预查询也是事件静默段
       if (this.runSeq === seq) this.watchdog.arm();
       // 亿信预抓 client 注入(phaseout C1):带 key → 信息面分析师预抓三源+twitter
