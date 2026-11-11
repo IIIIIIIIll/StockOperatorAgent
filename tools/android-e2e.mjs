@@ -163,7 +163,16 @@ async function main() {
   // 分析(8 份报告 + 多次联网搜索)在模拟器上实测 ~730s。旧实现硬钉 180s ——
   // 设备上残留真实按键时会稳定误报。默认给 30 分钟,可用
   // SOA_E2E_ANALYSIS_TIMEOUT_MS 覆盖(演示模式调小可以更快失败)。
-  const analysisTimeoutMs = Number(process.env.SOA_E2E_ANALYSIS_TIMEOUT_MS ?? 1_800_000);
+  const rawTimeout = process.env.SOA_E2E_ANALYSIS_TIMEOUT_MS;
+  const parsedTimeout = Number(rawTimeout ?? 1_800_000);
+  if (!Number.isFinite(parsedTimeout) || parsedTimeout <= 0) {
+    // 写错的值(如 "30m"/"")会让 Number() 出 NaN,之后每次
+    // Date.now() < NaN 都是 false → 首次轮询就报「分析未完成」,
+    // 与真失败无从区分(正是本文件刚修掉的两类假失败同型)。
+    fail('分析超时配置非法', `SOA_E2E_ANALYSIS_TIMEOUT_MS=${rawTimeout} —— 需为正数毫秒`);
+    return;
+  }
+  const analysisTimeoutMs = parsedTimeout;
   const done = await waitForLog('分析结束', analysisTimeoutMs);
   if (!done) {
     fail('分析未完成', `${Math.round(analysisTimeoutMs / 1000)}s 内未见「分析结束」`);
