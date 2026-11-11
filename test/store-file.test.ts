@@ -334,6 +334,32 @@ describe('FileStore 读侧失败信号(§3 未验项:getLastLoadError)', () => {
     expect(err).toContain('_meta.json');
   });
 
+  // B3(1.0.0 评审):hydrate 只在 ready() 跑一次,而控制器每个 done 都重读
+  // getLastLoadError —— 写成功不清的话,一次坏文件会把此后每一轮分析都标成
+  // 「数据损坏」。粒度是文件(写 A 只清 A),否则会掩盖别的股票仍坏着。
+  it('写成功后只清该股票的读侧记账,其余坏文件仍保留', async () => {
+    store.addDatas('A', bars(['2026-01-01']));
+    store.addDatas('B', bars(['2026-01-02']));
+    await store.flush();
+    await fsWriteFile(join(baseDir, 'A.json'), 'nope', 'utf8');
+    await fsWriteFile(join(baseDir, 'B.json'), 'nope', 'utf8');
+
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    expect(s2.getLastLoadError()).toContain('A.json');
+    expect(s2.getLastLoadError()).toContain('B.json');
+
+    // 重新采集 A → 该文件被内存镜像整文件覆盖,警告已兑现
+    s2.addDatas('A', bars(['2026-01-03']));
+    await s2.flush();
+    expect(s2.getLastLoadError()).not.toContain('A.json');
+    expect(s2.getLastLoadError()).toContain('B.json');
+
+    s2.addDatas('B', bars(['2026-01-04']));
+    await s2.flush();
+    expect(s2.getLastLoadError()).toBeNull();
+  });
+
   it('文件修好后重新 hydrate 清回 null(每次从磁盘重新推导,不复用旧结果)', async () => {
     store.addDatas('T', bars(['2026-01-01']));
     await store.flush();

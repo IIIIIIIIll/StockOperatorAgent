@@ -191,14 +191,13 @@ export class FileStore implements StoreLike {
   /** 读侧对偶:记录 hydrate 期间被跳过的文件(CR-28 写侧 `getLastPersistError` 的
    *  镜像)。单文件名 + 原因,多个用 '；' 串起 —— 与写侧同样返回人可读串。 */
   private noteLoadFailure(name: string, detail: string): void {
-    const line = `${name}(${detail})`;
-    this.loadError = this.loadError === null ? line : `${this.loadError}；${line}`;
+    this.readFailures.set(name, detail);
   }
 
   private async hydrate(): Promise<void> {
     // 每次 hydrate 重新从磁盘推导诊断,不复用上一次的结果(文件可能已修好)。
     // 放在最前:后端/目录列举失败时返回 null,与「整库不可读已直接抛出」一致。
-    this.loadError = null;
+    this.readFailures.clear();
     const { fs, baseDir } = await this.backend();
     const names = await fs.listDir();
     // F1:meta 先认领文件名(新名优先),主循环不再判断 meta 名称。
@@ -243,7 +242,7 @@ export class FileStore implements StoreLike {
    *  `getLastPersistError` 同构。此前只有 logError —— 损坏文件读不出来就等于
    *  「这只股票不存在」,下一轮采集会把它当新股票整文件重写,原历史静默丢失。
    *  null = 本次 hydrate 全部文件读取成功;`ready()` 重复调用会重新推导。 */
-  private loadError: string | null = null;
+  private readonly readFailures = new Map<string, string>();
 
   /** CR-28:异步写穿透的最近失败(成功写入清除)。写事件不返回 Promise,
    *  调用方(analysisController)在 done 时自检并告知用户。 */
@@ -254,7 +253,8 @@ export class FileStore implements StoreLike {
   /** 读侧诊断:本次 hydrate 跳过的文件清单(空 = 全部读取成功)。调用方在
    *  `ready()` 之后读才有效;`ready()` 失败时返回 null(整库不可读已直接抛出)。 */
   getLastLoadError(): string | null {
-    return this.loadError;
+    if (this.readFailures.size === 0) return null;
+    return [...this.readFailures].map(([name, detail]) => `${name}(${detail})`).join('；');
   }
 
   private enqueue(op: () => Promise<void>): void {
@@ -289,6 +289,10 @@ export class FileStore implements StoreLike {
         reports: this.reports.get(ticker) ?? [],
       };
       await fs.writeFile(joinPath(baseDir, fileName), JSON.stringify(payload));
+      // B3(1.0.0 评审):该股票历史已被内存镜像整文件覆盖 —— 读侧「已跳过」
+      // 的记账随之失效。不清会让一次坏文件把此后每一轮分析都标成「数据损坏」
+      // (hydrate 只在 ready() 跑一次,控制器却在每个 done 重读)。
+      this.readFailures.delete(fileName);
     });
   }
 
