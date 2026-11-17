@@ -30,5 +30,5 @@
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   },
-  "//": "双 TS 大版本(root ^7.0.2 vs app ~6.0.3):根层 web/node 用 TS 原生编译器 + DOM 单源类型;app 层为 Expo SDK 57 模板钉版,RN/metro 工具链需与 SDK 匹配勿升主版本——详见 .trellis/spec/ts/index.md「全局约定」"
+  "//": "双 tsconfig 同 TS 大版本(root 与 app 均 ^7.0.2):根层 web/node 用 TS 原生编译器 + DOM 单源类型;app 层刻意偏离 Expo SDK 58 模板钉版 ~6.0.3(expo install --check 报版本不符属预期,勿修)——详见 .trellis/spec/ts/index.md「全局约定」"
 }

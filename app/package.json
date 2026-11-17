@@ -35,5 +35,5 @@
     "chart:check": "node --experimental-transform-types ../tools/check-chart-view.mts"
   },
   "allowScripts": {},
-  "//": "typescript ~6.0.3 为 Expo SDK 57 模板钉版:RN/metro 工具链需与 SDK 匹配,勿升主版本;根 package.json 独立用 ^7.0.2(web/node 层)——双 TS 大版本 rationale 见 .trellis/spec/ts/index.md「全局约定」"
+  "//": "typescript ^7.0.2:已刻意偏离 Expo SDK 58 模板钉版 ~6.0.3(app tsc 0 error、expo export ✓ 实证)——expo install --check 会报版本不符,属预期告警勿修;根 package.json 同为 ^7.0.2,双 tsconfig rationale 见 .trellis/spec/ts/index.md「全局约定」"
 }
