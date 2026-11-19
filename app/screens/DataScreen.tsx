@@ -13,10 +13,11 @@ import { changePercentSeries, fmtNumber, turnoverPct } from '../../src/pipeline.
 import { financialTrendSeries, salesGrossMargin } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
 import { marketToday } from '../../src/gates.ts';
-import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key, yahooCapitalKey, yahooProfileKey } from '../../src/metaKeys.ts';
+import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key, yahooAnnualKey, yahooCapitalKey, yahooProfileKey } from '../../src/metaKeys.ts';
 import { marketInfo, type Market } from '../../src/market.ts';
 import { parseYahooCapital } from '../../src/yahoo/composeYahooOverview.ts';
 import { parseYahooProfile, ratingLabel } from '../../src/yahoo/composeYahooProfile.ts';
+import { parseYahooAnnualReports } from '../../src/yahoo/composeYahooReports.ts';
 import { useTheme, type Theme } from '../theme';
 
 const DAILY_TABLE_N = 20;
@@ -42,6 +43,12 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
   const periods = [...new Set(profit.map((r) => r.period))].sort();
   const latest = periods[periods.length - 1] ?? '';
   const reports = React.useMemo(() => store.getPerformanceReports(ticker), [ticker, dataVersion]);
+  // 年度(FY)行:与季度行同日在 performance_reports 的 PK 上相撞,故存在
+  // yahoo-annual: meta(见 metaKeys.yahooAnnualKey);cn 不用该键 → 恒 []
+  const annualReports = React.useMemo(
+    () => (market !== 'cn' ? parseYahooAnnualReports(store.getMeta(yahooAnnualKey(ticker))) : []),
+    [ticker, dataVersion, market],
+  );
   // 股本结构:web 采集经 webCollect 持久化 meta capitalKey(ticker)(股本结构节文本);
   // hk/us 无 F10 文本 → 回退 Yahoo 链写的 yahoo-capital:(JSON 股本,换手率列分母);
   // demo/未采集 → null(换手率列显示 N/A,与 Python 缺股本语义一致)
@@ -254,7 +261,9 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
 
       {/* 业绩表(F10 财务分析 → composeReports 每期一行) */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>业绩报告({reports.length})</Text>
+        <Text style={styles.sectionTitle}>
+          {market === 'cn' ? `业绩报告(${reports.length})` : `业绩报告(季度 ${reports.length} / 年度 ${annualReports.length})`}
+        </Text>
         {reports.length === 0 ? (
           <Text style={styles.muted}>
             {market === 'cn'
@@ -275,6 +284,18 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
             );
           })
         )}
+        {/* 年度(FY)行：与季度行同日的 PK 冲突已解决(分流存 yahoo-annual: meta)，
+            单独列出避免与 Q4 季度行混淆 */}
+        {annualReports.slice(-2).reverse().map((r) => {
+          const f = r.fields as Record<string, unknown>;
+          return (
+            <View key={`FY:${r.report_date}`} style={styles.opinionCard}>
+              <Text style={styles.opinionBody}>
+                {`${r.report_date} (FY) — EPS ${fmtNumber(f.eps as number, 2)} | 净利润 ${fmtNumber(f.net_profit as number, 0)} | 营收 ${fmtNumber(f.total_income as number, 0)}`}
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
       {/* 最新指标 */}

@@ -26,7 +26,7 @@ import { marketToday, marketSessionClosed } from '../gates.ts';
 import type { Market } from '../market.ts';
 import type { YahooCapital } from './composeYahooOverview.ts';
 import type { YahooProfile } from './composeYahooProfile.ts';
-import { yahooCapitalKey, yahooProfileKey } from '../metaKeys.ts';
+import { yahooAnnualKey, yahooCapitalKey, yahooProfileKey } from '../metaKeys.ts';
 
 export interface YahooCollectedPayload {
   ticker: string; // 落库键（Yahoo 符号:'0700.HK'/'AAPL'）
@@ -124,18 +124,32 @@ export function applyYahooCollectedToStore(
     lastDataUpdate: nextLastDataUpdate(),
   });
   // 业绩报告入库(report_date PK 幂等,重复拉取无害;全量拉取 + 幂等,无 F10 门)
+  //
+  // 季度行 → performance_reports(按 report_date 去重);
+  // 年度行 → yahoo-annual: meta —— 港股 Q4 季度行与 FY 行同为 12-31、美股 FY 末日
+  // 也是 Q4 末日,同日两行在 PK 上相撞(旧实现季度行胜 → FY 行静默丢失)。分流的
+  // 好处:季度序列不被年度行污染(QoQ/YoY 基期正确),FY 数据也不丢。
   if (payload.reports.length) {
-    // 批量内按 report_date 去重(收入表季度+年度合并可能含同日期行;SQLite PK
-    // 幂等,但 InMemory/FileStore 仅对既有行去重——此处统一"按 report_date
-    // 去重"契约,防 RN/web 落重复报告行)
     const seen = new Set<string>();
-    const unique: PerformanceReport[] = [];
+    const quarterly: PerformanceReport[] = [];
+    const annual: PerformanceReport[] = [];
     for (const r of payload.reports) {
+      const isAnnual = r.fields['period_kind'] === 'FY';
+      if (isAnnual) {
+        annual.push(r);
+        continue;
+      }
       if (seen.has(r.report_date)) continue;
       seen.add(r.report_date);
-      unique.push(r);
+      quarterly.push(r);
     }
-    store.addPerformanceReports(payload.ticker, unique);
+    if (quarterly.length) store.addPerformanceReports(payload.ticker, quarterly);
+    if (annual.length) {
+      // 同日多行年度(极少)→ 按 report_date 去重,后者作废
+      const byDate = new Map<string, PerformanceReport>();
+      for (const r of annual) byDate.set(r.report_date, r);
+      store.setMeta(yahooAnnualKey(payload.ticker), JSON.stringify([...byDate.values()]));
+    }
   }
   // 公司画像/股本写入 meta(hk/us 自己的键,与 CN 的 capital:/f10: 不混用):
   // 画像降级(null)→ 不覆盖既有画像;股本全 NaN 同样不覆盖。

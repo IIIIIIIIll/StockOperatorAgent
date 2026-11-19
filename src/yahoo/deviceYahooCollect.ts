@@ -43,6 +43,8 @@ import { resolveSkipGates } from '../collector.ts';
 import { divide, prevVolumesOf, ytdBaseClose } from '../overview.ts';
 import { composeYahooProfile, isEmptyYahooProfile } from './composeYahooProfile.ts';
 import { marketToday } from '../gates.ts';
+import { fetchAmountByDate, mergeAmounts } from '../eastmoney/klineClient.ts';
+import { emF10Enabled, enrichReportsWithEm, fetchEmPeriods } from '../eastmoney/f10Client.ts';
 import { warn } from '../log.ts';
 
 /** quoteSummary 模块:概览/财报五模块 + 收入表(HK quarterly 实测仅 4 期,年度
@@ -447,10 +449,31 @@ export async function collectYahooPayload(
   const fmt = tzDateFmt(metaRaw);
   const skipDaily = opts?.skipDaily === true;
   const firstTradeDate = metaRaw['firstTradeDate'];
+  const marketOf = yahooMarketOfTicker(ticker);
   // 全量日K(range=max 降级月K → period 窗口分页;skipDaily → 跳过分页)
-  const bars = skipDaily
-    ? []
-    : await fetchFullDailyBars(symbol, typeof firstTradeDate === 'number' ? firstTradeDate : NaN);
+  // 成交额：东财 kline f57（只见 src/eastmoney/klineClient.ts 对账说明），与日K
+  // 并行取；失败→空 Map→保留 volume×价格 近似（degrade don't raise）。
+  let bars: DailyBar[] = [];
+  let todayAmount: number | undefined;
+  if (!skipDaily) {
+    const [rawBars, amountByDate] = await Promise.all([
+      fetchFullDailyBars(symbol, typeof firstTradeDate === 'number' ? firstTradeDate : NaN),
+      fetchAmountByDate(marketOf, symbol),
+    ]);
+    bars = mergeAmounts(rawBars, amountByDate);
+    const todayKey = marketToday(marketOf);
+    const lastBar = bars.at(-1);
+    // 与 CN 同语义：只当末根是「今天」时才把当日成交额抬到概览
+    // （历史末根不是今日成交额）
+    if (
+      lastBar !== undefined &&
+      lastBar.date === todayKey &&
+      typeof lastBar.amount === 'number' &&
+      Number.isFinite(lastBar.amount)
+    ) {
+      todayAmount = lastBar.amount;
+    }
+  }
   // chart meta 无 previousClose(实测 HK/US 均缺;chartPreviousClose 是窗口前
   // 收盘):以 bars 推算最近交易日收盘注入 meta,compose/snapshot 消费正确前收
   const prevClose = prevCloseOf(bars, metaRaw, fmt);
@@ -468,9 +491,11 @@ export async function collectYahooPayload(
   const snapshot = snapshotFromMeta(meta);
   // quoteSummary 失败(crumb 失效)→ 概览仅 chart meta 可映射字段 + reports 空
   // 盘中 5 分钟K 与 quoteSummary 并行（两路互不依赖，串行只会白等网络）
-  const [summary, intradayChangePct] = await Promise.all([
+  // 东财 F10 期次也并行取（成交额已在日K 阶段取过；两者互不依赖）
+  const [summary, intradayChangePct, emPeriods] = await Promise.all([
     quoteSummaryOrNull(client, symbol),
     intraday5MinChangePct(client, symbol),
+    emF10Enabled() ? fetchEmPeriods(marketOf, symbol) : Promise.resolve([]),
   ]);
   // 收入表语句源归一化(HK quarterly 键名/期数差异,见 normalizeIncomeStatements)
   const composed = summary === null ? null : normalizeIncomeStatements(summary);
@@ -481,13 +506,14 @@ export async function collectYahooPayload(
   // YTD 基准（上年末收盘）与量比分母（前 5 日量）：两者都是「bars → 标量」纯
   // 推导，与 CN composeOverview 共用同一语义（overview.ytdBaseClose/prevVolumesOf）。
   // 今天按市场时区（HK/US 与 CN 不同日），bars 空（skipDaily）→ 两者 NaN。
-  const today = marketToday(yahooMarketOfTicker(ticker));
+  const today = marketToday(marketOf);
   const { overview, capital } = composeYahooOverview(meta, composed ?? {}, {
     firstClose,
     lastClose,
     ytdBaseClose: ytdBaseClose(bars, today),
     prevVolumes: prevVolumesOf(bars, today),
     intradayChangePct,
+    ...(todayAmount !== undefined ? { amount: todayAmount } : {}),
   });
   // 公司画像/分析师预期（同一次 quoteSummary 的 assetProfile/calendarEvents/
   // earningsTrend/recommendationTrend/majorHoldersBreakdown/financialData）。
@@ -498,10 +524,13 @@ export async function collectYahooPayload(
   const reports =
     composed === null
       ? []
-      : composeYahooReports(
-          composed,
-          Number.isFinite(capital.zongguben) ? capital.zongguben : null,
-          { ticker: symbol, name, industry: '' },
+      : enrichReportsWithEm(
+          composeYahooReports(
+            composed,
+            Number.isFinite(capital.zongguben) ? capital.zongguben : null,
+            { ticker: symbol, name, industry: '' },
+          ),
+          emPeriods,
         );
   return {
     ticker: symbol,

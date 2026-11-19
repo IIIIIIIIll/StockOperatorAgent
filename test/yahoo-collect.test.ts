@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InMemoryStore } from '../src/store-memory.ts';
 import type { StoreLike } from '../src/store.ts';
 import { setYahooStore, applyYahooCollectedToStore, type YahooCollectedPayload } from '../src/yahoo/applyYahooCollectedToStore.ts';
+import { parseYahooAnnualReports } from '../src/yahoo/composeYahooReports.ts';
+import { yahooAnnualKey } from '../src/metaKeys.ts';
 import { collectYahooForDevice, collectYahooPayload, obtainA3, getCachedA3, invalidateA3Cache } from '../src/yahoo/deviceYahooCollect.ts';
 import { YahooClient, YAHOO_REQUEST_TIMEOUT_MS } from '../src/yahoo/yahooClient.ts';
 import { FinnhubClient } from '../src/finnhub/finnhubClient.ts';
@@ -431,9 +433,14 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(payload.reports.map((r) => r.report_date)).toEqual(['20241231', '20251231', '20251231', '20260630']);
     const out = applyYahooCollectedToStore(store, payload, 'hk');
     expect(out.capital?.zongguben).toBe(9_300_000_000);
+    // 2026-11-19 起：年度行→ yahoo-annual: meta（与季度行同日在 performance_reports
+    // 的 PK 上相撞），季度行仍按 report_date 去重入库。
     const stored = store.getPerformanceReports('0700.HK');
-    expect(stored).toHaveLength(3); // 20251231 重叠期按 PK 去重
-    expect(stored.map((r) => r.report_date)).toEqual(['20241231', '20251231', '20260630']);
+    expect(stored.map((r) => r.report_date)).toEqual(['20251231', '20260630']);
+    expect(parseYahooAnnualReports(store.getMeta(yahooAnnualKey('0700.HK'))).map((r) => r.report_date)).toEqual([
+      '20241231',
+      '20251231',
+    ]);
   });
 
   it('HK 5 位输入:09988 → 首候选 9988.HK(官方 4 位码)命中;5 位原样形不再试探', async () => {
@@ -893,10 +900,12 @@ describe('Yahoo 链超时(B1:AbortController 40s < 代理 504 定时器 45s;Herm
 
   it('全量日K分页挂起(fetchChartWindow 裸 fetch)→ 相同 timeout 语义', async () => {
     vi.useFakeTimers();
-    const recorder = { current: undefined as AbortSignal | undefined };
+    // 按 URL 记录 signal：2026-11-19 起采集链会并行发一条东财 kline 请求（无
+    // signal），单槽 recorder 会被它覆盖成 undefined → 断言须按 URL 取分页请求。
+    const signals = new Map<string, AbortSignal | undefined>();
     const fn = (async (url: string | URL | Request, init?: RequestInit) => {
       const u = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
-      recorder.current = init?.signal ?? undefined;
+      signals.set(u, init?.signal ?? undefined);
       // 候选试探(range=5d)命中;分页(period1/period2)永不 settle
       if (u.includes('range=5d')) return jsonResponse(chartBody('AAPL'));
       return await new Promise<Response>((_resolve, reject) => {
@@ -909,7 +918,9 @@ describe('Yahoo 链超时(B1:AbortController 40s < 代理 504 定时器 45s;Herm
     const assertion = expect(p).rejects.toMatchObject({ name: 'YahooApiError', code: 'timeout' });
     await vi.advanceTimersByTimeAsync(YAHOO_REQUEST_TIMEOUT_MS);
     await assertion;
-    expect(recorder.current?.aborted).toBe(true);
+    const paging = [...signals.entries()].filter(([u]) => u.includes('period1='));
+    expect(paging.length).toBeGreaterThan(0);
+    for (const [u, signal] of paging) expect(signal?.aborted, u).toBe(true);
   });
 });
 

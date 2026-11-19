@@ -50,6 +50,27 @@ function rawNum(v: unknown): number {
   return typeof raw === 'number' ? raw : NaN;
 }
 
+/** yahoo-annual: meta(JSON)、容错解析：非数组/坏项丢弃，不抛。
+ *  年度行独立存放的理由见 metaKeys.yahooAnnualKey。 */
+export function parseYahooAnnualReports(raw: string | null | undefined): PerformanceReport[] {
+  if (typeof raw !== 'string' || raw.trim() === '') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: PerformanceReport[] = [];
+  for (const item of parsed) {
+    const r = rec(item);
+    const reportDate = r['report_date'];
+    if (typeof reportDate !== 'string' || !/^\d{8}$/.test(reportDate)) continue;
+    out.push({ report_date: reportDate, fields: rec(r['fields']) });
+  }
+  return out.sort((a, b) => a.report_date.localeCompare(b.report_date));
+}
+
 /** 相邻报告期天数 → 周期类型：真季度(88~93 天) / 半年(175~190) / 其余 null。
  *  CN 侧 adjacentQuarterGap（reports.ts:40-46）用同一 88~93 窗口但只认季度。
  *  为什么需要：HK Q4 季度行与 FY 年度行同为 12-31；季度行被年度行顶掉后，
@@ -196,6 +217,9 @@ export function composeYahooReports(
         cash_flow_per_share: divide(opCashFlow, shares),
         sales_gross_margin: grossMarginOf(stmtRec),
         industry,
+        // 行起源标记:消费方据此把年度行分流到 yahoo-annual: meta(年度行与季度行
+        // 同日时在 performance_reports 的 PK 上相撞,见 metaKeys.yahooAnnualKey)
+        period_kind: annual ? 'FY' : 'Q',
       },
     });
   }

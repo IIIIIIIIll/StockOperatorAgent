@@ -5,7 +5,8 @@
 // 4) usCandidates —— 美股 '.'/'−' 符号互探(BRK.B → BRK-B)
 import { describe, expect, it } from 'vitest';
 import { qfqAdjustByAdjClose, type AdjCloseBar } from '../src/adjust.ts';
-import { composeYahooReports, periodKindOf } from '../src/yahoo/composeYahooReports.ts';
+import { composeYahooReports, parseYahooAnnualReports, periodKindOf } from '../src/yahoo/composeYahooReports.ts';
+import { yahooFinancialIndicatorsText } from '../src/pipeline.ts';
 
 function bar(date: string, close: number, adjClose: number | null, volume: number | null = 100): AdjCloseBar {
   return { date, open: close, high: close, low: close, close, volume, adjClose };
@@ -136,5 +137,55 @@ describe('composeYahooReports 保真度补齐', () => {
       1000,
     );
     expect(rows[1]!.fields.total_income_QoQ_rate).toBeCloseTo(50, 10);
+  });
+});
+
+describe('parseYahooAnnualReports(yahoo-annual: meta 解析)', () => {
+  it('合法 JSON → 按 report_date 升序', () => {
+    const raw = JSON.stringify([
+      { report_date: '20251231', fields: { net_profit: 100 } },
+      { report_date: '20241231', fields: { net_profit: 90 } },
+    ]);
+    expect(parseYahooAnnualReports(raw).map((r) => r.report_date)).toEqual(['20241231', '20251231']);
+  });
+
+  it('坏输入一律空数组,不抛', () => {
+    expect(parseYahooAnnualReports(null)).toEqual([]);
+    expect(parseYahooAnnualReports('')).toEqual([]);
+    expect(parseYahooAnnualReports('{bad json')).toEqual([]);
+    expect(parseYahooAnnualReports('{"a":1}')).toEqual([]);
+  });
+
+  it('坏行过滤(report_date 非 8 位数字)', () => {
+    const raw = JSON.stringify([
+      { report_date: '2025-12-31', fields: {} },
+      { report_date: '20251231', fields: { x: 1 } },
+      { fields: {} },
+    ]);
+    expect(parseYahooAnnualReports(raw).map((r) => r.report_date)).toEqual(['20251231']);
+  });
+});
+
+describe('yahooFinancialIndicatorsText 年度段', () => {
+  const q = {
+    report_date: '20260630',
+    fields: { net_profit: 100, total_income: 1000, eps: 1, net_worth_return_rate: 10 },
+  };
+  const fy = {
+    report_date: '20251231',
+    fields: { net_profit: 380, total_income: 3700, eps: 4, net_profit_YoY_rate: 12.5 },
+  };
+
+  it('有年度行 → 追加「年度(FY …)」一行(营收/净利/同比)', () => {
+    const text = yahooFinancialIndicatorsText([q], '0700.HK', 'hk', {}, [fy]);
+    expect(text).toContain('年度(FY 20251231)');
+    expect(text).toContain('营业收入');
+    expect(text).toContain('净利同比 12.50%');
+  });
+
+  it('无年度行 → 不输出年度段(旧行为逐字节不变)', () => {
+    const text = yahooFinancialIndicatorsText([q], '0700.HK', 'hk', {});
+    expect(text).not.toContain('年度(FY');
+    expect(text).not.toContain('年度');
   });
 });

@@ -9,7 +9,8 @@ import { parseIndicatorSection } from './f10.ts';
 import { marketToday } from './gates.ts';
 import { marketInfo, type Market } from './market.ts';
 import { MCP_NO_KEY_TEXT } from './mcp.ts';
-import { yahooProfileKey } from './metaKeys.ts';
+import { yahooAnnualKey, yahooProfileKey } from './metaKeys.ts';
+import { parseYahooAnnualReports } from './yahoo/composeYahooReports.ts';
 import { parseYahooProfile, yahooProfileText } from './yahoo/composeYahooProfile.ts';
 import type { ProgressUpdater } from './progress.ts';
 
@@ -191,6 +192,9 @@ export function yahooFinancialIndicatorsText(
   ticker: string,
   market: Market,
   fallback?: YahooFinancialFallback,
+  /** 年度(FY)行——来自 yahoo-annual: meta（与季度行同日在 performance_reports
+   *  的 PK 上相撞，故分流存放）。缺省 [] → 不输出年度段（旧行为）。 */
+  annual: PerformanceReport[] = [],
 ): string {
   const currency = marketInfo(market).currency;
   const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -218,6 +222,18 @@ export function yahooFinancialIndicatorsText(
   lines.push(`营业收入: ${fmtNumber(num(f.total_income), 2)} ${currency}`);
   lines.push(`净资产收益率(ROE): ${fmtNumber(roe, 2)}%`);
   lines.push(`每股收益(EPS): ${fmtNumber(eps, 2)} ${currency}`);
+  // 年度(FY)行:汇总为一行(最新 FY 的营收/净利润/YoY),给 DCF/PEG 一个年度口径
+  // 锚;季度序列里没有 FY 行(同日冲突被分流到 meta,见 metaKeys.yahooAnnualKey)。
+  const fy = annual.at(-1);
+  if (fy !== undefined) {
+    const fyF = (fy.fields ?? {}) as Record<string, unknown>;
+    const fyYoY = num(fyF.net_profit_YoY_rate);
+    lines.push(
+      `年度(FY ${fy.report_date}): 营业收入 ${fmtNumber(num(fyF.total_income), 2)} ${currency}`
+        + `, 净利润 ${fmtNumber(num(fyF.net_profit), 2)} ${currency}`
+        + (fyYoY === null ? '' : `, 净利同比 ${fmtNumber(fyYoY, 2)}%`),
+    );
+  }
   return lines.join('\n');
 }
 
@@ -297,6 +313,7 @@ export function buildStockInformation(ticker: string, deps: PipelineDeps): strin
         ticker,
         market,
         { eps: overview.eps as number | undefined, roePct: yahooRoePct },
+        parseYahooAnnualReports(store.getMeta(yahooAnnualKey(ticker))),
       ));
 
   // 块 4:cn 现逻辑(注入 mcp 或 TDX_API_KEY 占位);hk/us 走 Google News RSS

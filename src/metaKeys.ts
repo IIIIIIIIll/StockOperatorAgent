@@ -25,6 +25,15 @@ export const yahooCapitalKey = (ticker: string): string => `yahoo-capital:${tick
  *  结构见 src/yahoo/composeYahooProfile.ts 的 YahooProfile)。 */
 export const yahooProfileKey = (ticker: string): string => `yahoo-profile:${ticker}`;
 
+/** 每股年度(FY)业绩 JSON meta 键模板(hk/us Yahoo 链写,pipeline/DataScreen 读;
+ *  形如 `[{"report_date":"20251231","fields":{...}}]`)。
+ *
+ *  为什么放 meta 而不进 performance_reports:该表 PK 是 (ticker, report_date),
+ *  而港股 Q4 季度行与 FY 年度行同为 12-31、美股 FY 末季同为 Q4 末日 → 同日两行
+ *  在 PK 上相撞(旧实现季度行胜,FY 行静默丢失)。改用独立 meta 存年度行 = 零
+ *  迁移、零 Party 风险,且季度序列不被年度行污染(并列反而更清楚)。 */
+export const yahooAnnualKey = (ticker: string): string => `yahoo-annual:${ticker}`;
+
 /** 每股证券名称 meta 键模板(deviceCollect/webCollect 缓存,quoteClient 读写)。 */
 export const nameKey = (ticker: string): string => `name:${ticker}`;
 

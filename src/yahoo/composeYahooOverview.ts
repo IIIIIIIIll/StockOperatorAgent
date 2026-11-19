@@ -51,6 +51,9 @@ export interface YahooOverviewOptions {
   /** 最近一个 5 分钟K的涨跌幅%——涨速/5 分钟涨跌同源
    *  （deviceYahooCollect.intraday5MinChangePct）；缺/NaN → 两键 NaN。 */
   intradayChangePct?: number;
+  /** 真成交额（原币，当日）—— 东财 kline f57（src/eastmoney/klineClient.ts）；
+   *  缺/NaN → 回退 `volume × 最新价` 近似（#97）。 */
+  amount?: number;
 }
 
 export interface YahooCapital {
@@ -136,9 +139,10 @@ export function composeYahooOverview(
   const low = firstFinite(metaRec['regularMarketDayLow'], price['regularMarketDayLow'], summaryDetail['regularMarketDayLow']);
   const volume = firstFinite(metaRec['regularMarketVolume'], price['regularMarketVolume'], summaryDetail['regularMarketVolume']);
   // #97:Yahoo chart meta/quoteSummary 无成交额标准字段(no-standard-source,见
-  // 文件头);旧实现误读 regularMarketDayVolume(量字段)→ 成交额显示成股数。
-  // 决策:近似 volume×最新价(有标准源后替换);任一缺失/NaN → NaN。
-  const amount = Number.isFinite(volume) && Number.isFinite(priceNum) ? volume * priceNum : NaN;
+  // 文件头)→ 近似 volume×最新价。2026-11-19 起:东财 kline f57 给出真成交额
+  // （对账 p50 误差 0.6%）→ opts.amount 优先,缺失/NaN 才走近似。
+  const approxAmount = Number.isFinite(volume) && Number.isFinite(priceNum) ? volume * priceNum : NaN;
+  const amount = Number.isFinite(opts?.amount) ? (opts?.amount as number) : approxAmount;
 
   const changePctRaw = rawNum(price['regularMarketChangePercent']);
   const changePercent = Number.isFinite(changePctRaw)
