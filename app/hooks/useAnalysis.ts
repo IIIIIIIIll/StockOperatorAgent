@@ -27,6 +27,7 @@ import {
   loadDemoData,
   makeBillionsIntel,
   makeMcpIntel,
+  makeNewsIntel,
   runner,
   store,
   storeReady,
@@ -158,12 +159,14 @@ export function useAnalysis(): UseAnalysis {
           return (await selectCollector('rn', m, webImpls))(ticker);
         },
         fetchIntel: async (nt, m, keys) => {
-          // 亿信/mcp 预查询(mcp 仅 cn:S4 契约,hk/us 块 4 恒占位不消费)
-          const [billions, mcp] = await Promise.all([
+          // 亿信/mcp/新闻 预查询(mcp 仅 cn;news 仅 hk/us——cn 块 4 走 TDX MCP,
+          // hk/us 块 4 走 Google News RSS。两端互斥,同一次 Promise.all 并发预取)
+          const [billions, mcp, news] = await Promise.all([
             makeBillionsIntel(nt, keys.billionsApiKey),
             m === 'cn' ? makeMcpIntel(nt, keys.tdxApiKey) : Promise.resolve(undefined),
+            m === 'cn' ? Promise.resolve(undefined) : makeNewsIntel(nt, m),
           ]);
-          return { billions, mcp };
+          return { billions, mcp, news };
         },
         // 亿信 CORS:web 端经同源 /billions-proxy(webBillionsFetch 单点判定,
         // runner.ts);Node/RN 直连零变化。

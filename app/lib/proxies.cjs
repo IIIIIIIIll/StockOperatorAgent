@@ -13,6 +13,7 @@ const { TdxClient } = require('node-tdx-market');
 const { collectAll } = require('../../src/tdx/quoteClient.ts');
 const { f10MarketFor, getCompanyInfoCategory, getCompanyInfoContent } = require('../../src/tdx/f10Client.ts');
 const { ddgSearcher } = require('../../src/webSearch.ts');
+const { fetchGoogleNews } = require('../../src/news/googleNews.ts');
 const { YahooClient } = require('../../src/yahoo/yahooClient.ts');
 const { collectYahooPayload, getCachedA3, invalidateA3Cache } = require('../../src/yahoo/deviceYahooCollect.ts');
 const { yahooMarketOfTicker } = require('../../src/yahoo/webYahooCollect.ts');
@@ -632,6 +633,55 @@ async function handleWebSearch(req, res, _ddg = ddgSearcher) {
   }
 }
 
+// ─── Google News RSS 同源代理(/news-feed)───────────────────────────────────
+// hk/us 块 4 实时情报段:浏览器直连 news.google.com 受 CORS 限制 → 同源转发
+// (对齐 /web-search 的代理语义)。目标 host 写死(news.google.com),q 仅作
+// query 参数拼到固定 URL → 零 SSRF 面(无需 normalizeBaseUrl/pinPublicHost)。
+// q 校验对齐 /web-search:非空、≤200 字符、无控制字符(允许空白——查询串本就
+// 含空格与 OR);market 仅 hk|us,缺省 us。20s race 仅提前回 504,不打断 in-flight。
+const NEWS_FEED_TIMEOUT_MS = 20_000;
+
+async function handleNewsFeed(req, res, _fetchNews = fetchGoogleNews) {
+  let url;
+  try {
+    url = new URL(req.url, 'http://x');
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: '非法请求 URL' }));
+    return;
+  }
+  const q = url.searchParams.get('q') ?? '';
+  const market = url.searchParams.get('market') === 'hk' ? 'hk' : 'us';
+  if (!q || q.length > 200 || /[\x00-\x1f\x7f]/.test(q)) {
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify({ error: `无效 q 参数:${q}(需非空、≤200 字符、无控制字符)` }));
+    return;
+  }
+  let settled = false;
+  const send = (status, obj) => {
+    if (settled) return;
+    settled = true;
+    res.writeHead(status, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(JSON.stringify(obj));
+  };
+  let rejectNews;
+  const timeoutPromise = new Promise((_, reject) => {
+    rejectNews = reject;
+  });
+  const timeoutTimer = setTimeout(
+    () => rejectNews(Object.assign(new Error('新闻获取超时(20s)'), { timedOut: true })),
+    NEWS_FEED_TIMEOUT_MS,
+  );
+  try {
+    const items = await Promise.race([_fetchNews(q, market), timeoutPromise]);
+    send(200, { items });
+  } catch (err) {
+    send(err?.timedOut ? 504 : 502, { error: `新闻获取失败:${String(err?.message ?? err)}` });
+  } finally {
+    clearTimeout(timeoutTimer); // 同 CR-52:race 胜出后不得留 20s 存活定时器
+  }
+}
+
 // ─── TDX MCP 同源代理(/tdx-mcp)─────────────────────────────────────────────
 // F2:web 端浏览器直连通达信 MCP 服务器受 CORS 限制 → 同源代理转发
 // (TdxMcpClient 经 makeProxyMcpFetch 走本端点,src/mcp.ts)。目标写死
@@ -799,12 +849,14 @@ module.exports = {
   handleTdxCollect,
   handleYahooCollect,
   handleWebSearch,
+  handleNewsFeed,
   handleTdxMcp,
   handleBillionsProxy,
   // 测试/复用导出(新增,不删旧)
   MAX_BODY_BYTES, // W2 上限
   COLLECT_TIMEOUT_MS, // W4 超时
   YAHOO_COLLECT_TIMEOUT_MS, // Yahoo 采集超时
+  NEWS_FEED_TIMEOUT_MS, // Google News 代理超时
   TDX_MCP_TARGET, // F2 固定目标(零 SSRF 面)
   TDX_MCP_TIMEOUT_MS, // F2 超时
   BILLIONS_TARGET_ORIGIN, // 亿信固定目标(零 SSRF 面)

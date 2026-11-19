@@ -3,7 +3,14 @@
 // web-search.test.ts 的 handler 路由模式）。
 import { describe, expect, it, vi } from 'vitest';
 import { YahooClient, YAHOO_HOSTS, readBodyWithTimeout } from '../src/yahoo/yahooClient.ts';
-import { composeYahooOverview } from '../src/yahoo/composeYahooOverview.ts';
+import { composeYahooOverview, parseYahooCapital } from '../src/yahoo/composeYahooOverview.ts';
+import {
+  composeYahooProfile,
+  isEmptyYahooProfile,
+  parseYahooProfile,
+  ratingLabel,
+  yahooProfileText,
+} from '../src/yahoo/composeYahooProfile.ts';
 import { composeYahooReports } from '../src/yahoo/composeYahooReports.ts';
 
 interface FetchCall {
@@ -335,6 +342,49 @@ describe('YahooClient.quoteSummary / crumb 流程', () => {
   });
 });
 
+describe('YahooClient cookieJar 模式（RN/XHR:Set-Cookie 对 JS 不可见）', () => {
+  it('fc 的 404 + 无可见 Set-Cookie 不再致命;crumb/quoteSummary 不带 Cookie 头但带 credentials', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const { fetchImpl } = makeFetch([
+      // fc.yahoo.com:404 且 JS 读不到 Set-Cookie（XHR 规范）—— header 模式下这会
+      // 抛错导致 quoteSummary 降级,jar 模式下必须放行
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => new Response('', { status: 404 }) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => new Response('crumb-jar', { status: 200 }) },
+      {
+        match: (u) => u.includes('/v10/finance/quoteSummary/'),
+        respond: () => new Response(JSON.stringify({ quoteSummary: { result: [{ price: {} }] } }), { status: 200 }),
+      },
+    ]);
+    const wrapped = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return fetchImpl(url as never, init as never);
+    }) as unknown as typeof fetch;
+
+    const client = new YahooClient(wrapped, undefined, undefined, true);
+    const out = (await client.quoteSummary('0700.HK', ['price'])) as { quoteSummary: unknown };
+    expect(out.quoteSummary).toBeTruthy();
+    expect(calls.map((c) => new URL(c.url).host)).toEqual([
+      'fc.yahoo.com',
+      'query2.finance.yahoo.com',
+      'query2.finance.yahoo.com',
+    ]);
+    // 三个请求都不带 Cookie 头(交给 native jar),且都开启 credentials
+    for (const call of calls) {
+      const headers = (call.init?.headers ?? {}) as Record<string, string>;
+      expect(headers['Cookie']).toBeUndefined();
+      expect(call.init?.credentials).toBe('include');
+    }
+  });
+
+  it('header 模式不变:fc 无可见 A3 → 仍按 HTTP 语义抛错(服务端行为零变化)', async () => {
+    const { fetchImpl } = makeFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => new Response('', { status: 404 }) },
+    ]);
+    const client = new YahooClient(fetchImpl, undefined, undefined, false);
+    await expect(client.quoteSummary('0700.HK', ['price'])).rejects.toThrow('HTTP 404');
+  });
+});
+
 describe('composeYahooOverview', () => {
   const META = {
     symbol: '0700.HK',
@@ -395,24 +445,86 @@ describe('composeYahooOverview', () => {
     // 量字段 → 成交额显示成股数)。15_000_000 × 370.4 = 5_556_000_000。
     expect(overview.amount).toBe(15_000_000 * 370.4);
     expect(overview.amplitude).toBeCloseTo(((375.2 - 368.8) / 372.6) * 100, 6);
-    expect(overview.turnover_rate).toBeCloseTo((15_000_000 / 8_900_000_000) * 100, 6);
+    // HK 口径：换手率/流通市值分母 = 已发行股份（sharesOutstanding），
+    // 非 Yahoo floatShares（剔除战略股东，0700.HK 实测 6.21B vs 已发行 9.0B）。
+    expect(overview.turnover_rate).toBeCloseTo((15_000_000 / 9_200_000_000) * 100, 6);
     expect(overview.pe_dynamic).toBe(14.8);
     expect(overview.pb).toBe(3.2);
     expect(overview.market_cap).toBe(3_400_000_000_000);
-    expect(overview.circulating_market_cap).toBe(370.4 * 8_900_000_000);
+    expect(overview.circulating_market_cap).toBe(370.4 * 9_200_000_000);
     expect(overview.dividend_yield).toBe(0.0041);
     expect(overview.eps).toBe(25.03);
     expect(overview.week_52_high).toBe(399.6);
     expect(overview.week_52_low).toBe(258.2);
     expect(overview.currency).toBe('HKD');
     expect(overview.change_percent_60d).toBeCloseTo(((330 - 300) / 300) * 100, 6);
-    // Yahoo 无 → NaN（对齐 CN pytdx 缺字段约定）
-    expect(overview.volume_ratio).toBeNaN();
+    // 涨速/5 分钟涨跌需盘中分钟K，本链不拉 → 仍 NaN
     expect(overview.momentum).toBeNaN();
     expect(overview.change_percent_5min).toBeNaN();
+    // opts 未给 YTD 基准/前 5 日量 → NaN（不伪造）
+    expect(overview.volume_ratio).toBeNaN();
     expect(overview.change_percent_ytd).toBeNaN();
     expect(capital.zongguben).toBe(9_200_000_000);
-    expect(capital.liutongguben).toBe(8_900_000_000);
+    expect(capital.liutongguben).toBe(9_200_000_000); // HK = 已发行股份
+  });
+
+  it('市场口径：HK 分母取已发行股份（sharesOutstanding 缺 → floatShares），US 取 floatShares', () => {
+    // HK：仅 floatShares → 回退 floatShares（不致 NaN）
+    const hkNoOutstanding = {
+      quoteSummary: { result: [{ defaultKeyStatistics: { floatShares: { raw: 6_000_000_000 } } }] },
+    };
+    const hk = composeYahooOverview(META, hkNoOutstanding);
+    expect(hk.capital.liutongguben).toBe(6_000_000_000);
+    expect(hk.overview.turnover_rate).toBeCloseTo((15_000_000 / 6_000_000_000) * 100, 6);
+
+    // US：即使 sharesOutstanding 存在，流通口径仍用 floatShares
+    const usSummary = {
+      quoteSummary: {
+        result: [
+          {
+            defaultKeyStatistics: {
+              sharesOutstanding: { raw: 15_000_000_000 },
+              floatShares: { raw: 14_000_000_000 },
+            },
+          },
+        ],
+      },
+    };
+    const us = composeYahooOverview({ symbol: 'AAPL', regularMarketPrice: 200, regularMarketVolume: 7_000_000 }, usSummary);
+    expect(us.capital.liutongguben).toBe(14_000_000_000);
+    expect(us.overview.circulating_market_cap).toBe(200 * 14_000_000_000);
+  });
+
+  it('pb：defaultKeyStatistics 为主源 → summaryDetail 回退 → price/bookValue 派生 → NaN', () => {
+    const meta = { symbol: '0700.HK', regularMarketPrice: 372.8 };
+    const stats = (dk: Record<string, unknown>, sd: Record<string, unknown> = {}) =>
+      composeYahooOverview(meta, { quoteSummary: { result: [{ defaultKeyStatistics: dk, summaryDetail: sd }] } }).overview.pb;
+
+    // 实测 0700.HK：priceToBook 只在 defaultKeyStatistics（旧链只读 summaryDetail → 恒 NaN）
+    expect(stats({ priceToBook: { raw: 2.5145 } })).toBe(2.5145);
+    expect(stats({}, { priceToBook: { raw: 3.2 } })).toBe(3.2);
+    expect(stats({ bookValue: { raw: 148.257 } })).toBeCloseTo(372.8 / 148.257, 6);
+    expect(stats({ priceToBook: { raw: 2.5 }, bookValue: { raw: 100 } })).toBe(2.5); // 直取优先
+    expect(stats({ bookValue: { raw: 0 } })).toBeNaN(); // 分母 ≤0 → NaN
+    expect(stats({})).toBeNaN();
+  });
+
+  it('change_percent_ytd / volume_ratio：opts 传入即算，缺窗口/含 NaN → NaN', () => {
+    const meta = { symbol: '0700.HK', regularMarketPrice: 372.8, regularMarketVolume: 21_338_240 };
+    const summary = { quoteSummary: { result: [{ price: { longName: 'Tencent' } }] } };
+
+    expect(composeYahooOverview(meta, summary, { ytdBaseClose: 300 }).overview.change_percent_ytd)
+      .toBeCloseTo(((372.8 - 300) / 300) * 100, 6);
+    // 上年末基准缺失/为 0 → NaN（不伪造 YTD）
+    expect(composeYahooOverview(meta, summary, { ytdBaseClose: 0 }).overview.change_percent_ytd).toBeNaN();
+
+    const prev5 = [20_000_000, 22_000_000, 24_000_000, 26_000_000, 18_000_000];
+    expect(composeYahooOverview(meta, summary, { prevVolumes: prev5 }).overview.volume_ratio)
+      .toBeCloseTo(21_338_240 / (prev5.reduce((s, v) => s + v, 0) / 5), 6);
+    // 窗口不足 5 根 / 窗口含 NaN / 前窗均量 0 → NaN（对齐 indicators.calcVolumeRatio）
+    expect(composeYahooOverview(meta, summary, { prevVolumes: prev5.slice(0, 4) }).overview.volume_ratio).toBeNaN();
+    expect(composeYahooOverview(meta, summary, { prevVolumes: [...prev5.slice(0, 4), NaN] }).overview.volume_ratio).toBeNaN();
+    expect(composeYahooOverview(meta, summary, { prevVolumes: [0, 0, 0, 0, 0] }).overview.volume_ratio).toBeNaN();
   });
 
   it('容错与 NaN 语义：opts 缺 → 60d NaN；chartPreviousClose 回退；涨跌幅自算；缺失 → NaN', () => {
@@ -653,5 +765,124 @@ describe('readBodyWithTimeout', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('composeYahooProfile（公司画像/分析师预期）', () => {
+  const SUMMARY = {
+    quoteSummary: {
+      result: [
+        {
+          assetProfile: {
+            sector: 'Communication Services',
+            industry: 'Internet Content & Information',
+            country: 'China',
+            website: 'https://www.tencent.com',
+            fullTimeEmployees: 105_417,
+            longBusinessSummary: 'A'.repeat(500),
+          },
+          calendarEvents: {
+            earnings: { earningsDate: [{ fmt: '2026-11-18' }], isEarningsDateEstimate: true },
+          },
+          earningsTrend: {
+            trend: [
+              { period: '0q', earningsEstimate: { avg: { raw: 6.78 } } },
+              { period: '+1y', earningsEstimate: { avg: { raw: 32.5 } } },
+            ],
+          },
+          financialData: {
+            targetMeanPrice: { raw: 641.12 },
+            targetHighPrice: { raw: 783.97 },
+            targetLowPrice: { raw: 367.74 },
+            recommendationKey: 'strong_buy',
+            recommendationMean: { raw: 1.39535 },
+            numberOfAnalystOpinions: { raw: 41 },
+            returnOnEquity: { raw: 0.1617 },
+            profitMargins: { raw: 0.29868 },
+            grossMargins: { raw: 0.5123 },
+          },
+          majorHoldersBreakdown: {
+            insidersPercentHeld: { raw: 0.317 },
+            institutionsPercentHeld: { raw: 0.25 },
+          },
+          returnOnEquityFixture: undefined,
+        },
+      ],
+    },
+  };
+
+  it('五模块 → 画像字段（实测 0700.HK 形状）；业务简介截断 400', () => {
+    const p = composeYahooProfile(SUMMARY);
+    expect(p.sector).toBe('Communication Services');
+    expect(p.industry).toBe('Internet Content & Information');
+    expect(p.country).toBe('China');
+    expect(p.website).toBe('https://www.tencent.com');
+    expect(p.employees).toBe(105_417);
+    expect(p.nextEarningsDate).toBe('2026-11-18');
+    expect(p.nextEarningsEstimated).toBe(true);
+    expect(p.epsEstimateCurrentQ).toBe(6.78);
+    expect(p.epsEstimateNextY).toBe(32.5);
+    expect(p.targetMeanPrice).toBe(641.12);
+    expect(p.recommendationKey).toBe('strong_buy');
+    expect(p.recommendationMean).toBeCloseTo(1.39535, 5);
+    expect(p.analystCount).toBe(41);
+    expect(p.insiderPct).toBe(0.317);
+    expect(p.institutionPct).toBe(0.25);
+    // 块 3 ROE 回退源（HK 报告行缺 ROE/EPS 时用）：小数形态
+    expect(p.returnOnEquity).toBe(0.1617);
+    expect(p.profitMargins).toBe(0.29868);
+    expect(p.grossMargins).toBe(0.5123);
+    expect(p.businessSummary).toHaveLength(401); // 400 + 省略号
+    expect(isEmptyYahooProfile(p)).toBe(false);
+  });
+
+  it('全缺 → NaN/空串，isEmptyYahooProfile 为 true（不产生文本段/不写 meta）', () => {
+    const p = composeYahooProfile({ quoteSummary: { result: [{}] } });
+    expect(p.industry).toBe('');
+    expect(p.businessSummary).toBe('');
+    expect(p.targetMeanPrice).toBeNaN();
+    expect(p.nextEarningsDate).toBe('');
+    expect(isEmptyYahooProfile(p)).toBe(true);
+    expect(yahooProfileText(p, 'hk')).toBe('');
+  });
+
+  it('yahooProfileText：中文段落（行业/目标价/评级/持股）+ fmt 缺失 → N/A', () => {
+    const text = yahooProfileText(composeYahooProfile(SUMMARY), 'hk');
+    expect(text).toContain('【公司画像与分析师预期（Yahoo）】');
+    expect(text).toContain('Communication Services / Internet Content & Information');
+    expect(text).toContain('下次财报: 2026-11-18（券商预估）');
+    expect(text).toContain('641.12 HKD');
+    expect(text).toContain('强烈买入');
+    expect(text).toContain('31.70%');
+    // 部分缺失 → 对应行仍渲染但值为 N/A（不整段消失）
+    const partial = composeYahooProfile({
+      quoteSummary: { result: [{ financialData: { targetMeanPrice: { raw: 100 } } }] },
+    });
+    expect(yahooProfileText(partial, 'us')).toContain('区间 N/A~N/A'); // 目标价区间/分析师数缺
+  });
+
+  it('ratingLabel / parseYahooProfile / parseYahooCapital：损坏 JSON → null', () => {
+    expect(ratingLabel('strong_buy')).toBe('强烈买入');
+    expect(ratingLabel('nope')).toBe('');
+    expect(parseYahooProfile(null)).toBeNull();
+    expect(parseYahooProfile('not-json')).toBeNull();
+    expect(parseYahooProfile(JSON.stringify({ industry: 'x' }))?.industry).toBe('x');
+    expect(parseYahooCapital(null)).toBeNull();
+    expect(parseYahooCapital('{bad')).toBeNull();
+    expect(parseYahooCapital(JSON.stringify({ zongguben: NaN }))).toBeNull(); // 无有限值
+    expect(parseYahooCapital(JSON.stringify({ zongguben: 9, liutongguben: 9 }))).toEqual({
+      zongguben: 9,
+      liutongguben: 9,
+    });
+  });
+
+  it('intradayChangePct → momentum 与 change_percent_5min 同值；缺 → NaN', () => {
+    const meta = { symbol: '0700.HK', regularMarketPrice: 372.8 };
+    const withIntraday = composeYahooOverview(meta, {}, { intradayChangePct: 0.42 });
+    expect(withIntraday.overview.momentum).toBe(0.42);
+    expect(withIntraday.overview.change_percent_5min).toBe(0.42);
+    const without = composeYahooOverview(meta, {});
+    expect(without.overview.momentum).toBeNaN();
+    expect(without.overview.change_percent_5min).toBeNaN();
   });
 });

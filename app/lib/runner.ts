@@ -11,8 +11,9 @@ import { collectYahooViaProxy } from '../../src/yahoo/webYahooCollect.ts';
 import { setYahooStore } from '../../src/yahoo/applyYahooCollectedToStore.ts';
 import { resolveSkipGates } from '../../src/collector.ts';
 import type { Market } from '../../src/market.ts';
-import { detectPlatform } from '../../src/log.ts';
+import { detectPlatform, warn } from '../../src/log.ts';
 import { getMarketIntel, makeProxyMcpFetch } from '../../src/mcp.ts';
+import { fetchGoogleNews, makeProxyNewsFetch, newsIntelText, newsQueryFor } from '../../src/news/googleNews.ts';
 import { BillionsClient, makeProxyBillionsFetch } from '../../src/billionsClient.ts';
 import { billionsEnabled } from '../../src/committee.ts';
 import { makeBillionsTools } from '../../src/billionsTools.ts';
@@ -222,6 +223,30 @@ export async function makeMcpIntel(
     detectPlatform() === 'web' && location?.origin ? makeProxyMcpFetch(location.origin) : undefined;
   const text = await getMarketIntel(ticker, { apiKey, fetch: proxyFetch });
   return () => text;
+}
+
+/** hk/us 实时情报段（Google News RSS）：查询一次 → 同步闭包。cn → undefined
+ *  （cn 走 TDX MCP，见 makeMcpIntel）。失败/空结果 → 占位文本（不中断分析，
+ *  与 intel 段 degrade 纪律一致）。 */
+export async function makeNewsIntel(
+  ticker: string,
+  market: Market,
+): Promise<((t: string) => string) | undefined> {
+  if (market === 'cn') return undefined;
+  const name = store.getStock(ticker)?.name ?? null;
+  const query = newsQueryFor(ticker, name);
+  // web 端 news.google.com 受 CORS 限制 → 同源 /news-feed 代理；Node/RN 直连
+  const proxyFetch =
+    detectPlatform() === 'web' && location?.origin ? makeProxyNewsFetch(location.origin) : undefined;
+  try {
+    const items = proxyFetch ? await proxyFetch(query, market) : await fetchGoogleNews(query, market);
+    const text = newsIntelText(items, ticker, market);
+    return () => text || `（Google News 无 ${ticker} 的近期新闻返回，跳过）`;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    warn(`Google News 情报获取失败,跳过:${detail}`);
+    return () => '（Google News 实时情报获取失败，跳过）';
+  }
 }
 
 /** 委员会工具组装：web_search（开关）+ 亿信三件套（各开关 + 主闸 key）。

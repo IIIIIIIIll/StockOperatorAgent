@@ -169,6 +169,7 @@ export class YahooClient {
   private readonly _fetch: typeof fetch;
   private readonly _cookieProvider: (() => string | null) | null;
   private readonly _invalidateA3: (() => void) | null;
+  private readonly _cookieJar: boolean;
   private _crumb: string | null = null;
   private _a3: string | null = null;
 
@@ -177,15 +178,23 @@ export class YahooClient {
    *    值（免 fc.yahoo.com 网络请求）；返回 null/空 → 回退 Set-Cookie 解析。
    *    必须是重读缓存的 getter（C3：`() => a3` 值闭包失效后仍钉死旧值）
    *  @param invalidateA3 失效钩子（C3）：quoteSummary 401 自愈刷新 crumb 前
-   *    回调,清 provider 层缓存(如 deviceYahooCollect.invalidateA3Cache) */
+   *    回调,清 provider 层缓存(如 deviceYahooCollect.invalidateA3Cache)
+   *  @param cookieJar RN 真机模式(E2E 实证 2026-11-19):React Native 的 fetch
+   *    走 XHR,而 XHR 规范禁止把 `Set-Cookie` 暴露给 JS
+   *    (`getAllResponseHeaders()` 不含它) → 旧的「解析 Set-Cookie 拿 A3」在
+   *    Android 上恒失败,quoteSummary 整段降级。该模式的 A3 交给系统 cookie
+   *    jar:native 层自动存取,请求带 `credentials: 'include'`,JS 侧不碰
+   *    Cookie/Set-Cookie 头。Node(server 代理/探针)仍用 header 模式。 */
   constructor(
     fetchImpl?: typeof fetch,
     cookieProvider?: () => string | null,
     invalidateA3?: () => void,
+    cookieJar = false,
   ) {
     this._fetch = fetchImpl ?? globalThis.fetch;
     this._cookieProvider = cookieProvider ?? null;
     this._invalidateA3 = invalidateA3 ?? null;
+    this._cookieJar = cookieJar;
   }
 
   /** 全量日K（复权）+ meta + 分红/拆股事件。免 crumb。
@@ -250,7 +259,8 @@ export class YahooClient {
   async ensureCrumb(): Promise<string> {
     if (this._crumb !== null) return this._crumb;
     const a3 = await this._obtainA3();
-    const resp = await this._request(_GETCRUMB_URL, `A3=${a3}`);
+    // cookieJar 模式 a3 === ''：不写 Cookie 头,native 层从 jar 自动带上
+    const resp = await this._request(_GETCRUMB_URL, a3 === '' ? undefined : `A3=${a3}`);
     if (!resp.ok) throw await this._errorFrom(resp, 'getcrumb');
     let text: string;
     try {
@@ -262,7 +272,7 @@ export class YahooClient {
     }
     if (!text) throw new YahooApiError('crumb', resp.status, 'Yahoo getcrumb 返回空');
     this._crumb = text;
-    this._a3 = a3;
+    this._a3 = a3 === '' ? null : a3;
     return text;
   }
 
@@ -272,6 +282,9 @@ export class YahooClient {
       if (v !== null && v !== '') return v;
     }
     const resp = await this._request(_FC_URL);
+    // RN(XHR):Set-Cookie 对 JS 不可见 → 状态码无关地交给系统 cookie jar,
+    // 用空串表示「无显式 A3」(后续请求由 native 层附加)。见 ctor cookieJar。
+    if (this._cookieJar) return '';
     // fc.yahoo.com 实测(2026-08-20)起以 HTTP 404 响应但仍带 Set-Cookie A3
     // (deviceYahooCollect.obtainA3 同款状态码无关契约,见该文件头注)→ 先
     // 解析 Set-Cookie(状态码无关);确无 A3 才按 HTTP 语义抛错。Set-Cookie
@@ -288,9 +301,12 @@ export class YahooClient {
   private async _request(url: string, cookie?: string): Promise<Response> {
     const headers: Record<string, string> = { 'User-Agent': USER_AGENT };
     if (cookie) headers['Cookie'] = cookie;
+    // cookieJar 模式:凭据由 native 层管理,显式开启 credentials 让系统 cookie
+    // 随请求发送（RN 默认也发,显式声明以免随 RN 版本行为漂移）
+    const init: RequestInit = this._cookieJar ? { headers, credentials: 'include' } : { headers };
     let resp: Response;
     try {
-      resp = await fetchWithTimeout(this._fetch, url, { headers });
+      resp = await fetchWithTimeout(this._fetch, url, init);
     } catch (exc) {
       if (exc instanceof YahooApiError) throw exc; // 归一化错误(超时)原样透传
       const detail = exc instanceof Error ? exc.message : String(exc);

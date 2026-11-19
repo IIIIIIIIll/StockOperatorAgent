@@ -973,3 +973,73 @@ describe('proxies.cjs /billions-proxy(F5 亿信 CORS 根治)', () => {
     expect(res.calls[0].body).toContain('亿信代理转发失败');
   });
 });
+
+describe('proxies.cjs /news-feed(Google News RSS 同源代理)', () => {
+  const { handleNewsFeed } = proxies;
+
+  it('q 校验：空/超长/控制字符 → 400，不触 _fetchNews；多词查询放行', async () => {
+    let called = 0;
+    const news = async () => {
+      called += 1;
+      return [];
+    };
+    const statusOf = async (url: string) => {
+      const res = fakeRes();
+      await handleNewsFeed({ url }, res, news);
+      return res.calls[0]?.status ?? 200;
+    };
+    expect(await statusOf('/news-feed?q=')).toBe(400);
+    expect(await statusOf('/news-feed')).toBe(400);
+    expect(await statusOf(`/news-feed?q=${encodeURIComponent('a'.repeat(201))}`)).toBe(400);
+    expect(await statusOf(`/news-feed?q=${encodeURIComponent('a\nb')}`)).toBe(400);
+    expect(called).toBe(0);
+
+    // 多词/引号/OR 查询（newsQueryFor 产物）正常放行
+    const res = fakeRes();
+    await handleNewsFeed({ url: `/news-feed?q=${encodeURIComponent('"0700.HK" OR "Tencent"')}&market=hk` }, res, news);
+    expect(res.calls[0]?.status).toBe(200);
+    expect(called).toBe(1);
+  });
+
+  it('market：hk 透传；缺失/非法 → us 兜底', async () => {
+    const seen: string[] = [];
+    const news = async (_q: string, market: string) => {
+      seen.push(market);
+      return [];
+    };
+    for (const url of ['/news-feed?q=x&market=hk', '/news-feed?q=x', '/news-feed?q=x&market=zzz']) {
+      await handleNewsFeed({ url }, fakeRes(), news);
+    }
+    expect(seen).toEqual(['hk', 'us', 'us']);
+  });
+
+  it('正常 → 200 {items}；_fetchNews 抛错 → 502；超时 → 504', async () => {
+    const ok = fakeRes();
+    await handleNewsFeed({ url: '/news-feed?q=x&market=hk' }, ok, async () => [
+      { title: 'T', link: 'L', published: 'Tue, 18 Nov 2026 09:00:00 GMT', source: 'S' },
+    ]);
+    expect(ok.calls[0]?.status).toBe(200);
+    expect(JSON.parse(ok.calls[0]!.body)).toEqual({
+      items: [{ title: 'T', link: 'L', published: 'Tue, 18 Nov 2026 09:00:00 GMT', source: 'S' }],
+    });
+
+    const bad = fakeRes();
+    await handleNewsFeed({ url: '/news-feed?q=x' }, bad, async () => {
+      throw new Error('boom');
+    });
+    expect(bad.calls[0]?.status).toBe(502);
+    expect(bad.calls[0]!.body).toContain('新闻获取失败');
+
+    // 超时：_fetchNews 永不 settle → 20s race 后 504（fake timers 快进）
+    vi.useFakeTimers();
+    try {
+      const slow = fakeRes();
+      const pending = handleNewsFeed({ url: '/news-feed?q=x' }, slow, () => new Promise(() => {}));
+      await vi.advanceTimersByTimeAsync(20_001);
+      await pending;
+      expect(slow.calls[0]?.status).toBe(504);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -11,13 +11,16 @@
     "typecheck": "tsc --noEmit",
     "probe": "node --experimental-transform-types tools/probe.mts",
     "e2e:web": "node tools/web-e2e.mjs",
-    "e2e:android": "node tools/android-e2e.mjs"
+    "e2e:web:hk": "node tools/web-e2e-hk.mjs",
+    "e2e:android": "node tools/android-e2e.mjs",
+    "e2e:android:hk": "node tools/android-e2e-hk.mjs"
   },
   "type": "module",
   "dependencies": {
     "@langchain/core": "^1.3.5",
     "@langchain/langgraph": "^1.7.2",
     "@langchain/openai": "^1.8.2",
+    "@oh-my-pi/pi-natives": "^19.0.0",
     "iconv-lite": "^0.7.3",
     "node-tdx-market": "^0.2.1",
     "string_decoder": "^1.3.0"

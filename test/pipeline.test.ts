@@ -236,6 +236,96 @@ describe('market 分支（S4:turnoverPct/formatStockOutput/trendIndicatorsText/b
     expect(text).toContain('亿信段注入'); // 块 5 亿信不变
   });
 
+  it('hk 块 3:报告行 ROE/EPS 缺 → 回退快照源(overview.eps + financialData.returnOnEquity)', () => {
+    // E2E 实测 0700.HK:季度收入表行缺 dilutedEPS、资产负债表期次对不齐
+    // → 报告行这两项恒 null;快照源有值,回退后不得再输出纯 N/A
+    const store = makeStore();
+    store.addDatas('0700.HK', [
+      { date: '2026-08-07', open: 380, close: 385, high: 387, low: 378, volume: 1_200_000, amount: 4.6e8 },
+    ]);
+    store.putStock({
+      ticker: '0700.HK',
+      name: '腾讯控股',
+      overview: { eps: 28.41 },
+      overviewLastUpdate: '2026-08-07',
+      lastDataUpdate: '2026-08-07',
+    });
+    store.setMeta('yahoo-profile:0700.HK', JSON.stringify({
+      industry: '', sector: '', country: '', website: '', employees: NaN,
+      businessSummary: '', nextEarningsDate: '', nextEarningsEstimated: false,
+      epsEstimateCurrentQ: NaN, epsEstimateNextY: NaN, targetMeanPrice: NaN,
+      targetHighPrice: NaN, targetLowPrice: NaN, recommendationKey: '', recommendationMean: NaN,
+      analystCount: NaN, insiderPct: NaN, institutionPct: NaN,
+      returnOnEquity: 0.16, profitMargins: 0.3, grossMargins: 0.5,
+    }));
+    store.addPerformanceReports('0700.HK', [
+      {
+        report_date: '20260930',
+        fields: { net_profit: 6.36e10, total_income: 2.07e11, eps: null, net_worth_return_rate: null },
+      },
+    ]);
+    const text = buildStockInformation('0700.HK', { store, today: '2026-08-09', market: 'hk' });
+    expect(text).toContain('净利润: 63600000000.00 HKD');
+    expect(text).toContain('净资产收益率(ROE): 16.00%'); // 0.16 × 100
+    expect(text).toContain('每股收益(EPS): 28.41 HKD'); // overview.eps
+  });
+
+  it('hk 块 3:报告全缺但快照有值 → 「快照」段;两者都缺 → 旧占位', () => {
+    const store = makeStore();
+    store.putStock({
+      ticker: '0700.HK', name: '腾讯控股', overview: { eps: 28.41 },
+      overviewLastUpdate: null, lastDataUpdate: null,
+    });
+    store.setMeta('yahoo-profile:0700.HK', JSON.stringify({ returnOnEquity: 0.16 }));
+    const withSnapshot = buildStockInformation('0700.HK', { store, today: '2026-08-09', market: 'hk' });
+    expect(withSnapshot).toContain('【盈利能力指标（快照，Yahoo）】');
+    expect(withSnapshot).toContain('每股收益(EPS): 28.41 HKD');
+
+    const bare = makeStore();
+    const text = buildStockInformation('AAPL', { store: bare, today: '2026-08-09', market: 'us' });
+    expect(text).toContain('（无 AAPL 的盈利能力指标，跳过）');
+  });
+
+  it('hk/us 块 4:注入 deps.news → 新闻段取代旧占位;缺省仍旧占位(逐字)', () => {
+    const store = makeStore();
+    store.addDatas('0700.HK', [
+      { date: '2026-08-07', open: 380, close: 385, high: 387, low: 378, volume: 1_200_000, amount: 4.6e8 },
+    ]);
+    const withNews = buildStockInformation('0700.HK', {
+      store, today: '2026-08-09', market: 'hk',
+      news: () => '【近期新闻（港股 0700.HK · Google News，1 条）】\n- 2026-11-18 腾讯季绩（香港经济日报）',
+    });
+    expect(withNews).toContain('【近期新闻（港股 0700.HK · Google News，1 条）】');
+    expect(withNews).not.toContain('（港股/美股暂无实时市场情报源，跳过）');
+
+    // 未注入(旧调用方/降级) → 旧占位文本逐字保留
+    const withoutNews = buildStockInformation('0700.HK', { store, today: '2026-08-09', market: 'hk' });
+    expect(withoutNews).toContain('（港股/美股暂无实时市场情报源，跳过）');
+  });
+
+  it('hk/us 块 1.5:yahoo-profile: 元数据存在 → 画像段进入上下文;cn 不消费', () => {
+    const store = makeStore();
+    store.putStock({ ticker: '0700.HK', name: '腾讯控股', overview: {}, overviewLastUpdate: null, lastDataUpdate: null });
+    store.setMeta('yahoo-profile:0700.HK', JSON.stringify({
+      industry: 'Internet Content & Information', sector: 'Communication Services',
+      country: 'China', website: 'https://www.tencent.com', employees: 105_417,
+      businessSummary: '腾讯是一家互联网增值服务提供商。', nextEarningsDate: '2026-11-18',
+      nextEarningsEstimated: false, epsEstimateCurrentQ: 6.78, epsEstimateNextY: 32.5,
+      targetMeanPrice: 641.12, targetHighPrice: 783.97, targetLowPrice: 367.74,
+      recommendationKey: 'strong_buy', recommendationMean: 1.39535, analystCount: 41,
+      insiderPct: 0.317, institutionPct: 0.25,
+    }));
+    const text = buildStockInformation('0700.HK', { store, today: '2026-08-09', market: 'hk' });
+    expect(text).toContain('【公司画像与分析师预期（Yahoo）】');
+    expect(text).toContain('Communication Services / Internet Content & Information');
+    expect(text).toContain('641.12 HKD');
+    expect(text).toContain('强烈买入');
+
+    // cn 市场不消费画像段(F10 优先,逐字节不变)
+    const cn = buildStockInformation('600036', { store, today: '2026-08-09' });
+    expect(cn).not.toContain('【公司画像与分析师预期（Yahoo）】');
+  });
+
   it('buildStockInformation cn 缺省:块 3 F10 + 块 4 TDX 占位(回归)', () => {
     const store = makeStore();
     const text = buildStockInformation('600036', { store, f10Text, snapshot: SNAPSHOT, today: '2026-08-09' });

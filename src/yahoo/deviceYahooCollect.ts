@@ -39,10 +39,16 @@ import { composeYahooReports } from './composeYahooReports.ts';
 import { mergeFinnhubIndustry, yahooMarketOfTicker } from './webYahooCollect.ts';
 import { detectMarket, hkSymbolCandidates } from '../market.ts';
 import { resolveSkipGates } from '../collector.ts';
+import { divide, prevVolumesOf, ytdBaseClose } from '../overview.ts';
+import { composeYahooProfile, isEmptyYahooProfile } from './composeYahooProfile.ts';
+import { marketToday } from '../gates.ts';
 import { warn } from '../log.ts';
 
-/** quoteSummary 模块(契约七模块 + incomeStatementHistory:Hk 实测 quarterly 模块
- *  仅 4 期,年度模块兜底合并——见 normalizeIncomeStatements;crumb 失效降级时整体缺省)。 */
+/** quoteSummary 模块:概览/财报五模块 + 收入表(HK quarterly 实测仅 4 期,年度
+ *  模块兜底合并——见 normalizeIncomeStatements)+ 公司画像四模块(assetProfile/
+ *  calendarEvents/earningsTrend/recommendationTrend/majorHoldersBreakdown,
+ *  同一次请求白拿:CN 的 F10 公司资料/公告日历/分析师预期在 hk/us 的替代源)。
+ *  crumb 失效降级时整体缺省。 */
 export const QUOTE_SUMMARY_MODULES = [
   'price',
   'summaryDetail',
@@ -52,6 +58,11 @@ export const QUOTE_SUMMARY_MODULES = [
   'balanceSheetHistoryQuarterly',
   'cashflowStatementHistoryQuarterly',
   'incomeStatementHistory',
+  'assetProfile',
+  'calendarEvents',
+  'earningsTrend',
+  'recommendationTrend',
+  'majorHoldersBreakdown',
 ];
 
 const _CHART_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart/';
@@ -262,6 +273,29 @@ function snapshotFromMeta(meta: Record<string, unknown>): CollectedSnapshot & { 
   };
 }
 
+/** 盘中 5 分钟K → 最近一个 5 分钟涨跌幅%（涨速/5 分钟涨跌同源）。
+ *  Yahoo 无实时涨速字段，用 interval=5m 的最后两根**有效**收盘现算（盘中
+ *  停牌/断点会留 null，不能直接取末两根下标）。任何失败（网络/降级/不足两根）
+ *  → NaN，不抛（degrade don't raise，与 quoteSummary 降级同纪律）。 */
+async function intraday5MinChangePct(client: YahooClient, symbol: string): Promise<number> {
+  try {
+    const result = chartResultOf(await client.chart(symbol, { range: '1d', interval: '5m' }));
+    if (result === null) return NaN;
+    const quoteArr = rec(result['indicators'])['quote'];
+    const quote = Array.isArray(quoteArr) && quoteArr.length > 0 ? rec(quoteArr[0]) : {};
+    const closes = Array.isArray(quote['close']) ? (quote['close'] as unknown[]) : [];
+    const finite = closes.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+    if (finite.length < 2) return NaN;
+    const last = finite[finite.length - 1]!;
+    const prev = finite[finite.length - 2]!;
+    return divide(last - prev, prev) * 100;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    warn(`Yahoo 盘中 5 分钟K 获取失败,涨速/5分钟涨跌降级为 N/A:${detail}`);
+    return NaN;
+  }
+}
+
 /** quoteSummary 七模块;YahooApiError(crumb 失效等)→ warn + null(降级,
  *  不整体失败——degrade don't raise,error-handling spec)。 */
 async function quoteSummaryOrNull(client: YahooClient, symbol: string): Promise<unknown> {
@@ -406,14 +440,33 @@ export async function collectYahooPayload(
   }
   const snapshot = snapshotFromMeta(meta);
   // quoteSummary 失败(crumb 失效)→ 概览仅 chart meta 可映射字段 + reports 空
-  const summary = await quoteSummaryOrNull(client, symbol);
+  // 盘中 5 分钟K 与 quoteSummary 并行（两路互不依赖，串行只会白等网络）
+  const [summary, intradayChangePct] = await Promise.all([
+    quoteSummaryOrNull(client, symbol),
+    intraday5MinChangePct(client, symbol),
+  ]);
   // 收入表语句源归一化(HK quarterly 键名/期数差异,见 normalizeIncomeStatements)
   const composed = summary === null ? null : normalizeIncomeStatements(summary);
   // CR-00:60 日窗口 = 最近 61 根收盘(与 CN overview.ts 同语义);历史不足 61 根
   // → undefined → change_percent_60d NaN,不得退化成「上市以来涨幅」。
   const firstClose = bars.length > 60 ? bars[bars.length - 61].close : undefined;
   const lastClose = bars.length ? bars[bars.length - 1].close : undefined;
-  const { overview, capital } = composeYahooOverview(meta, composed ?? {}, { firstClose, lastClose });
+  // YTD 基准（上年末收盘）与量比分母（前 5 日量）：两者都是「bars → 标量」纯
+  // 推导，与 CN composeOverview 共用同一语义（overview.ytdBaseClose/prevVolumesOf）。
+  // 今天按市场时区（HK/US 与 CN 不同日），bars 空（skipDaily）→ 两者 NaN。
+  const today = marketToday(yahooMarketOfTicker(ticker));
+  const { overview, capital } = composeYahooOverview(meta, composed ?? {}, {
+    firstClose,
+    lastClose,
+    ytdBaseClose: ytdBaseClose(bars, today),
+    prevVolumes: prevVolumesOf(bars, today),
+    intradayChangePct,
+  });
+  // 公司画像/分析师预期（同一次 quoteSummary 的 assetProfile/calendarEvents/
+  // earningsTrend/recommendationTrend/majorHoldersBreakdown/financialData）。
+  // 全空（quoteSummary 降级或该市场无画像）→ null，不写 meta（不覆盖既有画像）。
+  const composedProfile = composed === null ? null : composeYahooProfile(composed);
+  const profile = composedProfile !== null && !isEmptyYahooProfile(composedProfile) ? composedProfile : null;
   const name = typeof overview.name === 'string' && overview.name !== '' ? overview.name : '';
   const reports =
     composed === null
@@ -430,6 +483,7 @@ export async function collectYahooPayload(
     snapshot,
     overview,
     reports,
+    profile,
     capital,
     skipDaily,
   };
@@ -453,7 +507,10 @@ export async function collectYahooForDevice(
   // cookieProvider 注入 getter + 失效钩子(C3 B′,无预取):缓存命中 → 直接用作
   // A3(免 client 内部 fc 请求);空/吊销 → client 自身 fc 状态码无关解析取新值。
   // RN fetch 可读 set-cookie,浏览器禁读——故 web 走代理。
-  const client = new YahooClient(undefined, getCachedA3, invalidateA3Cache);
+  // 真机:RN 的 fetch 走 XHR,Set-Cookie 对 JS 不可见（XHR 规范）→ 必须用
+  // cookie jar 模式（JP）,否则 A3 恒取不到、quoteSummary 整段降级（E2E 实证
+  // 2026-11-19:Android 上 PE/PB/52周/画像/分析师全部缺失）。
+  const client = new YahooClient(undefined, getCachedA3, invalidateA3Cache, true);
   const payload = await collectYahooPayload(client, ticker, { skipDaily: skipDaily === true });
   await mergeFinnhubIndustry(payload, market, finnhub ?? null);
   return applyYahooCollectedToStore(store, payload, market);

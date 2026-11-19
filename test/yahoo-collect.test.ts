@@ -211,6 +211,39 @@ const QUOTE_BODY = {
             { endDate: { fmt: '2023-12-31' }, operatingCashFlow: { raw: 2.8e10 } },
           ],
         },
+        // 公司画像/分析师预期模块（composeYahooProfile 消费；实测 0700.HK 形状）
+        assetProfile: {
+          sector: 'Communication Services',
+          industry: 'Internet Content & Information',
+          country: 'China',
+          website: 'https://www.tencent.com',
+          fullTimeEmployees: 105_417,
+          longBusinessSummary: '腾讯控股有限公司是一家互联网增值服务提供商。',
+        },
+        calendarEvents: {
+          earnings: {
+            earningsDate: [{ raw: 1_794_989_400, fmt: '2026-11-18' }],
+            isEarningsDateEstimate: false,
+          },
+        },
+        earningsTrend: {
+          trend: [
+            { period: '0q', earningsEstimate: { avg: { raw: 6.78 } } },
+            { period: '+1y', earningsEstimate: { avg: { raw: 32.5 } } },
+          ],
+        },
+        financialData: {
+          targetMeanPrice: { raw: 641.12 },
+          targetHighPrice: { raw: 783.97 },
+          targetLowPrice: { raw: 367.74 },
+          recommendationKey: 'strong_buy',
+          recommendationMean: { raw: 1.39535 },
+          numberOfAnalystOpinions: { raw: 41 },
+        },
+        majorHoldersBreakdown: {
+          insidersPercentHeld: { raw: 0.31727 },
+          institutionsPercentHeld: { raw: 0.25082 },
+        },
       },
     ],
   },
@@ -260,8 +293,22 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(bars[0].date).toBe('2023-11-15'); // unix 秒 → 市场时区(Asia/Hong_Kong)
     expect(bars[0].volume).toBe(12_345_678); // volume 原样股数
     expect(store.getPerformanceReports('0700.HK')).toHaveLength(2);
-    // 存储形 '.HK' → 原符号优先试探 1 次(range=5d);全量日K period 分页 3 窗口
-    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(4);
+    // 公司画像/股本写入 hk/us 专属 meta 键（DataScreen 与 pipeline 块 1.5 读）
+    const profileMeta = JSON.parse(store.getMeta('yahoo-profile:0700.HK') ?? 'null') as Record<string, unknown> | null;
+    expect(profileMeta?.industry).toBe('Internet Content & Information');
+    expect(profileMeta?.targetMeanPrice).toBe(641.12);
+    expect(profileMeta?.recommendationKey).toBe('strong_buy');
+    // HK 分母 = 已发行股份（sharesOutstanding）：capital.liutongguben 与 zongguben 同值
+    expect(JSON.parse(store.getMeta('yahoo-capital:0700.HK') ?? 'null')).toEqual({
+      zongguben: 9_300_000_000,
+      liutongguben: 9_300_000_000,
+    });
+    // 涨速/5分钟涨跌：盘中 5 分钟K 现算（本 mock 复用日K体 → 末两根收盘 400→401）
+    expect(stock?.overview?.momentum).toBeCloseTo(((401 - 400) / 400) * 100, 6);
+    expect(stock?.overview?.change_percent_5min).toBeCloseTo(((401 - 400) / 400) * 100, 6);
+    // 存储形 '.HK' → 原符号优先试探 1 次(range=5d);全量日K period 分页 3 窗口;
+    // 盘中 5 分钟K 1 次(涨速/5分钟涨跌)
+    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(5);
   });
 
   it('CR-25:chart volume 缺失(停牌/半日市)→ bars.volume = null 未知，不伪造 0', async () => {
@@ -409,8 +456,8 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     const client = new YahooClient(undefined, () => 'fake-a3');
     const payload = await collectYahooPayload(client, '09988');
     expect(payload.ticker).toBe('9988.HK'); // 4 位官方码 = store 键(normalizeTicker 首候选一致)
-    // 试探 1 次(9988.HK 首候选即命中)+ 全量日K 分页 3 窗口
-    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(4);
+    // 试探 1 次(9988.HK 首候选即命中)+ 全量日K 分页 3 窗口 + 盘中 5 分钟K 1 次
+    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(5);
     expect(calls[0].url).toContain('/chart/9988.HK?');
     expect(applyYahooCollectedToStore(store, payload, 'hk').name).toBe('腾讯控股有限公司');
   });
@@ -435,8 +482,8 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
       { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
     ]);
     await collectYahooForDevice('0700.HK');
-    // chart 仍拉(快照/meta/概览部分 fresh),bars 置空 → 既有日K 不清空
-    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(1);
+    // chart 仍拉(快照/meta/概览部分 fresh)+ 盘中 5 分钟K,bars 置空 → 既有日K 不清空
+    expect(calls.filter((c) => c.url.includes('/v8/finance/chart/'))).toHaveLength(2);
     expect(before.getDatas('0700.HK')).toHaveLength(1);
     expect(before.getDatas('0700.HK')[0].date).toBe('2024-01-02');
     expect(before.getStock('0700.HK')?.overview?.currency).toBe('HKD');
@@ -490,7 +537,7 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     // 但消费方不同(RN 直连全局 fetch),web 路径已有用例,此处钉死 device 组合(E4 缺口)
     const out = await collectYahooForDevice('AAPL', {}, { apiKey: 'k' });
     const chartCalls = calls.filter((c) => c.url.includes('/v8/finance/chart/'));
-    expect(chartCalls).toHaveLength(4); // us 无候选试探:probe(range=5d)1 次 + 全量分页 3 窗口
+    expect(chartCalls).toHaveLength(5); // us 无候选试探:probe(range=5d)1 + 全量分页 3 + 盘中 5 分钟K 1
     expect(chartCalls.every((c) => c.url.includes('/chart/AAPL?'))).toBe(true); // 原样单符号
     const finnhubCalls = calls.filter((c) => c.url.startsWith('https://finnhub.io/'));
     expect(finnhubCalls).toHaveLength(1);
@@ -602,8 +649,10 @@ describe('C3 A3 缓存对(getCachedA3/invalidateA3Cache)+ device 接线吊销自
     const crumbCookies = calls
       .filter((c) => c.url.includes('/v1/test/getcrumb'))
       .map((c) => (c.init?.headers as Record<string, string> | undefined)?.['Cookie']);
-    // 首链用预热旧值;吊销失效后刷新链必须用重取的新 A3(B′ getter 语义钉死)
-    expect(crumbCookies).toEqual(['A3=device-1', 'A3=device-2']);
+    // 首链用预热旧值;吊销失效后**不得复用旧 A3**——真机走 cookie jar 模式
+    // (RN/XHR 读不到 Set-Cookie),刷新链不带 Cookie 头,由 native jar 提供新值
+    // (fc 重取 1 次见下)。header 模式下的「新 A3 上链」由 test/yahoo.test.ts 覆盖。
+    expect(crumbCookies).toEqual(['A3=device-1', undefined]);
     expect(fcCalls).toBe(2); // 预热 1 次 + 吊销后重取恰 1 次(无双发)
     expect(qsCalls).toBe(2); // 401 → 刷新重试一次
     expect(store.getStock('AAPL')?.overview?.currency).toBe('HKD');
@@ -914,6 +963,7 @@ describe('applyYahooCollectedToStore B3:字段级合并(降级不覆盖既有好
       snapshot: null,
       overview,
       reports: [],
+      profile: null,
       capital: { zongguben: 9_300_000_000, liutongguben: 9_000_000_000 },
     };
   }
@@ -1007,6 +1057,7 @@ describe('P1-7 盘中 bar 与 lastDataUpdate 戳', () => {
       snapshot: null,
       overview: {},
       reports: [],
+      profile: null,
       capital: { zongguben: 9_300_000_000, liutongguben: 9_000_000_000 },
     };
   }

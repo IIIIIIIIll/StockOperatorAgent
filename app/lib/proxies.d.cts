@@ -37,6 +37,12 @@ declare const proxies: {
     res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
     _ddg?: (q: any) => Promise<any>,
   ): Promise<void>;
+  /** hk/us 块 4 情报段:Google News RSS 同源代理(目标 host 写死)。 */
+  handleNewsFeed(
+    req: { url: string },
+    res: { writeHead(status: number, headers?: Record<string, string>): void; end(body?: unknown): void },
+    _fetchNews?: (q: any, market: any) => Promise<any>,
+  ): Promise<void>;
   handleTdxMcp(
     req: unknown,
     res: {
@@ -62,6 +68,7 @@ declare const proxies: {
   MAX_BODY_BYTES: number;
   COLLECT_TIMEOUT_MS: number;
   YAHOO_COLLECT_TIMEOUT_MS: number;
+  NEWS_FEED_TIMEOUT_MS: number;
   normalizeBaseUrl(raw: string): string;
   isPrivateAddress(ip: string): boolean;
   isFakeIpAddress(ip: string): boolean;

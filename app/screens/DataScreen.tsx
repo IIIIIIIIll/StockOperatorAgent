@@ -13,8 +13,10 @@ import { changePercentSeries, fmtNumber, turnoverPct } from '../../src/pipeline.
 import { financialTrendSeries, salesGrossMargin } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
 import { asiaToday } from '../../src/gates.ts';
-import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key } from '../../src/metaKeys.ts';
+import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key, yahooCapitalKey, yahooProfileKey } from '../../src/metaKeys.ts';
 import { marketInfo, type Market } from '../../src/market.ts';
+import { parseYahooCapital } from '../../src/yahoo/composeYahooOverview.ts';
+import { parseYahooProfile, ratingLabel } from '../../src/yahoo/composeYahooProfile.ts';
 import { useTheme, type Theme } from '../theme';
 
 const DAILY_TABLE_N = 20;
@@ -41,11 +43,18 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
   const latest = periods[periods.length - 1] ?? '';
   const reports = React.useMemo(() => store.getPerformanceReports(ticker), [ticker, dataVersion]);
   // 股本结构:web 采集经 webCollect 持久化 meta capitalKey(ticker)(股本结构节文本);
+  // hk/us 无 F10 文本 → 回退 Yahoo 链写的 yahoo-capital:(JSON 股本,换手率列分母);
   // demo/未采集 → null(换手率列显示 N/A,与 Python 缺股本语义一致)
   const capital = React.useMemo(() => {
     const text = store.getMeta(capitalKey(ticker));
-    return text ? parseCapitalStructure(text) : null;
+    if (text) return parseCapitalStructure(text);
+    return parseYahooCapital(store.getMeta(yahooCapitalKey(ticker)));
   }, [ticker, dataVersion]); // F18:重采集后 meta 更新 → 换手率列不再 stale
+  // hk/us 公司画像/分析师预期(Yahoo 链写 yahoo-profile:;cn 恒 null —— F10 是 cn 源)
+  const profile = React.useMemo(
+    () => (market !== 'cn' ? parseYahooProfile(store.getMeta(yahooProfileKey(ticker))) : null),
+    [ticker, dataVersion, market],
+  );
   // 涨跌幅:由 bars 现算(复用 pipeline changePercentSeries 公式;首根 NaN → N/A)
   const changePct = React.useMemo(() => changePercentSeries(bars), [bars]);
   // 财务跨期趋势:净利润/每股收益取自 performance_reports,销售毛利率取自
@@ -104,6 +113,8 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
           ['市净率', fmtNumber(overview.pb as number, 2)],
           ['60日', `${fmtNumber(overview.change_percent_60d as number, 2)}%`],
           ['YTD', `${fmtNumber(overview.change_percent_ytd as number, 2)}%`],
+          // 52 周高低:Yahoo 概览槽(hk/us);cn 概览无此键 → N/A
+          ['52周高低', `${fmtNumber(overview.week_52_high as number, 2)} / ${fmtNumber(overview.week_52_low as number, 2)}`],
           ['货币', marketInfo(market).currency],
         ].map(([label, value]) => (
           <View key={label} style={styles.overviewCell}>
@@ -112,6 +123,32 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
           </View>
         ))}
       </View>
+
+      {/* hk/us:Yahoo 公司画像与分析师预期(cn 无此段——F10 已覆盖) */}
+      {profile && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>公司画像 · 分析师预期</Text>
+          <View style={styles.chips}>
+            {([
+              ['行业', [profile.sector, profile.industry].filter((s) => s !== '').join(' / ') || 'N/A'],
+              ['目标价', Number.isFinite(profile.targetMeanPrice)
+                ? `${fmtNumber(profile.targetMeanPrice, 2)} ${marketInfo(market).currency}`
+                : 'N/A'],
+              ['评级', `${ratingLabel(profile.recommendationKey) || 'N/A'}(${fmtNumber(profile.recommendationMean, 2)})`],
+              ['分析师', Number.isFinite(profile.analystCount) ? `${fmtNumber(profile.analystCount, 0)} 位` : 'N/A'],
+              ['下次财报', profile.nextEarningsDate || 'N/A'],
+              ['本季EPS预期', fmtNumber(profile.epsEstimateCurrentQ, 2)],
+              ['内部人持股', `${fmtNumber(profile.insiderPct * 100, 2)}%`],
+              ['机构持股', `${fmtNumber(profile.institutionPct * 100, 2)}%`],
+            ] as Array<[string, string]>).map(([label, value]) => (
+              <View key={label} style={styles.chip}>
+                <Text style={styles.chipLabel}>{label}</Text>
+                <Text style={styles.chipValue}>{value}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
 
       {/* 技术图(web 直渲 lightweight-charts;原生 WebView 渲染 chart-view.html) */}
       {klineBars.length > 1 && (

@@ -41,14 +41,25 @@ export function latestPeriodValue(f10: F10Record[], metric: string): number {
   return latest ? latest.value_num : NaN;
 }
 
+/** 量比分母：快照日之前的日K 量序列（末 5 根取均量；不足 5 根 → NaN）。
+ *  末根 bar 已是当日（盘中/收盘后当日 bar 已写入）→ 排除末根，避免当日量
+ *  进分母自比（量比恒 ≈1）。CN 链路不消费（pytdx 无字段，保持 NaN 语义）；
+ *  Yahoo 合成取 meta 的当日量 ÷ 本均值。 */
+export function prevVolumesOf(bars: DailyBar[], today: string): number[] {
+  const history = lastBarIsToday(bars, today) ? bars.slice(0, -1) : bars;
+  return history.map((b) => (b.volume === null ? NaN : b.volume));
+}
+
 /** 末根 bar 是否为"当日"（盘中/收盘后当日 bar 已存在）；周末/盘前 → false。 */
 function lastBarIsToday(bars: DailyBar[], today: string): boolean {
   if (!bars.length) return false;
   return bars[bars.length - 1].date === today;
 }
 
-/** 年初 YTD 基准收盘（未复权窗口内）；对齐 Python _ytd_base_close 三分支。 */
-function ytdBaseClose(bars: DailyBar[], today: string): number {
+/** 年初 YTD 基准收盘（未复权窗口内）；对齐 Python _ytd_base_close 三分支。
+ *  导出：Yahoo 合成（composeYahooOverview 的 change_percent_ytd）复用同一
+ *  基准语义，防 CN/HK/US 三处各算一套。 */
+export function ytdBaseClose(bars: DailyBar[], today: string): number {
   if (!bars.length) return NaN;
   const lastYear = Number(bars[bars.length - 1].date.slice(0, 4));
   if (lastYear !== Number(today.slice(0, 4))) return NaN; // 跨年停牌

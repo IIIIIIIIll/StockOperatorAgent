@@ -149,12 +149,12 @@ export interface AnalysisDeps {
     market: Market,
     finnhub: { apiKey: string } | null,
   ) => Promise<WebCollectResult>;
-  /** 亿信/MCP 情报预查询(mcp 仅 cn 查询的 S4 门控由实现侧承担)。 */
+  /** 亿信/MCP/新闻 情报预查询(实现侧门控:mcp 仅 cn、news 仅 hk/us)。 */
   readonly fetchIntel: (
     ticker: string,
     market: Market,
     keys: KeysState,
-  ) => Promise<{ billions?: IntelProvider; mcp?: IntelProvider }>;
+  ) => Promise<{ billions?: IntelProvider; mcp?: IntelProvider; news?: IntelProvider }>;
   /** 亿信 client 工厂(key 存在 → new BillionsClient;否则 undefined 零网络)。 */
   readonly makeBillionsClient: (apiKey: string | null) => BillionsClient | undefined;
   readonly assembleTools: (keys: KeysState, caps?: Partial<CapsState>) => ToolLike[];
@@ -612,6 +612,7 @@ export class AnalysisController {
         today: asiaToday(), // F20:北京日历日,对齐 pipeline 缺省(原 UTC 日清晨差一天)
         ...(intel.billions ? { billions: intel.billions } : {}),
         ...(intel.mcp ? { mcp: intel.mcp } : {}),
+        ...(intel.news ? { news: intel.news } : {}),
       });
       this.notifier.notify();
       const report = await d.runner.run(nt, {
@@ -622,6 +623,7 @@ export class AnalysisController {
         tools: d.assembleTools(s.settings.keys, s.settings.caps),
         ...(intel.billions ? { billions: intel.billions } : {}),
         ...(intel.mcp ? { mcp: intel.mcp } : {}),
+        ...(intel.news ? { news: intel.news } : {}),
         ...(billionsClient ? { billionsClient } : {}),
       });
       // C1 侧:「分析结束:耗时」仅在成功路径(resolve 出报告)打;失败路径

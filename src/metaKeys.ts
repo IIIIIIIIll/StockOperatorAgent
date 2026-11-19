@@ -16,6 +16,15 @@ export const f10Key = (ticker: string): string => `f10:${ticker}`;
 /** 每股股本结构节文本 meta 键模板(webCollect 写,DataScreen 读)。 */
 export const capitalKey = (ticker: string): string => `capital:${ticker}`;
 
+/** 每股股本 JSON meta 键模板(hk/us Yahoo 链写,DataScreen 读;形如
+ *  `{"zongguben":9004607601,"liutongguben":9004607601}`)——CN 的
+ *  capitalKey 存 F10 文本,港美股无 F10 文本,两份键不混用。 */
+export const yahooCapitalKey = (ticker: string): string => `yahoo-capital:${ticker}`;
+
+/** 每股票公司画像 JSON meta 键模板(hk/us Yahoo 链写,DataScreen/pipeline 读;
+ *  结构见 src/yahoo/composeYahooProfile.ts 的 YahooProfile)。 */
+export const yahooProfileKey = (ticker: string): string => `yahoo-profile:${ticker}`;
+
 /** 每股证券名称 meta 键模板(deviceCollect/webCollect 缓存,quoteClient 读写)。 */
 export const nameKey = (ticker: string): string => `name:${ticker}`;
 

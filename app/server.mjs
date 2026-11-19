@@ -12,6 +12,7 @@ import {
   handleLlmProxy,
   handleTdxCollect,
   handleWebSearch,
+  handleNewsFeed,
   handleYahooCollect,
   handleTdxMcp,
   handleBillionsProxy,
@@ -148,6 +149,10 @@ export function createAppServer({ host } = {}) {
     }
     if (req.method === 'GET' && req.url.startsWith('/web-search')) {
       void handleWebSearch(req, res);
+      return;
+    }
+    if (req.method === 'GET' && req.url.startsWith('/news-feed')) {
+      void handleNewsFeed(req, res);
       return;
     }
     if (req.method === 'POST' && req.url.startsWith('/tdx-mcp')) {

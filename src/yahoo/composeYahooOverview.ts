@@ -3,10 +3,11 @@
 //
 // 键集（CN 22 键全覆盖，另加 Yahoo 专有 5 键，共 27 键）：
 //   CN 对齐：ticker/name/latest_price/change_percent/change_amount/volume/
-//     amount/amplitude/high/low/open_/prev_close/volume_ratio(NaN)/
+//     amount/amplitude/high/low/open_/prev_close/
 //     turnover_rate/pe_dynamic/pb/market_cap/circulating_market_cap/
-//     momentum(NaN)/change_percent_5min(NaN)/change_percent_60d/
-//     change_percent_ytd(NaN——本函数无年初基准数据来源，S3 如需可另行合成)
+//     change_percent_60d/change_percent_ytd（opts.ytdBaseClose 给年初基准）
+//     volume_ratio（opts.prevVolumes 给分母）/momentum(NaN)/change_percent_5min(NaN)
+//     ——后两者需盘中分钟K，本模块不拉（见下方值语义）
 //   Yahoo 专有：dividend_yield（股息率，summaryDetail.dividendYield.raw；
 //     注意 Yahoo raw 为小数：0.005 = 0.5%，消费方显示时 ×100）、eps
 //     （defaultKeyStatistics.trailingEps.raw）、week_52_high/week_52_low
@@ -16,15 +17,24 @@
 // 值语义（对齐 overview.ts）：
 // - {raw, fmt} 值形态取 .raw；缺失字段 {} → NaN
 // - 除零/分母 ≤0 → NaN（divide 语义 overview.ts:26-30）
-// - 量比/涨速/5 分钟涨跌 → NaN（Yahoo 无对应字段，对齐 CN pytdx 缺字段约定）
+// - 量比：opts.prevVolumes（快照日之前的日K量，见 overview.prevVolumesOf）
+//   末 5 根均量作分母 → volume/均值；缺/不足 5 根 → NaN
 // - 涨跌幅：优先 summary.price.regularMarketChangePercent.raw（Yahoo 为
 //   小数，×100 转百分数对齐 CN 语义），缺失 → (price-prev_close)/prev_close
 // - change_percent_60d：调用方传窗口首末 close（opts.firstClose/lastClose）
 //   → (lastClose-firstClose)/firstClose×100；opts 缺 → NaN
+// - change_percent_ytd：opts.ytdBaseClose（上年末最后收盘，见 overview.
+//   ytdBaseClose）→ (price-base)/base×100；opts 缺 → NaN
+// - 涨速/5分钟涨跌：opts.intradayChangePct（deviceYahooCollect 拉 interval=5m
+//   取末两根有效收盘现算）；缺 → NaN（消费方按缺字段显示 N/A，不伪造）
 // - amount（成交额）：Yahoo 无标准字段（chart meta 仅部分响应含
-//   regularMarketDayVolume），缺失 → NaN（S5 如需可自行 volume×price 估算）
-// - market_cap 直取 defaultKeyStatistics.marketCap.raw（Yahoo 原值），
-//   circulating_market_cap 派生 = latest_price×liutongguben（CN 语义）
+//   regularMarketDayVolume），近似 volume×最新价（HK 实测与真实成交额差 <1%）
+// - market_cap 直取 defaultKeyStatistics.marketCap.raw（Yahoo 原值）
+// - pb：defaultKeyStatistics.priceToBook → summaryDetail.priceToBook →
+//   price/bookValue 派生（实测 0700.HK 的 priceToBook 只在 defaultKeyStatistics，
+//   旧链只读 summaryDetail → 市净率恒 NaN）
+// - circulating_market_cap / turnover_rate 分母：HK 用已发行股份
+//   （sharesOutstanding，HKEX 口径）；US 用 floatShares（美股 float 语义）
 import type { OverviewRow } from '../overview.ts';
 import { divide } from '../overview.ts';
 
@@ -33,11 +43,36 @@ export interface YahooOverviewOptions {
   firstClose?: number;
   /** 60 日窗口末根收盘（含）。 */
   lastClose?: number;
+  /** 上年末最后收盘——change_percent_ytd 基准（overview.ytdBaseClose）。 */
+  ytdBaseClose?: number;
+  /** 快照日之前的日K成交量（升序；取末 5 根均量作量比分母）。
+   *  overview.prevVolumesOf 产出；缺/不足 5 根 → volume_ratio NaN。 */
+  prevVolumes?: readonly number[];
+  /** 最近一个 5 分钟K的涨跌幅%——涨速/5 分钟涨跌同源
+   *  （deviceYahooCollect.intraday5MinChangePct）；缺/NaN → 两键 NaN。 */
+  intradayChangePct?: number;
 }
 
 export interface YahooCapital {
   zongguben: number; // 总股本（股）
   liutongguben: number; // 流通股本（股）
+}
+
+/** meta 里的股本 JSON（yahoo-capital:）→ YahooCapital；缺失/损坏/无有限值
+ *  → null（DataScreen 回退 N/A，不伪造股本）。 */
+export function parseYahooCapital(json: string | null): YahooCapital | null {
+  if (!json) return null;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (parsed === null || typeof parsed !== 'object') return null;
+    const r = parsed as Record<string, unknown>;
+    const zongguben = typeof r['zongguben'] === 'number' ? r['zongguben'] : NaN;
+    const liutongguben = typeof r['liutongguben'] === 'number' ? r['liutongguben'] : NaN;
+    if (!Number.isFinite(zongguben) && !Number.isFinite(liutongguben)) return null;
+    return { zongguben, liutongguben };
+  } catch {
+    return null;
+  }
 }
 
 /** unknown → Record 字典（非对象/null → 空字典，缺失字段 {} → NaN 语义起点）。 */
@@ -113,7 +148,18 @@ export function composeYahooOverview(
   const changeAmount = Number.isFinite(changeRaw) ? changeRaw : priceNum - prevClose;
 
   const zongguben = rawNum(defaultKeyStatistics['sharesOutstanding']);
-  const liutongguben = rawNum(defaultKeyStatistics['floatShares']);
+  const floatShares = rawNum(defaultKeyStatistics['floatShares']);
+  // 换手率/流通市值分母按市场口径取；HK 用已发行股份（见文件头）。
+  const isHk = /^\d{1,5}\.HK$/i.test(str(metaRec['symbol']));
+  const liutongguben = isHk ? firstFinite(defaultKeyStatistics['sharesOutstanding'], floatShares) : floatShares;
+
+  // 市净率：defaultKeyStatistics 为主源（HK 实测 priceToBook 仅此处有），
+  // summaryDetail 次之，最后 price/bookValue 派生（bookValue 为每股净资产）。
+  const pb = firstFinite(
+    defaultKeyStatistics['priceToBook'],
+    summaryDetail['priceToBook'],
+    divide(priceNum, firstFinite(defaultKeyStatistics['bookValue'], summaryDetail['bookValue'])),
+  );
 
   const firstClose = opts?.firstClose;
   const lastClose = opts?.lastClose;
@@ -121,6 +167,20 @@ export function composeYahooOverview(
     firstClose === undefined || lastClose === undefined
       ? NaN
       : divide(lastClose - firstClose, firstClose) * 100;
+
+  const ytdClose = opts?.ytdBaseClose;
+  const changePercentYtd = ytdClose === undefined ? NaN : divide(priceNum - ytdClose, ytdClose) * 100;
+
+  const prevVolumes = opts?.prevVolumes;
+  const prevWindow = prevVolumes === undefined ? [] : prevVolumes.slice(-5);
+  const volumeRatio =
+    prevWindow.length < 5
+      ? NaN
+      : divide(volume, prevWindow.reduce((sum, v) => sum + v, 0) / 5);
+
+  // 涨速/5 分钟涨跌：同一取数（最近一个 5 分钟K的涨跌幅）——CN 语义下两者指
+  // 同一件事（涨速 = 5 分钟涨跌幅），无第二种分钟级源可分化，故同值输出。
+  const intradayChangePct = opts?.intradayChangePct ?? NaN;
 
   const longName = str(price['longName']);
   const name = longName !== '' ? longName : str(price['shortName']);
@@ -139,16 +199,16 @@ export function composeYahooOverview(
       low,
       open_: open,
       prev_close: prevClose,
-      volume_ratio: NaN, // Yahoo 无（对齐 CN pytdx 缺字段）
+      volume_ratio: volumeRatio, // 快照量 / 前 5 日均量（opts.prevVolumes）
       turnover_rate: divide(volume, liutongguben) * 100,
       pe_dynamic: firstFinite(summaryDetail['trailingPE']), // 动态市盈率（TTM）
-      pb: firstFinite(summaryDetail['priceToBook']),
+      pb,
       market_cap: firstFinite(defaultKeyStatistics['marketCap'], summaryDetail['marketCap']),
       circulating_market_cap: priceNum * liutongguben,
-      momentum: NaN, // 涨速：Yahoo 无
-      change_percent_5min: NaN, // Yahoo 无
+      momentum: intradayChangePct, // 涨速 = 最近 5 分钟涨跌幅（opts）
+      change_percent_5min: intradayChangePct, // 同上（同一取数）
       change_percent_60d: changePercent60d,
-      change_percent_ytd: NaN, // 本函数无年初基准数据来源
+      change_percent_ytd: changePercentYtd,
       dividend_yield: firstFinite(summaryDetail['dividendYield']), // 小数（0.005=0.5%）
       eps: firstFinite(defaultKeyStatistics['trailingEps'], summaryDetail['trailingEps']),
       // S2-3(评审 2026-11-08):真实 quoteSummary 的键是 fiftyTwoWeekHigh/Low

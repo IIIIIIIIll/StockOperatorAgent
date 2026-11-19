@@ -8,7 +8,9 @@
 //   = 市场本地今天 marketToday(market)——Yahoo 链按"今天已采集"记新鲜度
 //   (bar 末根可能是上个交易日,replaceDatas 内部写的末根日期会误判 stale,
 //   故 putStock 须在 replaceDatas 之后覆盖)
-// - 不写 meta 文本键(F10/股本结构文本是 CN 链专属)
+// - 不写 CN 的 meta 文本键(F10/股本结构文本是 CN 链专属);但写 hk/us 自己的
+//   两份结构化 meta:公司画像 JSON(yahoo-profile:)与股本 JSON(yahoo-capital:)
+//   ——DataScreen 读(换手率列/画像 chips)、pipeline 读(块 1.5 画像段)
 // - capital 由调用方从 composeYahooOverview 承接(payload.capital),此处不重算
 // - 日期戳:lastDataUpdate = skipDaily ? 既有 ?? 今天 : 今天
 //
@@ -23,17 +25,22 @@ import type { WebCollectResult } from '../webCollect.ts';
 import { marketToday, marketSessionClosed } from '../gates.ts';
 import type { Market } from '../market.ts';
 import type { YahooCapital } from './composeYahooOverview.ts';
+import type { YahooProfile } from './composeYahooProfile.ts';
+import { yahooCapitalKey, yahooProfileKey } from '../metaKeys.ts';
 
 export interface YahooCollectedPayload {
-  ticker: string; // 落库键(Yahoo 符号:'0700.HK'/'AAPL')
+  ticker: string; // 落库键（Yahoo 符号:'0700.HK'/'AAPL'）
   name: string | null;
   bars: DailyBar[]; // date %Y-%m-%d 升序;volume 原始股数;close 已复权
   snapshot: CollectedSnapshot | null;
   overview: Record<string, number | string>;
   reports: PerformanceReport[];
-  /** 同日跳过日K(S3 freshness 接线):bars 为空且不得清空既有日K/lastDataUpdate。 */
+  /** 公司画像/分析师预期（assetProfile/calendarEvents/earningsTrend/…）;
+   *  quoteSummary 降级 → null（不写 meta，保留既有画像）。 */
+  profile: YahooProfile | null;
+  /** 同日跳过日K（S3 freshness 接线）：bars 为空且不得清空既有日K/lastDataUpdate。 */
   skipDaily?: boolean;
-  /** 股本(股):composeYahooOverview 的 capital;缺失 → NaN 字段。 */
+  /** 股本（股）：composeYahooOverview 的 capital；缺失 → NaN 字段。 */
   capital: YahooCapital;
 }
 
@@ -129,6 +136,14 @@ export function applyYahooCollectedToStore(
       unique.push(r);
     }
     store.addPerformanceReports(payload.ticker, unique);
+  }
+  // 公司画像/股本写入 meta(hk/us 自己的键,与 CN 的 capital:/f10: 不混用):
+  // 画像降级(null)→ 不覆盖既有画像;股本全 NaN 同样不覆盖。
+  if (payload.profile) {
+    store.setMeta(yahooProfileKey(payload.ticker), JSON.stringify(payload.profile));
+  }
+  if (Number.isFinite(payload.capital.zongguben) || Number.isFinite(payload.capital.liutongguben)) {
+    store.setMeta(yahooCapitalKey(payload.ticker), JSON.stringify(payload.capital));
   }
   return {
     ticker: payload.ticker,
