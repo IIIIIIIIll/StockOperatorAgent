@@ -13,7 +13,10 @@
     "e2e:web": "node tools/web-e2e.mjs",
     "e2e:web:hk": "node tools/web-e2e-hk.mjs",
     "e2e:android": "node tools/android-e2e.mjs",
-    "e2e:android:hk": "node tools/android-e2e-hk.mjs"
+    "e2e:android:hk": "node tools/android-e2e-hk.mjs",
+    "e2e:web:us": "SOA_E2E_TICKER=AAPL node tools/web-e2e-hk.mjs",
+    "e2e:web:hk:llm": "node --env-file=.env tools/web-e2e-hk.mjs",
+    "e2e:android:us": "node tools/android-e2e-hk.mjs --ticker AAPL"
   },
   "type": "module",
   "dependencies": {

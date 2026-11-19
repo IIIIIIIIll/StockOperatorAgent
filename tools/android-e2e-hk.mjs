@@ -23,7 +23,13 @@ function arg(name, fallback) {
 
 const SERIAL = arg('serial', process.env.ANDROID_SERIAL ?? null);
 const TICKER = arg('ticker', '00700');
-const STORE_TICKER = '0700.HK';
+/** 市场由代码形状决定（数字 → 港股；字母 → 美股）。2026-11-19 补：旧脚本只
+ *  支持港股 → 美股链在真机上无任何 E2E 覆盖。 */
+const MARKET = /^\d/.test(TICKER) ? 'hk' : 'us';
+const MARKET_LABEL = MARKET === 'hk' ? '港股' : '美股';
+const STORE_TICKER =
+  arg('store-ticker', null) ??
+  (MARKET === 'hk' ? `${TICKER.replace(/^0+/, '').padStart(4, '0')}.HK` : TICKER.toUpperCase());
 const PKG = 'com.stockoperatoragent.app';
 const ACTIVITY = `${PKG}/.MainActivity`;
 
@@ -152,7 +158,7 @@ async function main() {
   await sleep(800);
   ok(`输入代码 ${TICKER}`);
 
-  // ② 市场 → 港股
+  // ② 市场 → 港股/美股
   const marketBtn = dumpNodes().find((n) => n.desc === '选择市场' || n.desc === 'market');
   if (!marketBtn) {
     fail('找不到市场选择按钮', 'content-desc="选择市场" 缺失');
@@ -160,14 +166,14 @@ async function main() {
   }
   tap(marketBtn);
   await sleep(800);
-  const hkOption = dumpNodes().find((n) => (n.text ?? '').trim() === '港股');
+  const hkOption = dumpNodes().find((n) => (n.text ?? '').trim() === MARKET_LABEL);
   if (!hkOption) {
-    fail('市场菜单里找不到「港股」');
+    fail(`市场菜单里找不到「${MARKET_LABEL}」`);
     return;
   }
   tap(hkOption);
   await sleep(800);
-  ok('市场切换为港股');
+  ok(`市场切换为${MARKET_LABEL}`);
 
   // ③ 开跑
   adb('logcat', '-c');
@@ -198,7 +204,7 @@ async function main() {
   if (!collected) fail('采集日志缺失', '未见「采集完成:N 根日K」');
   else ok(`采集完成(${collected[1]} 根日K)`);
   if (!done.includes(STORE_TICKER)) {
-    fail('代码未规范化为 ' + STORE_TICKER, 'logcat 未出现 0700.HK');
+    fail(`代码未规范化为 ${STORE_TICKER}`, `logcat 未出现 ${STORE_TICKER}`);
   } else {
     ok(`代码规范化(${TICKER} → ${STORE_TICKER})`);
   }
@@ -217,7 +223,7 @@ async function main() {
     ['画像 目标价/评级', texts.includes('目标价')],
     ['日K 换手率列有值', /换手率[\s\S]{0,600}?\d+\.\d{2}%/.test(texts)],
     ['上下文含公司画像段', texts.includes('【公司画像与分析师预期（Yahoo）】')],
-    ['上下文含新闻段', /【近期新闻（港股 \d{1,5}\.HK · Google News，\d+ 条）】/.test(texts)],
+    ['上下文含新闻段', new RegExp(`【近期新闻（${MARKET_LABEL} .+? · Google News，\\d+ 条）】`).test(texts)],
     // 块 3 回退:HK 报告行缺 ROE/EPS → 快照源补上（真机曾因 quoteSummary 降级
     // 而恒 N/A —— cookie jar 修复后必须转绿，这是该修复的回归点）
     ['块 3 ROE 非 N/A', /净资产收益率\(ROE\): \d/.test(texts)],
@@ -229,10 +235,10 @@ async function main() {
   }
 
   if (failures.length) {
-    console.error(`\n✗ Android 港股 E2E 未通过:${failures.join(', ')}`);
+    console.error(`\n✗ Android ${MARKET_LABEL} E2E 未通过:${failures.join(', ')}`);
     process.exit(1);
   }
-  console.log(`\n✓ Android 港股 E2E 通过(${TICKER} → ${STORE_TICKER})`);
+  console.log(`\n✓ Android ${MARKET_LABEL} E2E 通过(${TICKER} → ${STORE_TICKER})`);
 }
 
 await main();

@@ -180,6 +180,24 @@ describe('FileStore 落盘/读回(跨实例 hydrate)', () => {
     expect(s2.getDatas('T').map((x) => x.date)).toEqual(['2026-02-01', '2026-02-02']);
   });
 
+  it('hk/us ticker 文件名往返:0700.HK(含点)与大写 AAPL 互不碰撞', async () => {
+    // 旧链无任何港美夹具 → 这两类文件名(带 '.' 的后缀码机、大写美股码)正是
+    // src/store-file.ts:8-13 重写的动机;不钉住就会静默回归
+    await store.ready();
+    store.replaceDatas('0700.HK', bars(['2026-08-13', '2026-08-14']));
+    store.replaceDatas('AAPL', bars(['2026-08-13']));
+    store.setMeta('yahoo-profile:0700.HK', '{"industry":"Internet Content"}');
+    store.setMeta('yahoo-profile:AAPL', '{"industry":"Consumer Electronics"}');
+    await store.flush();
+
+    const s2 = new FileStore(baseDir, nodeAdapter(baseDir));
+    await s2.ready();
+    expect(s2.getDatas('0700.HK').map((x) => x.date)).toEqual(['2026-08-13', '2026-08-14']);
+    expect(s2.getDatas('AAPL').map((x) => x.date)).toEqual(['2026-08-13']);
+    expect(s2.getMeta('yahoo-profile:0700.HK')).toContain('Internet Content');
+    expect(s2.getMeta('yahoo-profile:AAPL')).toContain('Consumer Electronics');
+  });
+
   it('meta 落盘/读回(_meta.json 为 Record<string,string>)', async () => {
     await store.ready();
     store.setMeta('f10:600036', '【主要财务指标】\n净资产收益率: 15.2');

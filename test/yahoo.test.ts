@@ -735,7 +735,9 @@ describe('composeYahooReports', () => {
     expect(rows[0].report_date).toBe('20250630');
     expect(rows[0].fields.ticker).toBe('AAPL');
     expect(rows[0].fields.industry).toBe('');
-    expect(rows[0].fields.eps).toBeNaN(); // dilutedEPS 缺失 → NaN
+    // 2026-11-19:dilutedEPS/basicEPS 都缺 → 回退 netIncome / sharesOutstanding
+    // (Yahoo 报表模块已退化为空壳，不再只能给 NaN)
+    expect(rows[0].fields.eps).toBe(0.01);
   });
 });
 

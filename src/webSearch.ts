@@ -95,18 +95,37 @@ export function makeProxySearcher(
 // 分支访问——平台判定收敛到 log.ts isWebEnv,此处不再自写 typeof 守卫）。
 declare const window: { location?: { origin?: string } } | undefined;
 
+/** DuckDuckGo 地区码：默认 cn-zh（对齐 Python ddgs 语义，CN 链路逐字节不变）。
+ *  hk/us 用各自地区码：旧实现三个市场全用 cn-zh → 搜 AAPL/0700.HK 出来的是
+ *  中文财经站结果，与提示词里的「美股/港股」语境冲突。 */
+export const DDG_DEFAULT_REGION = 'cn-zh';
+
+/** 市场 → DDG 地区码（cn-zh / hk-tc / us-en）。 */
+export function ddgRegionForMarket(market: 'cn' | 'hk' | 'us'): string {
+  switch (market) {
+    case 'hk':
+      return 'hk-tc';
+    case 'us':
+      return 'us-en';
+    default:
+      return DDG_DEFAULT_REGION;
+  }
+}
+
 /** 缺省 searcher：浏览器 → 同源 /web-search 代理；Node/真机 → Tavily 优先 / DDG。
  *  惰性：函数体每次调用重读 env（非模块级单例）。EXPO_PUBLIC_TAVILY_API_KEY
  *  必须直接成员访问（真机 release 经 babel-preset-expo 静态内联——architecture
  *  契约 6 豁免）；TAVILY_API_KEY(Node/server 路径)经 envValue 单点。 */
-export function defaultSearcher(): (query: string) => Promise<SearchResult[]> {
+export function defaultSearcher(region: string = DDG_DEFAULT_REGION): (query: string) => Promise<SearchResult[]> {
   if (detectPlatform() === 'web' && window?.location?.origin) {
     return makeProxySearcher(window.location.origin);
   }
   // EXPO_PUBLIC_ 前缀真机可达(Metro 内联);未配时回退 TAVILY_API_KEY(Node/server 路径现状)。
   const key = process.env.EXPO_PUBLIC_TAVILY_API_KEY ?? envValue('TAVILY_API_KEY');
   if (key) return tavilySearcher(key);
-  return ddgSearcher;
+  // 默认地区直接返回函数本体（旧契约：defaultSearcher() === ddgSearcher，
+  // test/rn-env-keys + test/web-search 钉住）；非默认地区才包一层闭包。
+  return region === DDG_DEFAULT_REGION ? ddgSearcher : (query: string) => ddgSearcher(query, region);
 }
 
 // ─── DuckDuckGo(免 key;html 端点,对齐 Python ddgs 的 cn-zh 语义) ──────────
@@ -175,9 +194,9 @@ async function fetchVqd(query: string, _fetch: typeof fetch = fetch): Promise<st
 /** news.js JSON 端点（免 key;region cn-zh 对齐 ddgs news 引擎——html 端点
  * 被反爬拦截时的回退：vqd + 现代 JSON API，2026-08-11 本机实测无需 TLS
  * 指纹技巧即可返回结果）。date 为 unix 秒 → YYYY-MM-DD。 */
-async function ddgNewsSearcher(query: string, _fetch: typeof fetch = fetch): Promise<SearchResult[]> {
+async function ddgNewsSearcher(query: string, _fetch: typeof fetch = fetch, region: string = DDG_DEFAULT_REGION): Promise<SearchResult[]> {
   const vqd = await fetchVqd(query, _fetch);
-  const params = new URLSearchParams({ l: 'cn-zh', o: 'json', noamp: '1', q: query, vqd, p: '-1' });
+  const params = new URLSearchParams({ l: region, o: 'json', noamp: '1', q: query, vqd, p: '-1' });
   const resp = await fetchWithTimeout(_fetch, `https://duckduckgo.com/news.js?${params.toString()}`, {}, FETCH_TIMEOUT_MS, 'DuckDuckGo');
   if (!resp.ok) throw new Error(`DuckDuckGo news HTTP ${resp.status}`);
   const data = (await resp.json()) as { results?: Array<{ title?: string; url?: string; excerpt?: string; date?: number }> };
@@ -193,8 +212,8 @@ async function ddgNewsSearcher(query: string, _fetch: typeof fetch = fetch): Pro
 
 /** DuckDuckGo 查询(免 key;region cn-zh 对齐 Python ddgs)：html 端点优先，
  * 被反爬拦截（异常页无 result__a）→ 回退 vqd + news.js JSON API。 */
-export async function ddgSearcher(query: string): Promise<SearchResult[]> {
-  const params = new URLSearchParams({ q: query, kl: 'cn-zh' });
+export async function ddgSearcher(query: string, region: string = DDG_DEFAULT_REGION): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q: query, kl: region });
   const resp = await fetchWithTimeout(
     fetch,
     'https://html.duckduckgo.com/html/',
@@ -208,7 +227,7 @@ export async function ddgSearcher(query: string): Promise<SearchResult[]> {
   );
   if (!resp.ok) throw new Error(`DuckDuckGo HTTP ${resp.status}`);
   const results = parseDdgHtml(await resp.text());
-  if (!results.length) return ddgNewsSearcher(query); // 反爬异常页 → news.js 回退
+  if (!results.length) return ddgNewsSearcher(query, fetch, region); // 反爬异常页 → news.js 回退
   return results;
 }
 
@@ -230,9 +249,9 @@ const WEB_SEARCH_SCHEMA = {
 /** 构造 web_search 工具（对齐 Python make_web_search_tool：_searcher 注入点）。 */
 export function makeWebSearchTool(
   _searcher?: (query: string) => Promise<SearchResult[]>,
-  opts?: { maxCalls?: number },
+  opts?: { maxCalls?: number; region?: string },
 ): ToolLike {
-  const search = _searcher ?? defaultSearcher();
+  const search = _searcher ?? defaultSearcher(opts?.region ?? DDG_DEFAULT_REGION);
   // 上限可配置:显式 opts > 能力开关(面板 caps / env WEB_SEARCH_MAX_CALLS)
   // > 默认 5;同参缓存命中不计数(CR-24)。
   const maxCalls = opts?.maxCalls ?? getCapabilitySwitches().webSearchMaxCalls ?? WEB_SEARCH_DEFAULT_MAX_CALLS;

@@ -18,7 +18,7 @@ import { BillionsClient, makeProxyBillionsFetch } from '../../src/billionsClient
 import { billionsEnabled } from '../../src/committee.ts';
 import { makeBillionsTools } from '../../src/billionsTools.ts';
 import { DEMO_F10_KEY, f10Key } from '../../src/metaKeys.ts';
-import { makeWebSearchTool, webSearchEnabled } from '../../src/webSearch.ts';
+import { ddgRegionForMarket, makeWebSearchTool, webSearchEnabled } from '../../src/webSearch.ts';
 import type { ToolLike } from '../../src/toolLoop.ts';
 import { AIMessage } from '@langchain/core/messages';
 // with { type: 'json' }:标准 JSON 导入属性(vite/metro/babel 均支持;缺省时
@@ -258,9 +258,12 @@ export async function makeNewsIntel(
 export function assembleTools(
   keys: { billionsApiKey?: string; tdxApiKey?: string },
   caps?: Partial<CapsState>,
+  /** 市场（缺省 cn → DDG 地区 cn-zh，与旧行为逐字节一致）；hk/us 用各自
+   *  地区码，否则搜 AAPL/0700.HK 返回的是中文财经站结果。 */
+  market: Market = 'cn',
 ): ToolLike[] {
   const tools: ToolLike[] = [];
-  if (webSearchEnabled()) tools.push(makeWebSearchTool());
+  if (webSearchEnabled()) tools.push(makeWebSearchTool(undefined, { region: ddgRegionForMarket(market) }));
   const billionsFetch = webBillionsFetch();
   const billions = makeBillionsTools({
     apiKey: keys.billionsApiKey || undefined,

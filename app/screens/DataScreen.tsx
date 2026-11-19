@@ -12,7 +12,7 @@ import { computeAll } from '../../src/indicators.ts';
 import { changePercentSeries, fmtNumber, turnoverPct } from '../../src/pipeline.ts';
 import { financialTrendSeries, salesGrossMargin } from '../../src/chartData.ts';
 import { fmtDate } from '../../src/format.ts';
-import { asiaToday } from '../../src/gates.ts';
+import { marketToday } from '../../src/gates.ts';
 import { capitalKey, DEMO_F10_KEY, DEMO_TICKER, f10Key, yahooCapitalKey, yahooProfileKey } from '../../src/metaKeys.ts';
 import { marketInfo, type Market } from '../../src/market.ts';
 import { parseYahooCapital } from '../../src/yahoo/composeYahooOverview.ts';
@@ -62,6 +62,26 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
   // market(S5):标签币种化(cn 亿元/元;hk→亿HKD/HKD、us→亿USD/USD)
   const financialSeriesData = React.useMemo(() => financialTrendSeries(reports, profit, market), [reports, profit, market]);
 
+  // 盈利能力 chips：cn 取 F10 【盈利能力指标】最新期；hk/us 无 F10（盈利节是
+  // cn 专属文本源）→ 取 yahoo-profile: 的 TTM 比率（financialData.returnOnEquity/
+  // grossMargins/profitMargins，小数 → ×100）。旧实现只认 F10 → 港美该面板整块
+  // 不渲染（数据其实已在画像里，只是没接线）。
+  const profitabilityChips = React.useMemo<Array<{ label: string; value: number }>>(() => {
+    if (market !== 'cn') {
+      if (!profile) return [];
+      const pct = (v: number): number => (Number.isFinite(v) ? v * 100 : NaN);
+      const rows = [
+        { label: '净资产收益率(ROE)', value: pct(profile.returnOnEquity) },
+        { label: '销售毛利率', value: pct(profile.grossMargins) },
+        { label: '净利率', value: pct(profile.profitMargins) },
+      ];
+      return rows.filter((r) => Number.isFinite(r.value));
+    }
+    return profit
+      .filter((r) => r.period === latest && !Number.isNaN(r.value_num))
+      .map((r) => ({ label: r.metric, value: r.value_num }));
+  }, [market, profile, profit, latest]);
+
   // 概览:snapshot 缺失 → 价格回退日K末根(与 compose_overview 语义一致)。
   // hk/us:以 Yahoo 合成概览槽(applyYahooCollectedToStore 写入,含 trailingPE/
   // priceToBook/52周高低)覆盖重算结果——重算无 F10 源 PE/PB 恒 NaN,槽缺失回退
@@ -74,11 +94,29 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
       f10: parseIndicatorSection(f10Text, '【主要财务指标】'),
       bars,
       // bars 空(未采集):today 只喂 lastBarIsToday/ytdBaseClose,两者对空 bars 早退 →
-      // 不参与任何计算;占位取全仓单源"今天"(asiaToday,pipeline 同款),防误导性字面量
-      today: bars.length ? bars[bars.length - 1].date : asiaToday(),
+      // 不参与任何计算;占位取市场本地"今天"(marketToday(market),pipeline 同源),防误导性字面量
+      today: bars.length ? bars[bars.length - 1].date : marketToday(market),
     }),
     ...(market !== 'cn' ? ((stock?.overview ?? {}) as Record<string, number | string>) : {}),
   };
+
+  // 概览单行：cn 键集固定；hk/us 额外给股息率/每股收益（Yahoo 概览槽独有的
+  // 两键，旧实现采了但从不展示）
+  const overviewCells: Array<[string, string]> = [
+    ['最新价', fmtNumber(overview.latest_price as number, 2)],
+    ['涨跌幅', `${fmtNumber(overview.change_percent as number, 2)}%`],
+    ['动态PE', fmtNumber(overview.pe_dynamic as number, 2)],
+    ['市净率', fmtNumber(overview.pb as number, 2)],
+    ['60日', `${fmtNumber(overview.change_percent_60d as number, 2)}%`],
+    ['YTD', `${fmtNumber(overview.change_percent_ytd as number, 2)}%`],
+    // 52 周高低:Yahoo 概览槽(hk/us);cn 概览无此键 → N/A
+    ['52周高低', `${fmtNumber(overview.week_52_high as number, 2)} / ${fmtNumber(overview.week_52_low as number, 2)}`],
+    ['货币', marketInfo(market).currency],
+  ];
+  if (market !== 'cn') {
+    overviewCells.push(['股息率', `${fmtNumber(Number(overview.dividend_yield) * 100, 2)}%`]);
+    overviewCells.push(['每股收益', fmtNumber(Number(overview.eps), 2)]);
+  }
 
   const tail = bars.slice(-DAILY_TABLE_N);
   // 表列值:涨跌幅/换手率与 tail 同窗切片(index 对齐;首根涨跌幅 NaN → N/A)
@@ -107,16 +145,7 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
 
       {/* 概览单行(货币列:cn CNY / hk HKD / us USD) */}
       <View style={styles.overviewRow}>
-        {[['最新价', fmtNumber(overview.latest_price as number, 2)],
-          ['涨跌幅', `${fmtNumber(overview.change_percent as number, 2)}%`],
-          ['动态PE', fmtNumber(overview.pe_dynamic as number, 2)],
-          ['市净率', fmtNumber(overview.pb as number, 2)],
-          ['60日', `${fmtNumber(overview.change_percent_60d as number, 2)}%`],
-          ['YTD', `${fmtNumber(overview.change_percent_ytd as number, 2)}%`],
-          // 52 周高低:Yahoo 概览槽(hk/us);cn 概览无此键 → N/A
-          ['52周高低', `${fmtNumber(overview.week_52_high as number, 2)} / ${fmtNumber(overview.week_52_low as number, 2)}`],
-          ['货币', marketInfo(market).currency],
-        ].map(([label, value]) => (
+        {overviewCells.map(([label, value]) => (
           <View key={label} style={styles.overviewCell}>
             <Text style={styles.overviewLabel}>{label}</Text>
             <Text style={styles.overviewValue}>{value}</Text>
@@ -206,15 +235,17 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
         </ScrollView>
       </View>
 
-      {/* 盈利能力(F10 最新期) */}
-      {profit.length > 0 && (
+      {/* 盈利能力：cn = F10 最新期；hk/us = yahoo-profile TTM 比率 */}
+      {profitabilityChips.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>盈利能力指标({latest})</Text>
+          <Text style={styles.sectionTitle}>
+            {market === 'cn' ? `盈利能力指标(${latest})` : '盈利能力指标(TTM)'}
+          </Text>
           <View style={styles.chips}>
-            {profit.filter((r) => r.period === latest && !Number.isNaN(r.value_num)).map((r) => (
-              <View key={`${r.period}:${r.metric}`} style={styles.chip}>
-                <Text style={styles.chipLabel}>{r.metric}</Text>
-                <Text style={styles.chipValue}>{fmtNumber(r.value_num, 2)}%</Text>
+            {profitabilityChips.map((r) => (
+              <View key={r.label} style={styles.chip}>
+                <Text style={styles.chipLabel}>{r.label}</Text>
+                <Text style={styles.chipValue}>{fmtNumber(r.value, 2)}%</Text>
               </View>
             ))}
           </View>
@@ -225,14 +256,20 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>业绩报告({reports.length})</Text>
         {reports.length === 0 ? (
-          <Text style={styles.muted}>暂无业绩数据 —— 该股 F10 财务分析无可用指标。</Text>
+          <Text style={styles.muted}>
+            {market === 'cn'
+              ? '暂无业绩数据 —— 该股 F10 财务分析无可用指标。'
+              : '暂无业绩数据 —— Yahoo 财报模块未返回可用指标。'}
+          </Text>
         ) : (
           reports.slice(-4).reverse().map((r) => {
             const f = r.fields as Record<string, unknown>;
             return (
               <View key={r.report_date} style={styles.opinionCard}>
                 <Text style={styles.opinionBody}>
-                  {r.report_date} — EPS {fmtNumber(f.eps as number, 2)} | 净利润 {fmtNumber(f.net_profit as number, 0)} | YoY {fmtNumber(f.net_profit_YoY_rate as number, 2)}% | QoQ {fmtNumber(f.net_profit_QoQ_rate as number, 2)}% | 销售毛利率 {fmtNumber(salesGrossMargin(profit, r.report_date), 2)}% | ROE {fmtNumber(f.net_worth_return_rate as number, 2)}% | 每股净资产 {fmtNumber(f.net_worth_per_share as number, 2)} | 每股现金流 {fmtNumber(f.cash_flow_per_share as number, 2)}
+                  {market === 'cn'
+                    ? `${r.report_date} — EPS ${fmtNumber(f.eps as number, 2)} | 净利润 ${fmtNumber(f.net_profit as number, 0)} | YoY ${fmtNumber(f.net_profit_YoY_rate as number, 2)}% | QoQ ${fmtNumber(f.net_profit_QoQ_rate as number, 2)}% | 销售毛利率 ${fmtNumber(salesGrossMargin(profit, r.report_date), 2)}% | ROE ${fmtNumber(f.net_worth_return_rate as number, 2)}% | 每股净资产 ${fmtNumber(f.net_worth_per_share as number, 2)} | 每股现金流 ${fmtNumber(f.cash_flow_per_share as number, 2)}`
+                    : `${r.report_date} — EPS ${fmtNumber(f.eps as number, 2)} | 净利润 ${fmtNumber(f.net_profit as number, 0)} | 营收 ${fmtNumber(f.total_income as number, 0)} | 净利YoY ${fmtNumber(f.net_profit_YoY_rate as number, 2)}% | 净利环比 ${fmtNumber(f.net_profit_QoQ_rate as number, 2)}%`}
                 </Text>
               </View>
             );

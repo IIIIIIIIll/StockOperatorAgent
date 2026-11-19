@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// 港股真实数据端到端(web)—— 验证 hk 链在**真采集**下把指标填满并渲染出来。
+// 港股/美股真实数据端到端(web)—— 验证 hk/us 链在**真采集**下把指标填满并渲染出来。
+// 市场由 SOA_E2E_TICKER 形状决定（数字 → 港股，字母 → 美股）。
 //
 // 与 tools/web-e2e.mjs 的分工:那个是默认市场(沪深)的 demo 冒烟;本脚本专门钉
 // 港股链(请求 00700 → 落库 0700.HK),无 LLM 键时委员会走占位 LLM(demo),
@@ -23,7 +24,16 @@ const CDP_PORT = Number(process.env.SOA_E2E_CDP_PORT ?? 9224);
 const CHROME = process.env.CHROME ?? '/usr/bin/google-chrome';
 const ROOT = new URL('..', import.meta.url).pathname;
 const TICKER_INPUT = process.env.SOA_E2E_TICKER ?? '00700';
-const STORE_TICKER = '0700.HK';
+/** 市场由输入形状决定（纯数字 → 港股；字母开头 → 美股），与 src/market.ts
+ *  detectMarket 同序。2026-11-19 补：脚本原先写死港股，美股链（usCandidates
+ *  符号互探、复权、报表 eps 回退、us-en 新闻/搜索地区）无任何 E2E 覆盖。 */
+const MARKET = /^\d/.test(TICKER_INPUT) ? 'hk' : 'us';
+const MARKET_LABEL = MARKET === 'hk' ? '港股' : '美股';
+const STORE_TICKER =
+  process.env.SOA_E2E_STORE_TICKER ??
+  (MARKET === 'hk'
+    ? `${TICKER_INPUT.replace(/^0+/, '').padStart(4, '0')}.HK`
+    : TICKER_INPUT.toUpperCase());
 /** 真采集(Yahoo 全量日K 分页 + quoteSummary + 5 分钟K + 新闻)比 demo 慢:
  *  90s 只是「拿到结果」的量级下限,180s 给网络慢的机器留余量。 */
 const ANALYZE_TIMEOUT_MS = Number(process.env.SOA_E2E_ANALYZE_MS ?? (process.env.LLM_API_KEY ? 600_000 : 180_000));
@@ -106,7 +116,8 @@ await new Promise((res, rej) => {
     if (msg.id && pending.has(msg.id)) {
       const { resolve, reject } = pending.get(msg.id);
       pending.delete(msg.id);
-      msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result);
+      if (msg.error) reject(new Error(JSON.stringify(msg.error)));
+      else resolve(msg.result);
       return;
     }
     if (msg.method === 'Runtime.exceptionThrown') {
@@ -196,14 +207,13 @@ const typed = await evalJs(`(() => {
   input.dispatchEvent(new Event('change', { bubbles: true }));
   return 'TYPED:' + input.value;
 })()`);
-check('输入港股代码', typed === `TYPED:${TICKER_INPUT}`, String(typed));
-
-// ② 市场下拉 → 港股
+check(`输入${MARKET_LABEL}代码`, typed === `TYPED:${TICKER_INPUT}`, String(typed));
+// ② 市场下拉 → 港股/美股
 if ((await click('选择市场')) !== 'CLICKED') fail('找不到市场选择按钮');
 await sleep(600);
-if ((await click('港股')) !== 'CLICKED') fail('市场菜单里找不到「港股」');
+if ((await click(MARKET_LABEL)) !== 'CLICKED') fail(`市场菜单里找不到「${MARKET_LABEL}」`);
 await sleep(400);
-check('市场切换为港股', (await evalJs('document.body.innerText')).includes('港股'));
+check(`市场切换为${MARKET_LABEL}`, (await evalJs('document.body.innerText')).includes(MARKET_LABEL));
 
 // ③ 开跑(真采集)
 if ((await click('开始分析')) !== 'CLICKED') fail('点了「开始分析」但找不到按钮');
@@ -226,7 +236,7 @@ while (Date.now() < deadline) {
     console.log(`  · t=${elapsed}s 角色完成=${chipsDone}/7${errLine ? ` | ${errLine.slice(0, 160)}` : ''}`);
   }
 }
-check('港股分析跑完', done, done ? `${Math.round((Date.now() - (deadline - ANALYZE_TIMEOUT_MS)) / 1000)}s` : `${ANALYZE_TIMEOUT_MS / 1000}s 内未见「分析完成」`);
+check(`${MARKET_LABEL}分析跑完`, done, done ? `${Math.round((Date.now() - (deadline - ANALYZE_TIMEOUT_MS)) / 1000)}s` : `${ANALYZE_TIMEOUT_MS / 1000}s 内未见「分析完成」`);
 if (!done) {
   const body = await evalJs('document.body.innerText');
   console.error('\n--- 页面正文(尾部) ---\n' + body.slice(-1200));
@@ -253,6 +263,11 @@ check('画像目标价/评级', data.includes('目标价') && (data.includes('�
 // 换手率列:本月任何一行出现具体数值(而非整列 N/A)
 const turnoverNumeric = /换手率[\s\S]{0,400}?\d+\.\d{2}%/.test(data);
 check('日K 换手率列有值', turnoverNumeric);
+// 2026-11-19 新增:盈利能力 chips 对港股改读 yahoo-profile TTM 比率(旧实现只认
+// F10 → 港美整块不渲染);概览行新增股息率/每股收益(旧实现采了不显示)
+check('盈利能力 TTM chips', data.includes('盈利能力指标(TTM)') && /净资产收益率\(ROE\)\n\d/.test(data));
+check('盈利能力 含毛利率/净利率', data.includes('销售毛利率') && data.includes('净利率'));
+check('概览含股息率/每股收益', data.includes('股息率') && data.includes('每股收益'));
 
 // ⑤ 分析上下文:画像段 + 新闻段(块 1.5 / 块 4)
 const ctx = await evalJs(`(() => {
@@ -260,7 +275,7 @@ const ctx = await evalJs(`(() => {
   return el ? el.innerText : document.body.innerText;
 })()`);
 check('上下文含公司画像段', ctx.includes('【公司画像与分析师预期（Yahoo）】'));
-check('上下文含新闻段', /【近期新闻（港股 \d{1,5}\.HK · Google News，\d+ 条）】/.test(ctx));
+check('上下文含新闻段', new RegExp(`【近期新闻（${MARKET_LABEL} .+? · Google News，\\d+ 条）】`).test(ctx));
 // 块 3 回退:HK 报告行缺 ROE/EPS → 快照源补上,不得再是纯 N/A
 check('块 3 ROE 非 N/A', /净资产收益率\(ROE\): \d/.test(ctx));
 check('块 3 EPS 非 N/A', /每股收益\(EPS\): \d/.test(ctx));
@@ -275,6 +290,6 @@ for (const p of problems.slice(0, 5)) console.log(`  - ${p}`);
 const failed = checks.filter((c) => !c.ok);
 if (failed.length) fail(`${failed.length} 项检查未通过: ${failed.map((f) => f.name).join(', ')}`);
 if (problems.some((p) => p.startsWith('exception'))) fail('页面出现未捕获异常(见上)');
-console.log(`\n✓ 港股 web E2E 通过(${TICKER_INPUT} → ${STORE_TICKER})`);
+console.log(`\n✓ ${MARKET_LABEL} web E2E 通过(${TICKER_INPUT} → ${STORE_TICKER})`);
 cleanup();
 process.exit(0);

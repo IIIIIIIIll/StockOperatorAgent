@@ -47,7 +47,8 @@ async function runAnalyst(
   const keys = ['WEB_SEARCH_DISABLED', 'BILLIONS_DISABLED', 'BILLIONS_API_KEY', ...Object.keys(env)]; // 重复 key 幂等,restore 以对象去重
   for (const k of keys) {
     saved[k] = process.env[k];
-    const v = k in env ? env[k] : k === 'BILLIONS_DISABLED' ? '1' : undefined;
+    let v: string | undefined = env[k];
+    if (!(k in env) && k === 'BILLIONS_DISABLED') v = '1';
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
@@ -354,14 +355,14 @@ describe('AgentNode market 提示词（S4）', () => {
 
   it('hk:market_rules 注入,current_date 按港股时区', async () => {
     const text = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}, null, 'hk'));
-    expect(text).toContain('本次分析对象为港股。注意：港股实行 T+0 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00；财报以半年报+年报为主；报价货币为港币。');
+    expect(text).toContain('本次分析对象为港股。注意：港股实行 T+2 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00（半日市 12:00 收市）；财报以半年报+年报为主（部分公司自愿披露季报）；报价货币为港币。');
     expect(text).toContain(`当前日期：${getLastBusinessDay(marketToday('hk'))}。`);
     expect(text).not.toContain('{market_rules}');
   });
 
   it('us:market_rules 注入', async () => {
     const text = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}, null, 'us'));
-    expect(text).toContain('本次分析对象为美股。注意：美股实行 T+0 交收、无日涨跌幅限制、存在盘前盘后交易；财报为季度制；报价货币为美元；注意拆股/合股与 ADR 对价格序列的影响。');
+    expect(text).toContain('本次分析对象为美股。注意：美股实行 T+1 交收、无日涨跌幅限制；存在盘前盘后交易；财报为季度制；报价货币为美元；注意拆股/合股与 ADR 对价格序列的影响。');
     expect(text).toContain(`当前日期：${getLastBusinessDay(marketToday('us'))}。`);
   });
 
@@ -370,8 +371,19 @@ describe('AgentNode market 提示词（S4）', () => {
     expect(cn).toContain('- 考虑中国市场的特殊周期性');
     expect(cn).not.toContain('{market_cycle}');
     const hk = await captureSystemText((llm) => new InvestmentManager(llm as never, {}, null, [], 'hk'));
-    expect(hk).toContain('- 考虑港股市场的特殊周期性（T+0 结算、无涨跌停限制、港币计价）');
+    expect(hk).toContain('- 考虑港股市场的特殊周期性（T+2 交收、无涨跌停限制、港币计价）');
     const us = await captureSystemText((llm) => new InvestmentManager(llm as never, {}, null, [], 'us'));
-    expect(us).toContain('- 考虑美股市场的特殊周期性（T+0 结算、无涨跌停限制、美元计价、盘前盘后交易与财报季效应）');
+    expect(us).toContain('- 考虑美股市场的特殊周期性（T+1 交收、无涨跌停限制、美元计价、盘前盘后交易与财报季效应）');
+  });
+
+  it('财务口径提示按市场替换:cn 原文字面不变,hk/us 换为单期口径', async () => {
+    const cn = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}, null));
+    expect(cn).toContain('- 注意财务信息中是当年的累加后数据，需要对应调整');
+    const hk = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}, null, 'hk'));
+    expect(hk).not.toContain('注意财务信息中是当年的累加后数据');
+    expect(hk).toContain('本数据集港股财务为单期口径');
+    const us = await captureSystemText((llm) => new FundamentalAnalysisExpert(llm as never, {}, null, 'us'));
+    expect(us).not.toContain('注意财务信息中是当年的累加后数据');
+    expect(us).toContain('本数据集美股财务为单季口径');
   });
 });

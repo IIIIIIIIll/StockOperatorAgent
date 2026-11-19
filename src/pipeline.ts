@@ -6,7 +6,7 @@ import type { StoreLike, DailyBar, PerformanceReport } from './store.ts';
 import { composeOverview, type OverviewRow } from './overview.ts';
 import { computeAll } from './indicators.ts';
 import { parseIndicatorSection } from './f10.ts';
-import { asiaToday } from './gates.ts';
+import { marketToday } from './gates.ts';
 import { marketInfo, type Market } from './market.ts';
 import { MCP_NO_KEY_TEXT } from './mcp.ts';
 import { yahooProfileKey } from './metaKeys.ts';
@@ -229,7 +229,7 @@ export interface PipelineDeps {
   snapshot?: { price: number; high: number; low: number; open: number } | null;
   capital?: { zongguben: number; liutongguben: number } | null;
   name?: string | null; // 缺省回退 ticker
-  today?: string; // YYYY-MM-DD;缺省 asiaToday
+  today?: string; // YYYY-MM-DD；缺省 marketToday(market)（cn 即原 asiaToday，逐字节不变）
   /** 实时市场情报注入（cn: TDX MCP;hk/us: Google News RSS）;缺省占位文本。 */
   mcp?: (ticker: string) => string;
   news?: (ticker: string) => string;
@@ -245,7 +245,7 @@ export interface PipelineDeps {
 export function buildStockInformation(ticker: string, deps: PipelineDeps): string {
   const { store, progress } = deps;
   const market = deps.market ?? 'cn';
-  const today = deps.today ?? asiaToday();
+  const today = deps.today ?? marketToday(market);
   const stock = store.getStock(ticker);
   const name = deps.name ?? stock?.name ?? ticker;
   const bars = store.getDatas(ticker);

@@ -307,7 +307,7 @@ describe('deps.market 接线（S4:工厂透传 AgentNode 提示词）', () => {
       for await (const _chunk of stream) { /* 驱动图执行 */ }
       expect(systemTexts.length).toBeGreaterThan(0);
       for (const text of systemTexts) {
-        expect(text).toContain('本次分析对象为港股。注意：港股实行 T+0 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00；财报以半年报+年报为主；报价货币为港币。');
+        expect(text).toContain('本次分析对象为港股。注意：港股实行 T+2 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00（半日市 12:00 收市）；财报以半年报+年报为主（部分公司自愿披露季报）；报价货币为港币。');
       }
       const final = await graph.getState({ configurable: { thread_id: '1' } });
       expect((final.values as Record<string, unknown>).market).toBe('hk');

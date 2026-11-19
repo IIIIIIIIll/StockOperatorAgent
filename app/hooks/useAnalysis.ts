@@ -172,7 +172,7 @@ export function useAnalysis(): UseAnalysis {
         // runner.ts);Node/RN 直连零变化。
         makeBillionsClient: (apiKey) =>
           apiKey ? new BillionsClient({ apiKey, fetch: webBillionsFetch() ?? undefined }) : undefined,
-        assembleTools: (keys, caps) => assembleTools(keys, caps),
+        assembleTools: (keys, caps, market) => assembleTools(keys, caps, market),
         keepAliveStart: startAnalysisKeepAlive,
         stopKeepAlive: stopKeepAliveDeferred,
         log: { info, warn, error: logError },

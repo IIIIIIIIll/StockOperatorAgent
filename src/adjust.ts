@@ -71,3 +71,80 @@ export function qfqAdjust(bars: Bar[], xdxr: XdxrEventLike[]): Bar[] {
   }
   return raw;
 }
+
+// ─── Yahoo adjclose 前复权(hk/us 链) ────────────────────────────────────────
+
+/** 带 adjclose 的日K(Yahoo chart 原生形态)。date 为 'YYYY-MM-DD'(与本文件
+ *  CN 侧的 'YYYYMMDD' 不同)——本函数不做日期比较,只按 adjClose/close 逐根缩放。 */
+export interface AdjCloseBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+  amount?: number | null;
+  adjClose: number | null;
+}
+
+/**
+ * Yahoo chart 的 `indicators.adjclose` → 前复权日K。语义与 CN `qfqAdjust` 对齐:
+ * 最新一根 = 原始价,历史按累计分红/拆股因子缩放。
+ *
+ * 为什么用 adjclose 而不是自算分红因子:`events.dividends` 只给每股金额、缺复权
+ * 基期,自算会与 Yahoo 口径漂移;`adjclose` 是唯一免自建的完整因子源
+ * (Yahoo 的 `close` 只含拆股,`adjclose` 额外含现金分红)。
+ *
+ * 因子 = adjClose/close,再整体除以**最后一个有效因子**做归一(Yahoo 实测已归一
+ * 到 1;归一只是防御同一窗口内 adjclose 与 close 基期不一致)。
+ * 单根因子缺失/非正 → 取最近的有效因子(先前向携带、再无前值则后向取首个),
+ * 避免相邻两根复权基期跳变;全缺失 → 原样返回(等价不复权,不抛)。
+ * volume 不缩放:Yahoo 的 volume 已是拆股调整后股数,再乘因子会二次调整。
+ *
+ * @param bars 按 date 升序的日K(顺序即时间序,内部不重排)
+ * @return 同序、同长度;仅 OHLC 被缩放,volume/amount/adjClose 原样
+ */
+export function qfqAdjustByAdjClose(bars: readonly AdjCloseBar[]): AdjCloseBar[] {
+  if (!bars.length) return [];
+  const rawFactor = bars.map((b): number | null => {
+    const adj = b.adjClose;
+    return adj !== null && Number.isFinite(adj) && adj > 0 && b.close > 0 ? adj / b.close : null;
+  });
+  if (rawFactor.every((f) => f === null)) return bars.map((b) => ({ ...b }));
+  // 缺失因子填充:先前向携带(用左侧最近的有效因子);开头部段(无左邻)留
+  // NaN 标记,再由后向补齐(用右侧第一个有效因子)—— 两向不能互相覆盖,否则
+  // 「中间缺口」会被后向重写成右值。
+  const filled: number[] = [];
+  let last: number | null = null;
+  for (const f of rawFactor) {
+    if (f !== null) {
+      last = f;
+      filled.push(f);
+    } else {
+      filled.push(last ?? NaN);
+    }
+  }
+  let next: number | null = null;
+  for (let i = filled.length - 1; i >= 0; i--) {
+    if (Number.isNaN(filled[i])) {
+      if (next !== null) filled[i] = next;
+    } else if (rawFactor[i] !== null) {
+      next = rawFactor[i];
+    }
+  }
+  const lastFactor = filled.at(-1) ?? NaN;
+  if (!Number.isFinite(lastFactor) || lastFactor <= 0) return bars.map((b) => ({ ...b }));
+  const scale = 1 / lastFactor;
+  return bars.map((b, i) => {
+    const f = filled[i];
+    const k = f * scale;
+    if (!Number.isFinite(k) || k <= 0 || k === 1) return { ...b };
+    return {
+      ...b,
+      open: b.open * k,
+      high: b.high * k,
+      low: b.low * k,
+      close: b.close * k,
+    };
+  });
+}

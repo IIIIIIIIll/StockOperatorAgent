@@ -24,6 +24,7 @@
 // 真机直连、Node 探针三端复用同一实现,行为单一来源。
 import type { DailyBar } from '../store.ts';
 import type { CollectedSnapshot } from '../tdx/quoteClient.ts';
+import { qfqAdjustByAdjClose, type AdjCloseBar } from '../adjust.ts';
 import type { CollectSkipOpts, WebCollectResult } from '../webCollect.ts';
 import {
   YahooClient,
@@ -138,13 +139,20 @@ function tzDateFmt(meta: Record<string, unknown>): Intl.DateTimeFormat {
 }
 
 /** chart result[0] → DailyBar[](市场时区日期;volume 原样股数;OHLC 非有限
- *  行丢弃(store daily_bars NOT NULL 约束);volume 缺失 → null(未知，
- *  非 0 —— 停牌/半日市不能伪装成零成交量，CR-25)。 */
-function barsFromChart(r: Record<string, unknown>): DailyBar[] {
+ *  行丢弃(store daily_bars NOT NULL 约束);volume 缺失 → null(未知,
+ *  非 0 —— 停牌/半日市不能伪装成零成交量，CR-25)。
+ *  adjClose = indicators.adjclose[0].adjclose[i](Yahoo 分红+拆股复权收盘);
+ *  该数组缺失(5m 盘中K 无 adjclose)→ null,后续 qfqAdjustByAdjClose 原样透传。 */
+function barsFromChart(r: Record<string, unknown>): AdjCloseBar[] {
   const timestampsRaw = r['timestamp'];
   const timestamps = Array.isArray(timestampsRaw) ? timestampsRaw : [];
-  const quoteArr = rec(r['indicators'])['quote'];
+  const indicators = rec(r['indicators']);
+  const quoteArr = indicators['quote'];
   const quote = Array.isArray(quoteArr) && quoteArr.length > 0 ? rec(quoteArr[0]) : {};
+  // adjclose 与 quote 同为 indicators 下的数组模块(shape: [{adjclose:[…]}])
+  const adjArr = indicators['adjclose'];
+  const adjModule = Array.isArray(adjArr) && adjArr.length > 0 ? rec(adjArr[0]) : {};
+  const adjCloseArr = adjModule['adjclose'] as unknown[] | undefined;
   const openArr = quote['open'] as unknown[] | undefined;
   const highArr = quote['high'] as unknown[] | undefined;
   const lowArr = quote['low'] as unknown[] | undefined;
@@ -152,7 +160,7 @@ function barsFromChart(r: Record<string, unknown>): DailyBar[] {
   const volArr = quote['volume'] as unknown[] | undefined;
   const fmt = tzDateFmt(rec(r['meta']));
   const isFin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-  const bars: DailyBar[] = [];
+  const bars: AdjCloseBar[] = [];
   for (let i = 0; i < timestamps.length; i++) {
     const ts = timestamps[i];
     if (!isFin(ts)) continue;
@@ -163,6 +171,7 @@ function barsFromChart(r: Record<string, unknown>): DailyBar[] {
     if (!isFin(open) || !isFin(high) || !isFin(low) || !isFin(close)) continue;
     const vol = volArr?.[i];
     const volume = isFin(vol) ? vol : null;
+    const adj = adjCloseArr?.[i];
     bars.push({
       date: fmt.format(new Date(ts * 1000)),
       open,
@@ -170,6 +179,7 @@ function barsFromChart(r: Record<string, unknown>): DailyBar[] {
       low,
       close,
       volume,
+      adjClose: isFin(adj) ? adj : null,
     });
   }
   return bars;
@@ -206,14 +216,15 @@ async function fetchChartWindow(symbol: string, period1: number, period2: number
 }
 
 /** 全量日K分页(10 年窗口倒序,period 参数保持日K 粒度——range=max 会被 Yahoo
- *  降级为月K,实测 0700.HK/AAPL 均如此):窗口响应合并 → 按 date 去重 → 升序。
+ *  降级为月K,实测 0700.HK/AAPL 均如此):窗口响应合并 → 按 date 去重 → 升序
+ *  → **前复权**(qfqAdjustByAdjClose:Yahoo adjclose 含现金分红与拆股)。
  *  firstTradeDateSec 缺失 → 回退 50 年窗口(数据缺失兜底,不阻断)。 */
 async function fetchFullDailyBars(symbol: string, firstTradeDateSec: number): Promise<DailyBar[]> {
   const nowSec = Math.floor(Date.now() / 1000);
   const first = Number.isFinite(firstTradeDateSec)
     ? firstTradeDateSec - 86_400 // 含首日
     : nowSec - 50 * 365 * 86_400;
-  const all: DailyBar[] = [];
+  const all: AdjCloseBar[] = [];
   let end = nowSec + 86_400; // 含今天(盘中/盘前 bar)
   for (;;) {
     const start = Math.max(end - _PAGE_WINDOW_SEC, first);
@@ -222,9 +233,12 @@ async function fetchFullDailyBars(symbol: string, firstTradeDateSec: number): Pr
     if (start <= first) break;
     end = start;
   }
-  const byDate = new Map<string, DailyBar>();
+  const byDate = new Map<string, AdjCloseBar>();
   for (const b of all) byDate.set(b.date, b);
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  // 前复权在入库前完成(与 CN applyQfq 同位置同语义):store 里的日K即复权序列,
+  // 指标/图表/store 三处不再各自复权。
+  return qfqAdjustByAdjClose(sorted);
 }
 
 /** 最近交易日收盘(chart meta 无 previousClose 字段——实测 HK/US 均缺,
@@ -377,21 +391,34 @@ function hkCandidates(input: string): string[] {
  *  候选试探遇 404/Not Found → 未命中继续(无效符号可能以非 2xx 返回)。
  *  skipDaily:跳过日K分页(概览/快照仍刷新,部分 fresh 不整体短路)。
  *  server 代理 / 真机直连 / Node 探针三端复用。 */
+/** 美股候选（2026-11-19 补）：旧实现 US 恒 `[ticker]`，零试探 —— 与 HK 的候选表
+ *  不构成对称。Yahoo 的股份类别写 `-`（BRK-B/ BF-B），而本项目输入校验
+ *  （market.ts:60）接受 `.`，于是 `BRK.B` 过校验、原样发给 Yahoo 必 404，
+ *  用户只看到「无法解析美股代码」。两个方向都试（Yahoo 旧数据/第三方镜像
+ *  存在 `.` 形），去重后首位仍是用户原输入。 */
+function usCandidates(input: string): string[] {
+  const variants = [input];
+  if (input.includes('.')) variants.push(input.replace(/\./g, '-'));
+  if (input.includes('-')) variants.push(input.replace(/-/g, '.'));
+  return [...new Set(variants)];
+}
+
 export async function collectYahooPayload(
   client: YahooClient,
   ticker: string,
   opts?: { skipDaily?: boolean },
 ): Promise<YahooCollectedPayload> {
   // 候选:HK 存储形('.HK' 后缀)→ 原符号优先 + 候选表去重;HK 输入形(数字)→
-  // 候选表;US → 原样。无效符号 chart 返回 error 壳/404(不抛,逐个试探,轻量
-  // range=5d 仅定符号 + 取 meta;全量日K 走下方分页)。
+  // 候选表;US → 原符号优先 + '.'/'-' 形互转(usCandidates)。无效符号 chart
+  // 返回 error 壳/404(不抛,逐个试探,轻量 range=5d 仅定符号 + 取 meta;
+  // 全量日K 走下方分页)。
   const hkStoreForm = /^(\d{1,5})\.HK$/i.exec(ticker)?.[1];
   const candidates =
     hkStoreForm !== undefined
       ? [...new Set([ticker, ...hkCandidates(hkStoreForm)])]
       : detectMarket(ticker) === 'hk'
         ? hkCandidates(ticker)
-        : [ticker];
+        : usCandidates(ticker);
   let symbol: string | null = null;
   let result: Record<string, unknown> | null = null;
   for (const cand of candidates) {

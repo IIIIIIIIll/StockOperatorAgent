@@ -7,12 +7,17 @@ const secHeaders = require('./sec-headers.cjs');
 
 const SEC_HEADERS = secHeaders.SEC_HEADERS ?? secHeaders;
 
-/** 需要门禁的代理/日志路径前缀（两个入口共用同一张表）。 */
+/** 需要门禁的代理/日志路径前缀（两个入口共用同一张表）。
+ *  2026-11-19 补：/news-feed（hk/us Google News 代理）曾被 server.mjs /
+ *  metro.config.js 路由但未列入本表 → proxyGate 短路放行，Origin /
+ *  Sec-Fetch-Site / X-SOA-Token 三道门全部失效（客户端还在发 token，被静默丢掉）。
+ *  新增端点必须同步本表 + test/request-gate.test.ts 的端点数断言。 */
 const PROXY_PATHS = [
   '/llm-proxy/',
   '/tdx-collect',
   '/yahoo-collect',
   '/web-search',
+  '/news-feed',
   '/tdx-mcp',
   '/billions-proxy',
 ];

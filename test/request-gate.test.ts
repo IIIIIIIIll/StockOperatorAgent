@@ -16,8 +16,8 @@ const { proxyGate, isProxyPath, isLoopbackBind, isLoopbackBindHost, isLoopbackHo
 };
 
 describe('request-gate 路径表(S8-1)', () => {
-  it('7 个端点都算代理路径,/logs 精确匹配', () => {
-    for (const u of ['/llm-proxy/chat', '/tdx-collect?t=1', '/yahoo-collect', '/web-search?q=a', '/tdx-mcp', '/billions-proxy/x', '/logs']) {
+  it('8 个端点都算代理路径,/logs 精确匹配', () => {
+    for (const u of ['/llm-proxy/chat', '/tdx-collect?t=1', '/yahoo-collect', '/web-search?q=a', '/news-feed?q=Tesla', '/tdx-mcp', '/billions-proxy/x', '/logs']) {
       expect(isProxyPath(u), u).toBe(true);
     }
     for (const u of ['/', '/index.html', '/logs/x']) {
@@ -36,6 +36,16 @@ describe('request-gate 门禁顺序(S8-1/S9-3)', () => {
   it('跨站 Origin → 403', () => {
     const r = proxyGate({ url: '/web-search', headers: { origin: 'https://evil.test', host: 'localhost:8090' } });
     expect(r?.status).toBe(403);
+  });
+
+  it('/news-feed 也在门禁内(2026-11-19 补齐:曾绕过 Origin/token 三道)', () => {
+    const cross = proxyGate({ url: '/news-feed?q=Tesla%20stock', headers: { origin: 'https://evil.test', host: 'localhost:8090' } });
+    expect(cross?.status).toBe(403);
+    const noToken = proxyGate(
+      { url: '/news-feed?q=Tesla', headers: { host: 'localhost:8090' } },
+      { requireToken: true, accessToken: 'secret' },
+    );
+    expect(noToken?.status).toBe(401);
   });
 
   it('同站 Origin 放行', () => {

@@ -6,7 +6,7 @@
 // 尾部缩进 vs TS 单换行），Python test_query_baselines 基线随 Python 删除。
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import type { RunnableLike } from '@langchain/core/runnables';
-import { system_prompt, marketPromptRules, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';
+import { system_prompt, marketPromptRules, marketAccountingNote, ACCOUNTING_CONVENTION_NOTE, fundamental_analysis_expert_message, trend_analysis_expert_message, technical_indicator_analyst_message, information_analyst_message, bullish_trader_message, bearish_trader_message, bullish_revise_message, bearish_revise_message, investment_manager_message } from './prompt.ts';
 import { getLastBusinessDay, marketToday } from './gates.ts';
 // P3(评审 2026-11-09):这三个格式化函数与 src/billionsTools.ts 曾各存一份且已双向
 // 分叉(数组守卫/date 判空两版不一致)。现统一由 src/billionsFormat.ts 提供。
@@ -75,6 +75,9 @@ export class AgentNode {
       }
     }
     this.boundLlm = llm;
+    // SAFETY: ChatPromptTemplate.pipe 接受任何 RunnableLike，但其 .pipe 声明
+    // 为泛型推断给定类型；langchain 的泛型参数在本仓不需要内部结构，调用方只
+    // 通过 Invokable.invoke(messages) 使用，故此处断言不会产生运行时依赖。
     this.llm = prompt.pipe(llm as unknown as RunnableLike) as unknown as Invokable;
     this.config = config;
     this.progressUpdater = progressUpdater;
@@ -82,8 +85,10 @@ export class AgentNode {
     this.market = market;
   }
 
-  /** 第二条链（对抗修订轮）：复用构造时已绑定实例（双链共享）。 */
-  buildChain(roleMessage: string, llm?: LlmLike): unknown {
+  /** 第二条链（对抗修订轮）：复用构造时已绑定实例（双链共享）。
+ *  返回类型用 RunnableLike（而不是 unknown）：调用方 streamOrInvoke 只看
+ *  invoke/stream 两个可选成员，这里就是那条契约。 */
+  buildChain(roleMessage: string, llm?: LlmLike): RunnableLike {
     const systemText = buildSystemText(roleMessage, this.market);
     const prompt = ChatPromptTemplate.fromMessages([
       ['system', systemText],
@@ -214,11 +219,19 @@ function expertReportsBlock(state: StateLike): string {
 }
 
 /** 系统提示词骨架填充(R2 单源:构造函数与 buildChain 此前逐字重复)。
- *  `system_prompt` 必须逐字节一致 —— 查询模板容错空白,system 不容。 */
+ *  `system_prompt` 必须逐字节一致 —— 查询模板容错空白,system 不容。
+ *  accounting 修正(2026-11-19):基本面分析师模板里那句「财务信息是当年的
+ *  累加后数据」对 hk/us 是错的(本链报表为单期口径)→ 按市场替换;cn 回原文,
+ *  逐字节不变。 */
 function buildSystemText(roleMessage: string, market: Market): string {
   const rules = marketPromptRules(market);
   return system_prompt
-    .replace('{system_message}', roleMessage.replace('{market_cycle}', rules.market_cycle))
+    .replace(
+      '{system_message}',
+      roleMessage
+        .replace('{market_cycle}', rules.market_cycle)
+        .replace(ACCOUNTING_CONVENTION_NOTE, marketAccountingNote(market)),
+    )
     .replace('{market_rules}', rules.market_rules)
     .replace('{current_date}', getLastBusinessDay(marketToday(market)));
 }

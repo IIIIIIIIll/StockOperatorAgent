@@ -18,15 +18,15 @@
 import { describeError, type FinalReport, type PipelineEvent, type PipelineRunner } from '../../src/events.ts';
 import type { StoreLike } from '../../src/store.ts';
 import type { Market } from '../../src/market.ts';
-import { marketOfStoreTicker, normalizeTicker } from '../../src/market.ts';
+import { marketOfStoreTicker } from '../../src/market.ts';
 import type { RoleStatus } from '../../src/progress.ts';
 import type { Platform } from '../../src/log.ts';
 import { enabledRoles } from '../../src/committee.ts';
 import { buildStockInformation } from '../../src/pipeline.ts';
-import { asiaToday } from '../../src/gates.ts';
+import { asiaToday, marketToday } from '../../src/gates.ts';
 import type { WebCollectResult } from '../../src/webCollect.ts';
 import { loadLastRun, saveLastRun } from '../../src/lastRun.ts';
-import { DEMO_F10_KEY, DEMO_TICKER, RUN_HISTORY_MIGRATED_KEY } from '../../src/metaKeys.ts';
+import { DEMO_F10_KEY, DEMO_TICKER } from '../../src/metaKeys.ts';
 import type { RunSummary } from '../../src/runHistory.ts';
 import type { RunArchive } from './runArchive.ts';
 // B6(评审 2026-11-09):看门狗抽成独立单元(注入时钟/回调,可直接单测边界)。
@@ -157,7 +157,7 @@ export interface AnalysisDeps {
   ) => Promise<{ billions?: IntelProvider; mcp?: IntelProvider; news?: IntelProvider }>;
   /** 亿信 client 工厂(key 存在 → new BillionsClient;否则 undefined 零网络)。 */
   readonly makeBillionsClient: (apiKey: string | null) => BillionsClient | undefined;
-  readonly assembleTools: (keys: KeysState, caps?: Partial<CapsState>) => ToolLike[];
+  readonly assembleTools: (keys: KeysState, caps?: Partial<CapsState>, market?: Market) => ToolLike[];
   readonly keepAliveStart: (title: string, body: string) => void;
   readonly stopKeepAlive: () => void;
   // ── 环境 ────────────────────────────────────────────────────────────
@@ -534,9 +534,9 @@ export class AnalysisController {
     try {
       // web 走同源代理(绕开 CORS;绝对 URL——SDK 的 new URL 不接受相对路径);
       // Node/真机直连。代理前缀不含 /v1(SDK 自行拼接路径)
-      const proxyBase = d.platform === 'web'
-        ? (globalThis.location?.origin ? `${globalThis.location.origin}/llm-proxy` : undefined)
-        : undefined;
+      const proxyOrigin = globalThis.location?.origin;
+      const proxyBase =
+        d.platform === 'web' && proxyOrigin ? `${proxyOrigin}/llm-proxy` : undefined;
       const llm = llmConfigured(s.settings.keys)
         ? d.buildLlm(toLlmConfig(s.settings.keys), proxyBase)
         : d.buildLlm(null);
@@ -550,9 +550,9 @@ export class AnalysisController {
         m === 'us' && s.settings.keys.finnhubApiKey.trim()
           ? { apiKey: s.settings.keys.finnhubApiKey.trim() }
           : null;
-      const collectKind = d.platform === 'web'
-        ? (m === 'cn' ? 'TDX 代理' : 'Yahoo 代理')
-        : (m === 'cn' ? 'TDX 直连' : 'Yahoo 直连');
+      const collectSource = m === 'cn' ? 'TDX' : 'Yahoo';
+      const collectChannel = d.platform === 'web' ? '代理' : '直连';
+      const collectKind = `${collectSource} ${collectChannel}`;
       d.log.info(`正在采集 ${nt} 的真实行情(${collectKind})...`);
       try {
         // web 走同源代理(collectForWeb 市场分派:cn → /tdx-collect;hk/us →
@@ -609,7 +609,7 @@ export class AnalysisController {
         name: stockName,
         capital,
         market: m,
-        today: asiaToday(), // F20:北京日历日,对齐 pipeline 缺省(原 UTC 日清晨差一天)
+        today: marketToday(m), // 2026-11-19:按市场本地日历日(旧值恒北京 → 美股差一天);cn 与原 asiaToday 等价
         ...(intel.billions ? { billions: intel.billions } : {}),
         ...(intel.mcp ? { mcp: intel.mcp } : {}),
         ...(intel.news ? { news: intel.news } : {}),
@@ -619,8 +619,8 @@ export class AnalysisController {
         // P1-1(评审 2026-11-09):把本代标签交给 runner，它会给本运行的每个事件
         // 回填 runTag；订阅侧据此丢弃孤儿运行的迟到事件。
         runTag: seq,
-        llm, f10Text, snapshot, name: stockName, capital, market: m, today: asiaToday(), // F20 同上
-        tools: d.assembleTools(s.settings.keys, s.settings.caps),
+        llm, f10Text, snapshot, name: stockName, capital, market: m, today: marketToday(m), // 2026-11-19 市场本地日历日
+        tools: d.assembleTools(s.settings.keys, s.settings.caps, m),
         ...(intel.billions ? { billions: intel.billions } : {}),
         ...(intel.mcp ? { mcp: intel.mcp } : {}),
         ...(intel.news ? { news: intel.news } : {}),

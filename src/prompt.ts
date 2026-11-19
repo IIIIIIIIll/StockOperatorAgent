@@ -44,20 +44,46 @@ export const investment_manager_message = `你是一位专业的投资经理，�
 
 /** 市场提示词规则(S4):market_cycle 替换 investment_manager_message 的
  *  {market_cycle} 占位;market_rules 替换 system_prompt 的 {market_rules}
- *  占位。cn 两文本均与改造前逐字节一致(空串拼接)。 */
+ *  占位。cn 两文本均与改造前逐字节一致(空串拼接)。
+ *
+ *  2026-11-19 修正:交收周期原写「T+0 结算」—— 对两个市场都是错的(港股
+ *  2019 起 T+2、美股 2024-05 起 T+1),模型会把这句话原样写给用户。 */
 export function marketPromptRules(market: Market): { market_cycle: string; market_rules: string } {
   switch (market) {
     case 'hk':
       return {
-        market_cycle: '考虑港股市场的特殊周期性（T+0 结算、无涨跌停限制、港币计价）',
-        market_rules: '本次分析对象为港股。注意：港股实行 T+0 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00；财报以半年报+年报为主；报价货币为港币。',
+        market_cycle: '考虑港股市场的特殊周期性（T+2 交收、无涨跌停限制、港币计价）',
+        market_rules: '本次分析对象为港股。注意：港股实行 T+2 交收、无日涨跌幅限制、交易时段 9:30-12:00/13:00-16:00（半日市 12:00 收市）；财报以半年报+年报为主（部分公司自愿披露季报）；报价货币为港币。',
       };
     case 'us':
       return {
-        market_cycle: '考虑美股市场的特殊周期性（T+0 结算、无涨跌停限制、美元计价、盘前盘后交易与财报季效应）',
-        market_rules: '本次分析对象为美股。注意：美股实行 T+0 交收、无日涨跌幅限制、存在盘前盘后交易；财报为季度制；报价货币为美元；注意拆股/合股与 ADR 对价格序列的影响。',
+        market_cycle: '考虑美股市场的特殊周期性（T+1 交收、无涨跌停限制、美元计价、盘前盘后交易与财报季效应）',
+        market_rules: '本次分析对象为美股。注意：美股实行 T+1 交收、无日涨跌幅限制；存在盘前盘后交易；财报为季度制；报价货币为美元；注意拆股/合股与 ADR 对价格序列的影响。',
       };
     default:
       return { market_cycle: '考虑中国市场的特殊周期性', market_rules: '' };
+  }
+}
+
+/** 基本面分析师模板里那句「财务信息是当年累加后数据」的原文（逐字节，
+ *  test/fixtures/prompts.json 对所有市场钉住它）。buildSystemText 按市场
+ *  替换成 marketAccountingNote 的返回值。 */
+export const ACCOUNTING_CONVENTION_NOTE = '- 注意财务信息中是当年的累加后数据，需要对应调整';
+
+/** 累计口径提示的市场化版本。
+ *
+ *  cn:F10 【主要财务指标】确实是年初至今累计（一季报=Q1、中报=Q1+Q2、
+ *  三季报=Q1+Q2+Q3、年报=全年），原文照用——cn 路径逐字节不变。
+ *  hk/us:**不是**累计口径 —— composeYahooReports 按披露期给单期值
+ *  （2026-11-19 实测 0700.HK 季度收入约为年度的 1/4，非累加）。旧实现把这句
+ *  原样发给港股/美股，等于命令模型对单季值再做一次累加修正 → 输出错数。 */
+export function marketAccountingNote(market: Market): string {
+  switch (market) {
+    case 'hk':
+      return '- 注意：本数据集港股财务为单期口径（半年报/季报按披露期给值），不是年初至今累计；切勿再按累计口径相减或还原';
+    case 'us':
+      return '- 注意：本数据集美股财务为单季口径（财报已按单季给值），不是年初至今累计；切勿再按累计口径相减或还原';
+    default:
+      return ACCOUNTING_CONVENTION_NOTE;
   }
 }
