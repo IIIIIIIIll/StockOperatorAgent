@@ -135,27 +135,19 @@ export function useAnalysis(): UseAnalysis {
           setDeviceStore(store);
         },
         buildLlm,
-        collect: async (ticker, m, finnhub) => {
+        collect: async (ticker, m) => {
           // web 走同源代理(collectForWeb 市场分派:cn → /tdx-collect;hk/us →
           // /yahoo-collect);真机经 selectCollector 动态 import(仅非 web 求值,
-          // web bundle 不含 node-tdx-market 死链)。S5:market 分派 cn → TDX 链;
-          // hk/us → Yahoo 链(webImpls 已绑定代理 base)。
+          // web bundle 不含 node-tdx-market 死链)。
+          // 2026-11-19 移除 Finnhub 增强参数:行业归口只走 Yahoo assetProfile。
           const webImpls: Record<Market, MarketCollector> = {
             cn: collectForWeb,
             hk: (t: string, o?: CollectSkipOpts) => collectForWeb(t, { ...(o ?? {}), market: 'hk' }),
-            us: (t: string, o?: CollectSkipOpts) => collectForWeb(t, { ...(o ?? {}), market: 'us', finnhub }),
+            us: (t: string, o?: CollectSkipOpts) => collectForWeb(t, { ...(o ?? {}), market: 'us' }),
           };
           if (CONTROLLER_PLATFORM === 'web') return (await selectCollector('web', m, webImpls))(ticker);
-          if (m === 'us' && finnhub) {
-            // 真机 + 美股 + Finnhub key:deviceImpls 绑定面不带 finnhub 参 →
-            // 直取设备桥传参(与 web 链同契约)。动态 import:deviceBridge 是
-            // RN 专属模块(含 TCP 链),web bundle 不可含——Platform 门控内求值
-            const { collectYahooForDevice } = await import('../lib/deviceBridge');
-            return collectYahooForDevice(ticker, undefined, finnhub);
-          }
-          // 真机其余路径:selectCollector('rn') 市场分派(cn → TDX 直连链;
-          // hk/us → Yahoo 直连链)。与抽取前三分支结构等价(web / us+finnhub
-          // 直取 / else rn)。
+          // 真机路径:selectCollector('rn') 市场分派(cn → TDX 直连链;
+          // hk/us → Yahoo 直连链)。
           return (await selectCollector('rn', m, webImpls))(ticker);
         },
         fetchIntel: async (nt, m, keys) => {

@@ -69,7 +69,7 @@ function makeHarness(
   const store = new InMemoryStore();
   const runner = makeFakeRunner(opts.runnerImpl);
   const log: LogCapture = { info: [], warn: [], error: [] };
-  const collectCalls: Array<{ ticker: string; market: string; finnhub: { apiKey: string } | null }> = [];
+  const collectCalls: Array<{ ticker: string; market: string }> = [];
   const keepAlive = { starts: [] as Array<[string, string]>, stops: 0 };
   let demoLoaded = 0;
   const runArchive = createMemoryRunArchive();
@@ -87,8 +87,8 @@ function makeHarness(
     saveSettings: () => {},
     applyCapabilitySwitches: () => {},
     buildLlm: () => ({ stub: 'llm' }),
-    collect: async (ticker, market, finnhub) => {
-      collectCalls.push({ ticker, market, finnhub });
+    collect: async (ticker, market) => {
+      collectCalls.push({ ticker, market });
       return {
         ticker,
         f10Text: '【主要财务指标】\n净资产收益率: 15.2',
@@ -245,13 +245,26 @@ describe('AnalysisController.start 编排', () => {
     // 采集以归一化后 ticker 调用一次;lastRunTicker 跟随
     expect(h.collectCalls).toHaveLength(1);
     expect(h.collectCalls[0].ticker).toBe('600036');
-    expect(h.collectCalls[0].finnhub).toBeNull(); // 非 us → 无 finnhub
     expect(h.snap().lastRunTicker).toBe('600036');
     // 保活成对启停;running 复位;成功路径打印耗时(C1 侧)
     expect(h.keepAlive.starts).toEqual([['正在分析 600036', 'AI 分析进行中,可切到后台等待完成']]);
     expect(h.keepAlive.stops).toBe(1);
     expect(h.snap().running).toBe(false);
     expect(h.log.info.some((m) => m.startsWith('分析结束:耗时'))).toBe(true);
+  });
+
+  it('us 市场:采集按归一化 ticker 一次,market 透传到 collect 与 runner opts', async () => {
+    // 2026-11-19 删 Finnhub 后重建的用例:原先这条覆盖藏在「us + finnhub key」
+    // 用例里,删 Finnhub 时一并消失。market 透传是采集链与提示词市场分支的
+    // 唯一纽带,必须有直测(不只靠采集层用例)。
+    const h = makeHarness({ runnerImpl: async () => makeReport() });
+
+    await h.ctrl.start('aapl', 'us');
+
+    expect(h.collectCalls).toHaveLength(1);
+    expect(h.collectCalls[0].market).toBe('us');
+    expect(h.collectCalls[0].ticker).toBe('AAPL'); // 小写输入 → 大写归一
+    expect(h.runner.runs[0].opts?.market).toBe('us');
   });
 
   it('F20:start 的 today 是北京日历日(非 UTC 日;清晨差一天场景钉死)', async () => {
@@ -272,28 +285,6 @@ describe('AnalysisController.start 编排', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('us + finnhub key → collect 收到非空 finnhub 参数(空白 trim 后)', async () => {
-    const settings = defaultSettings();
-    settings.keys.finnhubApiKey = '  fh_key_aapl  ';
-    const h = makeHarness({ settings });
-
-    await h.ctrl.start('aapl', 'us');
-
-    expect(h.collectCalls).toHaveLength(1);
-    expect(h.collectCalls[0].market).toBe('us');
-    // 仅美股增强:key 非空才传,且以 trim 后形态传入(空白不随行)
-    expect(h.collectCalls[0].finnhub).toEqual({ apiKey: 'fh_key_aapl' });
-  });
-
-  it('us 无 finnhub key → collect 收到 null(零网络对照)', async () => {
-    const h = makeHarness(); // 默认 settings:finnhubApiKey 为空串
-
-    await h.ctrl.start('AAPL', 'us');
-
-    expect(h.collectCalls[0].market).toBe('us');
-    expect(h.collectCalls[0].finnhub).toBeNull();
   });
 
   it('北交所代码拦截:逐字文案,不发起采集与 runner.run', async () => {

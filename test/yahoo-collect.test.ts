@@ -10,7 +10,6 @@ import { parseYahooAnnualReports } from '../src/yahoo/composeYahooReports.ts';
 import { yahooAnnualKey } from '../src/metaKeys.ts';
 import { collectYahooForDevice, collectYahooPayload, obtainA3, getCachedA3, invalidateA3Cache } from '../src/yahoo/deviceYahooCollect.ts';
 import { YahooClient, YAHOO_REQUEST_TIMEOUT_MS } from '../src/yahoo/yahooClient.ts';
-import { FinnhubClient } from '../src/finnhub/finnhubClient.ts';
 import { collectYahooViaProxy } from '../src/yahoo/webYahooCollect.ts';
 import { marketToday } from '../src/gates.ts';
 import { collectForWeb, store as runnerStore } from '../app/lib/runner.ts';
@@ -349,6 +348,25 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(store.getDatas('AAPL')).toHaveLength(80);
   });
 
+  it('US 真机全链 chart 形状:无候选试探、单符号 AAPL、1 试探 + 3 分页 + 1 盘中 = 5 次', async () => {
+    // 2026-11-19 删 Finnhub 后重建:原先这组形状断言夹在「E4 device×finnhub」用例里
+    // (同一用例既验 Finnhub 合并又验 us chart 形状),删 Finnhub 时连带消失。
+    // 剩余 us device 用例只验 60 日涨跌幅/名称,不验调用形状。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
+    const calls = makeGlobalFetch([
+      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
+      { match: (u) => u.includes('/v8/finance/chart/'), respond: (c) => jsonResponse(chartBody(c.url.split('/chart/')[1].split('?')[0])) },
+      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
+      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
+    ]);
+    const out = await collectYahooForDevice('AAPL');
+    const chartCalls = calls.filter((c) => c.url.includes('/v8/finance/chart/'));
+    expect(chartCalls).toHaveLength(5); // probe(5d) 1 + 全量分页 3 + 盘中 5 分钟K 1
+    expect(chartCalls.every((c) => c.url.includes('/chart/AAPL?'))).toBe(true); // us 无候选互探:原样单符号
+    expect(out.name).not.toBe('');
+  });
+
   it('quoteSummary crumb 失败 → warn 降级:概览仅 chart meta 字段、reports 空,不抛错', async () => {
     const calls = makeGlobalFetch([
       { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
@@ -527,67 +545,6 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(before.getStock('0700.HK')?.overview?.prev_close).toBe(100);
   });
 
-  it('E4 device×finnhub:us 全链 + profile2 合并 industry 入库(finnhub 为第三位置参数,非 opts 内嵌)', async () => {
-    vi.useFakeTimers(); // F55:同 0700.HK 全链用例,分页窗口数钉死于 2026-08-20
-    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
-    const calls = makeGlobalFetch([
-      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
-      {
-        match: (u) => u.includes('/v8/finance/chart/'),
-        respond: (c) => jsonResponse(chartBody(c.url.split('/chart/')[1].split('?')[0])),
-      },
-      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
-      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
-      { match: (u) => u.startsWith('https://finnhub.io/'), respond: () => jsonResponse({ finnhubIndustry: 'Technology' }) },
-    ]);
-    // 签名核对:collectYahooForDevice(ticker, opts?, finnhub?) —— 与 web 链同契约,
-    // 但消费方不同(RN 直连全局 fetch),web 路径已有用例,此处钉死 device 组合(E4 缺口)
-    const out = await collectYahooForDevice('AAPL', {}, { apiKey: 'k' });
-    const chartCalls = calls.filter((c) => c.url.includes('/v8/finance/chart/'));
-    expect(chartCalls).toHaveLength(5); // us 无候选试探:probe(range=5d)1 + 全量分页 3 + 盘中 5 分钟K 1
-    expect(chartCalls.every((c) => c.url.includes('/chart/AAPL?'))).toBe(true); // 原样单符号
-    const finnhubCalls = calls.filter((c) => c.url.startsWith('https://finnhub.io/'));
-    expect(finnhubCalls).toHaveLength(1);
-    expect(finnhubCalls[0].url).toBe('https://finnhub.io/api/v1/stock/profile2?symbol=AAPL&token=k');
-    const overview = store.getStock('AAPL')?.overview;
-    expect(overview?.industry).toBe('Technology'); // 合并发生在入库前 → overview 槽含 industry
-    // 其余 overview 字段不受合并影响(Yahoo 链原值,fixture 同既有用例)
-    expect(out.name).toBe('腾讯控股有限公司');
-    expect(overview?.currency).toBe('HKD');
-    expect(overview?.pe_dynamic).toBe(20);
-    expect(overview?.latest_price).toBe(400);
-  });
-
-  it('E4 对照:device 不传 finnhub → 零 finnhub.io 请求(hk-us-data.md 错误矩阵「无 key」行)', async () => {
-    const calls = makeGlobalFetch([
-      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
-      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(chartBody('AAPL')) },
-      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
-      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
-      // 刻意无 finnhub 路由:任何 finnhub 请求都会落 unexpected fetch 抛错(双保险)
-    ]);
-    await collectYahooForDevice('AAPL'); // 第三参缺省(web 对照在 collectForWeb describe,device 独立钉死)
-    expect(calls.filter((c) => c.url.startsWith('https://finnhub.io'))).toHaveLength(0);
-    const overview = store.getStock('AAPL')?.overview;
-    expect(overview?.industry).toBeUndefined(); // industry 留空
-    expect(overview?.pe_dynamic).toBe(20); // Yahoo 链本身采集成功
-  });
-
-  it('E4 降级:profile2 429 → warn 忽略,采集整体成功、industry 留空(错误矩阵「失败/429」行)', async () => {
-    makeGlobalFetch([
-      { match: (u) => u.startsWith('https://fc.yahoo.com'), respond: () => jsonResponse({}, 200, { 'set-cookie': 'A3=device-a3; Path=/' }) },
-      { match: (u) => u.includes('/v8/finance/chart/'), respond: () => jsonResponse(chartBody('AAPL')) },
-      { match: (u) => u.includes('/v1/test/getcrumb'), respond: () => textResponse('crumb-abc') },
-      { match: (u) => u.includes('/v10/finance/quoteSummary/'), respond: () => jsonResponse(QUOTE_BODY) },
-      { match: (u) => u.startsWith('https://finnhub.io/'), respond: () => jsonResponse({ error: 'API limit reached' }, 429) },
-    ]);
-    const out = await collectYahooForDevice('AAPL', {}, { apiKey: 'k' }); // 不抛(degrade don't raise)
-    const overview = store.getStock('AAPL')?.overview;
-    expect(overview?.industry).toBeUndefined(); // industry 留空
-    expect(overview?.currency).toBe('HKD'); // Yahoo 概览照常入库
-    expect(overview?.pe_dynamic).toBe(20);
-    expect(out.snapshot?.price).toBe(400); // 快照链路不受增强源故障影响
-  });
 });
 
 describe('C3 A3 缓存对(getCachedA3/invalidateA3Cache)+ device 接线吊销自愈', () => {
@@ -773,7 +730,7 @@ describe('collectYahooViaProxy(浏览器 → /yahoo-collect)', () => {
   });
 });
 
-describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同日跳过门 + finnhub 合并)', () => {
+describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同日跳过门)', () => {
   beforeEach(() => {
     // F10:close() 为终态(排空 pending 写 + 禁后续写穿)——复位须换新实例;
     // setStore live binding:runnerStore 绑定同步指向新实例,与 yahoo store 同实例
@@ -788,7 +745,7 @@ describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同�
     runnerStore.close();
   });
 
-  it('us 同日已采集 → skipDaily=1 查询参数(不重拉日K);finnhub key → 浏览器端合并 industry 入库', async () => {
+  it('us 同日已采集 → skipDaily=1 查询参数(不重拉日K);概览仍入库', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-20T02:00:00Z')); // 纽约今天 2026-08-19
     runnerStore.putStock({
@@ -812,25 +769,23 @@ describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同�
     const fakeFetch = (async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
       if (url.includes('/yahoo-collect')) return jsonResponse(payload);
-      if (url.startsWith('https://finnhub.io/')) return jsonResponse({ finnhubIndustry: 'Technology' });
       throw new Error(`unexpected url: ${url}`);
     }) as unknown as typeof fetch;
     vi.stubGlobal('location', { origin: 'http://test' });
     vi.stubGlobal('fetch', fakeFetch);
-    const out = await collectForWeb('AAPL', { market: 'us', finnhub: { apiKey: 'k' } });
+    const out = await collectForWeb('AAPL', { market: 'us' });
     expect(calls[0].url).toBe('http://test/yahoo-collect?skipDaily=1');
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ ticker: 'AAPL' });
-    const finnhubCall = calls.find((c) => c.url.startsWith('https://finnhub.io/'));
-    expect(finnhubCall?.url).toBe('https://finnhub.io/api/v1/stock/profile2?symbol=AAPL&token=k');
+    expect(calls).toHaveLength(1); // 单次代理请求(无外部增强源)
     expect(out.name).toBe('Apple Inc.');
     // 同日跳过:既有日K 保留、lastDataUpdate 维持今天;概览/名称仍入库
     expect(runnerStore.getDatas('AAPL')).toHaveLength(0);
     expect(runnerStore.getStock('AAPL')?.lastDataUpdate).toBe(marketToday('us'));
-    expect(runnerStore.getStock('AAPL')?.overview?.industry).toBe('Technology'); // finnhub 合并
+    expect(runnerStore.getStock('AAPL')?.overview?.pe_dynamic).toBe(30);
     expect(runnerStore.getStock('AAPL')?.overviewLastUpdate).toBe(marketToday('us'));
   });
 
-  it('跨日 us:全量路径(无跳过参数);无 finnhub key → 零 finnhub 请求', async () => {
+  it('跨日 us:全量路径(无跳过参数),且只发一次代理请求', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
     runnerStore.putStock({
@@ -859,7 +814,7 @@ describe('collectForWeb 市场分派(runner 接线:us → /yahoo-collect + 同�
     vi.stubGlobal('fetch', fakeFetch);
     await collectForWeb('AAPL', { market: 'us' });
     expect(calls[0].url).toBe('http://test/yahoo-collect'); // 全量,无跳过参数
-    expect(calls).toHaveLength(1); // 无 finnhub 请求
+    expect(calls).toHaveLength(1); // 单次代理请求(无外部增强源)
     expect(runnerStore.getDatas('AAPL')).toHaveLength(1);
   });
 });
@@ -921,34 +876,6 @@ describe('Yahoo 链超时(B1:AbortController 40s < 代理 504 定时器 45s;Herm
     const paging = [...signals.entries()].filter(([u]) => u.includes('period1='));
     expect(paging.length).toBeGreaterThan(0);
     for (const [u, signal] of paging) expect(signal?.aborted, u).toBe(true);
-  });
-});
-
-describe('C2 Finnhub 单请求超时(fetchWithTimeout 复用,label=Finnhub)', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it('profile2 挂起 → 40s abort → FinnhubApiError(code=timeout, 文案归属 Finnhub)', async () => {
-    vi.useFakeTimers();
-    const recorder = { current: undefined as AbortSignal | undefined };
-    const fn = (async (_url: string | URL | Request, init?: RequestInit) => {
-      recorder.current = init?.signal ?? undefined;
-      return await new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
-      });
-    }) as unknown as typeof fetch;
-    const p = new FinnhubClient('k', fn).companyProfile2('AAPL');
-    const assertion = expect(p).rejects.toMatchObject({
-      name: 'FinnhubApiError',
-      code: 'timeout',
-      status_code: null,
-      message: 'Finnhub 请求超时(40s)',
-    });
-    await vi.advanceTimersByTimeAsync(YAHOO_REQUEST_TIMEOUT_MS);
-    await assertion;
-    expect(recorder.current?.aborted).toBe(true); // 请求被 abort,非回调竞速
   });
 });
 

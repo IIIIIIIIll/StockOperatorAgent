@@ -37,7 +37,7 @@ import {
 import { applyYahooCollectedToStore, requireYahooStore, type YahooCollectedPayload } from './applyYahooCollectedToStore.ts';
 import { composeYahooOverview } from './composeYahooOverview.ts';
 import { composeYahooReports } from './composeYahooReports.ts';
-import { mergeFinnhubIndustry, yahooMarketOfTicker } from './webYahooCollect.ts';
+import { yahooMarketOfTicker } from './webYahooCollect.ts';
 import { detectMarket, hkSymbolCandidates } from '../market.ts';
 import { resolveSkipGates } from '../collector.ts';
 import { divide, prevVolumesOf, ytdBaseClose } from '../overview.ts';
@@ -550,12 +550,10 @@ export async function collectYahooPayload(
  *  freshness 门对齐 collectForWeb:opts 缺省按 store 现状判定(skipDaily 同日),
  *  hk/us 恒 skipF10=false(Yahoo 报告全量拉取 + PK 幂等,无 F10 门)。
  *  失败抛错(调用方中止分析,不喂空数据);store 经 setYahooStore 注入。
- *  finnhub(S5 可选参,与 web 链同契约):仅 market us 且有 key → 真机直连
- *  FinnhubClient.companyProfile2 合并 overview.industry(失败 warn 忽略)。 */
+ *  行业归口只用 Yahoo assetProfile(2026-11-19 移除 Finnhub 增强参数)。 */
 export async function collectYahooForDevice(
   ticker: string,
   opts?: CollectSkipOpts,
-  finnhub?: { apiKey: string } | null,
 ): Promise<WebCollectResult> {
   const store = requireYahooStore();
   const market = yahooMarketOfTicker(ticker);
@@ -568,6 +566,5 @@ export async function collectYahooForDevice(
   // 2026-11-19:Android 上 PE/PB/52周/画像/分析师全部缺失）。
   const client = new YahooClient(undefined, getCachedA3, invalidateA3Cache, true);
   const payload = await collectYahooPayload(client, ticker, { skipDaily: skipDaily === true });
-  await mergeFinnhubIndustry(payload, market, finnhub ?? null);
   return applyYahooCollectedToStore(store, payload, market);
 }

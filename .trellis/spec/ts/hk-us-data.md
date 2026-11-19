@@ -2,7 +2,7 @@
 
 ## 1. Scope / Trigger
 
-港股与美股支持（任务 `08-19-hk-us-stocks`，S1-S5）：市场模型、Yahoo/Finnhub 数据源、采集链（web 代理/设备直连/Node 探针）、market 线程（提示词/管道/UI）。触发本 spec 原因：新增跨层契约（市场模型、store ticker 键、采集 payload、市场分支单位/货币）。
+港股与美股支持（任务 `08-19-hk-us-stocks`，S1-S5）：市场模型、Yahoo 数据源、采集链（web 代理/设备直连/Node 探针）、market 线程（提示词/管道/UI）。触发本 spec 原因：新增跨层契约（市场模型、store ticker 键、采集 payload、市场分支单位/货币）。
 
 ## 2. Signatures
 
@@ -24,7 +24,7 @@ resolveSkipGates(store, ticker, opts?, market = 'cn');  // hk/us 恒 skipF10=fal
 // src/yahoo/yahooClient.ts（S2）— YahooApiError(code, status_code, message)
 new YahooClient(fetchImpl?, cookieProvider?: () => string | null, invalidateA3?: () => void);
 fetchWithTimeout(fetchImpl, url, init?, timeoutMs = 40_000, label = 'Yahoo'): Promise<Response>;
-                                // 手写 setTimeout+abort(Hermes 兼容);超时 → YahooApiError('timeout');label 归一超时文案(Finnhub/webSearch 复用)
+                                // 手写 setTimeout+abort(Hermes 兼容);超时 → YahooApiError('timeout');label 归一超时文案(webSearch 直连链复用)
 chart(symbol, opts?): Promise<unknown>;         // range=max&interval=1d&events=div%2Csplit; 免 crumb
 quoteSummary(symbol, modules: string[]): Promise<unknown>;  // crumb: fc.yahoo.com A3 cookie → getcrumb; 401 → invalidateA3() + 刷新一次再败抛错
 YAHOO_HOSTS = ['query1.finance.yahoo.com','query2.finance.yahoo.com','fc.yahoo.com'];
@@ -39,17 +39,13 @@ composeYahooOverview(meta, summary, opts?: { firstClose?: number; lastClose?: nu
 composeYahooReports(modules, sharesOutstanding, opts?: { ticker?: string; name?: string; industry?: string })
   → PerformanceReport[];  // fields 键复用 REPORT_COLUMNS；原币原始值（不做 ×10⁴）；QoQ 相邻期无 88-93 天门槛；YoY 上年同季
 
-// src/finnhub/finnhubClient.ts（S2）— FinnhubApiError；无 key → null 零网络
-new FinnhubClient(apiKey: string | null, fetchImpl?: typeof fetch);
-companyProfile2(symbol): Promise<unknown | null>;   // 仅 US；港股不调（覆盖不可验证）；单请求 40s 超时(label='Finnhub')
-
 // src/yahoo/applyYahooCollectedToStore.ts（S3）
 applyYahooCollectedToStore(store, payload: YahooCollectedPayload, market): WebCollectResult;
 // putStock(overview 直存 overview 槽) + replaceDatas(空数组 guard) + addPerformanceReports(PK 幂等)；f10Text 恒 null
 
 // 采集分派（S3）
-collectYahooViaProxy(ticker, base, opts?, finnhub?: { apiKey: string } | null): Promise<WebCollectResult>;
-collectYahooForDevice(ticker, opts?, finnhub?): Promise<WebCollectResult>;
+collectYahooViaProxy(ticker, base, opts?): Promise<WebCollectResult>;
+collectYahooForDevice(ticker, opts?): Promise<WebCollectResult>;
 selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, MarketCollector>, loadDeviceImpls);
 ```
 
@@ -67,7 +63,9 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 - **web 采集门**：hk/us 必须走 `collectForWeb` market 分派（内部 resolveSkipGates 同日跳过门），不得直连 collectYahooViaProxy 绕过。
 - **单位/货币**：量(手) vs 量(股)（hk/us 体列 `/1e6` M 格式）；turnoverPct：cn `量×10⁴/股本`，hk/us `volume/liutongguben×100`；货币标签 `marketInfo(market).currency`（chartData：cn `亿元`/`元` 逐字节不变，hk `亿HKD`/`HKD`，us `亿USD`/`USD`）。
 - **提示词**：`{market_cycle}` + `{market_rules}` 占位；cn 拼接逐字节不变（market_rules=''）。
-- **Finnhub**：可选 `FINNHUB_API_KEY`（设置面板，localStorage，浏览器直连不代理，不落日志）；仅 US 合并 `finnhubIndustry` → overview.industry；失败 warn 忽略。
+- **行业归口**：只用 Yahoo `assetProfile.sector/industry`。2026-11-19 移除 Finnhub
+  美股增强（`src/finnhub/**` 与设置面板 key）——其 `finnhubIndustry` 曾写入
+  `overview.industry`，但全仓零读点（配 key 无可见效果），且免费档仅覆盖美股。
 
 ## 4. Validation & Error Matrix
 
@@ -78,23 +76,21 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 | HK 候选全 404 | 502 `{error:'无法解析港股代码'}`，分析中止 |
 | chart 失败（网络/5xx） | 抛 → 502，分析中止（核心行情） |
 | quoteSummary/crumb 失败 | warn + 概览降级（chart meta 字段）+ reports 空，**分析继续** |
-| Finnhub 无 key | 零网络，industry 留空 |
-| Finnhub 失败/429 | warn + 忽略（industry 留空） |
 | 同日已采集（市场本地今天） | skipDaily → bars 空，保留既有日K/lastDataUpdate |
 | 报告重叠期 | addPerformanceReports PK 幂等去重 |
 
 ## 5. Good/Base/Bad Cases
 
 - Good：`00700` → `0700.HK` → 5476 根日K + 8 行报告 + currency=HKD；`AAPL` → 11514 根 + USD；`09988` → `9988.HK`（Alibaba）。
-- Base：无 Finnhub key 的 AAPL 分析正常（industry 空）；crumb 失效时 K 线与分析仍全链。
+- Base：crumb 失效时 K 线与分析仍全链；行业/板块文本缺 assetProfile 时块 1.5 整段不拼接（无占位）。
 - Bad：用 CN composeOverview 重算 hk/us 概览（PE/PB 恒 NaN）；hk/us 绕过同日门（每日重复全量拉取）；对 hk/us 调 TDX MCP（注定失败的空查询）。
 
 ## 6. Tests Required
 
 - `test/market.test.ts`：detect/normalize 全表 + 候选序（含 `09988`→`9988.HK` 首候选）。
 - `test/yahoo.test.ts`：URL/UA、crumb 401 刷新重试、cookieProvider、invalidateA3 钩子自愈（getter 重读 → 新 A3）、overview/reports 映射表（NaN/除零/半年报 QoQ/YoY/空模块/升序）。
-- `test/yahoo-collect.test.ts`：全链入库、crumb 降级、候选试探序、重叠期 PK 去重、skipDaily 保数据、代理 400/CN 拒、`collectForWeb` us 同日门 + finnhub 合并、跨日全量零 finnhub 请求。
-- `test/pipeline.test.ts`：hk 块 1 概览槽（PE/PB 实值 + 槽缺失回退 N/A）；`test/finnhub.test.ts`：无 key null/429。
+- `test/yahoo-collect.test.ts`：全链入库、crumb 降级、候选试探序、重叠期 PK 去重、skipDaily 保数据、代理 400/CN 拒、`collectForWeb` us 同日门。
+- `test/pipeline.test.ts`：hk 块 1 概览槽（PE/PB 实值 + 槽缺失回退 N/A）。
 - CN 逐字节回归：prompt fixtures、chartData `亿元`/`元`、DataScreen `量(手)`、北交所文案。
 
 ## 7. Wrong vs Correct

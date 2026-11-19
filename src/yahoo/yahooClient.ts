@@ -64,7 +64,7 @@ const _FC_URL = 'https://fc.yahoo.com';
 /** 采集链单次请求超时(ms):40s < 代理 504 定时器 45s(YAHOO_COLLECT_TIMEOUT_MS,
  *  app/lib/proxies.cjs)→ 采集链任何单次请求最迟 40s 内 settle,代理锁必在
  *  有限时间释放(429 窗口有界;B1)。deviceYahooCollect 的裸 fetch(缺省参数)与
- *  FinnhubClient(C2,显式传参)共用此常量,单一来源。 */
+ *  webSearch 直连链(显式传参)共用此常量,单一来源。 */
 export const YAHOO_REQUEST_TIMEOUT_MS = 40_000;
 
 /** fetch + 超时。手写 setTimeout + controller.abort(),不用 AbortSignal.timeout——
@@ -76,10 +76,9 @@ export const YAHOO_REQUEST_TIMEOUT_MS = 40_000;
  *  YahooApiError(code='timeout', status_code=null)——与其他网络异常同族
  *  (status_code=null),但 code 可辨;
  *  其余异常原样抛出,由调用方归一化(_request/fetchChartWindow)。
- *  label(C2/C6):非 Yahoo 消费方(FinnhubClient/webSearch 直连链)传各自来源
- *  名,超时文案随 label(如「Finnhub 请求超时(40s)」),避免误导性的
- *  「Yahoo 请求超时」;缺省 'Yahoo' 保持既有文案逐字节不变。需要自有异常
- *  类型的消费方自行映射(finnhubClient 先例:映射为 FinnhubApiError)。 */
+ *  label(C2/C6):非 Yahoo 消费方(webSearch 直连链)传各自来源名,超时文案
+ *  随 label(如「DDG 请求超时(40s)」),避免误导性的「Yahoo 请求超时」;
+ *  缺省 'Yahoo' 保持既有文案逐字节不变。需要自有异常类型的消费方自行映射。 */
 export async function fetchWithTimeout(
   fetchImpl: typeof fetch,
   url: string,

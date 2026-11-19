@@ -164,18 +164,18 @@ describe('settings.ts 经 settingsStore 路由(web 分支)', () => {
     expect(loadSettings()).toEqual(defaultSettings());
   });
 
-  it('finnhubApiKey 在保存白名单内:默认空串,保存 → 往返 + 落盘 JSON 含键', async () => {
+  it('billionsApiKey 在保存白名单内:默认空串,保存 → 往返 + 落盘 JSON 含键', async () => {
     const { loadSettings, saveSettings } = await import('../app/lib/settings.ts');
-    expect(defaultSettings().keys.finnhubApiKey).toBe('');
+    expect(defaultSettings().keys.billionsApiKey).toBe('');
     const d = defaultSettings();
-    const saved: typeof d = { ...d, keys: { ...d.keys, finnhubApiKey: 'finn-abc123' } };
+    const saved: typeof d = { ...d, keys: { ...d.keys, billionsApiKey: 'bill-abc123' } };
     saveSettings(saved);
-    expect(mem.get('soa:settings')).toContain('"finnhubApiKey":"finn-abc123"');
-    expect(loadSettings().keys.finnhubApiKey).toBe('finn-abc123');
+    expect(mem.get('soa:settings')).toContain('"billionsApiKey":"bill-abc123"');
+    expect(loadSettings().keys.billionsApiKey).toBe('bill-abc123');
     // 未存该键的旧存储 → 默认空串(深合并保持)
     mem.set('soa:settings', JSON.stringify({ keys: { llmModel: 'gpt-x' } }));
     const s = loadSettings();
-    expect(s.keys.finnhubApiKey).toBe('');
+    expect(s.keys.billionsApiKey).toBe('');
     expect(s.keys.llmModel).toBe('gpt-x');
   });
 
@@ -194,6 +194,18 @@ describe('settings.ts 经 settingsStore 路由(web 分支)', () => {
     expect(s.caps.searchMax).toBe(5);
     expect(s.caps.twitterMax).toBe(2); // 未存上限保持默认
     expect(s.keys.tdxApiKey).toBe(''); // 未存键保持默认
+  });
+
+  it('旧盘含已删键(finnhubApiKey) → 读入时剔除,已知键保留', async () => {
+    // 2026-11-19 删 Finnhub 数据源后:展开合并会把未知键原样带回并在下次保存
+    // 时写回,而面板已无该输入框 → 明文密钥永远删不掉。loadSettings 只接受
+    // 当前 KeysState 已知键,旧键在此一次性丢弃。
+    mem.set('soa:settings', JSON.stringify({ keys: { finnhubApiKey: 'stale-key', llmModel: 'gpt-x' } }));
+    const { loadSettings } = await import('../app/lib/settings.ts');
+    const s = loadSettings();
+    expect('finnhubApiKey' in s.keys).toBe(false);
+    expect(s.keys.llmModel).toBe('gpt-x'); // 已知键不受影响
+    expect(s.keys.tdxApiKey).toBe(''); // 缺键仍回落默认
   });
 
   it('saveSettings → loadSettings 往返(经 settingsStore 落盘)', async () => {

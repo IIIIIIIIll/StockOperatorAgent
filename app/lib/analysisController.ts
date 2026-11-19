@@ -142,12 +142,11 @@ export interface AnalysisDeps {
   readonly applyCapabilitySwitches: (settings: SettingsState) => void;
   // ── start() 编排 ────────────────────────────────────────────────────
   readonly buildLlm: (cfg: LlmConfig | null, proxyBase?: string) => unknown;
-  /** 平台+市场采集分派(web 代理/selectCollector/真机桥,含 finnhub 绑定);
+  /** 平台+市场采集分派(web 代理/selectCollector/真机桥);
    *  失败抛错 → start() 以「行情采集失败」横幅短路(与抽取前一致)。 */
   readonly collect: (
     ticker: string,
     market: Market,
-    finnhub: { apiKey: string } | null,
   ) => Promise<WebCollectResult>;
   /** 亿信/MCP/新闻 情报预查询(实现侧门控:mcp 仅 cn、news 仅 hk/us)。 */
   readonly fetchIntel: (
@@ -544,12 +543,6 @@ export class AnalysisController {
       let snapshot: { price: number; high: number; low: number; open: number } | null = null;
       let stockName: string | null = null;
       let capital: { zongguben: number; liutongguben: number } | null = null;
-      // Finnhub(仅美股增强):设置面板 key 存在 → 采集链直连 companyProfile2
-      // 合并 overview.industry(失败 warn 忽略);无 key → null(零网络,不调)
-      const finnhub: { apiKey: string } | null =
-        m === 'us' && s.settings.keys.finnhubApiKey.trim()
-          ? { apiKey: s.settings.keys.finnhubApiKey.trim() }
-          : null;
       const collectSource = m === 'cn' ? 'TDX' : 'Yahoo';
       const collectChannel = d.platform === 'web' ? '代理' : '直连';
       const collectKind = `${collectSource} ${collectChannel}`;
@@ -558,7 +551,7 @@ export class AnalysisController {
         // web 走同源代理(collectForWeb 市场分派:cn → /tdx-collect;hk/us →
         // /yahoo-collect);真机经 selectCollector/真机桥动态加载(S5:market 由
         // start() 归一化结果分派)——平台接线在 glue 层 collect 注入内
-        const collected = await d.collect(nt, m, finnhub);
+        const collected = await d.collect(nt, m);
         // 阶段边界中止:用户已取消/已被新一轮取代 → 不再往下跑 LLM(不白烧时间和 token)
         // B2(1.0.0 评审):看门狗在采集/情报段到期时也不得继续 —— onTimeout 刻意
         // 不递增 runSeq(已起跑的 pipeline 要允许真 done 落地),所以那两段静默

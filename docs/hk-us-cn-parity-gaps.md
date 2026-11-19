@@ -82,7 +82,7 @@ CN/TDX 路径没有盘中守卫 → 盘中采集会把当天写进 `lastDataUpda
 |---|---|---|---|---|
 | 公告 / 研报 / 全文 | 亿信 `announcement`/`report` + F10 + TDX MCP | ❌ 无 HKEXnews | ❌ 无 SEC EDGAR | `src/pipeline.ts:268-272`；`src/agents.ts:393-427` |
 | 板块 / 资金流 / 概念 | TDX MCP「实时行情 资金流向 所属概念板块」 | ❌ 无南向资金/港股通 | ❌ 无 | `src/mcp.ts:249-271` 只对 `market==='cn'` 生效 |
-| 公司资料结构化 | F10 财务分析 + 股本结构（仅 2 节） | Yahoo `assetProfile`（含行业/员工/业务摘要） | 同 HK，+Finnhub 行业 | `src/f10.ts`；`src/yahoo/composeYahooProfile.ts:96-127` |
+| 公司资料结构化 | F10 财务分析 + 股本结构（仅 2 节） | Yahoo `assetProfile`（含行业/员工/业务摘要） | 同 HK | `src/f10.ts`；`src/yahoo/composeYahooProfile.ts:96-127` |
 | 分红/拆股事件 | xdxr 取了但只用于算复权，未落库未展示 | 请求了但未解析 | 同 HK | `src/tdx/xdxr.ts`；`deviceYahooCollect.ts:185` |
 | 财务指标深度 | F10 盈利能力块 15 列 | 仅 净利/营收/ROE/EPS；`financialData` 模块取了只读 2 个键 | 同 HK | `src/pipeline.ts:189-194`；`composeYahooProfile.ts:119-124` |
 | 财务期间数 | 全历史 | 季度模块仅 4 期，年报行比率恒 NaN | 同 HK | `composeYahooReports.ts:276-284` |
@@ -113,7 +113,7 @@ CN/TDX 路径没有盘中守卫 → 盘中采集会把当天写进 `lastDataUpda
 | 毛利率图 | `chartData.ts:113-121` 只读 F10 → HK/US 恒 N/A | `app/screens/DataScreen.tsx:235` |
 | 空状态文案 | HK/US 无数据时显示「该股 F10 财务分析无可用指标」 | `app/screens/DataScreen.tsx:228` |
 | `recommendationTrend` | 每次请求都取，从不消费 | `deviceYahooCollect.ts:62` |
-| Finnhub | 只读 `finnhubIndustry`，写进 `overview.industry` 但从不渲染 → 配 key 无可见效果；也没有开关位 | `src/finnhub/finnhubClient.ts:48-50`；`src/yahoo/webYahooCollect.ts:29-41` |
+| Finnhub | **已移除**（2026-11-19）：只写 `overview.industry` 且全仓零读点，配 key 无可见效果；免费档仅覆盖美股，港股需按市场付费。行业归口改回 Yahoo `assetProfile` | `src/finnhub/**`、`app/lib/settings.ts` 与设置面板字段已删；旧盘值 `finnhubApiKey` 在 `loadSettings` 读入时剔除（2026-11-19），磁盘旧串在下一次保存设置时被覆盖 |
 | US 点号代码 | `BRK.B` 未转 Yahoo 的 `BRK-B` → 404 | `src/market.ts:60,91` vs `deviceYahooCollect.ts:389-394` |
 | 涨跌色 | 红涨绿跌对所有市场生效，美股应为绿涨 | `app/theme.ts:16-17`；`src/chartData.ts:23` |
 | 测试 | CN 有 qfq 金样本、F10 fixture、live 集成测试；HK/US 无复权、无时区、无拆股用例 | `test/live.integration.test.ts` 仅 CN；`test/fixtures/f10_hk.txt` 实为 300750（CN 股） |
@@ -181,7 +181,7 @@ CN/TDX 路径没有盘中守卫 → 盘中采集会把当天写进 `lastDataUpda
 | # | 缺口 | 为什么关不掉 | 需要的源 |
 |---|---|---|---|
 | A | **成交额 amount** | Yahoo chart meta / quoteSummary 均无成交额标准字段；现为 `volume × 最新价` 近似（`src/yahoo/composeYahooOverview.ts:139-141`） | 第二数据源（EODHD/FMP/Twelve Data） |
-| B | **资金流 / 概念板块 / 南向资金** | 无免 key 源；Finnhub 无 flow 端点 | 付费源 或 HKEX 卖空 + 港股通明细 |
+| B | **资金流 / 概念板块 / 南向资金** | 无免 key 源；Yahoo 与东财都没有 flow 端点 | 付费源 或 HKEX 卖空 + 港股通明细 |
 | C | **每期每股净资产 / 每股现金流 / 每期毛利率** | 2026-11-19 实测：Yahoo 季度与年度 **balanceSheet / cashflow 模块已退化为只剩 `endDate` 的空壳**（`totalStockholderEquity`/`operatingCashFlow` 均无），季度收入表也只有 `totalRevenue`+`netIncome`。不是对齐 bug，是源里没有 | SEC EDGAR XBRL（US）/ HKEXnews 摘要（HK） |
 | D | **年度 FY 行在同日与季度行冲突时被丢弃** | store PK 是 `(ticker, report_date)`；HK Q4=12-31=FY，AAPL FY 末=Q4 末，同日期只能留一行。现策略：季度胜（保 QoQ 链完整），HK 丢 FY2025、AAPL 丢 FY2026 | 需 schema 增列（如 `period_kind`） |
 | E | **每手股数（board lot）** | 港股 100/500/1000/2000 各异，Yahoo 无该字段；CN 的 `LOT_SIZE=100` 对港股不成立 | HKEX 证券名单 CSV |

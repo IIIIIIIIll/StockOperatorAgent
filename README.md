@@ -88,8 +88,7 @@ npm test && npm run typecheck   # vitest 全绿 + tsc --noEmit
   `0700.HK`；5 位前导 0 优先取 4 位形，如 `09988` → `9988.HK`）；美股输入大写
   ticker（≤10 字符，可含 `.`/`-`，如 `AAPL`、`BRK.B`）。概览合成与 CN 22 键
   对齐并附股息率/EPS/52 周高低/币种；业绩报告为原币季度财报（港股半年报语义）。
-  可选 Finnhub API Key（设置面板「外部服务密钥(可选)」填写）做美股公司画像增强
-  （行业字段），未配置时零网络降级。
+  行业归口只用 Yahoo `assetProfile`（行业/板块/员工/业务简介）。
 - **亿信 Fin（可选）**：`src/billionsClient.ts` REST 薄包装——公告/研报/新闻/
   推特检索（信息面分析师预抓 + agent 的 LLM 工具）+ 自然语言金融问数（采集数据
   的「亿信金融数据库」段）。`BILLIONS_API_KEY` 为主闸（web 端在设置面板填写），

@@ -82,8 +82,7 @@ graph never breaks:
 - 数据源家族同理（每源一个自定义异常，同 BillionsApiError 先例）：`src/yahoo/
   yahooClient.ts` `YahooApiError(code, status_code, message)`（chart 失败上抛
   中止采集；quoteSummary/crumb 失败由消费方降级不中止——见 ts/hk-us-data.md
-  错误矩阵）；`src/finnhub/finnhubClient.ts` `FinnhubApiError`（无 key → null
-  零网络；失败由消费方 warn 忽略）。
+  错误矩阵）。
 - `src/pipeline.ts`: pure functions degrade to placeholder text —
   `fallbackMarketIntel()` returns `（未配置 TDX_API_KEY，跳过实时市场情报）`; missing
   F10 -> `（无 ${ticker} 的盈利能力指标，跳过）`.

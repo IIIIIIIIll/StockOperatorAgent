@@ -32,10 +32,6 @@ export interface KeysState {
   llmBaseUrl: string;
   tdxApiKey: string;
   billionsApiKey: string;
-  /** Finnhub API Key(可选,美股增强):仅 market us 且有值时采集链直连
-   *  companyProfile2 合并 overview.industry;掩码显示、不落日志(对齐
-   *  BILLIONS_API_KEY 模式)。 */
-  finnhubApiKey: string;
   langsmithKey: string;
   langsmithProject: string;
   langsmithTracing: boolean;
@@ -74,7 +70,7 @@ function sanitizeCaps(caps: CapsState): CapsState {
 
 const DEFAULT_KEYS: KeysState = {
   llmApiKey: '', llmModel: '', llmBaseUrl: '',
-  tdxApiKey: '', billionsApiKey: '', finnhubApiKey: '',
+  tdxApiKey: '', billionsApiKey: '',
   langsmithKey: '', langsmithProject: '', langsmithTracing: false,
 };
 
@@ -89,10 +85,19 @@ export function loadSettings(): SettingsState {
     const raw = settingsStore.load();
     if (raw) {
       const p = JSON.parse(raw) as Partial<SettingsState>;
+      // 2026-11-19:只接受当前 KeysState 已知键 —— 已删数据源(如 finnhubApiKey)
+      // 的旧盘值必须在读入时剔除。原因:下面用对象展开合并,未知键会原样进内存
+      // 并在下次保存时被展开写回;而面板已无对应输入框 → 用户再也无法清除那段
+      // 明文密钥(设置文件是明文落盘,见 settingsStore 注释)。
+      const persisted = (p.keys ?? {}) as Record<string, unknown>;
+      const savedKeys: Record<string, unknown> = {};
+      for (const name of Object.keys(d.keys)) {
+        if (name in persisted) savedKeys[name] = persisted[name];
+      }
       loaded = {
         switches: { ...d.switches, ...(p.switches ?? {}) },
         caps: sanitizeCaps({ ...d.caps, ...(p.caps ?? {}) }),
-        keys: { ...d.keys, ...(p.keys ?? {}) },
+        keys: { ...d.keys, ...(savedKeys as Partial<KeysState>) },
       };
     }
   } catch {
@@ -137,7 +142,6 @@ export function saveSettings(s: SettingsState): void {
       llmBaseUrl: clean(keys.llmBaseUrl),
       tdxApiKey: clean(keys.tdxApiKey),
       billionsApiKey: clean(keys.billionsApiKey),
-      finnhubApiKey: clean(keys.finnhubApiKey),
       langsmithKey: clean(keys.langsmithKey),
       langsmithProject: clean(keys.langsmithProject),
     },
