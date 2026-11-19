@@ -42,6 +42,7 @@ import { detectMarket, hkSymbolCandidates } from '../market.ts';
 import { resolveSkipGates } from '../collector.ts';
 import { divide, prevVolumesOf, ytdBaseClose } from '../overview.ts';
 import { composeYahooProfile, isEmptyYahooProfile } from './composeYahooProfile.ts';
+import { rec, statementDateKey } from './quoteSummary.ts';
 import { marketToday } from '../gates.ts';
 import { fetchAmountByDate, mergeAmounts } from '../eastmoney/klineClient.ts';
 import { emF10Enabled, enrichReportsWithEm, fetchEmPeriods } from '../eastmoney/f10Client.ts';
@@ -114,11 +115,6 @@ export async function obtainA3(): Promise<string | null> {
 }
 
 // ─── chart 响应解析 ─────────────────────────────────────────────────────────
-
-/** unknown → Record 字典(非对象/null → 空字典)。 */
-function rec(v: unknown): Record<string, unknown> {
-  return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
-}
 
 /** chart 响应 → result[0];无效符号(HTTP 200 + {"chart":{"error":…}} 壳)→ null
  *  (候选试探以 result 存在与否判定,research 实测)。 */
@@ -324,22 +320,6 @@ async function quoteSummaryOrNull(client: YahooClient, symbol: string): Promise<
   }
 }
 
-/** 报表语句的 endDate → 日期键 'YYYY-MM-DD'(对齐 composeYahooReports 的
- *  statementDateKey 语义:优先 endDate.fmt;缺失 → endDate.raw 按 UTC)。 */
-function stmtDateKey(stmt: unknown): string | null {
-  const endDate = rec(stmt)['endDate'];
-  const fmt = rec(endDate)['fmt'];
-  if (typeof fmt === 'string' && fmt !== '') return fmt;
-  const raw = rec(endDate)['raw'];
-  if (typeof raw === 'number') {
-    const d = new Date(raw * 1000);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${mm}-${dd}`;
-  }
-  return null;
-}
-
 /** summary 归一化(收入表语句源):US 标准形 quarterly.incomeStatementStatements
  *  直接可用;HK 实测 quarterly 模块仅 4 期(键名 incomeStatementHistory,且
  *  balance/cashflow 亦仅 4 期)——两季度源合并(不去重:store 按 report_date
@@ -365,7 +345,7 @@ function normalizeIncomeStatements(summary: unknown): NormalizedQuoteSummary {
   for (const arr of [standard, hkQuarterly]) {
     if (!Array.isArray(arr)) continue;
     for (const stmt of arr) {
-      if (stmtDateKey(stmt) !== null) merged.push(stmt); // 无 endDate 的语句行丢弃
+      if (statementDateKey(stmt) !== null) merged.push(stmt); // 无 endDate 的语句行丢弃
     }
   }
   if (!merged.length) return s;

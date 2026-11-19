@@ -28,6 +28,8 @@
 //   首行优先 → **季度行胜**，FY 行仅在无季度行同日时生效
 import type { PerformanceReport } from '../store.ts';
 import { divide } from '../overview.ts';
+import { quoteSummaryResult, rawNum, rec, statementDateKey } from './quoteSummary.ts';
+import { daysBetweenYmd, gapKindOf, ymdOf } from '../periods.ts';
 
 export interface YahooReportsOptions {
   /** 行 fields.ticker（调用方传入；缺省 ''）。 */
@@ -36,18 +38,6 @@ export interface YahooReportsOptions {
   name?: string;
   /** 行 fields.industry（调用方传入；缺省 ''）。 */
   industry?: string;
-}
-
-/** unknown → Record 字典（非对象/null → 空字典）。 */
-function rec(v: unknown): Record<string, unknown> {
-  return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
-}
-
-/** {raw, fmt} 值形态 → number；缺失/{} → NaN。 */
-function rawNum(v: unknown): number {
-  if (typeof v === 'number') return v;
-  const raw = rec(v)['raw'];
-  return typeof raw === 'number' ? raw : NaN;
 }
 
 /** yahoo-annual: meta(JSON)、容错解析：非数组/坏项丢弃，不抛。
@@ -76,12 +66,10 @@ export function parseYahooAnnualReports(raw: string | null | undefined): Perform
  *  为什么需要：HK Q4 季度行与 FY 年度行同为 12-31；季度行被年度行顶掉后，
  *  下一期的「环比」分母就跨了两个季度 —— 不自查就会输出假环比（旧实现）。 */
 export function periodKindOf(prevYmd: string, ymd: string): 'quarter' | 'half' | null {
-  const toUtc = (s: string): number =>
-    Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
-  const gap = (toUtc(ymd) - toUtc(prevYmd)) / 86_400_000;
-  if (!Number.isFinite(gap) || gap <= 0) return null;
-  if (gap >= 88 && gap <= 93) return 'quarter';
-  if (gap >= 175 && gap <= 190) return 'half';
+  // 窗口单源 src/periods.ts(2026-11 整改:此处曾自存一份 88~93/175~190)
+  const kind = gapKindOf(daysBetweenYmd(ymdOf(prevYmd), ymdOf(ymd)));
+  if (kind === 'Q') return 'quarter';
+  if (kind === 'H') return 'half';
   return null;
 }
 
@@ -106,31 +94,6 @@ function grossMarginOf(stmtRec: Record<string, unknown>): number {
   const revenue = rawNum(stmtRec['totalRevenue']);
   if (!Number.isFinite(grossProfit) || grossProfit <= 0) return NaN;
   return divide(grossProfit, revenue) * 100;
-}
-
-/** 报表语句的 endDate → 日期键 'YYYY-MM-DD'：优先 endDate.fmt（Yahoo 原值，
- *  市场时区准确）；缺失 → endDate.raw（unix 秒）按 UTC 转日期。无 endDate
- *  → null（该语句行丢弃）。 */
-function statementDateKey(stmt: unknown): string | null {
-  const endDate = rec(stmt)['endDate'];
-  const fmt = rec(endDate)['fmt'];
-  if (typeof fmt === 'string' && fmt !== '') return fmt;
-  const raw = rec(endDate)['raw'];
-  if (typeof raw === 'number') {
-    const d = new Date(raw * 1000);
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${mm}-${dd}`;
-  }
-  return null;
-}
-
-/** quoteSummary 原始 JSON → result[0]（兼容直接传 result[0] 的调用方）。 */
-function quoteSummaryResult(modules: unknown): Record<string, unknown> {
-  const m = rec(modules);
-  const result = rec(m['quoteSummary'])['result'];
-  if (Array.isArray(result) && result.length > 0) return rec(result[0]);
-  return m;
 }
 
 /** Yahoo 三模块 → 每财季一行业绩报告（fields 键集 = REPORT_COLUMNS 除

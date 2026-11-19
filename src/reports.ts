@@ -4,6 +4,7 @@
 // report_date '%Y%m%d'(store 去重/比较契约)。纯函数,零网络。
 import type { PerformanceReport } from './store.ts';
 import type { F10Record } from './f10.ts';
+import { daysBetweenYmd, gapKindOf, ymdOf } from './periods.ts';
 
 /** 输出列序 = Python REPORT_COLUMNS(与 StockPerformanceReport 字段序一致)。 */
 export const REPORT_COLUMNS = [
@@ -39,10 +40,9 @@ export const METRIC_COLUMNS: ReadonlyArray<readonly [string, ReadonlyArray<reado
   ['cash_flow_per_share', [['每股经营现金流量(元)', 1]]],
 ];
 
-/** 相邻报告期校验:间隔恰为一季度(88~93 天,季度末 90/91/92 + 容差);缺报告期 → 不算环比。 */
+/** 相邻报告期校验:间隔恰为一季度(窗口单源 src/periods.ts);缺报告期 → 不算环比。 */
 function adjacentQuarterGap(a: string, b: string): boolean {
-  const gap = (Date.parse(b) - Date.parse(a)) / 86_400_000;
-  return gap >= 88 && gap <= 93;
+  return gapKindOf(daysBetweenYmd(ymdOf(a), ymdOf(b))) === 'Q';
 }
 
 /** 报告期月份(3/6/9/12);格式异常 → NaN(后续相减自然得 NaN)。 */

@@ -36,14 +36,15 @@ import {
 import { selectCollector } from '../lib/collectorSelection';
 import { createFileRunArchive, createIdbRunArchive } from '../lib/runArchive';
 import { createGraceStopper, type GraceStopper } from '../lib/keepAliveGrace';
-import { detectPlatform, info, warn, error as logError } from '../../src/log.ts';
+import { info, warn, error as logError } from '../../src/log.ts';
+import { capabilities } from '../lib/capabilities';
 import { AnalysisController, type ControllerPlatform, type AnalysisSnapshot, type ViewingRunMarker } from '../lib/analysisController';
 import type { RunSummary } from '../../src/runHistory.ts';
 
 // R-14/R-15:平台判定单一来源(log.ts detectPlatform:web → rn → node),不再用
 // 第二个探针 Platform.OS。控制器词表与 log.ts 一致('web' | 'rn');node 兜底
 // 归 rn(未用 Platform.OS 前的既有行为:非 web 一律走本机链路)。
-const CONTROLLER_PLATFORM: ControllerPlatform = detectPlatform() === 'web' ? 'web' : 'rn';
+const CONTROLLER_PLATFORM: ControllerPlatform = capabilities().hasDom ? 'web' : 'rn';
 
 export interface UseAnalysis {
   events: PipelineEvent[];

@@ -192,7 +192,7 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     expect(events.filter((e) => e.runTag !== 7)).toEqual([]);
   });
 
-  it('runTag: abort 后重开,两条运行的事件各自带自己的 tag(模块级变量即失败)', async () => {
+  it('runTag: abort 后旧运行真取消(不再发事件),两条运行的事件仍各自带自己的 tag', async () => {
     const store = seededStore();
     const runner = createPipelineRunner(store);
     const seen: PipelineEvent[] = [];
@@ -234,10 +234,13 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     openGate();
     await runA;
 
-    // A 在 B 结束后仍继续发事件 —— 这些必须仍是 7。若 runTag 被提升到模块
-    // 作用域,B 一开跑就把它改成 9,A 的后续事件会全部冒充成 9(零命中)。
-    expect(seen.length).toBeGreaterThan(atBEnd);
-    expect(seen.slice(atBEnd).filter((e) => e.runTag === 7).length).toBeGreaterThan(0);
+    // 2026-11 整改后的契约:abort() 经 RunnableConfig.signal 真取消,不再只是
+    // 「复位 UI 并发守卫」—— 旧运行从闸门放行后不得再 emit 任何事件(否则孤儿
+    // token 会涂进新一轮的 partials、孤儿 done 会被归档成新结果)。
+    // runTag 仍逐运行定型:旧运行的已发事件保持 7,不得被后来的运行改成 9
+    // (模块级变量即失败的那个回归点)。
+    expect(seen.length).toBe(atBEnd);
+    expect(seen.some((e) => e.runTag === 7)).toBe(true); // A 在 abort 前已发 progress
     // 两个 tag 之外不得有其它值(尤其不得为 undefined)
     expect(seen.filter((e) => e.runTag !== 7 && e.runTag !== 9)).toEqual([]);
   });

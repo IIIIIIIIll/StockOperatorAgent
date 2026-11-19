@@ -35,6 +35,7 @@
 //   旧链只读 summaryDetail → 市净率恒 NaN）
 // - circulating_market_cap / turnover_rate 分母：HK 用已发行股份
 //   （sharesOutstanding，HKEX 口径）；US 用 floatShares（美股 float 语义）
+import { firstFinite, quoteSummaryResult, rawNum, rec, str } from './quoteSummary.ts';
 import type { OverviewRow } from '../overview.ts';
 import { divide } from '../overview.ts';
 
@@ -76,41 +77,6 @@ export function parseYahooCapital(json: string | null): YahooCapital | null {
   } catch {
     return null;
   }
-}
-
-/** unknown → Record 字典（非对象/null → 空字典，缺失字段 {} → NaN 语义起点）。 */
-function rec(v: unknown): Record<string, unknown> {
-  return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
-}
-
-/** {raw, fmt} 值形态 → number；缺失/{} → NaN。 */
-function rawNum(v: unknown): number {
-  if (typeof v === 'number') return v;
-  const r = rec(v);
-  const raw = r['raw'];
-  return typeof raw === 'number' ? raw : NaN;
-}
-
-/** 候选链首有限值；全缺 → NaN（容错：meta 缺字段回退 summary，再缺 → NaN）。 */
-function firstFinite(...candidates: unknown[]): number {
-  for (const c of candidates) {
-    const n = rawNum(c);
-    if (Number.isFinite(n)) return n;
-  }
-  return NaN;
-}
-
-/** string 字段取值（非字符串 → 空串）。 */
-function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
-}
-
-/** quoteSummary 原始 JSON → result[0]（兼容直接传 result[0] 的调用方）。 */
-function quoteSummaryResult(summary: unknown): Record<string, unknown> {
-  const s = rec(summary);
-  const result = rec(s['quoteSummary'])['result'];
-  if (Array.isArray(result) && result.length > 0) return rec(result[0]);
-  return s;
 }
 
 /** Yahoo chart meta + quoteSummary JSON → CN 22 键对齐概览行 + capital。

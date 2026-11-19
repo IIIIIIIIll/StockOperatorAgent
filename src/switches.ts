@@ -37,6 +37,29 @@ export interface CapabilitySwitches {
 
 let current: CapabilitySwitches | null = null;
 
+/** 亿信能力开关 → 语义 enabled:主闸(billions) 且 能力闸(cap 小写字段)。
+ *  cap: FINDB/SEARCH/TWITTER/FETCH/ANALYST。无 key 约束(现状)——key 判定在
+ *  billionsTools.billionsCapEnabled 单点承担。
+ *
+ *  2026-11 整改:本谓词原住 src/committee.ts,而 agents.ts / billionsTools.ts 反向
+ *  import 它 —— 形成 committee ↔ agents 循环(committee 已 import agents 的 7 个
+ *  角色类)。该循环已直接造成一次线上回归(动态 import 绕循环 → Expo dev bundle
+ *  失败,2026-08-15)。谓词只需 getCapabilitySwitches(),搬到这里彻底断开。 */
+type CapabilityFlag = 'findb' | 'search' | 'twitter' | 'fetch' | 'analyst';
+const BILLIONS_CAP_FIELD: Record<string, CapabilityFlag> = {
+  FINDB: 'findb',
+  SEARCH: 'search',
+  TWITTER: 'twitter',
+  FETCH: 'fetch',
+  ANALYST: 'analyst',
+};
+
+export function billionsEnabled(cap: string): boolean {
+  const s = getCapabilitySwitches();
+  const field = BILLIONS_CAP_FIELD[cap];
+  return s.billions && (field ? s[field] : false);
+}
+
 /** 显式注入(settings 面板语义 enabled → 直映,见 settings.switchesToCapabilities)。 */
 export function setCapabilitySwitches(s: CapabilitySwitches): void {
   current = s;

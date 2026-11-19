@@ -26,6 +26,8 @@
 //   通知 provider 层失效 A3 缓存(生产注入 deviceYahooCollect.invalidateA3Cache)
 // 纯 TS + fetch-only：零 node: 导入（架构断言 #1），进 metro 图安全。
 
+import { raceBodyTimeout } from '../timeout.ts';
+
 /** Yahoo API 调用失败（归一化错误，client 内唯一异常）。
  *
  * @param code 业务错误码（非 2xx body 的 error.code；crumb 失效 → 'crumb'；
@@ -116,20 +118,13 @@ export async function readBodyWithTimeout<T>(
   timeoutMs: number = YAHOO_REQUEST_TIMEOUT_MS,
   label: string = 'Yahoo',
 ): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      read(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new YahooApiError('timeout', null, `${label} 响应体读取超时(${timeoutMs / 1000}s)`)),
-          timeoutMs,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
+  // 计时机制收敛到 src/timeout.ts 单源(2026-11 评审:同一段 Promise.race 曾在
+  // Yahoo / CN 代理 / eastmoney 各写一份)。异常家族仍由本模块决定。
+  return raceBodyTimeout(
+    read,
+    timeoutMs,
+    () => new YahooApiError('timeout', null, `${label} 响应体读取超时(${timeoutMs / 1000}s)`),
+  );
 }
 
 export interface ChartOptions {

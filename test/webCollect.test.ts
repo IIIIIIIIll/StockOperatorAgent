@@ -84,7 +84,10 @@ describe('collectViaProxy', () => {
     );
     const got = await collectViaProxy('002027', 'http://localhost:8090');
 
-    expect(fetch).toHaveBeenCalledWith('http://localhost:8090/tdx-collect?ticker=002027');
+    expect(fetch).toHaveBeenCalledWith(
+      'http://localhost:8090/tdx-collect?ticker=002027',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(got.bars).toHaveLength(2);
     expect(got.f10Text).toContain('主要财务指标');
   });
@@ -98,16 +101,21 @@ describe('collectViaProxy', () => {
       await collectViaProxy('002027', 'http://localhost:8090');
       expect(withToken).toHaveBeenCalledWith('http://localhost:8090/tdx-collect?ticker=002027', {
         headers: { 'X-SOA-Token': 'sekrit' },
+        signal: expect.any(AbortSignal),
       });
     } finally {
       if (old === undefined) delete process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
       else process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN = old;
     }
-    // 未设 token → 与旧实现逐字节一致:单参调用,不带头
-    const noToken = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }));
+    // 未设 token → 不带头;signal 仍在(超时护栏与 token 无关)
+    const noToken = vi.fn(async (_u: string, _init?: RequestInit) => new Response(JSON.stringify(payload), { status: 200 }));
     vi.stubGlobal('fetch', noToken);
     await collectViaProxy('002027', 'http://localhost:8090');
-    expect(noToken).toHaveBeenCalledWith('http://localhost:8090/tdx-collect?ticker=002027');
+    expect(noToken).toHaveBeenCalledWith(
+      'http://localhost:8090/tdx-collect?ticker=002027',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(noToken.mock.calls[0][1]).not.toHaveProperty('headers');
   });
 
   it('5xx → 抛错并带服务端原因', async () => {
@@ -168,6 +176,63 @@ describe('collectViaProxy', () => {
       name: 'CollectError',
       code: 'invalid_payload',
     });
+  });
+
+  // P1(评审 2026-11):请求腿与 body 腿都必须有界。此前两腿裸奔 —— 代理挂住时
+  // 分析 spinner 永不 resolve,且 server 端 504 在 body 卡住时也等不到。
+  it('P1 请求腿:代理挂住 → 60s 超时抛 CollectError(proxy_timeout)', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_u: string, init: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              init.signal?.addEventListener('abort', () =>
+                reject(new DOMException('The operation was aborted.', 'AbortError')),
+              );
+            }),
+        ),
+      );
+      const p = collectViaProxy('002027', 'http://x');
+      const assertion = expect(p).rejects.toMatchObject({ name: 'CollectError', code: 'proxy_timeout' });
+      await vi.advanceTimersByTimeAsync(60_100);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('P1 body 腿:响应头到齐但 body 永不 settle → 同样超时(不只是请求腿)', async () => {
+    vi.useFakeTimers();
+    try {
+      const stalled = {
+        ok: true,
+        status: 200,
+        json: () => new Promise<unknown>(() => {}),
+      } as unknown as Response;
+      vi.stubGlobal('fetch', vi.fn(async () => stalled));
+      const p = collectViaProxy('002027', 'http://x');
+      const assertion = expect(p).rejects.toMatchObject({ name: 'CollectError', code: 'proxy_timeout' });
+      await vi.advanceTimersByTimeAsync(60_100);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('P1 超时后不残留计时器:正常响应不被迟到的 abort 打断', async () => {
+    vi.useFakeTimers();
+    try {
+      const okFetch = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }));
+      vi.stubGlobal('fetch', okFetch);
+      const p = collectViaProxy('002027', 'http://x');
+      const assertion = expect(p).resolves.toMatchObject({ ticker: '002027' });
+      await vi.advanceTimersByTimeAsync(120_000); // 远超超时窗口,计时器应已在本轮清掉
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

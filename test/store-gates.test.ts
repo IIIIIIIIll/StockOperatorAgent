@@ -216,13 +216,20 @@ describe('freshness 接线（C8：同日跳过日K / 同季跳过 F10）', () =>
     it('skipDaily/skipF10 → 查询参数;缺省不带参数(全量,兼容旧调用)', async () => {
       vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(payload()), { status: 200 })));
       await collectViaProxy('002027', 'http://localhost:8090');
-      expect(fetch).toHaveBeenCalledWith('http://localhost:8090/tdx-collect?ticker=002027');
+      expect(fetch).toHaveBeenCalledWith(
+        'http://localhost:8090/tdx-collect?ticker=002027',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       await collectViaProxy('002027', 'http://localhost:8090', { skipDaily: true, skipF10: true });
       expect(fetch).toHaveBeenCalledWith(
         'http://localhost:8090/tdx-collect?ticker=002027&skipDaily=1&skipF10=1',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
       await collectViaProxy('002027', 'http://localhost:8090', { skipDaily: true });
-      expect(fetch).toHaveBeenCalledWith('http://localhost:8090/tdx-collect?ticker=002027&skipDaily=1');
+      expect(fetch).toHaveBeenCalledWith(
+        'http://localhost:8090/tdx-collect?ticker=002027&skipDaily=1',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
   });
 
@@ -265,7 +272,10 @@ describe('freshness 接线（C8：同日跳过日K / 同季跳过 F10）', () =>
       );
       const r = await collectForWeb('002027');
 
-      expect(fetch).toHaveBeenCalledWith('http://test/tdx-collect?ticker=002027&skipDaily=1&skipF10=1');
+      expect(fetch).toHaveBeenCalledWith(
+        'http://test/tdx-collect?ticker=002027&skipDaily=1&skipF10=1',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       expect(store.getDatas('002027')).toHaveLength(2); // 既有日K 保留
       expect(store.getStock('002027')?.lastDataUpdate).toBe('2026-08-14'); // 不置空
       expect(r.f10Text).toContain('主要财务指标'); // 缓存文本顶替,盈利能力块不降级
@@ -298,7 +308,11 @@ describe('freshness 接线（C8：同日跳过日K / 同季跳过 F10）', () =>
       );
       await collectForWeb('002027');
 
-      expect(fetch).toHaveBeenCalledWith('http://test/tdx-collect?ticker=002027'); // 全量,无跳过
+      // 全量,无跳过(signal 恒在 —— 请求腿超时护栏与 skip 参数无关)
+      expect(fetch).toHaveBeenCalledWith(
+        'http://test/tdx-collect?ticker=002027',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
       expect(store.getDatas('002027')).toHaveLength(2); // 新数据全量替换
       expect(store.getDatas('002027')[1].date).toBe('2026-08-14');
       expect(store.getStock('002027')?.lastDataUpdate).toBe('2026-08-14');

@@ -11,7 +11,8 @@ import {
 } from '../src/switches.ts';
 import { mcpDisabled } from '../src/mcp.ts';
 import { webSearchEnabled } from '../src/webSearch.ts';
-import { billionsEnabled, informationAnalystEnabled } from '../src/committee.ts';
+import { billionsEnabled } from '../src/switches.ts';
+import { informationAnalystEnabled } from '../src/committee.ts';
 import { makeBillionsTools } from '../src/billionsTools.ts';
 import { defaultSettings, switchesToCapabilities } from '../app/lib/settings.ts';
 

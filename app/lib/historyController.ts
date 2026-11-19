@@ -11,7 +11,7 @@
 // 状态对象由调用方传入并按引用可变更新(与抽取前完全相同的写法),因此 React 侧
 // 看到的行为逐字节不变。
 
-import type { FinalReport, PipelineEvent } from '../../src/events.ts';
+import type { FinalReport } from '../../src/events.ts';
 import type { Market } from '../../src/market.ts';
 import { marketOfStoreTicker } from '../../src/market.ts';
 import type { RoleStatus } from '../../src/progress.ts';
@@ -29,30 +29,14 @@ import {
 } from '../../src/runHistory.ts';
 import { describeError } from '../../src/events.ts';
 import type { StoreLike } from '../../src/store.ts';
+import type { HistorySlice, LiveSlice, ViewingRunMarker } from './analysisState.ts';
 import type { RunArchive } from './runArchive.ts';
 
-/** 历史操作需要的状态切片(控制器的 MutableState 结构上满足)。 */
-export interface HistoryState {
-  events: PipelineEvent[];
-  finalDecision: string;
-  stockInformation: string;
-  partials: Record<string, string>;
-  statuses: Record<string, RoleStatus>;
-  hasDone: boolean;
-  lastRunTicker: string;
-  market: Market;
-  history: RunSummary[];
-  historyLoading: boolean;
-  historyError: string | null;
-  viewingRun: ViewingRunMarker | null;
-}
+export type { ViewingRunMarker };
 
-export interface ViewingRunMarker {
-  id: string;
-  at: string;
-  ticker: string;
-  mode: RunMode;
-}
+/** 历史操作需要的状态切片 —— 单源见 app/lib/analysisState.ts(2026-11 整改:
+ *  此前这里独立重写了一份字段列表,已因漏 error 而出了真实 bug)。 */
+export type HistoryState = HistorySlice;
 
 export interface HistoryLog {
   info(message: string): void;
@@ -71,17 +55,10 @@ export interface HistoryDeps {
   isRunning(): boolean;
 }
 
-/** 打开历史前暂存的实时态(closeRun 逐字段写回)。 */
-interface LiveStash {
-  events: PipelineEvent[];
-  finalDecision: string;
-  stockInformation: string;
-  partials: Record<string, string>;
-  statuses: Record<string, RoleStatus>;
-  hasDone: boolean;
-  lastRunTicker: string;
-  market: Market;
-}
+/** 打开历史前暂存的实时态(closeRun 逐字段写回)。
+ *  字段集单源 = analysisState.ts 的 LiveSlice —— 与 applyReportBody 改写的那组字段
+ *  完全对应;整改前这里少一个 `error`,直接导致失败横幅活过了 open/close。 */
+type LiveStash = LiveSlice;
 
 export class RunHistoryController {
   /** CR-03:历史读取代数 —— 并发 openRun / closeRun / 删除后到者不得覆盖新状态。 */
@@ -159,6 +136,7 @@ export class RunHistoryController {
           hasDone: s.hasDone,
           lastRunTicker: s.lastRunTicker,
           market: s.market,
+          error: s.error,
         };
       }
       this.applyReportBody(run);
@@ -208,6 +186,7 @@ export class RunHistoryController {
       s.hasDone = stash.hasDone;
       s.lastRunTicker = stash.lastRunTicker;
       s.market = stash.market;
+      s.error = stash.error;
     }
     this.deps.notify();
   }
@@ -332,6 +311,9 @@ export class RunHistoryController {
     // D15:完成标记与经理 chip 同条件(final_decision 非空才算完成会话)
     s.hasDone = Boolean(body.final_decision.trim());
     s.market = body.market;
+    // 正文已换成这一份报告 —— 旧运行的失败横幅必须退场,否则错误文案盖在新
+    // 正文上(openRun 的 stash 里留着它,closeRun 会原样恢复)。
+    s.error = null;
   }
 
   /** done 后落一条历史(写穿异步:失败只记日志 + 抽屉错误，不影响已完成结果)。 */

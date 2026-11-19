@@ -1,6 +1,7 @@
 // SQLite 仓储 —— 对齐 Python ZODBStorage + ChinaStock 语义（见 spec data_storage/data_structure）
 // 单事务批量写：addDatas / addPerformanceReports 一次 commit；0 = 全部重复不写
 import Database from 'better-sqlite3';
+import { freshDailyBars } from './dailyBars.ts';
 import { warn } from './log.ts';
 
 export interface DailyBar {
@@ -172,11 +173,12 @@ export class Store implements StoreLike {
     // 用 stocks.last_data_update —— 该戳可被 putStock 覆盖成旧值/置空(采集链
     // 常规操作),重复批次会被 INSERT OR REPLACE 重写且返回 >0,违背
     // 「全部重复 → 0,不写」契约(store-gates.test.ts 钉死)。
+    // 基线语义现已收敛到 src/dailyBars.ts 单源(与三族内存实现共用一个函数),
+    // 四族再分叉就只能靠改那个文件 —— 不可能各自漂。
     const row = this.db.prepare('SELECT MAX(date) AS last FROM daily_bars WHERE ticker = ?').get(ticker) as
       | { last: string | null }
       | undefined;
-    const last = row?.last ?? null;
-    const fresh = bars.filter((b) => last === null || b.date > last);
+    const fresh = freshDailyBars(row?.last ?? null, bars);
     if (!fresh.length) return 0;
     const insert = this.db.prepare(
       `INSERT OR REPLACE INTO daily_bars (ticker, date, open, close, high, low, volume, amount)

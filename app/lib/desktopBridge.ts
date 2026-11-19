@@ -209,10 +209,16 @@ export class DesktopStore implements StoreLike {
 export function bridgeStorage(): SettingsStorageLike {
   const bridge = getBridge();
   if (!bridge) throw new Error('bridgeStorage() 需先有 window.__soaDesktop');
-  let mirror: string | null = null;
+  // 构造时预热一次。settingsStore.ts:165 在**模块挂载期**调 bridgeStorage ——
+  // 正是 desktop-ci.md 允许 settingsLoad(sendSync)的冷路径。
+  // 2026-11 整改:此前 mirror 恒 null 直到第一次 setItem,而 getItem 的
+  // `mirror ?? settingsLoad()` 每次都跨 IPC。于是「☰ → 设置」这个 click 会走
+  // click → setState → 同步 flush 期间拿 sendSync 等主进程 —— 即 spec 明确
+  // 记录过的 3/5 死锁路径。预热后 getItem 纯内存,不再有任何同步 Mojo 等待。
+  let mirror: string | null = bridge.settingsLoad();
   return {
     getItem(): string | null {
-      return mirror ?? bridge.settingsLoad();
+      return mirror;
     },
     setItem(_key: string, value: string): void {
       mirror = value;

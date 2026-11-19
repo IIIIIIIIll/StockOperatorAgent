@@ -1,6 +1,7 @@
 // 内存仓储 —— RN/web 用 StoreLike 实现(better-sqlite3 是 Node 原生,浏览器不可用)
 // 语义对齐 Store:addDatas 拒绝 date <= lastDataUpdate;业绩按 report_date 去重。
 import type { DailyBar, PerformanceReport, StockRecord, StoreLike } from './store.ts';
+import { mergeDailyBars } from './dailyBars.ts';
 
 export class InMemoryStore implements StoreLike {
   private stocks = new Map<string, StockRecord>();
@@ -25,15 +26,10 @@ export class InMemoryStore implements StoreLike {
 
   addDatas(ticker: string, bars: DailyBar[]): number {
     if (!bars.length) return 0;
-    const existing = this.bars.get(ticker) ?? [];
-    const last = existing.length ? existing[existing.length - 1].date : null;
-    const fresh = bars.filter((b) => last === null || b.date > last);
+    // 合并/去重/升序契约单源:src/dailyBars.ts(与 file/idb/sqlite 四族一致)
+    const { merged, fresh } = mergeDailyBars(this.bars.get(ticker) ?? [], bars);
     if (!fresh.length) return 0;
-    const merged = [...existing, ...fresh].sort((a, b) => a.date.localeCompare(b.date));
-    // 升序契约 + 同日期去重(keep last)
-    const seen = new Map<string, DailyBar>();
-    for (const b of merged) seen.set(b.date, b);
-    this.bars.set(ticker, [...seen.values()].sort((a, b) => a.date.localeCompare(b.date)));
+    this.bars.set(ticker, merged);
     const stock = this.stocks.get(ticker);
     if (stock) {
       this.stocks.set(ticker, { ...stock, lastDataUpdate: fresh[fresh.length - 1].date });

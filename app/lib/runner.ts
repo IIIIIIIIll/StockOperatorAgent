@@ -11,11 +11,12 @@ import { collectYahooViaProxy } from '../../src/yahoo/webYahooCollect.ts';
 import { setYahooStore } from '../../src/yahoo/applyYahooCollectedToStore.ts';
 import { resolveSkipGates } from '../../src/collector.ts';
 import type { Market } from '../../src/market.ts';
-import { detectPlatform, warn } from '../../src/log.ts';
+import { warn } from '../../src/log.ts';
+import { capabilities } from './capabilities.ts';
 import { getMarketIntel, makeProxyMcpFetch } from '../../src/mcp.ts';
 import { fetchGoogleNews, makeProxyNewsFetch, newsIntelText, newsQueryFor } from '../../src/news/googleNews.ts';
 import { BillionsClient, makeProxyBillionsFetch } from '../../src/billionsClient.ts';
-import { billionsEnabled } from '../../src/committee.ts';
+import { billionsEnabled } from '../../src/switches.ts';
 import { makeBillionsTools } from '../../src/billionsTools.ts';
 import { DEMO_F10_KEY, f10Key } from '../../src/metaKeys.ts';
 import { ddgRegionForMarket, makeWebSearchTool, webSearchEnabled } from '../../src/webSearch.ts';
@@ -26,7 +27,7 @@ import { AIMessage } from '@langchain/core/messages';
 // ERR_IMPORT_ATTRIBUTE_MISSING)
 import demo from '../data/demo.json' with { type: 'json' };
 import type { CapsState } from './settings.ts';
-import { DesktopStore, getBridge, isDesktopBridge } from './desktopBridge.ts';
+import { DesktopStore, getBridge } from './desktopBridge.ts';
 
 /** 持久化后端共有的异步面(StoreLike 保持同步契约;ready 由 runner 显式转发)。 */
 interface PersistentStore extends StoreLike {
@@ -36,7 +37,7 @@ interface PersistentStore extends StoreLike {
 // 平台选择:web 走 IndexedDB;RN 走 expo-file-system 文件后端;Node 桌面壳
 // 经 setStore 注入(见 src/store-node.ts)。判定统一走 detectPlatform(log.ts
 // 单面探针,web→rn→node,跨子契约 4)。
-export let store: StoreLike = detectPlatform() === 'web' ? new IdbStore() : new FileStore();
+export let store: StoreLike = capabilities().storageBackend === 'idb' ? new IdbStore() : new FileStore();
 
 /** Node 桌面壳注入(Node 侧创建含 node fs 适配器的 FileStore 或 SQLite Store)。
  *  ESM live binding:export let 使已 import 方(useAnalysis/DataScreen)同步看到新值。 */
@@ -51,7 +52,7 @@ export function setStore(s: StoreLike): void {
 // 桌面壳桥注入:renderer 内 window.__soaDesktop 存在时,用 DesktopStore
 // (镜像 + 写穿队列)替换默认后端。live binding:消费方零改动。web/RN 无桥
 // → 探针 false,惰性零行为变化。
-if (isDesktopBridge()) {
+if (capabilities().isDesktop) {
   const b = getBridge();
   if (b) setStore(new DesktopStore(b));
 }
@@ -217,7 +218,7 @@ export async function makeMcpIntel(
   // 代理(server 端固定目标转发);Node/RN 不传 fetch → 直连,行为零变化。
   // location 读取守卫对齐 collectForWeb 先例(detectPlatform 单面探针)。
   const proxyFetch =
-    detectPlatform() === 'web' && location?.origin ? makeProxyMcpFetch(location.origin) : undefined;
+    capabilities().collectViaProxy && location?.origin ? makeProxyMcpFetch(location.origin) : undefined;
   const text = await getMarketIntel(ticker, { apiKey, fetch: proxyFetch });
   return () => text;
 }
@@ -234,7 +235,7 @@ export async function makeNewsIntel(
   const query = newsQueryFor(ticker, name);
   // web 端 news.google.com 受 CORS 限制 → 同源 /news-feed 代理；Node/RN 直连
   const proxyFetch =
-    detectPlatform() === 'web' && location?.origin ? makeProxyNewsFetch(location.origin) : undefined;
+    capabilities().collectViaProxy && location?.origin ? makeProxyNewsFetch(location.origin) : undefined;
   try {
     const items = proxyFetch ? await proxyFetch(query, market) : await fetchGoogleNews(query, market);
     const text = newsIntelText(items, ticker, market);
@@ -274,7 +275,7 @@ export function assembleTools(
 /** web 端亿信同源代理 fetch 单点判定(detectPlatform + location.origin 守卫,
  *  对齐 collectForWeb/makeMcpIntel 先例);非 web → undefined(直连)。 */
 export function webBillionsFetch(): typeof fetch | undefined {
-  if (detectPlatform() === 'web' && location?.origin) {
+  if (capabilities().collectViaProxy && location?.origin) {
     return makeProxyBillionsFetch(location.origin);
   }
   return undefined;

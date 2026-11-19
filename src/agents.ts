@@ -16,7 +16,7 @@ import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts
 import { invokeWithTools, NO_CONCLUSION_TEXT, type ToolLike } from './toolLoop.ts';
 import { pushReport, safeProgress, safePushDelta, safePushStatus, type ProgressUpdater } from './progress.ts';
 import { defaultSearcher, summarizeResults, webSearchEnabled, type SearchResult } from './webSearch.ts';
-import { billionsEnabled } from './committee.ts';
+import { billionsEnabled } from './switches.ts';
 import { BillionsClient } from './billionsClient.ts';
 import { error, warn } from './log.ts';
 
@@ -404,9 +404,9 @@ export class BillionsInformationAnalyst extends AgentNode {
    * - web 关时亿信失败/空注明照旧保留（现状语义，逐字节不变）。
    */
   private async _prefetch(ticker: string): Promise<string[]> {
-    // 静态导入(与 committee.ts 构成 agents↔committee 循环——Metro CJS 语义下
-    // exports 对象引用共享,运行时访问 live binding,无求值期 TDZ;原动态导入
-    // 在 Expo dev lazy 打包下运行时解析相对 bundle root 失败,2026-08-15 改回)。
+    // 2026-11:billionsEnabled 已搬到 src/switches.ts —— 本文件对 committee.ts
+    // 不再有反向 import,agents↔committee 循环被彻底断开(该循环 2026-08-15
+    // 曾让 Expo dev bundle 因动态 import 解析失败而挂)。
     const searchOn = billionsEnabled('SEARCH');
     const twitterOn = billionsEnabled('TWITTER');
     const webOn = webSearchEnabled();

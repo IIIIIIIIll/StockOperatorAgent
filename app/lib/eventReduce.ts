@@ -9,18 +9,11 @@
 // 这样 done 的降级判定、partial 清理、retry 复位这些容易写错的分支可以逐事件
 // 单测,不必搭起 20 个依赖的控制器。
 import type { PipelineEvent } from '../../src/events.ts';
-import type { RoleStatus } from '../../src/progress.ts';
+import type { ReducibleSlice } from './analysisState.ts';
 
-/** 参与归约的可变状态切片(控制器把它自己的 st 传进来)。 */
-export interface ReducibleState {
-  events: PipelineEvent[];
-  finalDecision: string;
-  stockInformation: string;
-  partials: Record<string, string>;
-  statuses: Record<string, RoleStatus>;
-  hasDone: boolean;
-  error: string | null;
-}
+/** 参与归约的可变状态切片(控制器把它自己的 st 传进来)。
+ *  字段集单源 = analysisState.ts 的 ReducibleSlice(2026-11 整改)。 */
+export type ReducibleState = ReducibleSlice;
 
 export interface LogLine {
   level: 'info' | 'error';

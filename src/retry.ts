@@ -7,7 +7,13 @@
 // CR-23(2026-11-07):本模块**不接收 AbortSignal** —— cancel()/看门狗只复位 UI 并发
 // 守卫,不中断在飞 LLM 请求(退避计时器也不可取消)。后台运行由上游 SDK 超时兜底;
 // 需要真取消时先给 invoke/stream 加 signal 参数,再在 events.abort 传播。
+//
+// → 已于 2026-11 整改:signal 已贯通(retry → ChatOpenAI RunnableConfig →
+//   OpenAI SDK),events.abort() 现在会真正中断在飞请求与退避计时器。
+//   取消 ≠ 失败:统一抛 name='AbortError' 的错误(src/timeout.ts abortError),
+//   上层据此不弹错误条、不重试(AbortError 不命中 isRetryable)。
 import { concat } from '@langchain/core/utils/stream';
+import { sleepWithAbort, throwIfAborted } from './timeout.ts';
 import { warn } from './log.ts';
 
 const ATTEMPTS = 3;
@@ -51,16 +57,25 @@ export type LlmCallable =
   | { invoke(payload: unknown, config?: unknown): Promise<unknown> }
   | ((payload: unknown, config?: unknown) => Promise<unknown>);
 
+export interface RetryOptions {
+  attempts?: number;
+  baseDelay?: number;
+  /** 取消信号:退避计时器可中断;已取消则不再发起新一轮请求。 */
+  signal?: AbortSignal;
+}
+
 export async function invokeWithRetry(
   llm: LlmCallable,
   payload: unknown,
   config?: unknown,
-  opts?: { attempts?: number; baseDelay?: number },
+  opts?: RetryOptions,
 ): Promise<unknown> {
   const attempts = opts?.attempts ?? ATTEMPTS;
   const baseDelay = opts?.baseDelay ?? BASE_DELAY;
+  const signal = opts?.signal;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    throwIfAborted(signal);
     try {
       return typeof llm === 'function' ? await llm(payload, config) : await llm.invoke(payload, config);
     } catch (err) {
@@ -68,9 +83,7 @@ export async function invokeWithRetry(
       if (!isRetryable(err) || attempt === attempts) throw err;
       const delay = Math.min(baseDelay * 2 ** (attempt - 1), MAX_DELAY);
       warn(retryWarnMessage('invoke', attempt, err, delay));
-      const { promise, resolve } = Promise.withResolvers<void>();
-      setTimeout(resolve, delay * 1000);
-      await promise;
+      await sleepWithAbort(delay * 1000, signal);
     }
   }
   throw lastErr;
@@ -82,9 +95,7 @@ export interface StreamableLlm {
   stream(payload: unknown, config?: unknown): Promise<AsyncIterable<unknown>> | AsyncIterable<unknown>;
 }
 
-export interface StreamWithRetryOptions {
-  attempts?: number; // 对齐 invokeWithRetry
-  baseDelay?: number;
+export interface StreamWithRetryOptions extends RetryOptions {
   /** 每文本 chunk 增量实时回调(空/工具轮 chunk 不回调)。 */
   onDelta?: (delta: string) => void;
   /** 退避前回调(attempt 从 1 计)。 */
@@ -123,11 +134,16 @@ export async function streamWithRetry(
 ): Promise<{ content: unknown; tool_calls?: unknown }> {
   const attempts = opts?.attempts ?? ATTEMPTS;
   const baseDelay = opts?.baseDelay ?? BASE_DELAY;
+  const signal = opts?.signal;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    throwIfAborted(signal);
     try {
       let aggregated: unknown;
       for await (const chunk of await llm.stream(payload, config)) {
+        // 每个 chunk 查一次:上游 SDK 的取消生效有延迟(已开始的 SSE 帧仍会到),
+        // 这里保证取消后不再往下游多推一个 token。
+        throwIfAborted(signal);
         const text = extractDeltaText(chunk);
         if (text) opts?.onDelta?.(text);
         aggregated = aggregated === undefined ? chunk : concat(aggregated as never, chunk as never);
@@ -148,9 +164,7 @@ export async function streamWithRetry(
       const delay = Math.min(baseDelay * 2 ** (attempt - 1), MAX_DELAY);
       warn(retryWarnMessage('stream', attempt, err, delay));
       opts?.onRetry?.(attempt, err);
-      const { promise, resolve } = Promise.withResolvers<void>();
-      setTimeout(resolve, delay * 1000);
-      await promise;
+      await sleepWithAbort(delay * 1000, signal);
     }
   }
   throw lastErr;

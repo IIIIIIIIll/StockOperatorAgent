@@ -23,22 +23,22 @@
 // 降级纪律（degrade don't raise）：网络/结构/符号未命中 → 空数组 + warn，
 // 调用方保留 Yahoo 原值（NaN 或推导值），绝不阻断采集。
 import { envValue } from '../env.ts';
+import {
+  daysBetweenYmd,
+  gapKindOf,
+  spanKindOf,
+  type PeriodBandKind,
+} from '../periods.ts';
 import { warn } from '../log.ts';
 import type { Market } from '../market.ts';
 
 const EM_DATA = 'https://datacenter.eastmoney.com/securities/api/data/v1/get';
 const EM_TIMEOUT_MS = 8000;
 const PAGE_SIZE = 40;
-const MS_PER_DAY = 86_400_000;
-const DAYS: ReadonlyArray<readonly [number, number, 'Q' | 'H' | 'FY' | 'Y']> = [
-  [85, 95, 'Q'],
-  [175, 190, 'H'],
-  [265, 280, 'Y'],
-  [355, 370, 'FY'],
-];
-
-/** 期次类型（Q=单季 / H=半年 / FY=全年 / Y=年内累计不足一年）。 */
-export type EmPeriodKind = 'Q' | 'H' | 'FY' | 'Y';
+/** 期次类型（Q=单季 / H=半年 / FY=全年 / Y=年内累计不足一年）。
+ *  容差表与判定函数单源在 src/periods.ts（2026-11 整改：此处曾与 reports.ts /
+ *  composeYahooReports.ts 各存一份 88~93，跨度表却是 85~95，已漂出静默丢数据）。 */
+export type EmPeriodKind = PeriodBandKind;
 
 export interface EmPeriod {
   /** 'YYYYMMDD'（与 performance_reports.report_date 同形） */
@@ -86,15 +86,7 @@ function ymd(value: unknown): string {
 
 /** (START_DATE, REPORT_DATE) → 期次类型。天数落在任何区间外 → null（丢弃）。 */
 export function classifyPeriod(startYmd: string, endYmd: string): EmPeriodKind | null {
-  const toUtc = (s: string): number =>
-    Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
-  if (startYmd.length !== 8 || endYmd.length !== 8) return null;
-  const days = (toUtc(endYmd) - toUtc(startYmd)) / MS_PER_DAY;
-  if (!Number.isFinite(days) || days <= 0) return null;
-  for (const [lo, hi, kind] of DAYS) {
-    if (days >= lo && days <= hi) return kind;
-  }
-  return null;
+  return spanKindOf(daysBetweenYmd(startYmd, endYmd));
 }
 
 /** 东财数值可能是 number / null / '-' / '' → number（不可用 → NaN）。 */
@@ -172,11 +164,9 @@ export async function fetchEmPeriods(market: Market, ticker: string): Promise<Em
 }
 
 /** 期次天数 → 该行应有的期次类型（由相邻行的实际间隔推）。
- *  88~93 → 单季；175~190 → 半年；其余 → null（不知道就不补）。 */
+ *  窗口单源 src/periods.ts gapKindOf（88~93 单季 / 175~190 半年 / 其余 null）。 */
 function expectedKindForGap(days: number): EmPeriodKind | null {
-  if (days >= 88 && days <= 93) return 'Q';
-  if (days >= 175 && days <= 190) return 'H';
-  return null;
+  return gapKindOf(days);
 }
 
 /** 日期差 ≤ 7 天算同期次。为什么需要：美股财报截止日不落月末（AAPL
@@ -192,9 +182,7 @@ function closeEnough(aYmd: string, bYmd: string): boolean {
 
 /** 两个 YYYYMMDD 相差天数（UTC 日）。 */
 function daysBetween(aYmd: string, bYmd: string): number {
-  const toUtc = (s: string): number =>
-    Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
-  return (toUtc(bYmd) - toUtc(aYmd)) / MS_PER_DAY;
+  return daysBetweenYmd(aYmd, bYmd);
 }
 
 /**

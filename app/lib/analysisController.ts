@@ -78,11 +78,10 @@ export interface AnalysisLog {
 /** 亿信/MCP 实时情报闭包(makeBillionsIntel/makeMcpIntel 产物)。 */
 export type IntelProvider = (ticker: string) => string;
 
-/** 上次分析结果标记(start 清除;done 恢复/写入)。 */
-export interface LastRunMarker {
-  at: string;
-  mode: 'real' | 'demo';
-}
+/** 上次分析结果标记(start 清除;done 恢复/写入)。
+ *  已收归 app/lib/analysisState.ts —— 此处仅 re-export 保持现有 import 不断。 */
+export type { LastRunMarker, ViewingRunMarker } from './analysisState.ts';
+import type { AnalysisState, LastRunMarker, ViewingRunMarker } from './analysisState.ts';
 
 /** 对外状态快照 —— 与抽取前 useAnalysis 返回字段逐一对应,+hasDone(D15)。 */
 export interface AnalysisSnapshot {
@@ -111,13 +110,7 @@ export interface AnalysisSnapshot {
   readonly viewingRun: ViewingRunMarker | null;
 }
 
-/** 正在查看的历史条目标记(详情正文已在 events/finalDecision 等字段里)。 */
-export interface ViewingRunMarker {
-  id: string;
-  at: string;
-  ticker: string;
-  mode: 'real' | 'demo';
-}
+/** 正在查看的历史条目标记 —— 定义见 analysisState.ts(与 historyController 共用一份)。 */
 
 /** 注入依赖面:生产由 useAnalysis 接线(app/lib/runner + settings + keepalive +
  *  src/log),测试以假实现替换。全部必填,无默认实现。 */
@@ -165,26 +158,8 @@ export interface AnalysisDeps {
   readonly isoNow: () => string;
 }
 
-/** 内部可变状态(snapshot() 浅拷贝外发;React 桥接只读镜像)。 */
-interface MutableState {
-  events: PipelineEvent[];
-  finalDecision: string;
-  stockInformation: string;
-  running: boolean;
-  error: string | null;
-  partials: Record<string, string>;
-  statuses: Record<string, RoleStatus>;
-  dataVersion: number;
-  lastRunTicker: string;
-  lastRunAt: LastRunMarker | null;
-  market: Market;
-  settings: SettingsState;
-  hasDone: boolean;
-  history: RunSummary[];
-  historyLoading: boolean;
-  historyError: string | null;
-  viewingRun: ViewingRunMarker | null;
-}
+/** 内部可变状态(形状单源见 analysisState.ts;snapshot() 浅拷贝外发)。 */
+type MutableState = AnalysisState;
 
 export class AnalysisController {
   private readonly deps: AnalysisDeps;

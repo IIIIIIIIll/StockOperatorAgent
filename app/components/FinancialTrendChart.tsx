@@ -9,6 +9,8 @@ import type { IChartApi, ISeriesApi } from 'lightweight-charts';
 import type { FinancialSeries } from '../../src/chartData.ts';
 import { paneTops as computePaneTops } from '../../src/chartLayout.ts';
 import { ChartWebView, useChartWebView } from '../hooks/useChartWebView';
+// 端能力单点判定(2026-11):不再各自读 Platform.OS —— 见 app/lib/capabilities.ts
+import { capabilities } from '../lib/capabilities';
 import type { Theme } from '../theme';
 import { warn } from '../../src/log.ts';
 
@@ -52,8 +54,8 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
   const [chartReady, setChartReady] = React.useState(false);
 
   React.useEffect(() => {
-    if (Platform.OS !== 'web' || !ref.current || series.length === 0) return undefined;
-    // SAFETY: 仅在 Platform.OS==='web' 分支执行,RNW 把 View 渲染成 DOM 节点,
+    if (!capabilities().hasDom || !ref.current || series.length === 0) return undefined;
+    // SAFETY: 仅在 capabilities().hasDom 分支执行,RNW 把 View 渲染成 DOM 节点,
     // 所以 ref.current 确实是 HTMLElement;RN 的类型面里没有 DOM 类型,只能强转。
     const el = ref.current as unknown as HTMLElement;
     let disposed = false;
@@ -141,7 +143,7 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
 
   // ─── 原生分支:WebView 渲染同一数据(web 分支保持原样)─────────────────────
   const nativeData = React.useMemo<NativeTrendData | null>(() => {
-    if (Platform.OS === 'web') return null;
+    if (capabilities().hasDom) return null;
     return {
       height: CHART_HEIGHT,
       layout: { background: theme.colors.background, text: theme.colors.textSecondary, border: theme.colors.border },
@@ -153,7 +155,7 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
     };
   }, [series, theme]);
   const nativeJson = React.useMemo(
-    () => (Platform.OS === 'web' ? '' : JSON.stringify(nativeData)),
+    () => (capabilities().hasDom ? '' : JSON.stringify(nativeData)),
     [nativeData],
   );
   // WebView 生命周期集中在 app/hooks/useChartWebView.ts(与 IndicatorChart 同语义):
@@ -162,7 +164,7 @@ export default function FinancialTrendChart({ series, theme }: { series: Financi
 
   if (series.length === 0) return null;
 
-  if (Platform.OS !== 'web') {
+  if (!capabilities().hasDom) {
     // 原生:WebView 渲染生成的 chart-view.html(财务 3 pane,图例在页内)
     return (
       <View style={{ backgroundColor: theme.colors.background }}>

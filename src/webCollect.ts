@@ -3,9 +3,9 @@
 // 纯 TS、零 RN 依赖:applyCollectedToStore 纯函数可单测,collectViaProxy 可 mock fetch。
 import type { DailyBar, StoreLike } from './store.ts';
 import type { CollectedSnapshot } from './tdx/quoteClient.ts';
-import { parseCapitalStructure, parseFinanceIndicatorsAllTables } from './f10.ts';
-import { composeReports } from './reports.ts';
+import { parseCapitalStructure, parseFinanceIndicatorsAllTables } from './f10.ts'; import { composeReports } from './reports.ts';
 import { capitalKey, f10Key } from './metaKeys.ts';
+import { abortRequestAfter, raceBodyTimeout } from './timeout.ts';
 
 export interface CollectedPayload {
   ticker: string;
@@ -40,8 +40,9 @@ export interface WebCollectResult {
 /** TDX web 采集失败(归一化错误,collectViaProxy 唯一异常;对齐 YahooApiError
  *  数据源家族先例——每源一个自定义异常)。
  *
- * @param code 业务错误码:代理不可达 → 'proxy_unreachable';HTTP 非 2xx →
- *   'http_<status>';2xx 但载荷形状非法 → 'invalid_payload'
+ * @param code 业务错误码:代理不可达 → 'proxy_unreachable';超时(请求腿或 body 腿)
+ *   → 'proxy_timeout';HTTP 非 2xx → 'http_<status>';2xx 但载荷形状非法 →
+ *   'invalid_payload'
  * @param status_code HTTP 状态码(网络异常无响应 → null)
  * @param message 人类可读错误信息
  */
@@ -98,6 +99,56 @@ export function applyCollectedToStore(store: StoreLike, payload: CollectedPayloa
   };
 }
 
+/** 客户端 → 代理单次采集超时。代理/server 自身有采集超时,之后还要序列化回包,
+ *  故留余量。P1(评审 2026-11):此前 collectViaProxy 的 fetch 与 res.json()
+ *  两腿都没有超时 —— 代理挂住时 RN/web 的分析 spinner 永不 resolve,且唯一
+ *  兜底是 server 端 504(body 卡住时连它都等不到)。Yahoo 同族路径
+ *  (webYahooCollect.ts)已修,此处补齐。 */
+const PROXY_COLLECT_TIMEOUT_MS = 60_000;
+
+/** 请求腿 + body 腿都圈进同一超时窗口。返回 {res, body} —— 两腿任一处超时
+ *  都抛 CollectError('proxy_timeout'),不把 DOMException/AbortError 泄给上层。 */
+async function fetchProxyPayload(url: string): Promise<{ res: Response; body: Record<string, unknown> | null }> {
+  const t = abortRequestAfter(PROXY_COLLECT_TIMEOUT_MS);
+  let res: Response;
+  try {
+    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
+    // EXPO_PUBLIC_SOA_ACCESS_TOKEN 必须**直接成员访问**(babel-preset-expo 仅内联
+    // 直接访问,architecture 契约 6 豁免);未设 → 不带头,回环行为逐字节不变。
+    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
+    res = soaToken
+      ? await fetch(url, { headers: { 'X-SOA-Token': soaToken }, signal: t.signal })
+      : await fetch(url, { signal: t.signal });
+  } catch (err) {
+    if (t.signal.aborted) {
+      throw new CollectError(
+        'proxy_timeout',
+        null,
+        `TDX 采集代理超时(${PROXY_COLLECT_TIMEOUT_MS / 1000}s):服务端未在时限内回包`,
+      );
+    }
+    throw new CollectError(
+      'proxy_unreachable',
+      null,
+      `TDX 采集代理不可达(需用 npm run web 起的 server):${String((err as Error)?.message ?? err)}`,
+    );
+  } finally {
+    t.done();
+  }
+  // body 读取同样要圈进计时窗口(fetch 已 resolve 不等于 body 到齐)。
+  const body = await raceBodyTimeout<Record<string, unknown> | null>(
+    () => res.json().catch(() => null),
+    PROXY_COLLECT_TIMEOUT_MS,
+    () =>
+      new CollectError(
+        'proxy_timeout',
+        res.status,
+        `TDX 采集代理响应体读取超时(${PROXY_COLLECT_TIMEOUT_MS / 1000}s)`,
+      ),
+  );
+  return { res, body };
+}
+
 /** 浏览器 → server.mjs 同源 /tdx-collect;失败抛错(调用方应中止分析,不喂空数据)。
  *  opts.skipDaily/skipF10 → 查询参数,代理按源跳过(缺省不带参数 = 全量,兼容旧调用)。 */
 export async function collectViaProxy(
@@ -108,23 +159,7 @@ export async function collectViaProxy(
   let url = `${base}/tdx-collect?ticker=${encodeURIComponent(ticker)}`;
   if (opts?.skipDaily) url += '&skipDaily=1';
   if (opts?.skipF10) url += '&skipF10=1';
-  let res: Response;
-  try {
-    // S6:远程模式(server HOST=0.0.0.0 非回环)要求 X-SOA-Token == SOA_ACCESS_TOKEN。
-    // EXPO_PUBLIC_SOA_ACCESS_TOKEN 必须**直接成员访问**(babel-preset-expo 仅内联
-    // 直接访问,architecture 契约 6 豁免);未设 → 不带头,回环行为逐字节不变。
-    const soaToken = process.env.EXPO_PUBLIC_SOA_ACCESS_TOKEN;
-    res = soaToken
-      ? await fetch(url, { headers: { 'X-SOA-Token': soaToken } })
-      : await fetch(url);
-  } catch (err) {
-    throw new CollectError(
-      'proxy_unreachable',
-      null,
-      `TDX 采集代理不可达(需用 npm run web 起的 server):${String((err as Error)?.message ?? err)}`,
-    );
-  }
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const { res, body } = await fetchProxyPayload(url);
   if (!res.ok) {
     const detail =
       body !== null && typeof body === 'object' && !Array.isArray(body) && typeof body['error'] === 'string'

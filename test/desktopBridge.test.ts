@@ -24,6 +24,8 @@ class FakeBridge implements SoaDesktopBridge {
   ops: Array<{ op: string; args: unknown[] }> = [];
   storeInitCalls = 0;
   settingsValue: string | null = null;
+  /** settingsLoad(sendSync)调用次数 —— 预热后必须恒为 1(见 bridgeStorage 测试)。 */
+  settingsLoadCalls = 0;
   private settlers: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
 
   constructor(private readonly autoResolve = true, private storeInitFailures = 0) {}
@@ -46,6 +48,7 @@ class FakeBridge implements SoaDesktopBridge {
   }
 
   settingsLoad(): string | null {
+    this.settingsLoadCalls += 1;
     return this.settingsValue;
   }
 
@@ -346,9 +349,14 @@ describe('bridgeStorage:settingsStore 桥接', () => {
     bridge.settingsValue = '{"a":1}';
     vi.stubGlobal('window', { __soaDesktop: bridge });
     const storage = bridgeStorage();
-    // 未写 → 读桥 settingsLoad
+    // 构造期预热一次后即可读回(不走重复 IPC)
     expect(storage.getItem('soa:settings')).toBe('{"a":1}');
     expect(storage.getItem('any-key')).toBe('{"a":1}');
+    // 2026-11 回归:getItem 不得再跨 IPC —— 此前 mirror 恒 null,
+    // `mirror ?? settingsLoad()` 让每次 getItem 都是一次 sendSync
+    // (设置面板一打开就 sendSync,正是 spec 记过的死锁路径)。
+    for (let i = 0; i < 10; i++) storage.getItem('soa:settings');
+    expect(bridge.settingsLoadCalls).toBe(1);
     // 写 → 本地镜像立即生效 + 异步落盘
     storage.setItem('soa:settings', '{"b":2}');
     expect(storage.getItem('x')).toBe('{"b":2}'); // 镜像优先于桥

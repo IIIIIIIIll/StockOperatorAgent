@@ -22,6 +22,7 @@ import { useAnalysis } from './hooks/useAnalysis';
 import { useDrawer } from './hooks/useDrawer';
 import { formatRunTime } from '../src/runHistory.ts';
 import type { PipelineEvent } from './lib/runner';
+import { capabilities } from './lib/capabilities';
 
 type TabId = 'data' | string; // 'data' 或角色 stateKey
 
@@ -262,7 +263,7 @@ function AppContent() {
         // web:RNW ModalAnimation fade-out 期全屏 pointerEvents:none 容器保留 ~250ms,
         // 菜单区可视但点击穿透(ghost-click 落到市场按钮 → 菜单重开)→ web 禁动画;
         // native fade 走系统层动画无此问题,保留观感(design §4)。
-        animationType={Platform.OS === 'web' ? 'none' : 'fade'}
+        animationType={capabilities().hasDom ? 'none' : 'fade'}
         onRequestClose={() => setShowMarketMenu(false)}
       >
         {/* 全屏透明点击层:点菜单外区域关闭 */}

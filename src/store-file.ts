@@ -11,6 +11,7 @@
 // (Windows nsis / macOS dmg)上会被 ticker META 覆盖 → 双向静默丢数据。生产默认适配器 expo-file-system(documentDirectory 下
 // 解析,惰性动态 import,同 log.ts RN 分支先例);测试注入 node fs 适配器。
 import type { DailyBar, PerformanceReport, StockRecord, StoreLike } from './store.ts';
+import { mergeDailyBars } from './dailyBars.ts';
 import { error as logError } from './log.ts';
 
 export interface FileFsAdapter {
@@ -349,16 +350,12 @@ export class FileStore implements StoreLike {
     return fresh;
   }
 
-  /** 返回实际追加数;0 = 全部重复不写。 */
+  /** 返回实际追加数;0 = 全部重复不写。契约单源:src/dailyBars.ts */
   private mergeBars(ticker: string, bars: DailyBar[]): number {
     const existing = this.bars.get(ticker) ?? [];
-    const last = existing.length ? existing[existing.length - 1].date : null;
-    const fresh = bars.filter((b) => last === null || b.date > last);
+    const { merged, fresh } = mergeDailyBars(existing, bars);
     if (!fresh.length) return 0;
-    const merged = [...existing, ...fresh].sort((a, b) => a.date.localeCompare(b.date));
-    const seen = new Map<string, DailyBar>();
-    for (const b of merged) seen.set(b.date, b);
-    this.bars.set(ticker, [...seen.values()].sort((a, b) => a.date.localeCompare(b.date)));
+    this.bars.set(ticker, merged);
     const stock = this.stocks.get(ticker);
     if (stock) {
       this.stocks.set(ticker, { ...stock, lastDataUpdate: fresh[fresh.length - 1].date });

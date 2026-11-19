@@ -5,6 +5,7 @@
 // 崩溃丢最近写入可接受——采集即落盘)。mutator 同步更新内存 → enqueue 落盘,
 // 同步方法内不做任何异步等待;getters 同步读内存副本。
 import type { DailyBar, PerformanceReport, StockRecord, StoreLike } from './store.ts';
+import { mergeDailyBars } from './dailyBars.ts';
 import { error as logError } from './log.ts';
 
 // ─── IndexedDB 最小类型面(R-12:单源在 src/idbUtil.ts)─────────────────────
@@ -300,18 +301,14 @@ export class IdbStore implements StoreLike {
     return fresh.length;
   }
 
+  /** 合并 + 计算待落库的 stock 镜像。契约单源:src/dailyBars.ts */
   private mergeBars(
     ticker: string,
     bars: DailyBar[],
   ): { fresh: DailyBar[]; updatedStock: StockRecord | undefined } {
-    const existing = this.bars.get(ticker) ?? [];
-    const last = existing.length ? existing[existing.length - 1].date : null;
-    const fresh = bars.filter((b) => last === null || b.date > last);
+    const { merged, fresh } = mergeDailyBars(this.bars.get(ticker) ?? [], bars);
     if (!fresh.length) return { fresh, updatedStock: undefined };
-    const merged = [...existing, ...fresh].sort((a, b) => a.date.localeCompare(b.date));
-    const seen = new Map<string, DailyBar>();
-    for (const b of merged) seen.set(b.date, b);
-    this.bars.set(ticker, [...seen.values()].sort((a, b) => a.date.localeCompare(b.date)));
+    this.bars.set(ticker, merged);
     const stock = this.stocks.get(ticker);
     const updatedStock = stock ? { ...stock, lastDataUpdate: fresh[fresh.length - 1].date } : undefined;
     if (updatedStock) this.stocks.set(ticker, updatedStock);

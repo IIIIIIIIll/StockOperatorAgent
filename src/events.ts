@@ -6,13 +6,14 @@
 import { HumanMessage } from '@langchain/core/messages';
 import type { StoreLike } from './store.ts';
 import { buildStockInformation } from './pipeline.ts';
-import { enabledRoles, makeInvestmentCommittee } from './committee.ts';
+import { enabledRoles, makeInvestmentCommittee, type Role } from './committee.ts';
 import { makeLlm } from './llm.ts';
 import type { BillionsClient } from './billionsClient.ts';
 import type { Market } from './market.ts';
 import type { ProgressUpdater, RoleStatus } from './progress.ts';
 import type { PipelineDeps } from './pipeline.ts';
 import { EXHAUSTED_NO_ANSWER_TEXT, NO_CONCLUSION_TEXT, type ToolLike } from './toolLoop.ts';
+import { isAbortError, throwIfAborted } from './timeout.ts';
 import { warn } from './log.ts';
 
 /** 单个运行内发生的事件体。与 PipelineEvent 分开,便于 run() 统一追盖 runTag。 */
@@ -59,13 +60,19 @@ export interface RunOptions extends Omit<PipelineDeps, 'store' | 'progress'> {
   billionsClient?: BillionsClient;
   /** 市场（S4，继承自 PipelineDeps）：提示词/日期/管道块分支；缺省 cn。 */
   market?: Market;
+  /** 外部取消信号(可选):探针/桌面侧甲方可自己控取消 —— 与 runner.abort()
+   *  等效,只是源头在调用方。已取消 → 不发把干运行(直接 resolve undefined)。 */
+  signal?: AbortSignal;
 }
 
 export interface PipelineRunner {
   subscribe(listener: (e: PipelineEvent) => void): () => void;
   run(ticker: string, opts?: RunOptions): Promise<FinalReport | undefined>;
-  /** 可选:放弃当前运行的并发守卫(不中断底层 pipeline)。控制器在取消/看门狗
-   *  中调用 —— 否则一个永不 settle 的运行会让 runner 永久 busy。测试假件可省略。 */
+  /** 取消当前运行:复位并发守卫 **并** 中断在飞 LLM 请求。
+   *  没有它,看门狗/用户取消后任何后续 run() 都会被 C2 守卫永久拒绝
+   *  ("上一次分析仍在进行中"),而 await 永不返回的运行根本不会复位。
+   *  2026-11:不再只是「复位标志」—— AbortController 经 RunnableConfig 下传到
+   *  ChatOpenAI / OpenAI SDK(含退避计时器),真取消 socket 与流。 */
   abort?(): void;
 }
 
@@ -98,6 +105,8 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
   // C2 并发守卫:实例级(模块单例 app/lib/runner.ts:77 与探针 runner 各自独立)。
   // 入口同步置位(先于任何 await),done/catch 两路径复位;busy 拒绝不改状态。
   let running = false;
+  // 当前运行的取消控制器(abort() 与外部 opts.signal 都汇到这里)
+  let currentAbort: AbortController | null = null;
   // 运行代数:abort() 与每次 run() 都递增。孤儿 pipeline 迟到结束时只在自己
   // 仍是当前代时才复位 running —— 否则会把新一轮的 running 清掉(同 tick 可重入)。
   let runSeq = 0;
@@ -124,19 +133,19 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
   // (同 stateKey);查不到 → 原样用 node(events 仍可消费)。
   // 按运行构造(评审 2026-11-09 P1-1):每个运行必须把自己的 runTag 刷到事件上,
   // 共享一份 updater 就只能盖最近一次 run 的标签 —— 那正是孤儿事件被误收的成因。
-  function makeUpdater(emitRun: (e: PipelineEventBody) => void): ProgressUpdater {
+  function makeUpdater(emitRun: (e: PipelineEventBody) => void, roles: Role[]): ProgressUpdater {
     return {
       info: (message) => emitRun({ type: 'progress', message }),
       pushReport: (key, content) => {
-        const role = enabledRoles().find((r) => r.stateKey === key);
+        const role = roles.find((r) => r.stateKey === key);
         emitRun({ type: 'report', key, tabTitle: role?.tabTitle ?? key, content });
       },
       pushDelta: (node, delta) => {
-        const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
+        const role = roles.find((r) => r.nodeName === node || r.reviseNodeName === node);
         emitRun({ type: 'token', roleKey: role?.stateKey ?? node, node, delta });
       },
       pushStatus: (node, status) => {
-        const role = enabledRoles().find((r) => r.nodeName === node || r.reviseNodeName === node);
+        const role = roles.find((r) => r.nodeName === node || r.reviseNodeName === node);
         emitRun({ type: 'roleStatus', roleKey: role?.stateKey ?? node, node, status });
       },
     };
@@ -154,6 +163,9 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
     abort() {
       runSeq += 1;
       running = false;
+      const ac = currentAbort;
+      currentAbort = null;
+      ac?.abort();
     },
 
     async run(ticker, opts = {}) {
@@ -170,12 +182,22 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
       // runner 内部代数 —— 两者都只用于“把事件归到哪一次运行”,不参与并发守卫判定。
       const runTag = opts.runTag ?? mySeq;
       const emitRun = (e: PipelineEventBody): void => emit({ ...e, runTag });
-      const updater = makeUpdater(emitRun);
+      // 角色表一次定型(2026-11 整改):此前 makeUpdater 每个事件都调
+      // enabledRoles() —— 该函数读**实时**开关,而图在 committee.ts:163 已按
+      // 构图时刻的快照定型。运行中切开关 → 同一节点的 roleKey 中途变名,
+      // 流式文本从 tab 里丢失、完成时角色进不了 opinions。
+      const roles = enabledRoles();
+      const updater = makeUpdater(emitRun, roles);
+      // 取消控制:外部 signal 优先,否则用本运行自己的 controller(abort() 触发)
+      const ownAbort = new AbortController();
+      currentAbort = ownAbort;
+      const signal = opts.signal ?? ownAbort.signal;
       // 仅当自己仍是当前代时才复位(abort()/新一轮会让旧代失效)
       const releaseRunning = () => {
         if (mySeq === runSeq) running = false;
       };
       try {
+        throwIfAborted(signal); // 已取消 → 不发把干运行
         emitRun({ type: 'progress', message: `开始分析 ${ticker}...` });
 
         // S4:市场线程(缺省 cn 逐字节不变)。mcp 情报注入点在 App 层
@@ -193,9 +215,11 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         });
 
         // 2. 委员会(事件经 updater 实时发射)
-        const config = opts.config ?? { configurable: { thread_id: '1' } };
+        // signal 进 RunnableConfig:ChatOpenAI 从 runnableConfig.signal 取信号
+        // (@langchain/core chat_models) → OpenAI SDK 取消 socket。
+        const config = { ...(opts.config as Record<string, unknown> | undefined ?? { configurable: { thread_id: '1' } }), signal };
         const llm = opts.llm ?? makeLlm();
-        const graph = makeInvestmentCommittee(config, updater, llm as never, opts.tools, { billionsClient: opts.billionsClient, market });
+        const graph = makeInvestmentCommittee(config, updater, llm as never, opts.tools, { billionsClient: opts.billionsClient, market, roles });
         const initial = {
           messages: [new HumanMessage(`请帮我分析一下 ${ticker}`)],
           target_stock_ticker: ticker,
@@ -206,12 +230,14 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         for await (const _chunk of await graph.stream(initial, config as never)) {
           /* 节点已完成;报告已由 pushReport 事件发出 */
         }
+        // 取消后不再拼报告(同上:取消不是成功,不能 emit done)
+        throwIfAborted(signal);
         const state = await graph.getState(config as never);
         const values = state.values as Record<string, unknown>;
 
         // 3. 最终报告对象
         const opinions: Opinion[] = [];
-        for (const r of enabledRoles()) {
+        for (const r of roles) {
           const v = values[r.stateKey ?? ''];
           if (Array.isArray(v)) {
             for (const m of v as Array<{ content?: unknown }>) {
@@ -239,6 +265,11 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         releaseRunning(); // done 路径复位:状态变可用,后续 run 正常执行
         return report;
       } catch (err) {
+        if (isAbortError(err) || signal.aborted) {
+          // 取消 ≠ 失败:不 emit error(控制器已自己复位 UI),也不把
+          // "The operation was aborted" 当故障弹红条。
+          return undefined;
+        }
         // 契约(error-handling.md「runner never throws past event boundary」):
         // 运行期/配置期失败一律以 `error` 事件(携带 describeError 消息文本)
         // 上报,run() resolve(undefined)而非 rethrow —— 失败信号唯一通道是
@@ -247,6 +278,8 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         emitRun({ type: 'error', error: message });
         releaseRunning(); // catch 路径复位:失败终态后 runner 回到可用状态
         return undefined;
+      } finally {
+        if (currentAbort === ownAbort) currentAbort = null;
       }
     },
   };

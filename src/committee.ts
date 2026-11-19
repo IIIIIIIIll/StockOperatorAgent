@@ -13,7 +13,7 @@ import {
 } from './agents.ts';
 import type { BillionsClient } from './billionsClient.ts';
 import type { Market } from './market.ts';
-import { getCapabilitySwitches, type CapabilitySwitches } from './switches.ts';
+import { billionsEnabled, getCapabilitySwitches } from './switches.ts';
 
 // ─── 角色注册表（对齐 Python Role dataclass） ─────────────────────────────
 
@@ -28,6 +28,10 @@ export interface CommitteeDeps {
   /** 市场（S4）：透传 AgentNode 提示词 {market_rules}/{market_cycle} 与
    *  current_date 时区；缺省 cn —— 与改造前逐字节一致。 */
   market?: Market;
+  /** 本运行的角色快照(2026-11 整改):调用方若已 resolve 过 enabledRoles(),
+   *  必须传进来 —— 否则事件流的 roleKey 映射与图装配各自读一次开关,
+   *  两者之间的瞬间切开关就会错位(节点发 token 用 A 快照,图跑 B 快照)。 */
+  roles?: Role[];
 }
 
 export interface Role {
@@ -39,25 +43,6 @@ export interface Role {
   enabled: () => boolean;
   factory: AgentFactory;
   reviseNodeName?: string;
-}
-
-/** 亿信能力开关 → config(语义 enabled):主闸(billions) 且 能力闸(cap 小写
- *  字段);未注入时 fromEnv 从 BILLIONS_{CAP}_DISABLED 反推。cap: FINDB/
- *  SEARCH/TWITTER/FETCH/ANALYST。无 key 约束(现状)——key 判定在
- *  billionsTools.billionsCapEnabled 单点承担。 */
-type CapabilityFlag = 'findb' | 'search' | 'twitter' | 'fetch' | 'analyst';
-const BILLIONS_CAP_FIELD: Record<string, CapabilityFlag> = {
-  FINDB: 'findb',
-  SEARCH: 'search',
-  TWITTER: 'twitter',
-  FETCH: 'fetch',
-  ANALYST: 'analyst',
-};
-
-export function billionsEnabled(cap: string): boolean {
-  const s = getCapabilitySwitches();
-  const field = BILLIONS_CAP_FIELD[cap];
-  return s.billions && (field ? s[field] : false);
 }
 
 /** 契约公式（implement.md Step 8）：亿信路径（ANALYST 且 SEARCH/TWITTER 至少一者）
@@ -160,7 +145,7 @@ export function makeInvestmentCommittee(
   // deps 注入（phaseout C1）：deps.billionsClient 带 web 端 localStorage key
   // → 信息面分析师预抓三源+twitter 生效；缺省 → 现状（无 key 回退）。
   const tools: ToolLike[] = _tools ?? (webSearchEnabled() ? [makeWebSearchTool()] : []);
-  const roles = enabledRoles();
+  const roles = deps?.roles ?? enabledRoles();
   const graph = new StateGraph(StateAnnotation);
   for (const role of roles) {
     const agent = role.factory(llm, config, progressUpdater, tools, deps) as Record<string, (state: unknown) => Promise<Record<string, unknown>>>;

@@ -12,7 +12,7 @@
 import type { ToolLike } from './toolLoop.ts';
 import { warn } from './log.ts';
 import { BillionsClient, type FetchLike } from './billionsClient.ts';
-import { billionsEnabled } from './committee.ts';
+import { billionsEnabled } from './switches.ts';
 import { envValue } from './env.ts';
 
 export const BILLIONS_DEFAULT_MAX: Record<BillionsCapKey, number> = {
@@ -105,7 +105,7 @@ interface BillionsToolOpts {
 }
 
 /** 能力开关 + 主闸 key 判定（对齐 Python billions_enabled：主闸 key 存在 且
- *  总闸开 且 能力闸开）。开关面读 config（committee.billionsEnabled：总闸
+ *  总闸开 且 能力闸开）。开关面读 config（switches.billionsEnabled：总闸
  *  billions + 能力闸 cap 字段；未注入时 fromEnv 反推 BILLIONS_{CAP}_DISABLED）；
  *  key 判定在此单点承担（apiKey 构造注入 > env BILLIONS_API_KEY）。 */
 function billionsCapEnabled(cap: string, apiKey?: string | null): boolean {

@@ -12,6 +12,7 @@
 // 取舍:缺失一律 '' 或 NaN(消费方按 N/A 渲染),不抛错——公司画像缺失不该
 // 阻断分析(error-handling spec: degrade don't raise)。
 import { marketInfo, type Market } from '../market.ts';
+import { quoteSummaryResult, rawNum, rec, str } from './quoteSummary.ts';
 
 /** 数值 → 'N/A' / 定小数文本（与 pipeline.fmtNumber 同语义；不直接 import —
  *  pipeline 反过来 import 本模块的文本段，循环 import 会拉出 TDZ 风险）。 */
@@ -59,31 +60,6 @@ const RATING_LABELS: Record<string, string> = {
  *  文本段共用同一张表，防两处文案漂移。 */
 export function ratingLabel(key: string): string {
   return RATING_LABELS[key] ?? '';
-}
-
-/** unknown → Record 字典（非对象/null → 空字典）。 */
-function rec(v: unknown): Record<string, unknown> {
-  return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : {};
-}
-
-/** {raw, fmt} 值形态 → number;缺失/{} → NaN。 */
-function rawNum(v: unknown): number {
-  if (typeof v === 'number') return v;
-  const raw = rec(v)['raw'];
-  return typeof raw === 'number' ? raw : NaN;
-}
-
-/** 字符串字段(非字符串 → '')。 */
-function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
-}
-
-/** quoteSummary 原始 JSON → result[0](兼容直接传 result[0])。 */
-function quoteSummaryResult(summary: unknown): Record<string, unknown> {
-  const s = rec(summary);
-  const result = rec(s['quoteSummary'])['result'];
-  if (Array.isArray(result) && result.length > 0) return rec(result[0]);
-  return s;
 }
 
 /** earningsTrend 数组 → 指定 period 的 EPS 一致预期均值(缺失 → NaN)。 */

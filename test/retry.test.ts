@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AIMessageChunk } from '@langchain/core/messages';
 import { invokeWithRetry, streamWithRetry } from '../src/retry.ts';
 
@@ -29,6 +29,35 @@ function captureWarn(): { lines: string[]; restore: () => void } {
 }
 
 describe('retry (AC4)', () => {
+  // 2026-11 整改:取消必须与失败区分开 —— AbortError 不重试、不等到退避结束、
+  // 不把「用户点了取消」报成错误。此前 retry.ts 不接 signal,退避计时器也不可取消。
+  it('已取消(root signal 已 abort)→ 一次请求都不发,直接抛 AbortError', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const { llm, calls } = failingLlm([{ status: 429 }]);
+
+    await expect(invokeWithRetry(llm, {}, {}, { signal: ac.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(calls()).toBe(0);
+  });
+
+  it('退避途中取消 → 立即 reject AbortError,不等到退避结束、不再发下一轮', async () => {
+    vi.useFakeTimers();
+    try {
+      const ac = new AbortController();
+      const { llm, calls } = failingLlm([{ status: 503 }]);
+      const p = invokeWithRetry(llm, {}, {}, { baseDelay: 30, signal: ac.signal });
+      const assertion = expect(p).rejects.toMatchObject({ name: 'AbortError' });
+      await vi.advanceTimersByTimeAsync(1); // 首轮失败 → 进入 30s 退避
+      ac.abort();
+      await assertion; // 不等 30s:退避计时器已被中断
+      expect(calls()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('429 retries 3 times with backoff then succeeds', async () => {
     const { llm, calls } = failingLlm([
       { status: 429, message: 'rate limited' },
@@ -121,6 +150,24 @@ function streamingLlm(attempts: Array<{ chunks?: string[]; error?: { status?: nu
 }
 
 describe('streamWithRetry (R2)', () => {
+  it('流式途中取消 → 停止往下游推 chunk,reject AbortError(不丢弃已推部分)', async () => {
+    const ac = new AbortController();
+    const deltas: string[] = [];
+    const hung = {
+      stream: async () =>
+        (async function* () {
+          yield new AIMessageChunk({ content: 'a' });
+          ac.abort();
+          yield new AIMessageChunk({ content: 'b' });
+        })(),
+    };
+
+    await expect(
+      streamWithRetry(hung, {}, {}, { onDelta: (d) => deltas.push(d), signal: ac.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(deltas).toEqual(['a']); // 'b' 到达时已取消 → 不再下发
+  });
+
   it('聚合顺序:多 chunk 按序 concat,onDelta 逐 chunk 回调', async () => {
     const { llm, calls } = streamingLlm([{ chunks: ['你', '好', '世', '界'] }]);
     const deltas: string[] = [];
