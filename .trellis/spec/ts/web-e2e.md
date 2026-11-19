@@ -7,6 +7,23 @@ paths:
 
 # app 手工 E2E 验证(web 浏览器驱动 + 安卓冒烟)
 
+- **2026-11-19(安卓 E2E 两类假失败 —— 都不是代码问题)**:当日 A/B 架构整改后跑
+  5 条 lane(web / web:hk / android / android:hk / android:us)均通过,期间被两类
+  环境态误导各一次。两个都已在工具里根治(不只是注释):
+  1. **通知权限弹窗(Android 13+)**:`pm clear` 后首次冷启动会弹
+     POST_NOTIFICATIONS 对话框盖住整个 UI → `uiautomator dump` 只看得到
+     Allow / Don't allow → chip 断言恒 0/7、「☰」也找不到,**而 logcat 里
+     `分析结束:耗时 3.8s` 早已出现**。判据:失败时的 dump 文本只有 Allow。
+     根治:`tools/android-e2e*.mjs` 在 `am start` **之前**执行
+     `pm grant <pkg> android.permission.POST_NOTIFICATIONS`。**一次性快照检测不够** ——
+     弹窗晚到 1~2s 就漏,必须预授予 + 可重入的 `dismissSystemDialogs()`。
+  2. **市场/代码残留状态**:设置在设备上持久化。上一轮 `e2e:android:us` 把市场留在
+     「美股」,再跑 CN 脚本就拿着默认的 `600036` 被启动守卫即时拒绝
+     (「请输入有效的美股代码」),而旧脚本要空等满 30 分钟才报「分析未完成」——
+     把「屏幕上早已写着原因」的失败伪装成「超时」。根治:脚本显式归位市场
+     (`选择市场` → MARKET_CHOICES 的 label);并给开跑 20s 早期窗口,
+     UI 上出现 `✗ …` 就立即失败。
+
 - **2026-11-07(安卓 debug 包陈旧 bundle —— 会伪装成「代码没生效」)**:
   - **症状**:代码已改、Metro 在跑、`expo export` 也过,但 app 冷启动后行为仍是旧代码
     (本次 CR-25 差点被误判为复现 bug:`vol: b.volume` 拿 null 参与算术 → `VOL_RATIO=0.000`,

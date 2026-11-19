@@ -91,6 +91,44 @@ async function waitForLog(pattern, timeoutMs) {
   return null;
 }
 
+/** 运行期权限预授予(Android 13+ POST_NOTIFICATIONS)。
+ *
+ * 为什么必须在 `am start` **之前**:首次冷启动的权限对话框会盖住整个 UI,
+ *  `dumpNodes()` 只看得到 Allow/Don't allow → 后面每一条 UI 断言全挂,
+ *  而 logcat 里分析其实已经跑完了(实测 2026-11-19)。一次性快照检测晚 1~2s 就漏,
+ *  预授予直接从根上不弹。旧版 Android / 已授予 → grant 报错,忽略即可。 */
+function grantRuntimePermissions() {
+  const r = adb('shell', 'pm', 'grant', PKG, 'android.permission.POST_NOTIFICATIONS');
+  return !/Exception|Error|Unknown/i.test(r.out);
+}
+
+/** 点掉系统对话框 —— **可重入**,无弹窗则零成本。弹窗可能在任意时刻出现。 */
+async function dismissSystemDialogs() {
+  const allow = dumpNodes().find(
+    (n) => (n.text ?? '').trim() === 'Allow' || (n.desc ?? '').trim() === 'Allow',
+  );
+  if (!allow?.bounds) return false;
+  tap(allow);
+  await sleep(1500);
+  return true;
+}
+
+/** 等开跑的**早期结果**:done / error(UI 的「✗ …」启动守卫)/ timeout 三者之一。
+ *  旧实现不论哪种都等满 30 分钟,把屏幕上早已写着原因的失败伪装成「超时」。 */
+async function waitForStartOutcome(windowMs = 20_000) {
+  const deadline = Date.now() + windowMs;
+  while (Date.now() < deadline) {
+    const { out } = adb('logcat', '-d', 'ReactNativeJS:*', '*:S');
+    if (out.includes('分析结束')) return { done: true };
+    const err = dumpNodes()
+      .map((n) => (n.text ?? '').trim())
+      .find((t) => t.startsWith('✗'));
+    if (err) return { error: err };
+    await sleep(1000);
+  }
+  return { timeout: true };
+}
+
 /** 采集数据页是 ScrollView:visible-only dump 看不到下半屏。向下扫若干屏把
  *  文本合并成一份(断言只看文本,不看位置)。 */
 async function scrollAndCollect(screens = 8) {
@@ -123,6 +161,8 @@ async function main() {
     fail('未安装', `${PKG} —— 先跑 tools/android-e2e.mjs 或 adb install -r <apk>`);
     return;
   }
+  // 先于冷启动预授予(否则首次启动的权限对话框会盖住整个 UI)
+  if (grantRuntimePermissions()) ok('预授予通知权限');
 
   adb('logcat', '-c');
   adb('shell', 'am', 'force-stop', PKG);
@@ -132,14 +172,8 @@ async function main() {
   else ok('启动(JS 引擎就绪)');
   await sleep(2500);
 
-  // 通知权限弹窗(首次安装会出现)
-  const perms = dumpNodes();
-  const allow = perms.find((n) => n.text === 'Allow' || n.desc === 'Allow');
-  if (allow?.bounds) {
-    tap(allow);
-    await sleep(1500);
-    ok('通过通知权限弹窗');
-  }
+  // 通知权限弹窗(首次安装会出现;预授予后正常不会弹,保底处理旧系统/手动清权)
+  if (await dismissSystemDialogs()) ok('通过通知权限弹窗');
 
   // ① 输入代码:点编辑框 → input text(受控输入在 RN 上等同于键入)
   const input = dumpNodes().find((n) => n.editable);
@@ -184,6 +218,13 @@ async function main() {
   }
   tap(start);
   ok('点击「开始分析」');
+
+  // 先看早期结果:启动守卫拒绝是**即时 UI 错误**,不是慢分析
+  const early = await waitForStartOutcome();
+  if (early.error) {
+    fail('启动被 UI 守卫拒绝', `${early.error} —— 市场/代码与脚本预期不符(残留设置?)`);
+    return;
+  }
 
   const rawTimeout = process.env.SOA_E2E_ANALYSIS_TIMEOUT_MS;
   const parsed = Number(rawTimeout ?? 1_800_000);
