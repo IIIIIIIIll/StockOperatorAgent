@@ -228,6 +228,13 @@ async function main() {
     // 而恒 N/A —— cookie jar 修复后必须转绿，这是该修复的回归点）
     ['块 3 ROE 非 N/A', /净资产收益率\(ROE\): \d/.test(texts)],
     ['块 3 EPS 非 N/A', /每股收益\(EPS\): \d/.test(texts)],
+    // 2026-11-19 第二批：盈利能力 chips 对港美改读 yahoo-profile TTM 比率；
+    // 概览新增股息率/每股收益；业绩表分季度/年度并单列 FY（东财 F10 补全）
+    ['盈利能力 TTM chips', texts.includes('盈利能力指标(TTM)')],
+    ['概览含股息率', texts.includes('股息率')],
+    ['业绩报告 季度/年度', /业绩报告\(季度 \d+ \/ 年度 \d+\)/.test(texts)],
+    ['年度(FY)行', /\(FY\) — EPS/.test(texts)],
+    ['年度段 块 3', /年度\(FY \d{8}\)/.test(texts)],
   ];
   for (const [name, pass] of checks) {
     if (pass) ok(name);
