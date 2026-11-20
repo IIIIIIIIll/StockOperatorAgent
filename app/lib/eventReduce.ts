@@ -83,6 +83,8 @@ export function reduceEvent(
     state.error = e.error;
     // #96:error 终态清角色 chips(防「完成/分析中」残留)
     state.statuses = {};
+    // 分片不清(与 cancel 同口径，取消/失败均保留最后进度)；「草稿不能当报告」
+    // 由 ReportContent 的 staleNotice 在渲染侧标明。
     state.hasDone = false; // D15:error 终态撤销完成标记
   }
 

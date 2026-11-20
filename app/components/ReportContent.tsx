@@ -24,17 +24,20 @@ interface Props {
 }
 
 /** 槽位渲染:{node} partial ?? fallback(报告);streaming(running 且 partial 非空)
- *  → 尾部光标。 */
+ *  → 尾部光标。stale = 无报告且非运行中（取消/失败后留下的半截草稿）——
+ *  取消保留分片是既定设计（test/analysis-controller-history 钉死），但必须
+ *  在 UI 上标明它是未完成草稿，不能当报告展示（评审 2026-11-19 L6-2）。 */
 function streamText(
   partials: Record<string, string>,
   statuses: Record<string, RoleStatus>,
   node: string,
   fallback: string | undefined,
-): { text: string; streaming: boolean } {
+): { text: string; streaming: boolean; stale: boolean } {
   const partial = partials[node] ?? '';
   const streaming = statuses[node] === 'running' && partial.length > 0;
   const text = partial || fallback || '';
-  return { text: streaming ? text + CURSOR : text, streaming };
+  const stale = partial.length > 0 && !streaming && !fallback;
+  return { text: streaming ? text + CURSOR : text, streaming, stale };
 }
 
 export default React.memo(function ReportContent({
@@ -85,7 +88,7 @@ export default React.memo(function ReportContent({
     return (
       <ScrollView style={styles.container}>
         {slots.map((slot, i) => {
-          const { text, streaming } = streamText(throttledPartials, statuses, slot.node, slot.fallback);
+          const { text, streaming, stale } = streamText(throttledPartials, statuses, slot.node, slot.fallback);
           if (!text) return null; // 槽位暂无内容(如修订尚未开始)
           const open = expanded[i] ?? streaming; // 流式中的槽位默认展开
           return (
@@ -93,6 +96,7 @@ export default React.memo(function ReportContent({
               <Pressable onPress={() => setExpanded((s) => ({ ...s, [i]: !open }))} accessibilityRole="button" aria-expanded={open}>
                 <Text style={styles.opinionTitle}>{slot.title} {open ? '▾' : '▸'}</Text>
               </Pressable>
+              {open && stale ? <Text style={styles.staleNotice}>已中断：以下是未完成的草稿，非最终内容。</Text> : null}
               {open ? <MarkdownText content={text} /> : null}
             </View>
           );
@@ -102,7 +106,7 @@ export default React.memo(function ReportContent({
   }
 
   // 非观点 → 平铺:partial ?? 最新报告(最终内容权威)
-  const { text } = streamText(throttledPartials, statuses, nodeName, reports[reports.length - 1]?.content);
+  const { text, stale } = streamText(throttledPartials, statuses, nodeName, reports[reports.length - 1]?.content);
   if (!text) {
     return (
       <ScrollView style={styles.container}>
@@ -113,6 +117,7 @@ export default React.memo(function ReportContent({
   return (
     <ScrollView style={styles.container}>
       <View style={styles.opinionCard}>
+        {stale ? <Text style={styles.staleNotice}>已中断：以下是未完成的草稿，非最终内容。</Text> : null}
         <MarkdownText content={text} />
       </View>
     </ScrollView>
@@ -126,5 +131,6 @@ function makeStyles(theme: Theme) {
     opinionTitle: { fontSize: 13, fontWeight: '600', color: theme.colors.primary },
     finalCard: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.primary },
     muted: { color: theme.colors.textSecondary, fontSize: 13 },
+    staleNotice: { color: theme.colors.warn, fontSize: 12, fontWeight: '600', marginBottom: theme.spacing.xs },
   });
 }

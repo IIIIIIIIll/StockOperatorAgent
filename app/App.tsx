@@ -119,9 +119,13 @@ function AppContent() {
   ];
 
   const activeReports = a.events.filter(
-    (e): e is Extract<PipelineEvent, { type: 'report' }> => e.type === 'report' && e.key === activeTab,
+    (e): e is Extract<PipelineEvent, { type: 'report' }> =>
+      e.type === 'report' && e.key === (roles.some((r) => r.stateKey === activeTab) ? activeTab : roles[0]?.stateKey),
   );
-  const activeRole = roles.find((r) => r.stateKey === activeTab);
+  // P1(评审 2026-11-19 L6-1):角色开关被关掉时 activeTab 会指向一个**已不存在**
+  // 的角色，而旧渲染分支是 `activeRole ? … : null` → 内容区全白无提示。
+  // 退回第一个可用角色；一个都不剩时由下面渲染分支给一句明确说明。
+  const activeRole = activeTab === 'data' ? undefined : (roles.find((r) => r.stateKey === activeTab) ?? roles[0]);
   const progress = a.events.filter((e): e is Extract<PipelineEvent, { type: 'progress' }> => e.type === 'progress');
   // 菜单定位:menuSize(onLayout 实测)齐备后经 menuGeometry 约束(右缘 clamp/
   // 高度不足上翻);首帧未实测时退化为锚点原始定位,onLayout 随即回填
@@ -459,7 +463,14 @@ function AppContent() {
                   nodeName={activeRole.nodeName}
                   reviseNodeName={activeRole.reviseNodeName}
                 />
-              ) : null}
+              ) : (
+                <View style={styles.rolesEmpty}>
+                  <Text style={styles.rolesEmptyTitle}>所有角色已停用</Text>
+                  <Text style={styles.rolesEmptyHint}>
+                    在 ☰ → 设置 →「能力开关」里重新开启任一角色后即可查看报告。
+                  </Text>
+                </View>
+              )}
             </View>
           </ErrorBoundary>
         </View>
@@ -510,6 +521,10 @@ function menuGeometry(
 function makeStyles(theme: Theme, insets: EdgeInsets) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: theme.colors.background },
+    // L6-1:角色全停用时的兑底提示(旧实现这个分支是 null → 全白面板无任何说明)
+    rolesEmpty: { padding: theme.spacing.lg },
+    rolesEmptyTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
+    rolesEmptyHint: { fontSize: 13, color: theme.colors.textSecondary, marginTop: theme.spacing.xs },
     header: { paddingHorizontal: theme.spacing.lg, paddingTop: insets.top + theme.spacing.lg, paddingBottom: theme.spacing.sm, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
     headerRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
     historyBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.md, paddingVertical: 6, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border },

@@ -260,6 +260,8 @@ export class AnalysisController {
     this.deps.runner.abort?.();
     s.error = '已取消分析';
     s.statuses = {};
+    // 分片有意保留(实时视图显示最后进度，test/analysis-controller-history 钉死)；
+    // 「半截草稿当报告显示」的诚实性问题改在 UI 侧，见 ReportContent 的 staleNotice。
     this.finishRun();
     this.notifier.notify();
   }
