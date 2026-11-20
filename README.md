@@ -130,7 +130,7 @@ Actions artifact 供自测。
 2. 推导 Android `versionCode` 并一起提交：
 
    ```bash
-   node tools/derive-version-code.mjs 1.1.0   # → app/app.json 的 versionCode = 11100
+   node tools/derive-version-code.mjs 1.1.0   # → app/app.json 的 versionCode = 10100
    ```
 
    `test/app-config.test.ts` 断言 `versionCode === major*10000 + minor*100 + patch`，

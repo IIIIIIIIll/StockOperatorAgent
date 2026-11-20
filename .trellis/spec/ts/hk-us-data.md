@@ -37,7 +37,7 @@ composeYahooOverview(meta, summary, opts?: { firstClose?: number; lastClose?: nu
 
 // src/yahoo/composeYahooReports.ts（S2）
 composeYahooReports(modules, sharesOutstanding, opts?: { ticker?: string; name?: string; industry?: string })
-  → PerformanceReport[];  // fields 键复用 REPORT_COLUMNS；原币原始值（不做 ×10⁴）；QoQ 相邻期无 88-93 天门槛；YoY 上年同季
+  → PerformanceReport[];  // fields 键复用 REPORT_COLUMNS；原币原始值（不做 ×10⁴）；QoQ/半年环比经 periods.gapKindOf 门槛(88-93 天 Q / 175-190 天 H)；YoY 上年同季
 
 // src/yahoo/applyYahooCollectedToStore.ts（S3）
 applyYahooCollectedToStore(store, payload: YahooCollectedPayload, market): WebCollectResult;

@@ -107,8 +107,8 @@ meta 键与 '600036' 硬编码(architecture 契约 5)。
   settingsStore node 分支经 `_fs` 注入(nodeSettingsFileSystem)。接线示范
   `tools/desktop-probe.mts`。
 - 桌面 store 走**快照镜像 + 写穿串行队列**(`storeInit` 全量快照一次 hydrate,
-  11 个同步方法读本地镜像,mutator 按序 invoke `store-op`;
-  `FileStore.listStocks()/listMetaKeys()` 具体类方法供快照枚举)——详见
-  [desktop-ci.md](./desktop-ci.md)。
+  10 个同步方法读本地镜像,mutator 按序 invoke `store-op`;
+  `FileStore.listStocks()/listMetaKeys()` 是 **Node 侧具体类方法**(不在
+  StoreLike 契约里),供快照枚举)——详见 [desktop-ci.md](./desktop-ci.md)。
 - 采集 freshness 门(`gates.ts` dailyFresh/reportsFresh + resolveSkipGates,
   部分 fresh 不整体短路)见 [tdx-data.md](./tdx-data.md)。

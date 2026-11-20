@@ -89,9 +89,9 @@ paths:
     通道(puppeteer `console`/`pageerror` 事件 + 页内
     `window.onerror`/`unhandledrejection`/console 包装),覆盖缺口要如实
     记录并以 DOM 行为证据佐证,不要宣称全程零消息。
-  - **已知展示残留**:错误终态后角色 chips 停留「分析中」不复位
-    (statuses 未随 error 重置)。不影响 D15 判据;读屏验证时勿把残留
-    chips 误判为仍在运行。
+  - ~~**已修复(#96)**：错误终态后角色 chips 停留「分析中」不复位~~——
+    `app/lib/eventReduce.ts` 在 error 分支清 `statuses`，读屏应见 chips 清空。
+    旧版记录保留在此仅作历史；现状见 `test/event-reduce.test.ts`。
 - **2026-08-24(e2e-real-analysis,真实 LLM 链)**:
   - **凭证注入**:`loadSettings()` 分区浅合并 → 部分注入即可:web 直写
     localStorage `soa:settings`(仅 keys 三键),安卓 `run-as` 写沙盒

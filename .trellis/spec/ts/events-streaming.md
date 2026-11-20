@@ -19,7 +19,7 @@ paths:
 | { type: 'progress'; message: string }
 | { type: 'report'; key; tabTitle; content }    // 节点报告——最终内容权威来源
 | { type: 'token'; roleKey; node; delta }       // 流式文本增量
-| { type: 'roleStatus'; roleKey; node; status } // running|done|retry
+| { type: 'roleStatus'; roleKey; node; status } // running|done|retry|degraded
 | { type: 'done'; report: FinalReport }
 | { type: 'error'; error: string }
 ```
@@ -81,7 +81,8 @@ no-op,图不中断,对齐 `safeProgress`)。
 dev(metro 中间件)与生产(server.mjs)共用**单份**实现(收敛防漂移)。路由:
 `/llm-proxy`(LLM 转发)、`/tdx-collect`(TDX 采集)、`/yahoo-collect`(港股/美股采集)、
 `/web-search`(搜索)、`/tdx-mcp`(通达信 MCP 固定上游)、`/billions-proxy`(亿信
-path 白名单)、`/logs`(日志汇聚,lib/logs-server.cjs)。
+path 白名单)、`/news-feed`(Google News RSS,q ≤ 200 无控制字符,20s 超时)、
+`/logs`(日志汇聚,lib/logs-server.cjs)。
 
 **SSE 透传**(流式必需):`handleLlmProxy` 必须 pipe `upstream.body` 分块转发,
 **禁止 `await upstream.text()` 整体缓冲**(否则浏览器一次性收到 SSE,无实时性)。
@@ -127,10 +128,13 @@ path 白名单)、`/logs`(日志汇聚,lib/logs-server.cjs)。
 - **采集互斥(W4)**:/tdx-collect 45s 超时仅提前回 504,**锁保持到 doCollect
   真正 settle 才释放**(Abort 取消不了 node-tdx-market TCP——TdxClient 无
   AbortSignal 支持),timer 在 finally clearTimeout。
-- **取消语义(CR-23,2026-11-07)**:`events.abort()`/控制器 cancel/看门狗只复位
-  并发守卫(+UI 代数门),**不中断在飞 LLM 请求与工具循环**;后台运行仍可继续
-  最多 15 轮工具 + 退避重试,由上游 SDK 超时兜底。非控制器订阅者若需取消后
-  不误收旧结果,必须自带 runners 代数门。
+- **取消语义(CR-23,2026-11-07;2026-11-19 修订)**:`events.abort()` 现在**会把
+  AbortSignal 经 `RunnableConfig.signal` 传进 LLM 调用链——在飞请求真被取消**
+  (OpenAI SDK 取消 socket),`test/events.test.ts` 的「abort() 经 RunnableConfig.
+  signal 真取消」钉住该行为;控制器 cancel / 看门狗在此之上再加 UI 代数门。
+  仍可能自己跑完的只有「没人 abort 的孤儿运行」(如 server 侧无 signal 的探针),
+  由 15 轮工具上限 + 上游 SDK 超时兜底。非控制器订阅者若需取消后不误收旧结果,
+  仍须自带 runners 代数门。
 - **监听地址**:server.mjs `server.listen(PORT, process.env.HOST || '127.0.0.1')`
   ——默认回环,生产远程访问需显式 HOST=0.0.0.0。
 - **静态服务兜底(C1)**:serveStatic 的 decodeURIComponent 包 try/catch,

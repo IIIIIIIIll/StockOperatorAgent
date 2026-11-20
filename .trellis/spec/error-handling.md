@@ -100,8 +100,9 @@ graph never breaks:
   writes or the business flow.
 - `app/lib/desktopBridge.ts`: DesktopStore mutators apply to the local mirror
   first, then enqueue `store-op` over IPC; bridge failure ->
-  `console.error(\`DesktopStore ${op} 写穿失败:...\`)`, mirror stays
-  authoritative. Settings async save failure -> `console.error`, no throw.
+  ``logError(`DesktopStore ${op} 写穿失败:...`)`` (F37: all logging goes through
+  `src/log.ts`; a second exit is forbidden), mirror stays authoritative.
+  Settings async save failure -> `logError`, no throw.
   `bridgeStorage()` throws only when `window.__soaDesktop` is absent (init
   contract).
 
