@@ -100,3 +100,28 @@ node --experimental-transform-types .scratch/verify-qfq2.mts   # 5835 根对拍(
 
 `test/fixtures/600036_daily.json#adjusted` 是**错值**（Python 同款算法导出），保留仅为
 历史物证，`live.integration` 与 `qfq.test` 都已不再拿它当真值。
+
+## 端到端校验（2026-11-20，真网络 + 真 LLM）
+
+产物全部重建（`expo export --platform web` + `./gradlew :app:assembleRelease`），
+LLM 三键取自 `.env`：web 经 `node --env-file=.env` 注入 localStorage；Android
+release 包不可 `run-as`，改用 uiautomator 驱动设置面板填入（脚本
+`.scratch/inject-llm-keys.mjs`，保存时面板自检「✓ LLM 可达 2149ms, 回复 Pong」）。
+
+| 链路 | 市场 | LLM | 耗时 | 检查 | console.error |
+|---|---|---|---|---|---|
+| `npm run e2e:web` | 沪深 600036 | 占位(demo) | ~30s | 5/5 | 0 |
+| `npm run e2e:web:hk:llm` | 港股 00700 | 真 | 805s | 21/21 | 0 |
+| `SOA_E2E_TICKER=AAPL … web-e2e-hk.mjs` | 美股 AAPL | 真 | 895s | 20/20 | 0 |
+| `node tools/android-e2e.mjs` | 沪深 600036 | 真 | 743.9s | 10/10 | 0 FATAL |
+| `node tools/android-e2e-hk.mjs` | 港股 00700 | 真 | 613.0s | 23/23 | 0 FATAL |
+
+采集侧实测：港股 5540 根日K、代码规范化 00700 → 0700.HK、概览 27 键全有值、
+换手率列有值、Google News 8 条均近期。
+
+**两点经验**
+1. 真 LLM 的 7 角色委员会单次 600–900s —— `web-e2e-hk.mjs` 的
+   `ANALYZE_TIMEOUT_MS` 缺省 600s 会误判超时（首跑止步 6/7 角色）。
+   跑真 LLM 请用 `SOA_E2E_ANALYZE_MS=1500000`。
+2. `画像行业 chip` 不能钉死 `Communication Services`（那是 00700 的值，AAPL 是
+   Technology）；改为「有值且不是 N/A」并在断言里打印实际值。

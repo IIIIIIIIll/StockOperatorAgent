@@ -258,7 +258,10 @@ const data = await evalJs('document.body.innerText');
 check('概览 52周高低', data.includes('52周高低'));
 check('概览 YTD 非 N/A', !/YTD\nN\/A/.test(data));
 check('公司画像段', data.includes('公司画像 · 分析师预期'));
-check('画像行业 chip', /行业\nCommunication Services/.test(data));
+// 行业取值随市场不同(00700 → Communication Services,AAPL → Technology),
+// 断言「有值且不是 N/A」而不是钉死某一个行业名(旧版 `行业\n.+` 会把 N/A 也算过)。
+const industry = /行业\n([^\n]+)/.exec(data)?.[1]?.trim() ?? '';
+check('画像行业 chip', industry !== '' && industry !== 'N/A', industry);
 check('画像目标价/评级', data.includes('目标价') && (data.includes('强烈买入') || data.includes('买入') || data.includes('持有')));
 // 换手率列:本月任何一行出现具体数值(而非整列 N/A)
 const turnoverNumeric = /换手率[\s\S]{0,400}?\d+\.\d{2}%/.test(data);
