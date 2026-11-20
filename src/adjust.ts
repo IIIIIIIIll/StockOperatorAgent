@@ -1,5 +1,12 @@
-// qfq 前复权 —— 逐字节移植自 Python data_source/.../tdx/adjust.py
+// qfq 前复权 —— 由 Python data_source/.../tdx/adjust.py 移植而来,2026-11-19 修正
+// 累计因子重复相乘(P0,见 docs/code-review-2026-11-19.md):原实现把每轮累积到
+// 的 `Π(r_1..r_k)` 乘进「已被 `Π(r_1..r_{k-1})` 缩过」的前缀集合,导致比事件日
+// 更老的 bar 得到 `c0·Π r_m^(k-m+1)` 而非 `c0·Π r_m`(最近 250 根偏 2.67%,
+// 第 N-1000 根偏 -41%,首根下溢为 0)。Python 侧同错,故冻结夹具 test/fixtures/
+// 600036_daily.json#adjusted 是**错值**,只保留作历史物证,不再作 oracle。
 // 算法与单位约定见 research/m0-d3-xdxr-qfq.md
+import { warn } from './log.ts';
+
 export interface Bar {
   date: string; // YYYYMMDD，升序
   open: number;
@@ -31,9 +38,10 @@ export function qfqAdjust(bars: Bar[], xdxr: XdxrEventLike[]): Bar[] {
   if (!bars.length || !xdxr.length) return bars.map((b) => ({ ...b }));
   const raw = bars.map((b) => ({ ...b }));
   const closeSeries = bars.map((b) => b.close); // 原始收盘快照（未复权）
+  // 降序(新事件在前)逐个事件:每个事件只把自己的比率乘一次,作用对象是「该事件
+  // 日之前的 bar」。注意这些前缀集合是**嵌套子集**(事件越老,集合越小),所以
+  // 必须用本轮比率,不能用累计量——否则新事件的比率会被重复乘进更老的 bar。
   const events = [...xdxr].sort((a, b) => b.tradeDate.localeCompare(a.tradeDate));
-  let factorPrice = 1.0;
-  let factorVol = 1.0;
   for (const ev of events) {
     const beforeIdx: number[] = [];
     for (let i = 0; i < raw.length; i++) {
@@ -50,15 +58,22 @@ export function qfqAdjust(bars: Bar[], xdxr: XdxrEventLike[]): Bar[] {
     const ratioPrice = denominator > 0
       ? (prevClose - fenhongPs + peiguPs * peigujia) / denominator
       : 1.0;
+    if (denominator <= 0) {
+      // 除数非正 = xdxr 行坏了(prevClose 缺/为 0)。降级为不调整该事件,但必须留痕:
+      // 静默置 1.0 会让一次除权整段价格悄悄错位(error-handling.md 反模式)。
+      warn(`qfq ${ev.tradeDate} 除权分母非正(prevClose=${prevClose}),该事件价因子置 1.0`);
+    }
     const ratioVol = 1 + songguPs + peiguPs - suoguPs;
-    factorPrice *= ratioPrice;
-    if (ratioVol > 0) factorVol *= ratioVol; // 缩股等非正因子跳过成交量调整
+    const adjustVol = ratioVol > 0; // 缩股等非正因子跳过成交量调整
+    if (!adjustVol) {
+      warn(`qfq ${ev.tradeDate} 量因子非正(${ratioVol}),该事件不调整成交量`);
+    }
     for (const i of beforeIdx) {
-      raw[i].open *= factorPrice;
-      raw[i].close *= factorPrice;
-      raw[i].high *= factorPrice;
-      raw[i].low *= factorPrice;
-      raw[i].volume *= factorVol;
+      raw[i].open *= ratioPrice;
+      raw[i].close *= ratioPrice;
+      raw[i].high *= ratioPrice;
+      raw[i].low *= ratioPrice;
+      if (adjustVol) raw[i].volume *= ratioVol;
     }
   }
   // 复权后重算指标列 + 成交量舍回整手
@@ -110,7 +125,11 @@ export function qfqAdjustByAdjClose(bars: readonly AdjCloseBar[]): AdjCloseBar[]
     const adj = b.adjClose;
     return adj !== null && Number.isFinite(adj) && adj > 0 && b.close > 0 ? adj / b.close : null;
   });
-  if (rawFactor.every((f) => f === null)) return bars.map((b) => ({ ...b }));
+  if (rawFactor.every((f) => f === null)) {
+    // adjclose 全缺(如 5m 盘中K)→ 等价不复权。价格错位风险由调用方承担,须留痕。
+    warn(`qfq(adjclose) 全序列缺 adjclose(${bars.length} 根),本次不做复权`);
+    return bars.map((b) => ({ ...b }));
+  }
   // 缺失因子填充:先前向携带(用左侧最近的有效因子);开头部段(无左邻)留
   // NaN 标记,再由后向补齐(用右侧第一个有效因子)—— 两向不能互相覆盖,否则
   // 「中间缺口」会被后向重写成右值。
@@ -133,7 +152,10 @@ export function qfqAdjustByAdjClose(bars: readonly AdjCloseBar[]): AdjCloseBar[]
     }
   }
   const lastFactor = filled.at(-1) ?? NaN;
-  if (!Number.isFinite(lastFactor) || lastFactor <= 0) return bars.map((b) => ({ ...b }));
+  if (!Number.isFinite(lastFactor) || lastFactor <= 0) {
+    warn(`qfq(adjclose) 末根因子无效(${lastFactor}),本次不做复权`);
+    return bars.map((b) => ({ ...b }));
+  }
   const scale = 1 / lastFactor;
   return bars.map((b, i) => {
     const f = filled[i];
