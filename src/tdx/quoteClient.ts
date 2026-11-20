@@ -6,6 +6,13 @@ import type { DailyBar } from '../store.ts';
 import { nameKey } from '../metaKeys.ts';
 import { qfqAdjust, type Bar, type XdxrEventLike } from '../adjust.ts';
 import { getXdxrInfo, toXdxrEventLike } from './xdxr.ts';
+import { warn } from '../log.ts';
+
+/** 错误 → 短文本。本文件内部用：不 import events.ts 的 describeError，避免
+ *  采集层 ↔ 编排层方向上的耦合（events.ts 已依赖 pipeline）。 */
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export interface CollectedSnapshot {
   price: number; // 元
@@ -62,7 +69,9 @@ export async function fetchSnapshot(client: TdxClient, ticker: string): Promise<
   let q: Array<{ price: number; high: number; low: number; open: number; volume: number; amount: number }>;
   try {
     q = (await client.getQuote(addPrefix(ticker))) as never;
-  } catch {
+  } catch (err) {
+    // 逐源降级但必须留痕：静默 null 会让下游以为「这只股票没快照」。
+    warn(`TDX 快照拉取失败 ${ticker}:${describe(err)}`);
     return null;
   }
   if (!q || !q.length) return null;
@@ -94,7 +103,8 @@ export async function fetchStockName(
     if (!hit) return null;
     metaSet(key, hit.name);
     return hit.name;
-  } catch {
+  } catch (err) {
+    warn(`TDX 证券名称拉取失败 ${ticker}:${describe(err)}`);
     return null;
   }
 }
@@ -105,7 +115,9 @@ export async function fetchXdxrEvents(client: TdxClient, ticker: string): Promis
   try {
     const events = await getXdxrInfo(client, inferExchange(ticker) as number, ticker);
     return events.map(toXdxrEventLike);
-  } catch {
+  } catch (err) {
+    // 复权事件缺 → 后续 qfq 变成恒等变换（bar 带着除权跳空进指标），必须留痕。
+    warn(`TDX 除权除息事件拉取失败 ${ticker}，本轮不做前复权:${describe(err)}`);
     return [];
   }
 }
@@ -134,7 +146,9 @@ export function applyQfq(bars: DailyBar[], events: XdxrEventLike[]): DailyBar[] 
       volume: b.volume,
       amount: b.amount ?? null,
     }));
-  } catch {
+  } catch (err) {
+    // 降级为未复权序列是错价，不能静默（error-handling.md 反模式）。
+    warn(`前复权计算失败 ${bars.length} 根，退回未复权价:${describe(err)}`);
     return bars.map((b) => ({ ...b }));
   }
 }

@@ -5,6 +5,7 @@ import type { DailyBar, StoreLike } from './store.ts';
 import type { CollectedSnapshot } from './tdx/quoteClient.ts';
 import { parseCapitalStructure, parseFinanceIndicatorsAllTables } from './f10.ts'; import { composeReports } from './reports.ts';
 import { capitalKey, f10Key } from './metaKeys.ts';
+import { marketSessionClosed, marketToday } from './gates.ts';
 import { abortRequestAfter, raceBodyTimeout } from './timeout.ts';
 
 export interface CollectedPayload {
@@ -61,8 +62,18 @@ export class CollectError extends Error {
 /** 代理载荷 → store(putStock/addDatas/per-ticker f10 meta);返回 run opts 用结果。
  *  C8 freshness：同日跳过（payload.skipDaily）时保留既有日K 与 lastDataUpdate
  *  （跳过返回现有数据不置空），快照/名称仍照常入库。 */
-export function applyCollectedToStore(store: StoreLike, payload: CollectedPayload): WebCollectResult {
+export function applyCollectedToStore(
+  store: StoreLike,
+  payload: CollectedPayload,
+  /** 时钟注入（测试/探针）；缺省取当前时刻。仅用于“是否已收盘”判定。 */
+  now: Date = new Date(),
+): WebCollectResult {
   const prev = store.getStock(payload.ticker);
+  // P1(评审 2026-11-19):末根是「今天但尚未收盘」的进行中 bar 时，不能让
+  // last_data_update 前进到今天——否则当天剩下的时间里 gates.dailyFresh 判为新鲜，
+  // 报告永远用这根盘中残缺 bar（HK/US 链已在 applyYahooCollectedToStore 修过同类）。
+  const lastBarDate = payload.bars.length ? (payload.bars.at(-1)?.date ?? null) : null;
+  const intradayBar = lastBarDate === marketToday('cn') && !marketSessionClosed('cn', now);
   store.putStock({
     ticker: payload.ticker,
     name: payload.name ?? payload.ticker,
@@ -75,6 +86,17 @@ export function applyCollectedToStore(store: StoreLike, payload: CollectedPayloa
   // 同日跳过 → bars 为空:guard 免误清(InMemory replaceDatas 先删后加,空数组会清空既有日K)
   if (payload.bars.length) {
     store.replaceDatas(payload.ticker, payload.bars);
+  }
+  // replaceDatas 会把戳重写成末根日期（含今天的进行中 bar）→ 盘中补一次，
+  // 维持「今天的数据还没定稿」（同日跳过的分支已在上面 putStock 里保住）。
+  if (intradayBar) {
+    store.putStock({
+      ticker: payload.ticker,
+      name: payload.name ?? payload.ticker,
+      overview: null,
+      overviewLastUpdate: null,
+      lastDataUpdate: prev?.lastDataUpdate ?? null,
+    });
   }
   // per-ticker F10(修复旧全局 DEMO_F10_KEY 串票)+ 业绩报告入库(修复业绩报告(0))
   if (payload.f10Text) {

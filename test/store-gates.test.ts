@@ -282,9 +282,9 @@ describe('freshness 接线（C8：同日跳过日K / 同季跳过 F10）', () =>
       expect(r.snapshot?.price).toBe(6.4); // 快照仍拉取
     });
 
-    it('跨日/跨季首次:全量路径不变(无跳过参数,新数据入库)', async () => {
+    it('跨日/跨季首次:全量路径不变(无跳过参数,新数据入库);盘中不推进 lastDataUpdate', async () => {
       vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-08-14T02:00:00Z'));
+      vi.setSystemTime(new Date('2026-08-14T02:00:00Z')); // 10:00 CST —— CN 盘中
       // 上次采集是昨天(跨日),无业绩(跨季/首采)
       store.putStock({
         ticker: '002027',
@@ -315,6 +315,37 @@ describe('freshness 接线（C8：同日跳过日K / 同季跳过 F10）', () =>
       );
       expect(store.getDatas('002027')).toHaveLength(2); // 新数据全量替换
       expect(store.getDatas('002027')[1].date).toBe('2026-08-14');
+      // P1(评审 2026-11-19):末根就是「今天但未收盘」的进行中 bar → 戳不得前进，
+      // 否则当天剩余时间 dailyFresh 判新鲜，报告永远用这根残缺 bar（CN 链原先
+      // 缺这道守卫，HK/US 链已有）。
+      expect(store.getStock('002027')?.lastDataUpdate).toBe('2026-08-13');
+    });
+
+    it('同日已收盘:末根今天的 bar 可正常推进 lastDataUpdate', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-14T08:30:00Z')); // 16:30 CST —— CN 已收盘
+      store.putStock({
+        ticker: '002027',
+        name: '分众传媒',
+        overview: null,
+        overviewLastUpdate: null,
+        lastDataUpdate: '2026-08-13',
+      });
+      store.addDatas('002027', bars(['2026-08-13']));
+      vi.stubGlobal('location', { origin: 'http://test' });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          new Response(
+            JSON.stringify(
+              payload({ bars: bars(['2026-08-13', '2026-08-14']), f10Text: '【主要财务指标】\n净资产收益率: 15.2' }),
+            ),
+            { status: 200 },
+          ),
+        ),
+      );
+      await collectForWeb('002027');
+
       expect(store.getStock('002027')?.lastDataUpdate).toBe('2026-08-14');
     });
   });
