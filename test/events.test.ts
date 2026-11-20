@@ -245,6 +245,37 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     expect(seen.filter((e) => e.runTag !== 7 && e.runTag !== 9)).toEqual([]);
   });
 
+  it('外部 signal 取消后必须释放并发守卫，否则后续 run 恒被拒(L10-3/C1)', async () => {
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const events: PipelineEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    // 已取消的 signal → 入口 throwIfAborted 命中 abort 分支(无需计时/闸门)
+    const ac = new AbortController();
+    ac.abort();
+    const first = await runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-10',
+      llm: stubLlm(),
+      signal: ac.signal,
+    });
+    expect(first).toBeUndefined();
+    // 取消 ≠ 失败：不得发 error 事件
+    expect(events.filter((e) => e.type === 'error')).toEqual([]);
+
+    // 关键断言：守卫已释放 → 第二次真正跑完(修前这里返回 undefined 并 emit
+    // 「上一次分析仍在进行中」)
+    const second = await runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-10',
+      llm: stubLlm(),
+    });
+    expect(second).toBeTruthy();
+  });
+
   it('retry 注入 → roleStatus 序列 running→retry→done,后续 token 全量重来', async () => {
     const store = seededStore();
     const runner = createPipelineRunner(store);

@@ -266,8 +266,12 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
         return report;
       } catch (err) {
         if (isAbortError(err) || signal.aborted) {
-          // 取消 ≠ 失败:不 emit error(控制器已自己复位 UI),也不把
+          // 取消 ≠ 失败：不 emit error(控制器已自己复位 UI)，也不把
           // "The operation was aborted" 当故障弹红条。
+          // 但守卫必须释放：外部 opts.signal 取消时没人调 runner.abort()，
+          // 不在这里复位会让 running 恒 true，后续 run 全被"上一次分析仍在
+          // 进行中"永久拒绝(评审 2026-11-19 L10-3/C1)。
+          releaseRunning();
           return undefined;
         }
         // 契约(error-handling.md「runner never throws past event boundary」):
