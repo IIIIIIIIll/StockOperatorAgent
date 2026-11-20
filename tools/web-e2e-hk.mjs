@@ -239,7 +239,7 @@ while (Date.now() < deadline) {
 check(`${MARKET_LABEL}分析跑完`, done, done ? `${Math.round((Date.now() - (deadline - ANALYZE_TIMEOUT_MS)) / 1000)}s` : `${ANALYZE_TIMEOUT_MS / 1000}s 内未见「分析完成」`);
 if (!done) {
   const body = await evalJs('document.body.innerText');
-  console.error('\n--- 页面正文(尾部) ---\n' + body.slice(-1200));
+  console.error(`\n--- 页面正文(尾部) ---\n${body.slice(-1200)}`);
   console.error(`\n--- 异常/console.error (${problems.length}) ---`);
   for (const p of problems.slice(0, 10)) console.error(`  - ${p.slice(0, 300)}`);
   fail('分析未完成,后续断言无法进行');
@@ -258,7 +258,7 @@ const data = await evalJs('document.body.innerText');
 check('概览 52周高低', data.includes('52周高低'));
 check('概览 YTD 非 N/A', !/YTD\nN\/A/.test(data));
 check('公司画像段', data.includes('公司画像 · 分析师预期'));
-check('画像行业 chip', /行业\nCommunication Services|行业\n.+/.test(data), '');
+check('画像行业 chip', /行业\nCommunication Services/.test(data));
 check('画像目标价/评级', data.includes('目标价') && (data.includes('强烈买入') || data.includes('买入') || data.includes('持有')));
 // 换手率列:本月任何一行出现具体数值(而非整列 N/A)
 const turnoverNumeric = /换手率[\s\S]{0,400}?\d+\.\d{2}%/.test(data);
@@ -282,7 +282,7 @@ check('块 3 EPS 非 N/A', /每股收益\(EPS\): \d/.test(ctx));
 // 新闻时效:不得混进 2 年前的条目(时效过滤 18 个月)
 const years = [...ctx.matchAll(/- (20\d{2})-\d{2}-\d{2} /g)].map((m) => Number(m[1]));
 check('新闻均为近期(>= 前一年)', years.length === 0 || Math.min(...years) >= new Date().getFullYear() - 1, years.join(','));
-check('上下文含 52 周高低/量比等补齐指标', /Weekly|52/.test(ctx) || /volume/i.test(ctx) || true, '概览段已在上方断言');
+check('上下文含 52 周高低/量比等补齐指标', /Weekly|52/.test(ctx) || /volume/i.test(ctx));
 
 console.log(`\n采集到的异常/console.error: ${problems.length}`);
 for (const p of problems.slice(0, 5)) console.log(`  - ${p}`);

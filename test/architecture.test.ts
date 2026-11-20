@@ -147,7 +147,7 @@ describe('契约 1:src 无 node: 内置 import(store-node.ts 白名单)', () => 
   it('src/**/*.ts 禁静态/动态 node: import(metro 无 fs shim)', () => {
     const violations = scan(
       SRC_TS,
-      (t) => /(?:from\s*|require\(\s*|import\(\s*)['"]node:/.test(t),
+      (t) => /(?:from\s*|require\(\s*|import\(\s*|^\s*import\s+)['"]node:/.test(t),
       (f) => f in NODE_WHITELIST,
     );
     expect(violations, `node: import 仅限 ${Object.keys(NODE_WHITELIST).join(', ')}(Node-only,不进 metro 图)`).toEqual([]);
@@ -161,7 +161,7 @@ describe('契约 2:src 无 react-native import(平台纯净)', () => {
   it('src/**/*.ts 禁 from/react-native', () => {
     const violations = scan(
       SRC_TS,
-      (t) => /(?:from\s*|require\(\s*|import\(\s*)['"]react-native(\/|['"])/.test(t),
+      (t) => /(?:from\s*|require\(\s*|import\(\s*|^\s*import\s+)['"]react-native(\/|['"])/.test(t),
     );
     expect(violations, 'react-native import 只允许出现在 app/(RN 专属层)').toEqual([]);
   });
@@ -185,7 +185,7 @@ describe('契约 3:better-sqlite3 仅 type import(值 import 白名单 probe/tes
       all,
       (t) =>
         !/import\s+type\b/.test(t) && // type-only 擦除,合法
-        /(?:from\s*|require\(\s*|import\(\s*)['"]better-sqlite3['"]/.test(t),
+        /(?:from\s*|require\(\s*|import\(\s*|^\s*import\s+)['"]better-sqlite3['"]/.test(t),
       (f) => f in BS3_DIRECT_WHITELIST || f.startsWith('test/'),
     );
     expect(violations, 'better-sqlite3 值 import 仅限 src/store.ts(实现本体)+ tools/probe.mts + test/*').toEqual([]);
