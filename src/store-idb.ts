@@ -97,7 +97,9 @@ export class IdbStore implements StoreLike {
   private readonly dbName: string;
   private queue: Promise<void> = Promise.resolve();
   private closed = false;
-  private persistError: string | null = null;
+  /** P1(评审 2026-11-19):按写入目标记账,不再用单一 flag —— 旧实现在任何后续写
+   *  成功时置 null,ticker 写失败会被后面的 setMeta 成功掩盖。 */
+  private readonly persistErrors = new Map<string, string>();
   private dbPromise: Promise<IdbDatabaseLike> | null = null;
   private readyPromise: Promise<void> | null = null;
 
@@ -177,28 +179,29 @@ export class IdbStore implements StoreLike {
 
   /** 写穿透队列:单 Promise 链串行保证写序;失败仅记录,不阻断后续写(决策 C)。
    *  close() 后不再入队(store 已关闭,写穿禁用;见 close 注释)。 */
-  /** CR-28:最近一次异步落盘失败(成功写入后清空)。 */
+  /** CR-28:异步写穿透的失败(同一写入目标成功后才清除)。 */
   getLastPersistError(): string | null {
-    return this.persistError;
+    if (this.persistErrors.size === 0) return null;
+    return [...this.persistErrors.values()].join('；');
   }
 
-  private enqueue(op: () => Promise<void>): void {
+  private enqueue(key: string, op: () => Promise<void>): void {
     if (this.closed) return;
     this.queue = this.queue
       .then(() => this.ready())
       .then(op)
       .then(() => {
-        this.persistError = null;
+        this.persistErrors.delete(key);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        this.persistError = msg;
-        logError(`IdbStore 落盘失败:${msg}`);
+        this.persistErrors.set(key, msg);
+        logError(`IdbStore 落盘失败(${key}):${msg}`);
       });
   }
 
   private enqueuePersistBars(ticker: string, fresh: DailyBar[], updatedStock?: StockRecord): void {
-    this.enqueue(async () => {
+    this.enqueue(`ticker:${ticker}`, async () => {
       const db = await this.open();
       const tx = db.transaction(['daily_bars', 'stocks'], 'readwrite');
       const barsStore = tx.objectStore('daily_bars');
@@ -209,7 +212,7 @@ export class IdbStore implements StoreLike {
   }
 
   private enqueuePersistReplace(ticker: string, updatedStock?: StockRecord): void {
-    this.enqueue(async () => {
+    this.enqueue(`ticker:${ticker}`, async () => {
       const db = await this.open();
       const tx = db.transaction(['daily_bars', 'stocks'], 'readwrite');
       const barsStore = tx.objectStore('daily_bars');
@@ -222,7 +225,7 @@ export class IdbStore implements StoreLike {
   }
 
   private enqueuePersistReports(ticker: string, fresh: PerformanceReport[]): void {
-    this.enqueue(async () => {
+    this.enqueue(`ticker:${ticker}`, async () => {
       const db = await this.open();
       const tx = db.transaction('performance_reports', 'readwrite');
       const store = tx.objectStore('performance_reports');
@@ -232,7 +235,7 @@ export class IdbStore implements StoreLike {
   }
 
   private enqueuePersistStock(record: StockRecord): void {
-    this.enqueue(async () => {
+    this.enqueue(`ticker:${record.ticker}`, async () => {
       const db = await this.open();
       const tx = db.transaction('stocks', 'readwrite');
       tx.objectStore('stocks').put({ ...record });
@@ -241,7 +244,7 @@ export class IdbStore implements StoreLike {
   }
 
   private enqueuePersistMeta(key: string, value: string): void {
-    this.enqueue(async () => {
+    this.enqueue(`meta:${key}`, async () => {
       const db = await this.open();
       const tx = db.transaction('meta', 'readwrite');
       tx.objectStore('meta').put({ key, value });

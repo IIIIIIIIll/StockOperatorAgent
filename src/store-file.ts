@@ -150,11 +150,7 @@ export class FileStore implements StoreLike {
     baseDir: string,
     names: string[],
   ): Promise<{ consumed: boolean }> {
-    const source = names.includes(META_FILE)
-      ? META_FILE
-      : names.includes(LEGACY_META_FILE)
-        ? LEGACY_META_FILE
-        : null;
+    const source = [META_FILE, LEGACY_META_FILE].find((n) => names.includes(n)) ?? null;
     if (source === null) return { consumed: false };
     let text: string | null;
     try {
@@ -236,8 +232,12 @@ export class FileStore implements StoreLike {
     }
   }
 
-  /** 串行写队列:整文件重写(执行时读内存最新态 → 幂等);失败仅记录不阻断(决策 C)。 */
-  private persistError: string | null = null;
+  /** 串行写队列:整文件重写(执行时读内存最新态 → 幂等);失败仅记录不阻断(决策 C)。
+   *  P1(评审 2026-11-19):按**写入目标**记账,不再用单一 flag —— 旧实现在任何
+   *  后续写成功时置 null,于是一次分析 6+ 次写中 ticker 文件写失败会被后面的
+   *  setMeta 成功掩盖,analysisController 读完 flush 拿到 null,用户被告知已保存
+   *  而盘上是旧数据。现在只有「同一 ticker」再次写成功才清掉该 ticker 的错。 */
+  private readonly persistErrors = new Map<string, string>();
 
   /** 读侧对偶(§3 P3 未验项):hydrate 期间被跳过的文件,与写侧
    *  `getLastPersistError` 同构。此前只有 logError —— 损坏文件读不出来就等于
@@ -245,10 +245,11 @@ export class FileStore implements StoreLike {
    *  null = 本次 hydrate 全部文件读取成功;`ready()` 重复调用会重新推导。 */
   private readonly readFailures = new Map<string, string>();
 
-  /** CR-28:异步写穿透的最近失败(成功写入清除)。写事件不返回 Promise,
+  /** CR-28:异步写穿透的失败(同一写入目标成功后才清除)。写事件不返回 Promise,
    *  调用方(analysisController)在 done 时自检并告知用户。 */
   getLastPersistError(): string | null {
-    return this.persistError;
+    if (this.persistErrors.size === 0) return null;
+    return [...this.persistErrors.values()].join('；');
   }
 
   /** 读侧诊断:本次 hydrate 跳过的文件清单(空 = 全部读取成功)。调用方在
@@ -258,18 +259,18 @@ export class FileStore implements StoreLike {
     return [...this.readFailures].map(([name, detail]) => `${name}(${detail})`).join('；');
   }
 
-  private enqueue(op: () => Promise<void>): void {
+  private enqueue(key: string, op: () => Promise<void>): void {
     if (this.closed) return; // F10:close 后写穿禁用(与 IdbStore 同款 fail-fast)
     this.queue = this.queue
       .then(() => this.ready())
       .then(op)
       .then(() => {
-        this.persistError = null;
+        this.persistErrors.delete(key);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        this.persistError = msg;
-        logError(`FileStore 落盘失败:${msg}`);
+        this.persistErrors.set(key, msg);
+        logError(`FileStore 落盘失败(${key}):${msg}`);
       });
   }
 
@@ -282,7 +283,7 @@ export class FileStore implements StoreLike {
       logError(`FileStore 拒绝写入与 meta 同名的 ticker:${ticker}`);
       return;
     }
-    this.enqueue(async () => {
+    this.enqueue(`ticker:${ticker}`, async () => {
       const { fs, baseDir } = await this.backend();
       const payload: TickerFile = {
         stock: this.stocks.get(ticker) ?? null,
@@ -298,7 +299,7 @@ export class FileStore implements StoreLike {
   }
 
   private enqueuePersistMeta(): void {
-    this.enqueue(async () => {
+    this.enqueue('meta', async () => {
       const { fs, baseDir } = await this.backend();
       await fs.writeFile(joinPath(baseDir, META_FILE), JSON.stringify(Object.fromEntries(this.meta)));
     });
