@@ -68,6 +68,19 @@ function sanitizeCaps(caps: CapsState): CapsState {
   };
 }
 
+/** switches 归一（评审 2026-11-19 S3）：只接受 boolean。盘上手改成 `"false"`
+ *  是 truthy 字符串，直接展开合并会让该能力**静默开启**；未知键也在读入时丢弃
+ *  （与 keys 同口径：否则会被展开写回，用户再也清不掉）。 */
+function sanitizeSwitches(persisted: unknown): SwitchState {
+  const out: SwitchState = { ...DEFAULT_SWITCHES };
+  if (typeof persisted !== 'object' || persisted === null) return out;
+  const rec = persisted as Record<string, unknown>;
+  for (const name of Object.keys(out) as Array<keyof SwitchState>) {
+    if (typeof rec[name] === 'boolean') out[name] = rec[name] as boolean;
+  }
+  return out;
+}
+
 const DEFAULT_KEYS: KeysState = {
   llmApiKey: '', llmModel: '', llmBaseUrl: '',
   tdxApiKey: '', billionsApiKey: '',
@@ -92,16 +105,22 @@ export function loadSettings(): SettingsState {
       const persisted = (p.keys ?? {}) as Record<string, unknown>;
       const savedKeys: Record<string, unknown> = {};
       for (const name of Object.keys(d.keys)) {
-        if (name in persisted) savedKeys[name] = persisted[name];
+        // `in` 对原始值直接抛 TypeError（盘上 {"keys":"x"} 就够）——旧实现在
+        // 下面的裸 catch 里被吞成「全部设置回默认」，明码 Key 一起丢（评审 2026-11-19 S4）。
+        if (typeof persisted === 'object' && persisted !== null && name in persisted) {
+          savedKeys[name] = persisted[name];
+        }
       }
       loaded = {
-        switches: { ...d.switches, ...(p.switches ?? {}) },
+        switches: sanitizeSwitches(p.switches),
         caps: sanitizeCaps({ ...d.caps, ...(p.caps ?? {}) }),
         keys: { ...d.keys, ...(savedKeys as Partial<KeysState>) },
       };
     }
-  } catch {
-    /* 损坏的存储 → 默认值 */
+  } catch (err) {
+    // 阀值降级但必须留痕：静默回默认值会让用户明码 Key 无提示消失，
+    // 下一次 saveSettings 再把空默认值写回盘（error-handling.md 反模式）。
+    warn(`设置读取失败，已回落默认值（盘上文件未改动，检查 soa-settings.json）:${err instanceof Error ? err.message : String(err)}`);
   }
   // 环境变量兜底:EXPO_PUBLIC_LLM_* 由 Expo 注入(浏览器/构建时),
   // 面板未保存的键从 env 补齐——对齐 Python 读 .env 的配置语义。
