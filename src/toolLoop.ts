@@ -71,11 +71,14 @@ export async function invokeWithTools(
   /** 单轮 LLM 调用:有 .stream() → streamWithRetry(逐 chunk onDelta);
    *  无 .stream()(离线测试脚本式假件)→ invokeWithRetry + 单次全量 delta。 */
   const roundCall = async (payload: unknown): Promise<{ content: unknown; tool_calls?: unknown }> => {
+    // 取消信号必须传到 retry 层：否则退避计时器与「发起新请求前」的 throwIfAborted
+    // 全成死代码，取消后仍会再打满 1s/2s/4s 三次上游（评审 2026-11-19 C2）。
+    const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
     const streamable = (llm as { stream?: StreamableLlm['stream'] }).stream;
     if (typeof streamable === 'function') {
-      return streamWithRetry(llm as StreamableLlm, payload, config, { onDelta, onRetry });
+      return streamWithRetry(llm as StreamableLlm, payload, config, { onDelta, onRetry, signal });
     }
-    const out = (await invokeWithRetry(llm, payload, config)) as { content: unknown; tool_calls?: unknown };
+    const out = (await invokeWithRetry(llm, payload, config, { signal })) as { content: unknown; tool_calls?: unknown };
     const text = typeof out.content === 'string' ? out.content : String(out.content);
     if (text) onDelta?.(text);
     return out;

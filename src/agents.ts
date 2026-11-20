@@ -108,13 +108,17 @@ export class AgentNode {
     nodeName: string,
   ): Promise<{ content: unknown; tool_calls?: unknown }> {
     const streamable = (llm as { stream?: StreamableLlm['stream'] }).stream;
+    // 取消信号下沉到 retry 层（退避计时器 + 每次尝试前的 throwIfAborted），
+    // 否则取消后仍会打满三次上游（评审 2026-11-19 C2）。
+    const signal = (this.config as { signal?: AbortSignal } | undefined)?.signal;
     if (typeof streamable === 'function') {
       return streamWithRetry(llm as StreamableLlm, payload, this.config, {
         onDelta: (d) => safePushDelta(this.progressUpdater, nodeName, d),
         onRetry: (_attempt) => safePushStatus(this.progressUpdater, nodeName, 'retry'),
+        signal,
       });
     }
-    const response = (await invokeWithRetry(llm as LlmLike, payload, this.config)) as {
+    const response = (await invokeWithRetry(llm as LlmLike, payload, this.config, { signal })) as {
       content: unknown;
       tool_calls?: unknown;
     };
