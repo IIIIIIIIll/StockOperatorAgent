@@ -6,7 +6,7 @@
 // (baseDir, fs) 注入面)。
 // 路径拼接语义复用 store-file.ts(joinPath:baseDir 尾斜杠兼容;FileStore 传给
 // 适配器的 readFile/writeFile 已是拼好的完整路径,listDir 只枚举 baseDir)。
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import {
   readFile as fsReadFile,
   readdir,
@@ -89,14 +89,23 @@ export function nodeSettingsFileSystem(baseDir: string): NodeSettingsFileSystem 
       return existsSync(this.path);
     }
     create(): void {
-      writeFileSync(this.path, '');
+      writeFileSync(this.path, '', { mode: 0o600 });
     }
     write(contents: string): void {
       // CR-30:tmp + rename 原子替换(与 store-node 的 FileStore 适配器同手法),
       // 避免崩溃留下半截设置 JSON(下次启动静默回默认,含 API key)。
+      // P2(评审 2026-11-21):这个文件里存的是明文 LLM/亿信/LangSmith Key,
+      // 旧实现不给 mode → 落到 0644,同机器上任何用户都能读。显式 0600,
+      // 并对已存在的文件补一次 chmod(rename 不会修正旧文件的权限)。
       const tmp = `${this.path}.tmp`;
-      writeFileSync(tmp, contents);
+      writeFileSync(tmp, contents, { mode: 0o600 });
       renameSync(tmp, this.path);
+      try {
+        chmodSync(this.path, 0o600);
+      } catch {
+        // Windows/受限母盘不支持 chmod —— 权限已由上行的 mode 尽力而为,
+        // 失败不阻断写入(否则 Windows 上设置完全存不下)
+      }
     }
     moveSync(destination: { path?: string }, options?: { overwrite?: boolean }): void {
       const dest = destination.path;

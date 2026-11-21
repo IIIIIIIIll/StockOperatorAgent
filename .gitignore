@@ -33,3 +33,7 @@ desktop/dist/
 .scratch
 *.keystore
 *.jks
+# 签名凭据:tools/configure-android-signing.mjs 会把 keystore 口令**明文**写入
+# app/android/keystore.properties。旧版只靠 app/.gitignore 的 /android 行兜底,
+# 一旦 prebuild 重生成或以别的方式把该目录重新纳入版本控制,口令就进库了。
+keystore.properties
