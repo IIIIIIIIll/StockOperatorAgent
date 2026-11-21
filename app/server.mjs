@@ -186,7 +186,26 @@ if (isMain) {
   process.on('unhandledRejection', (err) => {
     console.error('[soa] 未处理的 Promise rejection(已兜底,进程继续):', err instanceof Error ? (err.stack ?? err.message) : String(err));
   });
+  // P2（评审 2026-11-21）：非回环监听 = 把代理面开给整个局域网，而「谁能加载
+  // 这个页面，谁就能从 bundle 里读到 EXPO_PUBLIC_SOA_ACCESS_TOKEN」—— password
+  // 内联在静态资源里，静态资源又不经 proxyGate，所以 token 只防手滑，不防人。
+  // 因此拒绝「裸奔」：非回环绑定必须显式配 SOA_ACCESS_TOKEN，否则直接不启动；
+  // 配了也把事实讲清楚，别让人以为是安全隔离。
+  if (!isLoopbackBindHost(HOST) && !ACCESS_TOKEN) {
+    console.error(
+      `[soa] 拒绝启动:HOST=${HOST} 是非回环监听，但没有配置 SOA_ACCESS_TOKEN。\n` +
+        '      远程模式请二选一:①配 SOA_ACCESS_TOKEN(客户端同名 env);②改用 HOST=127.0.0.1。',
+    );
+    process.exit(1);
+  }
   createAppServer().listen(PORT, HOST, () => {
     console.log(`[soa] web server: http://${HOST}:${PORT} (静态 dist + /llm-proxy 代理 + /tdx-collect 采集代理 + /web-search 搜索代理 + /logs 日志汇聚)`);
+    if (!isLoopbackBindHost(HOST)) {
+      console.warn(
+        `[soa] 注意:HOST=${HOST} 已把代理面暴露到网络。任何能加载本页面的客户端都能从\n` +
+          '      静态资源里读到内联的 EXPO_PUBLIC_SOA_ACCESS_TOKEN —— 该 token 只是防误连，\n' +
+          '      不是身份认证。仅在可信局域网使用。',
+      );
+    }
   });
 }
