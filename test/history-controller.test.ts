@@ -165,6 +165,50 @@ describe('RunHistoryController.openRun / closeRun', () => {
   });
 });
 
+describe('RunHistoryController.recordRun', () => {
+  // P1（评审 2026-11-21）：recordRun 先把行入列再异步写盘。写盘失败时旧实现只记
+  // 日志 —— 行留在列表里，而它从来没落过盘 → 点开必然「历史记录不存在或已损坏」。
+  // 安卓模拟器实测：11 条历史里就是这么积出幽灵行的。
+  const report = {
+    ticker: '600036',
+    stock_information: 'INFO',
+    final_decision: 'DECISION',
+    degraded: false,
+    opinions: [{ key: 'fundamental_analysis', tabTitle: '基本面分析', content: 'OPINION' }],
+  };
+
+  it('写盘失败 → 刚入列的那行必须撒回，并报错', async () => {
+    const archive: RunArchive = {
+      ...createMemoryRunArchive(),
+      put: async () => {
+        throw new Error('disk full');
+      },
+    };
+    const deps = makeDeps({ runArchive: archive });
+    const ctl = new RunHistoryController(deps);
+
+    ctl.recordRun(report, '2026-11-21T03:54:00.000Z', 'real');
+    // 同步阶段：列表立即可见（UX 不变）
+    expect(deps.state.history).toHaveLength(1);
+
+    await new Promise((r) => setTimeout(r, 0)); // 等 put 的 catch
+    expect(deps.state.history).toHaveLength(0); // 幽灵行不留在列表里
+    expect(deps.state.historyError).toContain('历史归档写入失败');
+    expect(deps.logs.some((l) => l.startsWith('error:写历史归档失败'))).toBe(true);
+  });
+
+  it('写盘成功 → 行保留且可 openRun', async () => {
+    const deps = makeDeps({ runArchive: createMemoryRunArchive() });
+    const ctl = new RunHistoryController(deps);
+    ctl.recordRun(report, '2026-11-21T03:54:00.000Z', 'real');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(deps.state.history).toHaveLength(1);
+    await ctl.openRun(deps.state.history[0]!.id);
+    expect(deps.state.historyError).toBeNull();
+    expect(deps.state.finalDecision).toBe('DECISION');
+  });
+});
+
 describe('RunHistoryController.refreshHistory / deleteRuns', () => {
   it('读盘失败 → historyError 落地且既有列表不被清空', async () => {
     const seed = createMemoryRunArchive([makeRun()]);

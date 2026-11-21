@@ -335,6 +335,11 @@ export class RunHistoryController {
       const msg = describeError(err);
       this.deps.log.error(`写历史归档失败:${msg}`);
       s.historyError = `历史归档写入失败:${msg}`;
+      // P1（评审 2026-11-21）：写盘失败必须把刚入列的那行**撒回来**。
+      // 旧实现只记日志，行留在列表里 —— 它从来没落过盘，点开必然
+      // load() → null → 「历史记录不存在或已损坏」（安卓模拟器上实测复现，
+      // 11 条里那些幽灵行就是这么积起来的）。
+      s.history = s.history.filter((h) => h.id !== run.id);
       this.deps.notify();
     });
   }

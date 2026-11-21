@@ -218,6 +218,11 @@ async function createExpoRunFs(): Promise<RunFsAdapter> {
  * 文件后端(正文 <id>.json + index.json 摘要)。`getFs` 缺省走 expo-file-system,
  * 测试注入 node fs 适配器。写操作串行排队(索引读改写不得交错)。
  */
+function pruneMissingBodies(list: RunSummary[], bodies: ReadonlySet<string>): RunSummary[] {
+  const alive = list.filter((s) => bodies.has(`${s.id}.json`));
+  return alive.length === list.length ? list : sortSummaries(alive);
+}
+
 export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = createExpoRunFs): RunArchive {
   let loaded = false;
   let summaries: RunSummary[] = [];
@@ -225,6 +230,12 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
 
   const loadIndex = async (): Promise<RunSummary[]> => {
     const fs = await getFs();
+    // 目录只扫一次，两处对账共用（索引行 ↔ 正文文件）
+    let names: string[] | null = null;
+    const listNames = async (): Promise<string[]> => {
+      names ??= await fs.list();
+      return names;
+    };
     const text = await fs.read(INDEX_FILE);
     if (text !== null) {
       try {
@@ -237,10 +248,21 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
           // CR-29:索引可解析且非空 ≠ 完整。put() 先写正文再 writeIndex,若后者
           // 失败/崩溃,该条正文成为孤儿:下次启动索引仍可解析 → 永不重建,
           // 列表里看不到、UI 也删不掉。以目录正文数为基准对账。
-          const names = await fs.list();
-          const bodyCount = names.filter((n) => n.endsWith('.json') && n !== INDEX_FILE).length;
-          if (bodyCount <= list.length) return list;
-          logInfo(`历史索引少于正文文件(${list.length} < ${bodyCount}),按正文重建`);
+          const all = await listNames();
+          const bodies = new Set(all.filter((n) => n.endsWith('.json') && n !== INDEX_FILE));
+          const bodyCount = bodies.size;
+          if (bodyCount > list.length) {
+            logInfo(`历史索引少于正文文件(${list.length} < ${bodyCount}),按正文重建`);
+          } else {
+            // P1（评审 2026-11-21）：反向对账 —— 正文缺失的索引行剪掉（详见
+            // pruneMissingBodies 注释）。正文才是真值来源。
+            const kept = pruneMissingBodies(list, bodies);
+            if (kept !== list) {
+              logInfo(`历史索引含 ${list.length - kept.length} 条无正文的幽灵行,已剔除`);
+              await fs.write(INDEX_FILE, JSON.stringify(kept));
+            }
+            return kept;
+          }
         }
         // 空数组/非数组是**合法**状态(用户清空过全部历史,或写入被截断)——不记
         // error:dev 下每条 error 日志都会弹红条,把正常冷启动标成故障。真正值得
@@ -316,12 +338,27 @@ export function createFileRunArchive(getFs: () => Promise<RunFsAdapter> = create
       assertSafeId(id);
       const fs = await getFs();
       const text = await fs.read(`${id}.json`);
-      if (text === null) return null;
-      try {
-        return parseAnalysisRun(JSON.parse(text));
-      } catch {
+      const parsed = text === null
+        ? null
+        : (() => {
+            try {
+              return parseAnalysisRun(JSON.parse(text));
+            } catch {
+              return null;
+            }
+          })();
+      // P1（评审 2026-11-21）：正文读不出来时不只返回 null —— 这一行若仍在索引里
+      // 就是一个永远点不开的幽灵行，顺手剪掉并回写（下次冷启动不用再碰）。
+      // 注意只在「该 id 确实在索引里」时回写，openRun 一个已删除的 id 不产生写盘。
+      if (!parsed) {
+        if (summaries.some((s) => s.id === id)) {
+          summaries = summaries.filter((s) => s.id !== id);
+          await writeIndex();
+          logInfo(`历史正文本不可读(${text === null ? '文件缺失' : '格式不兼容'}),已从索引剔除:${id}`);
+        }
         return null;
       }
+      return parsed;
     },
     async put(run) {
       assertSafeId(run.id);

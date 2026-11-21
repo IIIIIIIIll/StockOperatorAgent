@@ -273,4 +273,49 @@ describe('RunArchive · 文件后端(RN 形状)', () => {
     const reopened = createFileRunArchive(async () => nodeRunFs(dir));
     expect((await reopened.list()).map((s) => s.id)).toEqual(['r2', 'r1']);
   });
+
+  // P1（评审 2026-11-21）：反向对账 —— 索引里有行、磁盘上没正文（写盘失败
+  // 留下的幽灵行）必须在冷启动时剔除，否则列表里永远挂着点不开的条目。
+  it('索引行多于正文文件 → 无正文的幽灵行被剔除并回写索引', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'soa-runs-ghost-'));
+    const mk = (id: string, at: string) => ({
+      id, at, mode: 'real' as const, ticker: '600036', market: 'cn' as const, decisionPreview: 'x',
+    });
+    await writeFile(
+      path.join(dir, 'index.json'),
+      JSON.stringify([mk('live', '2026-11-04T00:00:00.000Z'), mk('ghost', '2026-11-03T00:00:00.000Z')]),
+      'utf8',
+    );
+    await writeFile(path.join(dir, 'live.json'), JSON.stringify(run({ id: 'live' })), 'utf8');
+
+    const archive = createFileRunArchive(async () => nodeRunFs(dir));
+    expect((await archive.list()).map((s) => s.id)).toEqual(['live']);
+    // 索引已回写（不只这一次列表干净）
+    const onDisk = JSON.parse(await readFile(path.join(dir, 'index.json'), 'utf8')) as Array<{ id: string }>;
+    expect(onDisk.map((s) => s.id)).toEqual(['live']);
+  });
+
+  // 同一条缝的第二个成因：正文存在但过不了严格校验（旧版本形状漂移）——
+  // 摘要校验比正文校验宽，所以行留在索引里而 load 恒 null。
+  it('正文形状不兼容 → load 返回 null 且该行被剪掉', async () => {
+    const { dir, archive } = await makeArchive();
+    await archive.put(run({ id: 'ok' }));
+    // 模拟旧版本/手改的坏正文：opinions 里的 content 不是字符串
+    const broken = { ...run({ id: 'drift' }), opinions: [{ key: 'k', tabTitle: 't', content: null }] };
+    await writeFile(path.join(dir, 'drift.json'), JSON.stringify(broken), 'utf8');
+    await writeFile(
+      path.join(dir, 'index.json'),
+      JSON.stringify([
+        { id: 'ok', at: '2026-11-04T00:00:00.000Z', mode: 'real', ticker: '600036', market: 'cn', decisionPreview: 'x' },
+        { id: 'drift', at: '2026-11-05T00:00:00.000Z', mode: 'real', ticker: '600036', market: 'cn', decisionPreview: 'x' },
+      ]),
+      'utf8',
+    );
+
+    const reopened = createFileRunArchive(async () => nodeRunFs(dir));
+    expect((await reopened.list()).map((s) => s.id)).toContain('drift'); // 冷启动时还在（正文在）
+    expect(await reopened.load('drift')).toBeNull();
+    // 点过一次之后就被剔除，不再反复撞同一个坏行
+    expect((await reopened.list()).map((s) => s.id)).toEqual(['ok']);
+  });
 });
