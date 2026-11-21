@@ -106,15 +106,22 @@ export async function invokeWithTools(
       const tool = toolByName.get(call.name);
       let content: unknown;
       if (!tool) {
+        // 模型点名了一个不存在的工具:同样留痕(占位文本会进下一轮上下文,
+        // 没日志时看起来就像模型自己在胡说)
+        warn(`工具 ${call.name} 未注册,已降级为占位文本`);
         content = `（未找到工具 ${call.name}）`;
       } else {
         try {
           // 工具 invoke 可为 async(如 web_search 的 fetch searcher)——必须 await,
           // 否则 Promise 未解包直接 String() 成 "[object Promise]";rejection 同样
           // 在此 catch(异步工具异常 → 占位不 raise,对齐 Python try/except 语义)。
+          // P2(评审 2026-11-21):降级前必须留痕 —— 旧实现默默换成占位文本,
+          // 工具全挂时报告建立在占位符上而日志一片干净,无从诊断
+          //(.trellis/spec/error-handling.md「Log first, degrade second」).
           content = await tool.invoke(call.args);
           if (Array.isArray(content)) content = content[0]; // content_and_artifact 形态
         } catch (err) {
+          warn(`工具 ${call.name} 执行失败,已降级为占位文本: ${(err as Error).message}`);
           content = `（联网搜索失败：${(err as Error).message}）`;
         }
       }
