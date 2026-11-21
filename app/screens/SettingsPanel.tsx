@@ -43,6 +43,8 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   const styles = makeStyles(theme);
   const [settings, setSettings] = React.useState<SettingsState>(() => loadSettings());
   const [reach, setReach] = React.useState<ReachabilityResult | 'idle' | 'checking'>('idle');
+  // 数字输入框的本地草稿串（input 只改这里，失焦时 commitCap 才夹值提交）
+  const [capDrafts, setCapDrafts] = React.useState<Partial<Record<keyof SettingsState['caps'], string>>>({});
 
   // 卸载守卫 + 请求序号:checkLlmReachability 完成回调落地前,若组件已卸载或
   // 已有更新的检查/配置变更,则丢弃结果,防止过期 promise 覆盖新状态。
@@ -103,6 +105,21 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   }
 
   const billionsGreyed = !settings.keys.billionsApiKey.trim() || !settings.switches.billionsMaster;
+  // P2（评审 2026-11-21）：数字输入框需要本地草稿串。旧实现 value 直接绑
+  // String(settings.caps[...])，且 onChangeText 对空串提前 return —— 退格退不掉
+  // （受控值立刻被真值跳回），“5”再敲“1”直接得到“51”再被夹成 20 写进盘里。
+  // 现在：输入只改草稿，失焦时才夹值并提交；空草稿 = 放弃修改（回到现值）。
+  const commitCap = (key: keyof SettingsState['caps']): void => {
+    const draft = capDrafts[key];
+    setCapDrafts((s) => {
+      if (!(key in s)) return s;
+      const next = { ...s };
+      delete next[key];
+      return next;
+    });
+    if (draft === undefined || draft.trim() === '') return;
+    updateCap(key, Number(draft));
+  };
 
   // keyboardShouldPersistTaps='handled':键盘弹出时第一次点保存/开关会被 RN 默认
   // 'never' 吞掉去收键盘(用户以为按钮坏了);web 端 RNW 无此分支,原生才生效。
@@ -116,17 +133,20 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         <Text style={styles.sectionTitle}>LLM(大模型)</Text>
         <Text style={styles.muted}>OpenAI 兼容;三键必填。保存时自动检测可达性。</Text>
         <Text style={styles.label}>LLM 模型</Text>
-        <TextInput style={styles.input} value={settings.keys.llmModel} onChangeText={(v) => updateKey('llmModel', v)} placeholder="deepseek-v4-flash" autoCapitalize="none" />
+        <TextInput style={styles.input} value={settings.keys.llmModel} onChangeText={(v) => updateKey('llmModel', v)} placeholder="deepseek-v4-flash" autoCapitalize="none" accessibilityLabel="LLM 模型" />
         <Text style={styles.label}>LLM Base URL</Text>
-        <TextInput style={styles.input} value={settings.keys.llmBaseUrl} onChangeText={(v) => updateKey('llmBaseUrl', v)} placeholder="https://api.example.com/v1" autoCapitalize="none" autoCorrect={false} />
+        <TextInput style={styles.input} value={settings.keys.llmBaseUrl} onChangeText={(v) => updateKey('llmBaseUrl', v)} placeholder="https://api.example.com/v1" autoCapitalize="none" autoCorrect={false} accessibilityLabel="LLM Base URL" />
         <Text style={styles.label}>LLM API Key</Text>
-        <TextInput style={styles.input} value={settings.keys.llmApiKey} onChangeText={(v) => updateKey('llmApiKey', v)} placeholder="sk-..." autoCapitalize="none" secureTextEntry />
+        <TextInput style={styles.input} value={settings.keys.llmApiKey} onChangeText={(v) => updateKey('llmApiKey', v)} placeholder="sk-..." autoCapitalize="none" secureTextEntry accessibilityLabel="LLM API Key" />
 
         {/* 保存按钮:缺键 → 红色禁用 + 点名;齐全 → 正常 + 可达性检测 */}
         <Pressable
           style={[styles.button, keysComplete ? styles.buttonPrimary : styles.buttonError, reach === 'checking' && styles.buttonDisabled]}
           disabled={!keysComplete || reach === 'checking'}
           onPress={() => void saveAndCheck()}
+          accessibilityRole="button"
+          accessibilityLabel="保存 LLM 配置"
+          accessibilityState={{ disabled: !keysComplete || reach === 'checking' }}
         >
           <Text style={styles.buttonText}>{reach === 'checking' ? '检测中…' : keysComplete ? '保存配置' : `缺少 ${missing.join('/')}`}</Text>
         </Pressable>
@@ -151,9 +171,9 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         <Text style={styles.sectionTitle}>外部服务密钥(可选)</Text>
         <Text style={styles.muted}>未配置时对应能力自动降级占位,不影响分析。</Text>
         <Text style={styles.label}>通达信 TDX API Key</Text>
-        <TextInput style={styles.input} value={settings.keys.tdxApiKey} onChangeText={(v) => updateKey('tdxApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
+        <TextInput style={styles.input} value={settings.keys.tdxApiKey} onChangeText={(v) => updateKey('tdxApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry accessibilityLabel="通达信 TDX API Key" />
         <Text style={styles.label}>亿信 API Key</Text>
-        <TextInput style={styles.input} value={settings.keys.billionsApiKey} onChangeText={(v) => updateKey('billionsApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry />
+        <TextInput style={styles.input} value={settings.keys.billionsApiKey} onChangeText={(v) => updateKey('billionsApiKey', v)} placeholder="未配置" autoCapitalize="none" secureTextEntry accessibilityLabel="亿信 API Key" />
       </View>
 
       {/* ── 3. LangSmith(遥测)─────────────────────────────────── */}
@@ -162,12 +182,12 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         <Text style={styles.muted}>开发者追踪配置;TS 侧未接入,仅持久化。</Text>
         <View style={styles.toggleRow}>
           <Text style={styles.label}>启用追踪</Text>
-          <Switch value={settings.keys.langsmithTracing} onValueChange={(v) => updateKey('langsmithTracing', v)} />
+          <Switch value={settings.keys.langsmithTracing} onValueChange={(v) => updateKey('langsmithTracing', v)} accessibilityLabel="启用 LangSmith 追踪" />
         </View>
         <Text style={styles.label}>API Key</Text>
-        <TextInput style={styles.input} value={settings.keys.langsmithKey} onChangeText={(v) => updateKey('langsmithKey', v)} placeholder="留空表示不修改" autoCapitalize="none" secureTextEntry />
+        <TextInput style={styles.input} value={settings.keys.langsmithKey} onChangeText={(v) => updateKey('langsmithKey', v)} placeholder="留空表示不修改" autoCapitalize="none" secureTextEntry accessibilityLabel="LangSmith API Key" />
         <Text style={styles.label}>项目名</Text>
-        <TextInput style={styles.input} value={settings.keys.langsmithProject} onChangeText={(v) => updateKey('langsmithProject', v)} placeholder="soa-ts" autoCapitalize="none" />
+        <TextInput style={styles.input} value={settings.keys.langsmithProject} onChangeText={(v) => updateKey('langsmithProject', v)} placeholder="soa-ts" autoCapitalize="none" accessibilityLabel="LangSmith 项目名" />
       </View>
 
       {/* ── 4. 能力开关────────────────────────────────────────── */}
@@ -181,7 +201,13 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
           return (
             <View key={row.key} style={[styles.toggleRow, disabled && styles.rowDisabled]}>
               <Text style={[styles.label, { flex: 1 }]}>{row.label}</Text>
-              <Switch value={settings.switches[row.key]} onValueChange={(v) => updateSwitch(row.key, v)} disabled={disabled} />
+              <Switch
+                value={settings.switches[row.key]}
+                onValueChange={(v) => updateSwitch(row.key, v)}
+                disabled={disabled}
+                accessibilityLabel={row.label}
+                accessibilityState={{ checked: settings.switches[row.key], disabled }}
+              />
             </View>
           );
         })}
@@ -196,12 +222,12 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
             <Text style={[styles.label, { flex: 1 }]}>{row.label}</Text>
             <TextInput
               style={[styles.input, { width: 72, textAlign: 'center' }]}
-              value={String(settings.caps[row.key])}
+              value={capDrafts[row.key] ?? String(settings.caps[row.key])}
               keyboardType="numeric"
-              onChangeText={(v) => {
-                if (v.trim() === '') return; // 清空不提交 0(字段保持空,不闪回 "0")
-                updateCap(row.key, Number(v));
-              }}
+              accessibilityLabel={row.label}
+              onChangeText={(v) => setCapDrafts((s) => ({ ...s, [row.key]: v }))}
+              onBlur={() => commitCap(row.key)}
+              onSubmitEditing={() => commitCap(row.key)}
             />
           </View>
         ))}
