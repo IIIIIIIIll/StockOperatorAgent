@@ -5,7 +5,7 @@
 // 崩溃丢最近写入可接受——采集即落盘)。mutator 同步更新内存 → enqueue 落盘,
 // 同步方法内不做任何异步等待;getters 同步读内存副本。
 import type { DailyBar, PerformanceReport, StockRecord, StoreLike } from './store.ts';
-import { mergeDailyBars } from './dailyBars.ts';
+import { mergeDailyBars, unionDailyBars } from './dailyBars.ts';
 import { error as logError } from './log.ts';
 
 // ─── IndexedDB 最小类型面(R-12:单源在 src/idbUtil.ts)─────────────────────
@@ -92,6 +92,10 @@ export class IdbStore implements StoreLike {
   private stocks = new Map<string, StockRecord>();
   private bars = new Map<string, DailyBar[]>();
   private reports = new Map<string, PerformanceReport[]>();
+  /** P2（评审 2026-11-21）：ready() 之前的日K写按 ticker 记语义 —— append 可与
+   *  磁盘历史并集，replace 使磁盘历史按语义作废。 */
+  private readonly preReadyBars = new Map<string, 'append' | 'replace'>();
+  private hydrated = false;
   private meta = new Map<string, string>();
   private readonly factory: IdbFactoryLike | undefined;
   private readonly dbName: string;
@@ -153,8 +157,14 @@ export class IdbStore implements StoreLike {
       barsByTicker.set(b.ticker, list);
     }
     for (const [ticker, list] of barsByTicker) {
-      if (!this.bars.has(ticker)) {
-        this.bars.set(ticker, [...list].sort((a, b) => a.date.localeCompare(b.date)));
+      const diskBars = [...list].sort((a, b) => a.date.localeCompare(b.date));
+      const memoryBars = this.bars.get(ticker);
+      if (!memoryBars?.length) {
+        this.bars.set(ticker, diskBars);
+      } else if (this.preReadyBars.get(ticker) !== 'replace') {
+        // P2（评审 2026-11-21）：ready() 之前的增量写与磁盘历史并集（内存修正胜）。
+        // 旧实现 `!this.bars.has` 把磁盘那半边整段丢掉，下一轮写穿再整库覆盖。
+        this.bars.set(ticker, unionDailyBars(diskBars, memoryBars));
       }
     }
     const reportRows = (await getAllRows(db, 'performance_reports')) as Array<
@@ -167,14 +177,26 @@ export class IdbStore implements StoreLike {
       reportsByTicker.set(r.ticker, list);
     }
     for (const [ticker, list] of reportsByTicker) {
-      if (!this.reports.has(ticker)) {
-        this.reports.set(ticker, [...list].sort((a, b) => a.report_date.localeCompare(b.report_date)));
+      const diskReports = [...list].sort((a, b) => a.report_date.localeCompare(b.report_date));
+      const memoryReports = this.reports.get(ticker);
+      if (!memoryReports?.length) {
+        this.reports.set(ticker, diskReports);
+      } else {
+        // 业绩报表 PK 幂等追加，无替换语义 → 永远并集，内存胜
+        const byDate = new Map<string, PerformanceReport>();
+        for (const r of diskReports) byDate.set(r.report_date, r);
+        for (const r of memoryReports) byDate.set(r.report_date, r);
+        this.reports.set(
+          ticker,
+          [...byDate.values()].sort((a, b) => a.report_date.localeCompare(b.report_date)),
+        );
       }
     }
     const metaRows = (await getAllRows(db, 'meta')) as Array<{ key: string; value: string }>;
     for (const row of metaRows) {
       if (!this.meta.has(row.key)) this.meta.set(row.key, row.value);
     }
+    this.hydrated = true;
   }
 
   /** 写穿透队列:单 Promise 链串行保证写序;失败仅记录,不阻断后续写(决策 C)。
@@ -286,7 +308,15 @@ export class IdbStore implements StoreLike {
   }
 
   /** 批量追加日K:拒绝 date <= 既有末根日期;升序契约 + 同日期去重(keep last)。 */
+  /** 记录 ready() 之前的日K写语义（append 可并集；replace 使磁盘历史作废）。 */
+  private notePreReadyBars(ticker: string, kind: 'append' | 'replace'): void {
+    if (kind === 'replace' || !this.preReadyBars.has(ticker)) {
+      this.preReadyBars.set(ticker, kind);
+    }
+  }
+
   addDatas(ticker: string, bars: DailyBar[]): number {
+    if (bars.length && !this.hydrated) this.notePreReadyBars(ticker, 'append');
     if (!bars.length) return 0;
     const { fresh, updatedStock } = this.mergeBars(ticker, bars);
     if (!fresh.length) return 0;
@@ -296,6 +326,7 @@ export class IdbStore implements StoreLike {
 
   /** 全量替换该 ticker 日K(空输入早退不清库)——web 采集语义:代理返回 IPO 全量历史。 */
   replaceDatas(ticker: string, bars: DailyBar[]): number {
+    if (bars.length && !this.hydrated) this.notePreReadyBars(ticker, 'replace');
     if (!bars.length) return 0;
     this.bars.delete(ticker);
     const { fresh, updatedStock } = this.mergeBars(ticker, bars);

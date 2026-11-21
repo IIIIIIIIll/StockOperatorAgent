@@ -42,3 +42,19 @@ export function mergeDailyBars(existing: readonly DailyBar[], incoming: readonly
   const merged = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   return { merged, fresh };
 }
+
+/** 按日期并集，**overlay 胜**（P2 评审 2026-11-21）。
+ *
+ *  与 mergeDailyBars 的区别：后者用「已有集合的末日期」做基线，只收比基线更新的
+ *  bar（增量采集语义）；而 hydrate 对账要的是全量并集 —— 磁盘历史 + 内存里「先写
+ *  后 ready」的增量/修正，同日期以内存为准（内存那次写比磁盘旧内容新）。
+ *  用 mergeDailyBars 会让磁盘末根日期的修正值被基线挡掉。 */
+export function unionDailyBars(
+  disk: readonly DailyBar[],
+  overlay: readonly DailyBar[],
+): DailyBar[] {
+  const byDate = new Map<string, DailyBar>();
+  for (const b of disk) byDate.set(b.date, b);
+  for (const b of overlay) byDate.set(b.date, b); // overlay 胜
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}

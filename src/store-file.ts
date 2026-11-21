@@ -11,7 +11,7 @@
 // (Windows nsis / macOS dmg)上会被 ticker META 覆盖 → 双向静默丢数据。生产默认适配器 expo-file-system(documentDirectory 下
 // 解析,惰性动态 import,同 log.ts RN 分支先例);测试注入 node fs 适配器。
 import type { DailyBar, PerformanceReport, StockRecord, StoreLike } from './store.ts';
-import { mergeDailyBars } from './dailyBars.ts';
+import { mergeDailyBars, unionDailyBars } from './dailyBars.ts';
 import { error as logError } from './log.ts';
 
 export interface FileFsAdapter {
@@ -114,6 +114,13 @@ export class FileStore implements StoreLike {
   private queue: Promise<void> = Promise.resolve();
   private readyPromise: Promise<void> | null = null;
   private closed = false;
+  /** P2（评审 2026-11-21）：ready() 之前发生的日K写，按 ticker 记账。
+   *  hydrate 旧实现对「内存已有该 ticker 的 bars」一律整段丢弃磁盘历史（`!this.bars.has`），
+   *  而接口注释承诺「先写后 ready 的变更不丢」—— 丢掉的其实是**磁盘那一半**。
+   *  区分两种语义：append（增量，可与磁盘并集）/ replace（全量替换，磁盘历史
+   *  按语义作废，保留旧行为）。 */
+  private readonly preReadyBars = new Map<string, 'append' | 'replace'>();
+  private hydrated = false;
 
   /** baseDir:测试传 os.tmpdir 子目录;生产省略 → 'soa-store' 由 expo 适配器在 documentDirectory 下解析。 */
   constructor(baseDir?: string, fs?: FileFsAdapter) {
@@ -211,17 +218,7 @@ export class FileStore implements StoreLike {
           const ticker = name.slice(0, -'.json'.length);
           const text = await fs.readFile(joinPath(baseDir, name));
           if (text == null) continue;
-          const data = JSON.parse(text) as TickerFile;
-          if (data.stock && !this.stocks.has(ticker)) this.stocks.set(ticker, { ...data.stock });
-          if (data.bars?.length && !this.bars.has(ticker)) {
-            this.bars.set(ticker, [...data.bars].sort((a, b) => a.date.localeCompare(b.date)));
-          }
-          if (data.reports?.length && !this.reports.has(ticker)) {
-            this.reports.set(
-              ticker,
-              [...data.reports].sort((a, b) => a.report_date.localeCompare(b.report_date)),
-            );
-          }
+          this.hydrateTickerFile(ticker, JSON.parse(text) as TickerFile);
         }
       } catch (err) {
         // F12:hydrate 逐文件兜底 —— 损坏 JSON 或不可读(EACCES 等,store-node
@@ -230,6 +227,7 @@ export class FileStore implements StoreLike {
         this.noteLoadFailure(name, errText(err));
       }
     }
+    this.hydrated = true;
   }
 
   /** 串行写队列:整文件重写(执行时读内存最新态 → 幂等);失败仅记录不阻断(决策 C)。
@@ -335,6 +333,7 @@ export class FileStore implements StoreLike {
   /** 批量追加日K:拒绝 date <= 既有末根日期;升序契约 + 同日期去重(keep last)。 */
   addDatas(ticker: string, bars: DailyBar[]): number {
     if (!bars.length) return 0;
+    if (!this.hydrated) this.notePreReadyBars(ticker, 'append');
     const fresh = this.mergeBars(ticker, bars);
     if (!fresh) return 0;
     this.enqueuePersistTicker(ticker);
@@ -344,11 +343,56 @@ export class FileStore implements StoreLike {
   /** 全量替换该 ticker 日K(空输入早退不清库)——web 采集语义:代理返回 IPO 全量历史。 */
   replaceDatas(ticker: string, bars: DailyBar[]): number {
     if (!bars.length) return 0;
+    if (!this.hydrated) this.notePreReadyBars(ticker, 'replace');
     this.bars.delete(ticker);
     const fresh = this.mergeBars(ticker, bars);
     if (!fresh) return 0;
     this.enqueuePersistTicker(ticker);
     return fresh;
+  }
+
+  /** 记录 ready() 之前的日K写语义（append 可与磁盘并集；replace 使磁盘历史作废）。 */
+  private notePreReadyBars(ticker: string, kind: 'append' | 'replace'): void {
+    if (kind === 'replace' || !this.preReadyBars.has(ticker)) {
+      this.preReadyBars.set(ticker, kind);
+    }
+  }
+
+  /** 单个 `<ticker>.json` → 内存镜像（P2 评审 2026-11-21）。
+   *
+   *  stock:内存有则保留（putStock 是整记录替换，内存那份更新更完整）。
+   *  bars :按 preReadyBars 记录的写语义对账 —— 增量写与磁盘并集（内存修正胜），
+   *         全量替换则磁盘历史按语义作废（保持旧行为，避免把 replace 掉的
+   *         demo/旧链数据复活）。
+   *  reports:PK 幂等追加，无替换语义 → 永远并集，内存胜。 */
+  private hydrateTickerFile(ticker: string, data: TickerFile): void {
+    if (data.stock && !this.stocks.has(ticker)) this.stocks.set(ticker, { ...data.stock });
+    if (data.bars?.length) {
+      const diskBars = [...data.bars].sort((a, b) => a.date.localeCompare(b.date));
+      const memoryBars = this.bars.get(ticker);
+      if (!memoryBars?.length) {
+        this.bars.set(ticker, diskBars);
+      } else if (this.preReadyBars.get(ticker) !== 'replace') {
+        this.bars.set(ticker, unionDailyBars(diskBars, memoryBars));
+      }
+    }
+    if (data.reports?.length) {
+      const diskReports = [...data.reports].sort((a, b) =>
+        a.report_date.localeCompare(b.report_date),
+      );
+      const memoryReports = this.reports.get(ticker);
+      if (!memoryReports?.length) {
+        this.reports.set(ticker, diskReports);
+      } else {
+        const byDate = new Map<string, PerformanceReport>();
+        for (const r of diskReports) byDate.set(r.report_date, r);
+        for (const r of memoryReports) byDate.set(r.report_date, r);
+        this.reports.set(
+          ticker,
+          [...byDate.values()].sort((a, b) => a.report_date.localeCompare(b.report_date)),
+        );
+      }
+    }
   }
 
   /** 返回实际追加数;0 = 全部重复不写。契约单源:src/dailyBars.ts */
