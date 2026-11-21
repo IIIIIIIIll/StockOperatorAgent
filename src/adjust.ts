@@ -54,7 +54,13 @@ export function qfqAdjust(bars: Bar[], xdxr: XdxrEventLike[]): Bar[] {
     const peigujia = numOrZero(ev.peigujia);
     const fenhongPs = numOrZero(ev.fenhong) / 10;
     const suoguPs = numOrZero(ev.suogu) / 10;
-    const denominator = prevClose * (1 + songguPs + peiguPs);
+    // P2(评审 2026-11-21):分母必须与量因子同口径地减掉缩股。旧实现只减了
+    // 送转/配股,于是纯缩股事件(每10股缩N股,cat 11/12)得到 ratioPrice = 1.0
+    // —— 5.00→10.00 的缩股跳空原封不动留在"前复权"序列里,直接喂 MA/RSI/乖离率,
+    // 而成交量却按 1-N/10 被减半(价格不动、量对半,自相矛盾)。
+    // 手算 2 股缩 1 股(每10股缩5股):prevClose=5 → 分母 5*(1-0.5)=2.5 → 比率 2.0,
+    // 即事件前所有价格 ×2,正是缩股应有的前复权效果。
+    const denominator = prevClose * (1 + songguPs + peiguPs - suoguPs);
     const ratioPrice = denominator > 0
       ? (prevClose - fenhongPs + peiguPs * peigujia) / denominator
       : 1.0;

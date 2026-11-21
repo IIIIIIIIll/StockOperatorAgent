@@ -26,7 +26,7 @@ function referenceQfq(bars: Bar[], xdxr: XdxrEventLike[]): Bar[] {
     const pjia = n(ev.peigujia);
     const fh = n(ev.fenhong) / 10;
     const suo = n(ev.suogu) / 10;
-    const den = prev * (1 + song + peig);
+    const den = prev * (1 + song + peig - suo);
     return {
       tradeDate: ev.tradeDate,
       price: den > 0 ? (prev - fh + peig * pjia) / den : 1,
@@ -106,6 +106,44 @@ describe('qfq adjust (AC2)', () => {
     const out = qfqAdjust(bars, []);
     expect(out[0].close).toBe(2);
     expect(out[0].volume).toBe(10);
+  });
+
+  it('缩股(cat 11/12):价格×2 与成交量÷2 必须同口径（P2 回归）', () => {
+    // 每10股缩5股 = 2 股缩成 1 股:事件前 5.00 → 事件日 10.00,成交量对半。
+    // 旧实现分母漏减缩股 → ratioPrice = 1.0(价格跳空原封不动进 MA/RSI),而
+    // ratioVol = 0.5(量已被减半)—— 价格与成交量自相矛盾。
+    const bars: Bar[] = [
+      { date: '20250102', open: 5, close: 5, high: 5, low: 5, volume: 2000 },
+      { date: '20250303', open: 10, close: 10, high: 10, low: 10, volume: 1000 },
+      { date: '20250304', open: 10.2, close: 10.2, high: 10.2, low: 10.2, volume: 1000 },
+    ];
+    const out = qfqAdjust(bars, [{ tradeDate: '20250303', suogu: 5 }]);
+    expect(out[0].close).toBeCloseTo(10, 10); // 5 × 2.0
+    expect(out[0].open).toBeCloseTo(10, 10);
+    expect(out[0].volume).toBe(1000); // 2000 × 0.5
+    // 事件当日及其后不参与自身事件
+    expect(out[1].close).toBeCloseTo(10, 10);
+    expect(out[1].volume).toBe(1000);
+    expect(out[2].close).toBeCloseTo(10.2, 10);
+    // 复权后跳空消失:事件日涨跌幅应为 0 而非 +100%
+    expect(out[1].close / out[0].close).toBeCloseTo(1, 10);
+    expect(out[1].changePct).toBeCloseTo(0, 10);
+  });
+
+  it('送转/配股/缩股同时存在:分母 = prev*(1+送转+配股-缩股)', () => {
+    // 每10股:送3转2(合计 0.5)、配1(0.1,配股价 4)、缩1(0.1) → 因子 1.5
+    // prevClose=10,除息 0.5/10股 = 0.05 → 分子 10 - 0.05 + 0.1*4 = 10.35 → 10.35/15
+    const bars: Bar[] = [
+      { date: '20250102', open: 10, close: 10, high: 10, low: 10, volume: 1000 },
+      { date: '20250303', open: 8, close: 8, high: 8, low: 8, volume: 1000 },
+    ];
+    const out = qfqAdjust(bars, [
+      { tradeDate: '20250303', fenhong: 0.5, songzhuangu: 3, peigu: 1, peigujia: 4, suogu: 1 },
+    ]);
+    const den = 10 * (1 + 0.3 + 0.1 - 0.1);
+    const num = 10 - 0.05 + 0.1 * 4;
+    expect(out[0].close).toBeCloseTo(10 * (num / den), 10);
+    expect(out[0].volume).toBe(1300); // 1000 × (1 + 0.3 + 0.1 - 0.1)
   });
 });
 
