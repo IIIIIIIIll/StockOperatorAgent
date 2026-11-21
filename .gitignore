@@ -37,3 +37,5 @@ desktop/dist/
 # app/android/keystore.properties。旧版只靠 app/.gitignore 的 /android 行兜底,
 # 一旦 prebuild 重生成或以别的方式把该目录重新纳入版本控制,口令就进库了。
 keystore.properties
+# 覆盖率报告产物(npm run test:coverage;勿入库)
+coverage/

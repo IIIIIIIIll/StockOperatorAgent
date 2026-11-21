@@ -16,7 +16,8 @@
     "e2e:android:hk": "node tools/android-e2e-hk.mjs",
     "e2e:web:us": "SOA_E2E_TICKER=AAPL node tools/web-e2e-hk.mjs",
     "e2e:web:hk:llm": "node --env-file=.env tools/web-e2e-hk.mjs",
-    "e2e:android:us": "node tools/android-e2e-hk.mjs --ticker AAPL"
+    "e2e:android:us": "node tools/android-e2e-hk.mjs --ticker AAPL",
+    "test:coverage": "vitest run --coverage"
   },
   "type": "module",
   "dependencies": {
@@ -30,8 +31,12 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.6",
+    "@types/react": "~19.3.0",
+    "@types/react-test-renderer": "^19.3.1",
+    "@vitest/coverage-v8": "^5.1.1",
     "better-sqlite3": "^13.0.3",
     "fake-indexeddb": "^6.2.7",
+    "react-test-renderer": "^19.3.1",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   },
