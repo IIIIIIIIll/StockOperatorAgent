@@ -95,15 +95,23 @@ export function applyYahooCollectedToStore(
   now: Date = new Date(),
 ): WebCollectResult {
   const existing = store.getStock(payload.ticker);
+  // "今天"与"是否已收盘"必须来自同一个时刻（注入的 now），否则跨午夜/回放时两者会分叉
+  const today = marketToday(market, now);
   // 末根是否为"今天但还没收盘"的进行中 bar(见下方 lastDataUpdate 处的注释)
   const lastBarDate = payload.bars.length ? payload.bars[payload.bars.length - 1]!.date : null;
-  const intradayBar = lastBarDate === marketToday(market) && !marketSessionClosed(market, now);
+  const intradayBar = lastBarDate === today && !marketSessionClosed(market, now);
   // lastDataUpdate 是 dailyFresh 的唯一依据,三种情形分开写清楚:
-  //   同日跳过 → 维持既有戳;盘中残缺 bar → 不前进(下次仍需重取);其余 → 今天
+  //   同日跳过 → 维持既有戳;盘中残缺 bar → 不前进(下次仍需重取);其余 → 末根 bar 日期
   const nextLastDataUpdate = (): string | null => {
-    if (payload.skipDaily) return existing?.lastDataUpdate ?? marketToday(market);
+    if (payload.skipDaily) return existing?.lastDataUpdate ?? today;
     if (intradayBar) return existing?.lastDataUpdate ?? null;
-    return marketToday(market);
+    // P1(评审 2026-11-21):此处旧实现无条件返回 "今天",于是**盘前采集**
+    // (HK 08:30 / 美股盘前的 22:00 HKT,亚洲时区的常规时段)的末根还是昨天的 bar,
+    // 却盖上了今天的戳 → 当天收盘后的 run 被判 dailyFresh → skipDaily → 当天那根
+    // 完整 bar 永远进不了库,报告变成"今天的价 + 昨天的 MA/RSI"。bars 为空同理。
+    // 语义修正:戳 = 末根 bar 的日期(与 CN 链 replaceDatas 写末根日期的口径一致);
+    // 没有任何 bar 时保留既有戳,绝不凭空盖今天。
+    return lastBarDate ?? (existing?.lastDataUpdate ?? null);
   };
   // 全量替换(采集返回全量历史;防 demo 预载数据与真实数据合并混入)。
   // 同日跳过 → bars 为空:guard 免误清(InMemory replaceDatas 先删后加,空数组会
@@ -116,7 +124,7 @@ export function applyYahooCollectedToStore(
     ticker: payload.ticker,
     name: payload.name || existing?.name || payload.ticker,
     overview: mergeOverview(payload.overview, existing?.overview),
-    overviewLastUpdate: marketToday(market),
+    overviewLastUpdate: today,
     // 同日跳过:保留既有 lastDataUpdate(维持下次跳过判定);否则记市场本地今天
     // (Yahoo 链 fresh 语义;须在 replaceDatas 之后覆盖其末根日期)
     // P1-7(评审 2026-11-09):末根就是今天且**尚未收盘** → 那是进行中 bar,

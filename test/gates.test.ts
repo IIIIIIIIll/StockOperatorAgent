@@ -3,7 +3,7 @@
 // 既有 gates 用例在 store-gates.test.ts,零改动;resolveSkipGates 定义面在
 // src/collector.ts(本文件跨模块消费其 market 参数,collector.test.ts 不动)。
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { asiaToday, latestPastQuarterEnd, marketToday } from '../src/gates.ts';
+import { asiaToday, latestPastQuarterEnd, marketSessionClosed, marketToday } from '../src/gates.ts';
 import { resolveSkipGates } from '../src/collector.ts';
 import { InMemoryStore } from '../src/store-memory.ts';
 import type { StoreLike } from '../src/store.ts';
@@ -157,5 +157,63 @@ describe('resolveSkipGates market 分支', () => {
       skipF10: false,
       skipped: [],
     });
+  });
+});
+
+// P1-7 的"是否已收盘"判定此前**零直测** —— 只有一条依赖真实日历的集成路径
+// (test/yahoo-collect.test.ts 的 P1-7 块),于是周末跑测试必红而无人发现。
+// 这里直测 gates 层,把"交易日内部时刻 / 收盘边界 / 周末恒 true"钉成契约。
+describe('marketSessionClosed(市场时区收盘判定)', () => {
+  // 2026-08-20 = 周四;2026-08-21 = 周五;2026-08-22 = 周六;2026-08-23 = 周日
+  const at = (iso: string): Date => new Date(iso);
+
+  it('交易日盘中 → false(港市 10:00 / 美股开盘后)', () => {
+    expect(marketSessionClosed('hk', at('2026-08-20T02:00:00Z'))).toBe(false); // 10:00 HKT
+    expect(marketSessionClosed('cn', at('2026-08-20T02:00:00Z'))).toBe(false); // 10:00 CST
+    expect(marketSessionClosed('us', at('2026-08-20T14:30:00Z'))).toBe(false); // 10:30 EDT
+  });
+
+  it('收盘边界:恰好到点即算已收盘(>= 而非 >)', () => {
+    expect(marketSessionClosed('hk', at('2026-08-20T07:59:00Z'))).toBe(false); // 15:59 HKT
+    expect(marketSessionClosed('hk', at('2026-08-20T08:00:00Z'))).toBe(true); // 16:00 HKT
+    expect(marketSessionClosed('cn', at('2026-08-20T06:59:00Z'))).toBe(false); // 14:59 CST
+    expect(marketSessionClosed('cn', at('2026-08-20T07:00:00Z'))).toBe(true); // 15:00 CST
+  });
+
+  it('收盘后 → true', () => {
+    expect(marketSessionClosed('hk', at('2026-08-20T08:30:00Z'))).toBe(true); // 16:30 HKT
+    expect(marketSessionClosed('cn', at('2026-08-20T08:30:00Z'))).toBe(true); // 16:30 CST
+  });
+
+  it('周末恒 true(即便时刻落在盘中)—— 这就是 P1-7 用例只能钉日期的原因', () => {
+    expect(marketSessionClosed('hk', at('2026-08-22T02:00:00Z'))).toBe(true); // 周六 10:00
+    expect(marketSessionClosed('hk', at('2026-08-23T02:00:00Z'))).toBe(true); // 周日 10:00
+    expect(marketSessionClosed('cn', at('2026-08-22T02:00:00Z'))).toBe(true);
+  });
+
+  it('开市前(未到收盘)按现有语义返回 false —— 仅表达"尚未收盘",不等于"已开市"', () => {
+    // 已知口径:本函数不建模开市时刻/集合竞价/半日市(见 src/gates.ts 注释)。
+    // 记录现状是为了让调用方（P1 修复:lastDataUpdate 不再无条件盖今天）不会被误读。
+    expect(marketSessionClosed('hk', at('2026-08-20T00:00:00Z'))).toBe(false); // 08:00 HKT
+  });
+});
+
+describe('marketToday(at) 与注入时钟一致(消除两个时钟)', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('at 参数决定"今天",与 setSystemTime 结果逐字节一致', () => {
+    const at = new Date('2026-08-20T02:00:00Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(at);
+    expect(marketToday('hk', at)).toBe(marketToday('hk'));
+    expect(marketToday('us', at)).toBe(marketToday('us'));
+  });
+
+  it('at 跨日 → 输出跟随 at,不跟真实时钟', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));
+    // 纽约 2026-08-19 22:00(前一日)vs 2026-08-20 12:00
+    expect(marketToday('us', new Date('2026-08-20T02:00:00Z'))).toBe('2026-08-19');
+    expect(marketToday('us', new Date('2026-08-20T16:00:00Z'))).toBe('2026-08-20');
   });
 });

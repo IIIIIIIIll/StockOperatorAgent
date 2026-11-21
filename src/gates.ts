@@ -4,14 +4,19 @@ import { marketInfo, type Market } from './market.ts';
 
 /** 某市场时区"今天" YYYY-MM-DD（en-CA 格式逐字节对齐 Python asia_today）。
  *  港美股沿用 CN 周末规则（getLastBusinessDay 仅周末、无节假日日历，与 CN
- *  一致保留——见 coupling-map）。 */
-export function marketToday(market: Market): string {
+ *  一致保留——见 coupling-map）。
+ *
+ *  `at` 可注入（评审 2026-11-21）：调用方既然能注入 `now` 判"是否已收盘"，
+ *  "今天"就必须来自**同一个**时刻。旧签名只读 `new Date()`，于是
+ *  `applyYahooCollectedToStore` / `applyCollectedToStore` 里出现两个时钟
+ *  （注入的 now 与真实 now）——跨午夜运行或回放历史数据时两者会指向不同的日子。 */
+export function marketToday(market: Market, at: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: marketInfo(market).timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date());
+  }).format(at);
 }
 
 /** 北京时间"今天" YYYY-MM-DD（对齐 Python asia_today，全仓唯一"今天"来源；

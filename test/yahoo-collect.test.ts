@@ -11,7 +11,7 @@ import { yahooAnnualKey } from '../src/metaKeys.ts';
 import { collectYahooForDevice, collectYahooPayload, obtainA3, getCachedA3, invalidateA3Cache } from '../src/yahoo/deviceYahooCollect.ts';
 import { YahooClient, YAHOO_REQUEST_TIMEOUT_MS } from '../src/yahoo/yahooClient.ts';
 import { collectYahooViaProxy } from '../src/yahoo/webYahooCollect.ts';
-import { marketToday } from '../src/gates.ts';
+import { dailyFresh, marketToday } from '../src/gates.ts';
 import { collectForWeb, store as runnerStore } from '../app/lib/runner.ts';
 import { setStore } from '../app/lib/runner.ts';
 import { FileStore } from '../src/store-file.ts';
@@ -288,7 +288,11 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     expect(stock?.name).toBe('腾讯控股有限公司');
     expect(stock?.overview?.currency).toBe('HKD');
     expect(stock?.overviewLastUpdate).toBe(marketToday('hk'));
-    expect(stock?.lastDataUpdate).toBe(marketToday('hk')); // 覆盖 replaceDatas 的末根日期
+    // 日期戳 = **末根 bar 的日期**（P1 2026-11-21）：旧实现无条件盖"今天"，而本
+    // 夹具末根是 2023-11-16 —— 盘前/跨日补采时盖今天会让当天剩余的 run 判
+    // dailyFresh → skipDaily → 当天真正的 bar 永远进不了库（报告变成
+    // "今天的价 + 昨天的 MA/RSI"）。戳必须忠于库里实际的最后一根。
+    expect(stock?.lastDataUpdate).toBe('2023-11-16');
     const bars = store.getDatas('0700.HK');
     expect(bars).toHaveLength(2);
     expect(bars[0].date).toBe('2023-11-15'); // unix 秒 → 市场时区(Asia/Hong_Kong)
@@ -985,6 +989,16 @@ describe('applyYahooCollectedToStore B3:字段级合并(降级不覆盖既有好
 // lastDataUpdate 是 dailyFresh 的唯一依据。盘中采到的末根 close=当时价、量未累计
 // 完;若照样盖今天的戳,收盘后的分析会按 skipDaily 复用这根 bar 一整天。
 describe('P1-7 盘中 bar 与 lastDataUpdate 戳', () => {
+  // 冻结时钟:2026-08-20T02:00Z = 港市周四 10:00(交易日盘中)。
+  // 旧用例只钉"时刻"不钉"日期"(today 取自**真实** marketToday),而
+  // marketSessionClosed 周末恒 true → 周六/周日跑测试时盘中分支不可达,本块必有两条红。
+  const NOW_INTRADAY = new Date('2026-08-20T02:00:00Z'); // 港市 10:00,盘中
+  const NOW_AFTER_CLOSE = new Date('2026-08-20T08:30:00Z'); // 港市 16:30,已收盘
+  const TODAY = '2026-08-20';
+  const YESTERDAY = '2026-08-19';
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW_INTRADAY); });
+  afterEach(() => { vi.useRealTimers(); });
+
   const bar = (date: string) => ({ date, open: 10, high: 11, low: 9, close: 10.5, volume: 100 });
 
   function payloadWith(bars: ReturnType<typeof bar>[]): YahooCollectedPayload {
@@ -1002,10 +1016,7 @@ describe('P1-7 盘中 bar 与 lastDataUpdate 戳', () => {
 
   it('盘中(未到收盘)采到的当日 bar:不推进戳,下次仍会重取', () => {
     const store = new InMemoryStore();
-    const today = marketToday('hk');
-    // 港市 10:30(UTC+8)→ 尚未到 16:00 收盘
-    const intraday = new Date(`${today}T10:30:00+08:00`);
-    const out = applyYahooCollectedToStore(store, payloadWith([bar(today)]), 'hk', intraday);
+    const out = applyYahooCollectedToStore(store, payloadWith([bar(TODAY)]), 'hk', NOW_INTRADAY);
     expect(out.ticker).toBe('0700.HK');
     expect(store.getStock('0700.HK')?.lastDataUpdate).toBeNull();
     // 数据本身照样入库(不因不盖戳而丢 bar)
@@ -1014,7 +1025,6 @@ describe('P1-7 盘中 bar 与 lastDataUpdate 戳', () => {
 
   it('盘中采集保留既有戳(不前进):已有一更早的戳时不改成今天', () => {
     const store = new InMemoryStore();
-    const today = marketToday('hk');
     store.putStock({
       ticker: '0700.HK',
       name: '腾讯控股',
@@ -1022,21 +1032,41 @@ describe('P1-7 盘中 bar 与 lastDataUpdate 戳', () => {
       overviewLastUpdate: '2026-01-05',
       lastDataUpdate: '2026-01-05',
     });
-    applyYahooCollectedToStore(store, payloadWith([bar(today)]), 'hk', new Date(`${today}T10:30:00+08:00`));
+    applyYahooCollectedToStore(store, payloadWith([bar(TODAY)]), 'hk', NOW_INTRADAY);
     expect(store.getStock('0700.HK')?.lastDataUpdate).toBe('2026-01-05');
   });
 
   it('收盘后采到的当日 bar:照常推进到今天', () => {
     const store = new InMemoryStore();
-    const today = marketToday('hk');
-    applyYahooCollectedToStore(store, payloadWith([bar(today)]), 'hk', new Date(`${today}T16:30:00+08:00`));
-    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe(today);
+    applyYahooCollectedToStore(store, payloadWith([bar(TODAY)]), 'hk', NOW_AFTER_CLOSE);
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe(TODAY);
   });
 
-  it('末根不是今天(隔日补采):戳照样推进到今天', () => {
+  // P1(评审 2026-11-21):旧实现无条件盖"今天",盘前采集(HK 08:30 / 美股盘前的
+  // 22:00 HKT)末根还是昨天的 bar → 当天收盘后的 run 被判 dailyFresh → skipDaily
+  // → 当天那根完整 bar 永远进不了库,报告 = "今天的价 + 昨天的 MA/RSI"。
+  it('末根不是今天(盘前/隔日补采):戳 = 末根日期,不盖今天', () => {
     const store = new InMemoryStore();
-    const today = marketToday('hk');
-    applyYahooCollectedToStore(store, payloadWith([bar('2020-01-02')]), 'hk', new Date(`${today}T10:30:00+08:00`));
-    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe(today);
+    applyYahooCollectedToStore(store, payloadWith([bar(YESTERDAY)]), 'hk', NOW_INTRADAY);
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe(YESTERDAY);
+  });
+
+  it('盘前采集后当日收盘再采集:当天那根 bar 必须真正入库(不被 skipDaily 挡掉)', () => {
+    const store = new InMemoryStore();
+    // 1) 盘前 08:00:末根 = 昨天
+    const preOpen = new Date('2026-08-20T00:00:00Z'); // 港市 08:00
+    applyYahooCollectedToStore(store, payloadWith([bar(YESTERDAY)]), 'hk', preOpen);
+    // 2) 收盘后 16:30:当天那根完整 bar 必须能进来 —— 门必须判"不新鲜"
+    const stamp = store.getStock('0700.HK')?.lastDataUpdate ?? null;
+    expect(dailyFresh(stamp, TODAY)).toBe(false);
+    applyYahooCollectedToStore(store, payloadWith([bar(YESTERDAY), bar(TODAY)]), 'hk', NOW_AFTER_CLOSE);
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBe(TODAY);
+    expect(store.getDatas('0700.HK')).toHaveLength(2);
+  });
+
+  it('完全没采到 bar(首次采集返回空):不盖今天的戳,下次重试', () => {
+    const store = new InMemoryStore();
+    applyYahooCollectedToStore(store, payloadWith([]), 'hk', NOW_AFTER_CLOSE);
+    expect(store.getStock('0700.HK')?.lastDataUpdate).toBeNull();
   });
 });
