@@ -12,7 +12,8 @@
 //   两份结构化 meta:公司画像 JSON(yahoo-profile:)与股本 JSON(yahoo-capital:)
 //   ——DataScreen 读(换手率列/画像 chips)、pipeline 读(块 1.5 画像段)
 // - capital 由调用方从 composeYahooOverview 承接(payload.capital),此处不重算
-// - 日期戳:lastDataUpdate = skipDaily ? 既有 ?? 今天 : 今天
+// - 日期戳:lastDataUpdate = skipDaily ? 既有 ?? 今天 : (末根 bar 日期 ?? 既有 ?? null)
+//   盘中残缺 bar 与盘前/隔日补采一律不前进 —— 详见 nextLastDataUpdate 注释
 //
 // store 注入面(setYahooStore):collectYahooViaProxy/collectYahooForDevice 签名
 // 固定(ticker+opts,对齐 MarketCollector 输入形),store 由 App 启动时注入
