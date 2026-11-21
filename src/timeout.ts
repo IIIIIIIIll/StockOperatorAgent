@@ -70,6 +70,31 @@ export function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw abortError(signal);
 }
 
+/** 把一个**已在飞行中**的 Promise 与取消信号挂在一起(评审 2026-11-21)。
+ *
+ *  用途:第三方工具调用(如 web_search 的 fetch)只接受 await,没有接入口让我们
+ *  中断它。signal 先到 → 立即 reject AbortError,调用方的 run() 能结算,socket
+ *  由底层自行回收;原 Promise 的结果被丢弃(不再是死等 300s 体读取)。
+ *  注意:这是「不等它」而不是「真中断」——写清楚,免后人误以为能停 I/O。 */
+export function raceAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(abortError(signal));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(abortError(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 /** 可取消的 sleep(退避计时器用)。取消 → reject AbortError,计时器同时清掉,
  *  避免「取消后仍被迟到的 resolve 佯装成功」。 */
 export function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {

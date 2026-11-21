@@ -19,6 +19,7 @@ import { defaultSearcher, summarizeResults, webSearchEnabled, type SearchResult 
 import { billionsEnabled } from './switches.ts';
 import { BillionsClient } from './billionsClient.ts';
 import { error, warn } from './log.ts';
+import { throwIfAborted } from './timeout.ts';
 
 export interface LlmLike {
   invoke(payload: unknown, config?: unknown): Promise<{ content: string }>;
@@ -411,6 +412,11 @@ export class BillionsInformationAnalyst extends AgentNode {
     // 2026-11:billionsEnabled 已搬到 src/switches.ts —— 本文件对 committee.ts
     // 不再有反向 import,agents↔committee 循环被彻底断开(该循环 2026-08-15
     // 曾让 Expo dev bundle 因动态 import 解析失败而挂)。
+    // P2(评审 2026-11-21):预抓最多 4 个并发外网请求(亿信三源 + twitter,
+    // fast 模式各 25s)且全程不看取消信号 —— 用户取消后它们照样跑完、烧额度,
+    // 而图要等到第一次 LLM 调用才察觉取消。入口与每段之间各夹一次检查。
+    const signal = (this.config as { signal?: AbortSignal } | undefined)?.signal;
+    throwIfAborted(signal);
     const searchOn = billionsEnabled('SEARCH');
     const twitterOn = billionsEnabled('TWITTER');
     const webOn = webSearchEnabled();
@@ -428,9 +434,11 @@ export class BillionsInformationAnalyst extends AgentNode {
       }
       if (twitterOn && keyOn) tasks.push(this._twitterSection(client, ticker));
       for (const section of await Promise.all(tasks)) sections.push(section);
+      throwIfAborted(signal); // 并发段结束就看一眼：取消后不再发联网回退请求
     }
     let foundContent = sections.some((s) => s.includes('检索结果】'));
     if (!foundContent && webOn) {
+      throwIfAborted(signal);
       const webSection = await this._webSearchSection(ticker);
       sections.push(webSection);
       foundContent = webSection.startsWith('【联网搜索结果】');

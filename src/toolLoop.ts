@@ -8,6 +8,7 @@
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { invokeWithRetry, streamWithRetry, type StreamableLlm } from './retry.ts';
 import { safeProgress, type ProgressUpdater } from './progress.ts';
+import { raceAbort, throwIfAborted } from './timeout.ts';
 import { error, warn } from './log.ts';
 
 export const MAX_TOOL_ROUNDS = 15;
@@ -102,6 +103,12 @@ export async function invokeWithTools(
     safeProgress(progressUpdater, '正在联网搜索。。。');
     messages.push(response as BaseMessage);
     const toolByName = new Map(tools.map((t) => [t.name, t]));
+    // P2（评审 2026-11-21）：单个工具调用必须可被取消。旧实现直接
+    // `await tool.invoke(...)`：用户取消后 web_search 可能卡在响应体读取
+    // （fetchWithTimeout 在收到 header 时就清了计时器，src/webSearch.ts 随后
+    // await resp.text() 无超时）—— run() 一直不结算、socket 不放，UI 却早已
+    // 报「已取消」。用 race 把 invoke 与 abort 信号挂在一起。
+    const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
     for (const call of toolCalls) {
       const tool = toolByName.get(call.name);
       let content: unknown;
@@ -118,7 +125,9 @@ export async function invokeWithTools(
           // P2(评审 2026-11-21):降级前必须留痕 —— 旧实现默默换成占位文本,
           // 工具全挂时报告建立在占位符上而日志一片干净,无从诊断
           //(.trellis/spec/error-handling.md「Log first, degrade second」).
-          content = await tool.invoke(call.args);
+          throwIfAborted(signal);
+          // invoke 可能是同步值也可能返回 Promise → 统一包成 Promise 再与取消信号 race
+          content = await raceAbort(Promise.resolve(tool.invoke(call.args)), signal);
           if (Array.isArray(content)) content = content[0]; // content_and_artifact 形态
         } catch (err) {
           warn(`工具 ${call.name} 执行失败,已降级为占位文本: ${(err as Error).message}`);
