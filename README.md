@@ -192,7 +192,10 @@ keytool -genkeypair -v -keystore release.keystore -alias <alias> \
 | `ANDROID_KEY_PASSWORD` | 私钥口令（对应 `-keypass`） |
 
 3. 下次构建时 CI 自动写入 keystore、生成 `keystore.properties` 并以正式签名构建
-   （脚本 `tools/configure-android-signing.mjs`，幂等，重复运行零变化）。**未配置
-   上述 Secrets 时自动降级 debug 签名**，流水线不中断。
+   （脚本 `tools/configure-android-signing.mjs`，幂等，重复运行零变化）。
+   **tag 发布必须配齐上述四个 Secrets**：缺任何一个，APK 会退化成 debug 签名，
+   而 `.github/workflows/release.yml` 在 `GITHUB_REF_TYPE=tag` 时对 debug 签名
+   **直接 exit 1**（`Verify APK signature (apksigner)` 步骤）。只有
+   `workflow_dispatch` 手跑才是「降级 debug 签名、不中断」。
 
 > 请妥善保管 keystore 文件与口令：丢失后无法再向已发布的 APK 提供升级。

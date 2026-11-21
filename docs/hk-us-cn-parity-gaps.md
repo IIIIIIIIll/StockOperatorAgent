@@ -7,11 +7,15 @@
 
 ## TL;DR — 按"错误程度×修复成本"排序的前 5 项
 
+> **维护状态（2026-11-21 复核）**：下方 #1/#3 与 §0.1 **已关闭**，与文末
+> 「落地状态」表(168-170 行)一致。保留原文是为了留下"当时怎么误判的"的轨迹，
+> 请在动手前先看文末状态表与 `src/adjust.ts` 头注释。
+
 | # | 问题 | 严重度 | 证据 | 估算 |
 |---|---|---|---|---|
-| 1 | HK/US 日K **从未复权**：`adjclose` 与 `events` 请求了但从未读取 | 静默错数 | `src/yahoo/deviceYahooCollect.ts:143-176`、`:185`；全仓 `adjclose` 零命中 | ~30 min |
+| 1 | ~~HK/US 日K **从未复权**：`adjclose` 与 `events` 请求了但从未读取~~ **已关闭**：`src/adjust.ts:122` `qfqAdjustByAdjClose` + `src/yahoo/deviceYahooCollect.ts:218-239` 已读 `indicators.adjclose` 并复权 | ~~静默错数~~ | 旧据：`src/yahoo/deviceYahooCollect.ts:143-176`、`:185` | 已完成 |
 | 2 | HK/US 财务是**单季口径**，但提示词要求模型按"年度累计"再调整 | 静默错数 | `src/prompt.ts:7` vs `src/yahoo/composeYahooReports.ts:227-243` | ~1 h |
-| 3 | `today` 对所有市场都用 `asiaToday()` | 静默错数 | `src/pipeline.ts:205,221`；`app/lib/analysisController.ts:612,622` | ~20 min |
+| 3 | ~~`today` 对所有市场都用 `asiaToday()`~~ **已关闭**：`src/pipeline.ts:264` 用 `marketToday(market)` | ~~静默错数~~ | 旧据：`src/pipeline.ts:205,221` | 已完成 |
 | 4 | HK/US **无公告/财报原文源**（CN 有 TDX MCP + 亿信 + F10） | 数据缺口 | `src/pipeline.ts:268-272` | 3–6 h |
 | 5 | HK/US 销售额毛利率永远 N/A，但数据其实已算出 | 展示缺口 | `src/chartData.ts:113-121` vs `src/yahoo/composeYahooReports.ts:147` | ~20 min |
 
@@ -19,7 +23,11 @@
 
 ## Tier 0 — 静默错数（最危险：模型拿到的数字是错的，不是缺失的）
 
-### 0.1 HK/US K线未复权（最高优先级）
+### 0.1 HK/US K线未复权（最高优先级）—— **已关闭 2026-11-21 复核**
+
+> 已实现：`src/adjust.ts:122 qfqAdjustByAdjClose()`，由
+> `src/yahoo/deviceYahooCollect.ts:218-239` 用 `indicators.adjclose` 驱动。
+> 下文「两处注释与实现相反」也已同步。此处仅作历史记录保留。
 
 ```
 src/yahoo/deviceYahooCollect.ts:162-176  barsFromChart() 只读 indicators.quote[0].{open,high,low,close,volume}
