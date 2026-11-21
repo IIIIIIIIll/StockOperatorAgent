@@ -5,6 +5,7 @@ import {
   fileWriteDisabled,
   formatLogLine,
   isNodeEnv,
+  isAllowedReportEndpoint,
   isRnEnv,
   isWebEnv,
   log,
@@ -232,6 +233,43 @@ describe('console transport(格式 [soa <level>] 逐字节不变,AC5)', () => {
   });
 });
 
+// P2（评审 2026-11-21）：上报端点白名单 —— 一个手滑的 http:// 或第三方主机
+// 就会把每次运行的日志（ticker、上游错误文本）明文发出去。web 分支本来就钉死
+// 同源；这里锁死 RN 分支的规则：https 放行，明文 http 仅回环/私网，其余拒绝。
+describe('EXPO_PUBLIC_LOG_ENDPOINT 白名单', () => {
+  it('https 任意主机放行', () => {
+    expect(isAllowedReportEndpoint('https://logs.example.com/logs')).toBe(true);
+  });
+
+  it('明文 http 仅回环/私网放行(RFC1918 三段 + 回环)', () => {
+    for (const url of [
+      'http://localhost:8090/logs',
+      'http://127.0.0.1:8090/logs',
+      'http://10.0.0.7/logs',
+      'http://172.16.3.4/logs',
+      'http://172.31.255.1/logs',
+      'http://192.168.1.20:8090/logs',
+      'http://[::1]:8090/logs',
+    ]) {
+      expect(isAllowedReportEndpoint(url), url).toBe(true);
+    }
+  });
+
+  it('明文 http 指向公网/非法主机 → 拒', () => {
+    for (const url of [
+      'http://logs.example.com/logs',
+      'http://rn/logs',
+      'http://172.32.0.1/logs', // 越出 RFC1918 的 172.16/12
+      'http://169.254.169.254/latest', // 云元数据
+      'ftp://logs.example.com/x',
+      'javascript:alert(1)',
+      'not-a-url',
+    ]) {
+      expect(isAllowedReportEndpoint(url), url).toBe(false);
+    }
+  });
+});
+
 describe('上报 transport(payload 形状 + 降级)', () => {
   it('payload 形状:POST /logs + {ts, level, message, platform},keepalive', () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -313,8 +351,10 @@ describe('上报 transport(payload 形状 + 降级)', () => {
     const oldEndpoint = process.env.EXPO_PUBLIC_LOG_ENDPOINT;
     try {
       setGlobal('navigator', { product: 'ReactNative' });
-      process.env.EXPO_PUBLIC_LOG_ENDPOINT = 'http://rn/logs';
-      expect(reportEndpoint()).toBe('http://rn/logs');
+      // 2026-11-21 起明文 http 仅限回环/私网 → 这里用私网地址（原 'http://rn/logs'
+      // 的主机名不合法，会被端点白名单拒为不上报）
+      process.env.EXPO_PUBLIC_LOG_ENDPOINT = 'http://192.168.1.5:8090/logs';
+      expect(reportEndpoint()).toBe('http://192.168.1.5:8090/logs');
       delete process.env.EXPO_PUBLIC_LOG_ENDPOINT;
       expect(reportEndpoint()).toBe('');
     } finally {

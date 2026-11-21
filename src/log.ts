@@ -69,14 +69,58 @@ export interface ReportPayload {
   platform: Platform;
 }
 
+/** 上报端点白名单（P2 评审 2026-11-21）。
+ *
+ *  旧实现对 EXPO_PUBLIC_LOG_ENDPOINT 完全不校验：一个手滑的 `http://` 或第三方
+ *  主机就会把每次运行的日志（ticker、上游错误文本、LLM 回复前缀）明文发出去。
+ *  web 分支本来就钉死为同源；RN 分支按这里收紧：
+ *  - https: 一律放行（传输已加密）
+ *  - http: 仅回环/私网（开发期本机 server），公网明文一律拒
+ *  - 其它协议（file:/javascript: 等）一律拒
+ */
+export function isAllowedReportEndpoint(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol === 'https:') return true;
+  if (url.protocol !== 'http:') return false;
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost')) {
+    return true;
+  }
+  // RFC1918 私网:开发机的局域网地址（手机连本机 server 的常见形态）
+  return (
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
+}
+
 /** web → 同源 /logs;RN → EXPO_PUBLIC_LOG_ENDPOINT(空/未设 → '' 不上报)。 */
 export function reportEndpoint(): string {
   if (isWebEnv()) {
     const origin = window?.location?.origin;
     return origin ? `${origin}/logs` : '';
   }
-  return envValue('EXPO_PUBLIC_LOG_ENDPOINT') ?? '';
+  const endpoint = envValue('EXPO_PUBLIC_LOG_ENDPOINT') ?? '';
+  if (!endpoint) return '';
+  if (!isAllowedReportEndpoint(endpoint)) {
+    // 只报一次（用模块级标志），否则每条日志都会刷一行「端点被拒」
+    if (!warnedBadEndpoint) {
+      warnedBadEndpoint = true;
+      console.warn(
+        `[soa] EXPO_PUBLIC_LOG_ENDPOINT 被拒(仅接受 https 或回环/私网 http):${endpoint}`,
+      );
+    }
+    return '';
+  }
+  return endpoint;
 }
+
+let warnedBadEndpoint = false;
 
 /** fire-and-forget POST {ts, level, message, platform}(keepalive 保底页面
  * 关闭前送达);失败 catch 静默,不打断业务。_fetch/_endpoint 注入点(测试)。 */
