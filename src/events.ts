@@ -182,21 +182,32 @@ export function createPipelineRunner(store: StoreLike): PipelineRunner {
       // runner 内部代数 —— 两者都只用于“把事件归到哪一次运行”,不参与并发守卫判定。
       const runTag = opts.runTag ?? mySeq;
       const emitRun = (e: PipelineEventBody): void => emit({ ...e, runTag });
-      // 角色表一次定型(2026-11 整改):此前 makeUpdater 每个事件都调
-      // enabledRoles() —— 该函数读**实时**开关,而图在 committee.ts:163 已按
-      // 构图时刻的快照定型。运行中切开关 → 同一节点的 roleKey 中途变名,
-      // 流式文本从 tab 里丢失、完成时角色进不了 opinions。
-      const roles = enabledRoles();
-      const updater = makeUpdater(emitRun, roles);
-      // 取消控制:外部 signal 优先,否则用本运行自己的 controller(abort() 触发)
+      // 取消控制：外部 signal 与 run 自己的 controller **两者都必须生效**。
+      // P1（评审 2026-11-21）：旧实现 `signal = opts.signal ?? ownAbort.signal`，
+      // 有外部 signal 时本次运行只监听外部那个 —— `abort()` 于是 abort 了一个
+      // 没人监听的 controller，却仍把 running 置 false。后果：守卫已释放、调用方
+      // 可再启一轮，而旧 pipeline 继续打到上游直到 600–900s 结束（双跑 + 双份
+      // LLM 花费）。`RunOptions.signal` 文档说它与 abort() 等效，等效必须是双向的。
+      // controller 必须在任何可能抛错的初始化之前就位，且 signal 先取内部那个，
+      // 否则 `AbortSignal.any` 在 try 外抛错会把 running 永久留在 true。
       const ownAbort = new AbortController();
       currentAbort = ownAbort;
-      const signal = opts.signal ?? ownAbort.signal;
+      let signal: AbortSignal = ownAbort.signal;
       // 仅当自己仍是当前代时才复位(abort()/新一轮会让旧代失效)
       const releaseRunning = () => {
         if (mySeq === runSeq) running = false;
       };
       try {
+        if (opts.signal) signal = AbortSignal.any([opts.signal, ownAbort.signal]);
+        // 角色表一次定型(2026-11 整改):此前 makeUpdater 每个事件都调
+        // enabledRoles() —— 该函数读**实时**开关,而图在 committee.ts:163 已按
+        // 构图时刻的快照定型。运行中切开关 → 同一节点的 roleKey 中途变名,
+        // 流式文本从 tab 里丢失、完成时角色进不了 opinions。
+        // P2(评审 2026-11-21):这两行必须在 try 内 —— 旧实现只把 running = true
+        // 放在 try 外、把它俩放在 try 外，一旦 enabledRoles() 抛错就没人 reset，
+        // 后续 run 全被"上一次分析仍在进行中"永久拒绝直到重启。
+        const roles = enabledRoles();
+        const updater = makeUpdater(emitRun, roles);
         throwIfAborted(signal); // 已取消 → 不发把干运行
         emitRun({ type: 'progress', message: `开始分析 ${ticker}...` });
 

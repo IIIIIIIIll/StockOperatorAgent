@@ -276,6 +276,56 @@ describe('pipeline runner (AC2/AC3 事件流)', () => {
     expect(second).toBeTruthy();
   });
 
+  it('外部 signal 在途时 runner.abort() 也必须真取消(P1 回归:双向等效)', async () => {
+    // P1（评审 2026-11-21）：旧实现 `signal = opts.signal ?? ownAbort.signal`，
+    // 有外部 signal 时本次运行**只**监听外部那个 → abort() 只 abort 了一个没人
+    // 监听的 controller（守卫释放了，旧 pipeline 却继续跑到结束）。
+    // 本用例：外部 signal 永不 abort，只调 runner.abort() → 必须停。
+    const store = seededStore();
+    const runner = createPipelineRunner(store);
+    const events: PipelineEvent[] = [];
+    runner.subscribe((e) => events.push(e));
+
+    let openGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const routed = stubLlm();
+    let calls = 0;
+    const gated = async (payload: unknown) => {
+      calls += 1;
+      if (calls === 1) await gate;
+      return routed(payload);
+    };
+    (gated as unknown as { invoke: unknown }).invoke = gated;
+
+    const ac = new AbortController(); // 保持存活:只有 runner.abort() 会触发取消
+    const run = runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-09',
+      llm: gated,
+      signal: ac.signal,
+    });
+    await Promise.resolve();
+    runner.abort?.();
+    openGate();
+
+    expect(await run).toBeUndefined();
+    // 取消 ≠ 成功:不得 emit done(否则半截结果被归档成新报告)
+    expect(events.filter((e) => e.type === 'done')).toEqual([]);
+    // 取消 ≠ 失败:不得 emit error
+    expect(events.filter((e) => e.type === 'error')).toEqual([]);
+    // 守卫已释放:下一轮可正常跑完
+    const next = await runner.run('600036', {
+      f10Text,
+      snapshot: { price: 38.8, high: 39.1, low: 38.48, open: 38.9 },
+      today: '2026-08-10',
+      llm: stubLlm(),
+    });
+    expect(next).toBeTruthy();
+  });
+
   it('retry 注入 → roleStatus 序列 running→retry→done,后续 token 全量重来', async () => {
     const store = seededStore();
     const runner = createPipelineRunner(store);
