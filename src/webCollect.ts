@@ -73,7 +73,8 @@ export function applyCollectedToStore(
   // last_data_update 前进到今天——否则当天剩下的时间里 gates.dailyFresh 判为新鲜，
   // 报告永远用这根盘中残缺 bar（HK/US 链已在 applyYahooCollectedToStore 修过同类）。
   const lastBarDate = payload.bars.length ? (payload.bars.at(-1)?.date ?? null) : null;
-  const intradayBar = lastBarDate === marketToday('cn') && !marketSessionClosed('cn', now);
+  // 两个时钟同一：既然 now 可注入，"今天"就必须也来自它（同 yahoo 链 2026-11-21 修复）
+  const intradayBar = lastBarDate === marketToday('cn', now) && !marketSessionClosed('cn', now);
   store.putStock({
     ticker: payload.ticker,
     name: payload.name ?? payload.ticker,

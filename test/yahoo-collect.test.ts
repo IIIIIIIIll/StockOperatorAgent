@@ -465,6 +465,62 @@ describe('collectYahooForDevice(RN 直连,fake fetch)', () => {
     ]);
   });
 
+  // P2（评审 2026-11-21）：年度行以前是**整段替换**。quoteSummary 的年度模块是
+  // 固定 ~4 期窗口，一次截断/降级的 200 响应会把更早的 FY 行永久抹掉。
+  it('年度行按 report_date 与既有 meta 合并:不丢更早的 FY', async () => {
+    const store = new InMemoryStore();
+    // 盘上已有两期更早的年度行(模拟上一轮采集存下的)
+    store.setMeta(
+      yahooAnnualKey('0700.HK'),
+      JSON.stringify([
+        { report_date: '20231231', fields: { period_kind: 'FY', revenue: 1 } },
+        { report_date: '20241231', fields: { period_kind: 'FY', revenue: 2 } },
+      ]),
+    );
+    const payload: YahooCollectedPayload = {
+      ticker: '0700.HK',
+      name: '腾讯控股',
+      bars: [],
+      snapshot: null,
+      overview: {},
+      // 本轮只回了 1 期年度(降级:窗口被截)
+      reports: [{ report_date: '20251231', fields: { period_kind: 'FY', revenue: 3 } }],
+      profile: null,
+      capital: { zongguben: 9_300_000_000, liutongguben: 9_000_000_000 },
+    };
+    applyYahooCollectedToStore(store, payload, 'hk');
+    expect(parseYahooAnnualReports(store.getMeta(yahooAnnualKey('0700.HK'))).map((r) => r.report_date)).toEqual([
+      '20231231',
+      '20241231',
+      '20251231',
+    ]);
+  });
+
+  it('年度行同日期被新值覆盖(合并时 incoming 胜)', async () => {
+    const store = new InMemoryStore();
+    store.setMeta(
+      yahooAnnualKey('0700.HK'),
+      JSON.stringify([{ report_date: '20251231', fields: { period_kind: 'FY', revenue: 1 } }]),
+    );
+    applyYahooCollectedToStore(
+      store,
+      {
+        ticker: '0700.HK',
+        name: '腾讯控股',
+        bars: [],
+        snapshot: null,
+        overview: {},
+        reports: [{ report_date: '20251231', fields: { period_kind: 'FY', revenue: 999 } }],
+        profile: null,
+        capital: { zongguben: 9_300_000_000, liutongguben: 9_000_000_000 },
+      },
+      'hk',
+    );
+    const rows = parseYahooAnnualReports(store.getMeta(yahooAnnualKey('0700.HK')));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.fields.revenue).toBe(999);
+  });
+
   it('HK 5 位输入:09988 → 首候选 9988.HK(官方 4 位码)命中;5 位原样形不再试探', async () => {
     vi.useFakeTimers(); // F55:同 0700.HK 全链用例,分页窗口数钉死于 2026-08-20
     vi.setSystemTime(new Date('2026-08-20T02:00:00Z'));

@@ -84,6 +84,27 @@ function isUsableOverviewValue(v: unknown): boolean {
   return false;
 }
 
+/** 读 yahoo-annual: meta 里已有的年度行(非法/缺失 → 空数组,绝不抛)。
+ *  仅接受 report_date 为字符串且 fields 为对象的行 —— 与 PerformanceReport 同形。 */
+function readAnnualRows(raw: string | null): PerformanceReport[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const out: PerformanceReport[] = [];
+    for (const row of parsed) {
+      if (typeof row !== 'object' || row === null) continue;
+      const rec = row as { report_date?: unknown; fields?: unknown };
+      if (typeof rec.report_date !== 'string' || rec.report_date === '') continue;
+      if (typeof rec.fields !== 'object' || rec.fields === null) continue;
+      out.push({ report_date: rec.report_date, fields: rec.fields as Record<string, unknown> });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** 代理载荷 → store(putStock overview 槽 / replaceDatas / addPerformanceReports);
  *  返回 run opts 用结果(f10Text 恒 null——Yahoo 链无 F10 文本)。
  *  freshness:skipDaily 时保留既有日K 与 lastDataUpdate,快照/名称/概览仍照常
@@ -156,8 +177,18 @@ export function applyYahooCollectedToStore(
     if (annual.length) {
       // 同日多行年度(极少)→ 按 report_date 去重,后者作废
       const byDate = new Map<string, PerformanceReport>();
+      // P2(评审 2026-11-21):与**既有**年度行按 report_date 合并,别整段替换。
+      // quoteSummary 的年度模块是固定 ~4 期窗口,一次降级/截断的 200 响应
+      // (字段缺但整体仍可解析)会把更早的 FY 行永久抹掉,而 pipeline 的年度
+      // 财务块正要读它们。同源的画像槽(:165)早就是「降级不覆盖」口径。
+      for (const old of readAnnualRows(store.getMeta(yahooAnnualKey(payload.ticker)))) {
+        byDate.set(old.report_date, old);
+      }
       for (const r of annual) byDate.set(r.report_date, r);
-      store.setMeta(yahooAnnualKey(payload.ticker), JSON.stringify([...byDate.values()]));
+      store.setMeta(
+        yahooAnnualKey(payload.ticker),
+        JSON.stringify([...byDate.values()].sort((a, b) => a.report_date.localeCompare(b.report_date))),
+      );
     }
   }
   // 公司画像/股本写入 meta(hk/us 自己的键,与 CN 的 capital:/f10: 不混用):
