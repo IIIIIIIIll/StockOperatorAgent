@@ -776,6 +776,35 @@ async function handleTdxMcp(req, res, _fetch = fetch) {
 // 头白名单(S6 纪律,与 src/billionsClient.ts FORWARD 同名单:x-api-key/
 // content-type/accept);响应 JSON 透传(亿信非流式);redirect manual。
 const BILLIONS_TARGET_ORIGIN = 'https://openapi.billionsintelligence.com';
+/** 亿信代理:上游超时与响应体上限（P2 评审 2026-11-21）。
+ *  超时对齐客户端 fast 模式的 25s；响应上限 8MB（正常 JSON 远小于此）。 */
+const BILLIONS_TIMEOUT_MS = 25_000;
+const BILLIONS_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+/** 读响应体并卡上限。超限 → 抛错（由调用方的 502/504 分支兜底），
+ *  不在内存里留下无界缓冲。 */
+async function readCappedText(response, maxBytes) {
+  const body = response.body;
+  if (!body || typeof body.getReader !== 'function') {
+    const text = await response.text();
+    if (Buffer.byteLength(text) > maxBytes) throw new Error(`响应体超过 ${maxBytes} 字节上限`);
+    return text;
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`响应体超过 ${maxBytes} 字节上限`);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 const BILLIONS_ALLOWED_PATHS = new Set(['/api/v1/fin_db', '/api/v2/search', '/api/v2/twitter/search', '/api/v2/fetch']);
 const BILLIONS_FORWARD_HEADERS = new Set(['x-api-key', 'content-type', 'accept']);
 
@@ -821,13 +850,20 @@ async function handleBillionsProxy(req, res, _fetch = fetch) {
         forwardHeaders[name] = value;
       }
     }
+    // P2（评审 2026-11-21）：本 handler 是唯一没有超时/大小上限的转发点 ——
+    // 上游卡住就会一直挂着（其余 handler 都有 AbortSignal + 504 分支）。
+    // 用 25s 硬超时对齐亿信客户端的 fast 模式，超时回 504 而不是让客户端干等。
+    // 注意：_fetch 注入点保持原样，AbortSignal.timeout 由 undici/Node 提供。
     const upstream = await _fetch(`${BILLIONS_TARGET_ORIGIN}${path}${query}`, {
       method: 'POST',
       headers: forwardHeaders,
       body,
       redirect: 'manual',
+      signal: AbortSignal.timeout(BILLIONS_TIMEOUT_MS),
     });
-    const text = await upstream.text(); // 亿信响应为 JSON(非流式),整体缓冲
+    // 整体缓冲（亿信响应是 JSON，非流式），但必须有上限：否则一个超大/
+    // 慢速响应就能把渲染进程堆吃光。
+    const text = await readCappedText(upstream, BILLIONS_MAX_RESPONSE_BYTES);
     res.writeHead(upstream.status, {
       'Content-Type': safeResponseType(upstream),
       ...SEC_HEADERS,
@@ -838,8 +874,20 @@ async function handleBillionsProxy(req, res, _fetch = fetch) {
       res.destroy();
       return;
     }
-    res.writeHead(502, { 'Content-Type': 'application/json', ...SEC_HEADERS });
-    res.end(JSON.stringify({ error: { message: `亿信代理转发失败:${String(err?.message ?? err)}` } }));
+    // 超时（AbortSignal.timeout → TimeoutError）与上游失败分开报，客户端才知道
+    // 该重试还是该放弃。
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    const status = timedOut ? 504 : 502;
+    res.writeHead(status, { 'Content-Type': 'application/json', ...SEC_HEADERS });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: timedOut
+            ? `亿信代理超时(${BILLIONS_TIMEOUT_MS}ms)`
+            : `亿信代理转发失败:${String(err?.message ?? err)}`,
+        },
+      }),
+    );
   }
 }
 
