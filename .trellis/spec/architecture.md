@@ -37,8 +37,13 @@ Per-layer depth lives in [ts/index.md](./ts/index.md) (the live TS contract) and
   && node --experimental-strip-types server.mjs` (default port 8090). `serveStatic`
   serves `app/dist` (decodeURIComponent guarded -> 400, path traversal -> 403, SPA
   fallback to index.html) plus same-origin routes: `POST /llm-proxy/*`,
-  `GET /tdx-collect`, `GET /web-search`, `POST /logs`. Listens on `127.0.0.1` by
-  default (`HOST` env to expose — SSRF/log-injection surface, keep loopback).
+  `GET /tdx-collect`, `GET /web-search`, `POST /logs`, `POST /yahoo-collect`,
+  `POST /tdx-mcp`, `POST /billions-proxy`, `GET /news-feed` (8 routes; gate list
+  single-sourced in `app/lib/request-gate.cjs` `PROXY_PATHS`). Listens on
+  `127.0.0.1` by default; `HOST` exposes it — and a non-loopback bind **fails
+  closed** without `SOA_ACCESS_TOKEN`, because anyone who can load the page can
+  read the inlined token (it is an anti-misconnect guard, not authentication).
+  Treat remote mode as trusted-LAN only.
   `createAppServer()` is exported for the desktop main process; `isMain` guard
   keeps import side-effect free (vitest imports it).
 - **`app/App.tsx`** — Expo root (web + RN + Android). Pure rendering: `[采集数据]`

@@ -14,7 +14,7 @@ implementation.
 
 | Layer | Directory | Guideline | When to read |
 |-------|-----------|-----------|--------------|
-| Historical Python layers (archived) | `agents/`, `core/`, `data_source/`, `data_storage/`, `data_structure/` | [agents](./agents/index.md) · [core](./core/index.md) · [data_source](./data_source/index.md) · [data_storage](./data_storage/index.md) · [data_structure](./data_structure/index.md) | Historical only — Python code deleted in phaseout; read for design lineage, not as a live contract |
+| Historical Python layers (archived) | `agents/`, `core/`, `data_source/`, `data_storage/`, `data_structure/` | [agents](./agents/index.md) · [core](./core/index.md) · [data_source](./data_source/index.md) · [data_storage](./data_storage/index.md) · [data_structure](./data_structure/index.md) | Historical only — Python code deleted in phaseout; read for design lineage, not as a live contract. **Exception:** `core/investment-committee.md` is a live TS contract (`paths: src/committee.ts, src/pipeline.ts, src/events.ts, …`) — read it when touching the committee graph |
 | TS implementation | `src/`/`app/`/`test/`/`tools/` | [ts/index.md](./ts/index.md) | Editing the TS implementation (Expo web/RN + Node server): event protocol, streaming, LLM retry, same-origin proxies |
 
 ## Cross-Cutting

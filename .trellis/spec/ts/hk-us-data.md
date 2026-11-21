@@ -53,7 +53,7 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 
 - **store/fetch ticker 键**：CN 裸 6 位（`600036`）/ 港股 Yahoo 符号（`0700.HK`、`9988.HK`）/ 美股大写（`AAPL`、`BRK.B`）。三格式无碰撞，store schema 零迁移。
 - **市场选择**：UI 下拉三市场(沪深A股/港股/美股,默认沪深A股),无自动识别;normalizeTicker 按所选市场强制校验,格式不符 → null。
-- **HK 代码解析**：输入 → `hkSymbolCandidates` 逐个 chart 试探（404/`chart.error` 视为未命中继续，其余失败中止）；全败 → `无法解析港股代码`。US 无候选直接采。
+- **HK 代码解析**：输入 → `hkSymbolCandidates` 逐个 chart 试探（404/`chart.error` 视为未命中继续，其余失败中止）；全败 → `无法解析${market==='hk'?'港股':'美股'}代码`。US 亦有候选互探（`usCandidates`：`BRK.B`⇄`BRK-B`，`src/yahoo/deviceYahooCollect.ts:381-387`），不再「无候选直接采」。
 - **DailyBar**：date `YYYY-MM-DD` 升序；volume 原始股数（非手）；close 已前复权（Yahoo 服务端）；**10 年窗口 period1/period2 分页**（`range=max` 实测被降级为月K）。
 - **crumb**：fc.yahoo.com 现回 HTTP 404 但仍带 `A3=` Set-Cookie → 状态码无关解析（U5）；采集注入点传 `getCachedA3` getter + `invalidateA3Cache` 失效钩子（C3 方案 B′，无预取——缓存空/吊销 → YahooClient 自身 fc 取新 A3，单请求路径）；quoteSummary 401 → 失效 provider 层缓存 + 刷新一次 → 再败降级（overview 仅 chart meta 字段、reports 空，**不整体失败**；chart 失败才中止）。
 - **prevClose**：HK/US chart meta 无 previousClose（chartPreviousClose 是窗口前收盘不可用）→ 由 bars 推算（regularMarketTime 与末根同日 → 倒数第二根收盘）。
@@ -73,7 +73,7 @@ selectCollector(platform: 'web'|'rn', market: Market, webImpls: Record<Market, M
 |---|---|
 | 非法 ticker（与所选市场格式不符） | normalizeTicker → null → 按市场定制的错误文案（cn/hk/us 各一），不发起分析 |
 | CN 4/8 前缀 | 北交所文案（逐字保留），不发起 |
-| HK 候选全 404 | 502 `{error:'无法解析港股代码'}`，分析中止 |
+| HK/US 候选全 404 | 502 `{error:'无法解析港股代码'}` / `{error:'无法解析美股代码'}`（按市场），分析中止 |
 | chart 失败（网络/5xx） | 抛 → 502，分析中止（核心行情） |
 | quoteSummary/crumb 失败 | warn + 概览降级（chart meta 字段）+ reports 空，**分析继续** |
 | 同日已采集（市场本地今天） | skipDaily → bars 空，保留既有日K/lastDataUpdate |

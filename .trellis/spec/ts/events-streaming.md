@@ -135,8 +135,10 @@ path 白名单)、`/news-feed`(Google News RSS,q ≤ 200 无控制字符,20s 超
   仍可能自己跑完的只有「没人 abort 的孤儿运行」(如 server 侧无 signal 的探针),
   由 15 轮工具上限 + 上游 SDK 超时兜底。非控制器订阅者若需取消后不误收旧结果,
   仍须自带 runners 代数门。
-- **监听地址**:server.mjs `server.listen(PORT, process.env.HOST || '127.0.0.1')`
-  ——默认回环,生产远程访问需显式 HOST=0.0.0.0。
+- **监听地址**:server.mjs `const HOST = envValue('HOST') || '127.0.0.1'` →
+  `createAppServer().listen(PORT, HOST)` ——默认回环；远程需显式 HOST=0.0.0.0,
+  且非回环绑定在缺 `SOA_ACCESS_TOKEN` 时**拒绝启动**(fail closed,2026-11-21)。
+  (不要直接读 `process.env.HOST`:契约 6 要求统一走 `envValue`。)
 - **静态服务兜底(C1)**:serveStatic 的 decodeURIComponent 包 try/catch,
   畸形百分号编码 → 400 不崩进程。
 - **/web-search q 校验**:禁控制字符(分析师查询模板 `{} 最新新闻` 含空格,

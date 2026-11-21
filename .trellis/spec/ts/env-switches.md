@@ -18,7 +18,7 @@ web 无 process → undefined、RN 为 Metro polyfill、Node 原生)。**process
 别名逃逸 → release 运行时缺失。**豁免规则 = 「凡 `process.env.EXPO_PUBLIC_*`
 且为直接成员访问」**（契约 6 已机器校验），不维护人工白名单——历史白名单
 
-drift 过两次。当前直接读取点（2026-11-19 实测，共 11 处）：`src/llm.ts`
+drift 过两次。当前直接读取点（2026-11-21 实测，共 10 处）：`src/llm.ts`
 `LLM_*`、`src/mcp.ts`、`src/news/googleNews.ts`、`src/webCollect.ts`、
 `src/yahoo/webYahooCollect.ts`、`src/billionsClient.ts`、`src/log.ts`、
 `src/webSearch.ts`（×2）、`src/tdx/deviceCollect.ts`，另 `app/lib/settings.ts`（4 处）。

@@ -20,7 +20,8 @@ paths:
   `createNodeFileStore` + `nodeSettingsFileSystem` + `setLogDir`;随机回环端口。
 - renderer 桥 `window.__soaDesktop`(preload contextBridge,sandbox+
   contextIsolation):store 走**快照镜像 + 写穿串行队列**(`storeInit` 全量
-  快照一次 hydrate,11 个 StoreLike 同步方法读本地镜像,mutator 本地应用后
+  快照一次 hydrate,10 个 StoreLike 同步方法(`src/store.ts:63-73`)读本地镜像,
+  mutator 本地应用后
   按序 invoke `store-op`;`FileStore.listStocks()/listMetaKeys()` 具体类方法
   供快照枚举)。
 - bundle 钩子仅 `app/lib/desktopBridge.ts` + runner/settingsStore 两处,
