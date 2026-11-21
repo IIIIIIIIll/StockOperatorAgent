@@ -10,9 +10,18 @@ export default defineConfig({
   resolve: {
     alias: {
       react: fileURLToPath(new URL('./node_modules/react', import.meta.url)),
+      // RN 专属模块在 Node/vitest 下不可解析(Flow 源码/native 模块)。
+      // app/ 下的 hook 直测只需要 AppState 这一小块 —— 用最小替身替换,
+      // 见 test/fixtures/react-native-stub.ts 里的来由说明。
+      'react-native': fileURLToPath(new URL('./test/fixtures/react-native-stub.ts', import.meta.url)),
+      'react-native-webview': fileURLToPath(
+        new URL('./test/fixtures/react-native-webview-stub.ts', import.meta.url),
+      ),
     },
   },
   test: {
+    // React 19 act() 需要全局标记，否则 hook 直测每个用例都告警且更新不同步
+    setupFiles: ['./test/setup/react-act-env.ts'],
     // 让 Vite 处理 react-test-renderer（否则它从自身 node_modules 解析 react，
     // 上面的 alias 不生效，依旧是两份副本 → Invalid hook call）。
     server: { deps: { inline: ['react-test-renderer', 'react'] } },
