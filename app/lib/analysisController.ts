@@ -470,7 +470,21 @@ export class AnalysisController {
     };    this.timedOut = false;
     const d = this.deps;
     const s = this.st;
-    // 新分析开始:全量重置(R4:lastRun 标记清除;hasDone 撤销——D15)
+    // 输入校验(北交所拦截 + 市场格式归一)已抽成纯函数 app/lib/startGuards.ts:
+    // 文案是 UI/PRD 契约,单测可逐字钉住,不必搭起整个控制器。
+    // P2（评审 2026-11-21）：校验必须**在重置之前**。旧实现先把 events/
+    // finalDecision/partials 等全部清空再校验,于是敲错一个代码就把屏幕上
+    // 上一次的分析结果抹掉,只留一条格式错误 —— 而历史里明明还有那份记录,
+    // 用户却以为丢了。
+    const guard = checkStartInput(ticker, market);
+    if (!guard.ok) {
+      s.error = guard.message;
+      // CR-36:格式错误时徽标与文案同源,不显示上一次的市场(北交所分支不改市场)
+      if (guard.market !== null) s.market = guard.market;
+      this.notifier.notify();
+      return;
+    }
+    // 校验通过 → 新分析开始:全量重置(R4:lastRun 标记清除;hasDone 撤销——D15)
     s.events = [];
     s.finalDecision = '';
     s.stockInformation = '';
@@ -480,16 +494,6 @@ export class AnalysisController {
     s.lastRunAt = null;
     s.hasDone = false;
     this.notifier.notify();
-    // 输入校验(北交所拦截 + 市场格式归一)已抽成纯函数 app/lib/startGuards.ts:
-    // 文案是 UI/PRD 契约,单测可逐字钉住,不必搭起整个控制器。
-    const guard = checkStartInput(ticker, market);
-    if (!guard.ok) {
-      s.error = guard.message;
-      // CR-36:格式错误时徽标与文案同源,不显示上一次的市场(北交所分支不改市场)
-      if (guard.market !== null) s.market = guard.market;
-      this.notifier.notify();
-      return;
-    }
     const m = guard.market;
     // S2-2:采集阶段可能把代码解析成另一形式(请求 9988.HK、落库 09988.HK),
     // 后续读 store / 拼上下文 / 跑 runner 都用实际落库值 → 必须是 let。

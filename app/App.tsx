@@ -126,6 +126,10 @@ function AppContent() {
   // 的角色，而旧渲染分支是 `activeRole ? … : null` → 内容区全白无提示。
   // 退回第一个可用角色；一个都不剩时由下面渲染分支给一句明确说明。
   const activeRole = activeTab === 'data' ? undefined : (roles.find((r) => r.stateKey === activeTab) ?? roles[0]);
+  // P2（评审 2026-11-21）：Tab 条要与 activeRole 用**同一套**回落，否则关掉某个
+  // 角色开关后内容区渲染的是 roles[0]，Tab 条却没有任何一项高亮（用户看到
+  // 「无选中但右侧有内容」）。这里把「实际生效的 tab」单源化。
+  const effectiveTab = activeTab === 'data' ? 'data' : (roles.some((r) => r.stateKey === activeTab) ? activeTab : roles[0]?.stateKey ?? 'data');
   const progress = a.events.filter((e): e is Extract<PipelineEvent, { type: 'progress' }> => e.type === 'progress');
   // 菜单定位:menuSize(onLayout 实测)齐备后经 menuGeometry 约束(右缘 clamp/
   // 高度不足上翻);首帧未实测时退化为锚点原始定位,onLayout 随即回填
@@ -392,7 +396,7 @@ function AppContent() {
           {/* 主 Tab 条(采集数据 + 角色报告) */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
             {tabs.map((t) => {
-              const active = t.id === activeTab;
+              const active = t.id === effectiveTab;
               return (
                 <Pressable key={t.id} style={[styles.tab, active && styles.tabActive]} onPress={() => setActiveTab(t.id)} accessibilityRole="tab" accessibilityState={{ selected: active }}>
                   <Text style={[styles.tabText, active && styles.tabTextActive]}>{t.label}</Text>

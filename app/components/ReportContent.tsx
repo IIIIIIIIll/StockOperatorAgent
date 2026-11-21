@@ -75,12 +75,40 @@ export default React.memo(function ReportContent({
     );
   }
 
+  // 观点 key → 初稿/修订两槽位(partial ?? 对应 report;report 事件按序)。
+  // 提升到 hooks 区:下面的锁存 effect 要用它，而 hooks 不能写在条件分支里。
+  const slots = React.useMemo(
+    () =>
+      opinion
+        ? [
+            { node: nodeName, title: '初稿', fallback: reports[0]?.content },
+            { node: reviseNodeName ?? nodeName, title: '对抗修订', fallback: reports[1]?.content },
+          ]
+        : [],
+    [opinion, nodeName, reviseNodeName, reports],
+  );
+
+  /** P2（评审 2026-11-21）：把「这次运行里出现过流式」的槽位锁存为展开。
+   *  report 事件会删掉 partial(eventReduce)，于是 streaming 由 true 变 false ——
+   *  旧实现 `open = expanded[i] ?? streaming` 就让卡片在正文写完的那一刻自己折叠。
+   *  这里只在 expanded[i] 还是 undefined 时写入，用户手动收起不会被覆盖。 */
+  React.useEffect(() => {
+    if (!slots.length) return;
+    setExpanded((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      slots.forEach((slot, i) => {
+        const streaming = statuses[slot.node] === 'running' && (partials[slot.node] ?? '').length > 0;
+        if (streaming && next[i] === undefined) {
+          next[i] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [slots, statuses, partials]);
+
   if (opinion) {
-    // 观点 key → 初稿/修订两槽位(partial ?? 对应 report;report 事件按序)
-    const slots = [
-      { node: nodeName, title: '初稿', fallback: reports[0]?.content },
-      { node: reviseNodeName ?? nodeName, title: '对抗修订', fallback: reports[1]?.content },
-    ];
     const hasAny = reports.length > 0 || slots.some((s) => (partials[s.node] ?? '') !== '');
     if (!hasAny) {
       return (
@@ -94,7 +122,10 @@ export default React.memo(function ReportContent({
         {slots.map((slot, i) => {
           const { text, streaming, stale } = streamText(throttledPartials, statuses, slot.node, slot.fallback);
           if (!text) return null; // 槽位暂无内容(如修订尚未开始)
-          const open = expanded[i] ?? streaming; // 流式中的槽位默认展开
+          // P2（评审 2026-11-21）：流式时立刻展开（无闪烁），并由上面的 effect
+          // 把「曾经流式过」锁存进 expanded —— 否则 report 事件删掉 partial 后
+          // streaming 变 false，正文刚写完的瞬间卡片会自己折叠。
+          const open = expanded[i] ?? streaming;
           return (
             <View key={slot.title} style={styles.opinionCard}>
               <Pressable onPress={() => setExpanded((s) => ({ ...s, [i]: !open }))} accessibilityRole="button" aria-expanded={open}>
