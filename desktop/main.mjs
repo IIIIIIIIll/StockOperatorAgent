@@ -345,7 +345,25 @@ function createWindow(port) {
     mainWindow = null; // let 'second-instance' know the window is gone
   });
   mainWindow = win;
-  void win.loadURL(`http://127.0.0.1:${port}/`);
+  // P2（评审 2026-11-21）：loadURL 失败（后端还没起、渲染进程崩）此前是「白窗且无痕迹」。
+  // 补 catch + did-fail-load，至少给用户一行可读原因。
+  const loadFailed = (reason) => {
+    void win.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(
+        `<body style="font:14px system-ui;padding:24px;color:#333"><h3>后端未就绪</h3><p>${reason}</p><p>请关闭窗口后重试；若持续失败，查看日志目录。</p></body>`,
+      )}`,
+    );
+  };
+  win.webContents.on('did-fail-load', (_e, code, desc) => {
+    console.error(`[main] loadURL 失败 code=${code} desc=${desc}`);
+    if (!win.isDestroyed()) loadFailed(`加载失败：${desc}（${code}）`);
+  });
+  void win
+    .loadURL(`http://127.0.0.1:${port}/`)
+    .catch((err) => {
+      console.error(`[main] loadURL 抛错: ${err instanceof Error ? err.message : String(err)}`);
+      if (!win.isDestroyed()) loadFailed('无法连接本地服务');
+    });
 }
 
 // --- app lifecycle -----------------------------------------------------------

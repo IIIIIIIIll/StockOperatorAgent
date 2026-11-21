@@ -69,8 +69,26 @@ export class DesktopStore implements StoreLike {
   private meta = new Map<string, string>();
   private queue: Promise<void> = Promise.resolve();
   private readyPromise: Promise<void> | null = null;
+  /** P2（评审 2026-11-21）：写穿失败的按目标记账（与 FileStore/IdbStore 同构）。
+   *  旧实现只 logError，而 analysisController 的用户可见上报走
+   *  `store.getLastPersistError?.()` / `typeof store.flush === 'function'` ——
+   *  DesktopStore 两个都没实现，于是**桌面端的保存失败永远不可见**：镜像里已经有
+   *  新 bar、lastDataUpdate 也已推进，freshness 门据此跳过重采，重启后数据没了。 */
+  private readonly persistErrors = new Map<string, string>();
 
   constructor(private readonly bridge: SoaDesktopBridge) {}
+
+  /** 写穿透落盘失败（同一写入目标成功后才清除）；null = 当前全部成功。 */
+  getLastPersistError(): string | null {
+    if (this.persistErrors.size === 0) return null;
+    return [...this.persistErrors.values()].join('；');
+  }
+
+  /** S3-2:等待写穿队列排空 —— 调用方在读 getLastPersistError 前 await，
+   *  否则只能看到「上一次」的失败。 */
+  async flush(): Promise<void> {
+    await this.queue;
+  }
 
   /** 拉全量快照 hydrate 镜像(内存已有键优先——先写后 ready 的变更不丢,同 FileStore)。 */
   async ready(): Promise<void> {
@@ -107,10 +125,18 @@ export class DesktopStore implements StoreLike {
   /** 串行写穿队列:前一个 storeOp 完成才发下一个(顺序 = 调用序,对齐 FileStore
    *  队列语义);失败仅 console.error 不抛、不阻断后续(op 已本地生效)。 */
   private enqueueOp(op: string, args: unknown[]): void {
+    // 记账粒度对齐 FileStore：ticker 写失败不能被后续 meta 写成功掩盖。
+    // putStock/replaceDatas/addPerformanceReports 都落在 ticker:<t> 上。
+    const ticker = typeof args[0] === 'string' ? args[0] : (args[0] as { ticker?: unknown } | null)?.ticker;
+    const key = op === 'setMeta' ? 'meta' : `ticker:${typeof ticker === 'string' ? ticker : '?'}`;
     this.queue = this.queue
       .then(() => this.ready())
       .then(() => this.bridge.storeOp(op, args))
+      .then(() => {
+        this.persistErrors.delete(key);
+      })
       .catch((err: unknown) => {
+        this.persistErrors.set(key, `${op}: ${err instanceof Error ? err.message : String(err)}`);
         // F37:全端日志统一经 src/log.ts(禁 console 直出)
         logError(`DesktopStore ${op} 写穿失败:${err instanceof Error ? err.message : String(err)}`);
       });
