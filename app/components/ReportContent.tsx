@@ -57,11 +57,15 @@ export default React.memo(function ReportContent({
   );
 
   if (roleKey === 'final_decision') {
-    const { text } = streamText(throttledPartials, statuses, nodeName, finalDecision);
+    const { text, stale } = streamText(throttledPartials, statuses, nodeName, finalDecision);
     return (
       <ScrollView style={styles.container}>
         {text ? (
           <View style={styles.finalCard}>
+            {/* P1（评审 2026-11-21）：此处旧实现只取 text、丢掉 stale，于是取消/失败/看门狗
+                中断后的半截草稿会以 finalCard（主色、权威感）直接渲染成"最终投资决策"，
+                没有任何提示。观点槽（:99）与非观点（:120）都早已就地标注，只漏了这一支。 */}
+            {stale ? <Text style={styles.staleNotice}>已中断：以下是未完成的草稿，非最终内容。</Text> : null}
             <MarkdownText content={text} />
           </View>
         ) : (
