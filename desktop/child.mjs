@@ -20,9 +20,10 @@
 // IPC contract with main.mjs (process.send / on('message')):
 //   child -> main: {type:'ready', port, settings} | {type:'ack', id}
 //                  | {type:'snapshot', id, snapshot} | {type:'settings-saved', id}
-//                  | {type:'error', id?, message}
+//                  | {type:'settings-key-request'} | {type:'error', id?, message}
 //   main -> child: {type:'op', id, op, args} | {type:'snapshot', id}
-//                  | {type:'settings-save', id, json} | {type:'shutdown'}
+//                  | {type:'settings-save', id, json} | {type:'settings-key', key}
+//                  | {type:'shutdown'}
 //   {type:'op'} args pass checkStoreOpArgs (src/storeOps.ts) before dispatch
 //   — malformed or path-separator-bearing args never reach the store.
 // Snapshot = {stocks, datas, reports, meta} four Records, JSON-safe
@@ -33,7 +34,7 @@
 import { mkdirSync } from 'node:fs';
 import { createAppServer } from '../app/server.mjs';
 import { setLogDir } from '../app/lib/logs-server.cjs';
-import { createNodeFileStore, nodeSettingsFileSystem } from '../src/store-node.ts';
+import { createNodeFileStore, encryptedSettingsFileSystem, nodeSettingsFileSystem } from '../src/store-node.ts';
 import { checkStoreOpArgs } from '../src/storeOps.ts';
 
 // Aligned with app/lib/settingsStore.ts RN_SETTINGS_FILE.
@@ -76,9 +77,14 @@ function send(msg) {
 let shuttingDown = false;
 let store = null;
 let server = null;
-// S7:settings 明文落盘(soa-settings.json,与 settingsStore.ts node 分支同形状,
-// 含 LLM/亿信 key)——本地优先设计,系统安全存储(Keychain/KeyStore)为后续工作。
+// S7:settings 落盘 —— 主进程经 OS 安全存储(safeStorage)下发的 32 字节 key 加密
+// 成 AES-256-GCM 信封;拿不到 key(平台无安全存储)才退回明文 + 告警。
 let settingsFs = null;
+
+// 主进程的 key 回包:主进程可能在 child 发请求前就把 ready 前的工作做完了,
+// 但 IPC 是异步的 —— 这里用一个只 resolve 一次的 promise 接住。
+const SETTINGS_KEY_TIMEOUT_MS = 3000;
+let resolveSettingsKey = null;
 
 // Flush pending writes, close store + server, then exit. Used by both the
 // shutdown message and parent disconnect, so no orphan survives main's death.
@@ -122,6 +128,34 @@ function saveSettings(json) {
   file.write(json);
 }
 
+// 设置加密后端的选取:向主进程要 key(safeStorage 托管)。超时/不可用 → 明文,
+// 并把原因报到 stderr —— 静默降级成明文正是这条 P1(明文落盘)的原始问题。
+function createSettingsFs(dir) {
+  // 独立跑(无 IPC 通道,如 spec 里的 child 冒烟命令)时主进程不存在 —— 直接明文,
+  // 不白等 3s。
+  if (!process.send) {
+    console.error('[child] 无 IPC 通道(独立运行)——设置将以明文落盘');
+    return Promise.resolve(nodeSettingsFileSystem(dir));
+  }
+  const keyPromise = new Promise((resolve) => {
+    resolveSettingsKey = resolve;
+    send({ type: 'settings-key-request' });
+  });
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => resolve(undefined), SETTINGS_KEY_TIMEOUT_MS).unref?.();
+  });
+  return Promise.race([keyPromise, timeout]).then((key) => {
+    resolveSettingsKey = null;
+    if (Buffer.isBuffer(key) && key.length === 32) {
+      return encryptedSettingsFileSystem(dir, key);
+    }
+    console.error(
+      `[child] 未取得设置加密 key(${key === undefined ? '主进程超时' : 'OS 安全存储不可用'})——设置将以明文落盘`,
+    );
+    return nodeSettingsFileSystem(dir);
+  });
+}
+
 async function main() {
   // F07:IPC 监听先于任何 await 注册——启动窗口期(store ready/端口监听)到达的
   // 消息不丢失;父进程在窗口期死亡时 disconnect/信号即时收尾,不留孤儿。
@@ -129,6 +163,12 @@ async function main() {
   process.on('message', (msg) => {
     if (!msg || typeof msg !== 'object') return;
     if (shuttingDown) return; // F08:关停窗口期消息直接忽略——不做 applied-then-dropped
+    if (msg.type === 'settings-key') {
+      // safeStorage 不可用 → 主进程回 key:null,由下方退回明文
+      resolveSettingsKey?.(msg.key ? Buffer.from(msg.key, 'base64') : null);
+      resolveSettingsKey = null;
+      return;
+    }
     if (msg.type === 'op') {
       // Whitelist + arg-shape gate before dispatch; always ack after settle,
       // error message first on failure — the process must never crash on a
@@ -183,13 +223,16 @@ async function main() {
   await store.ready();
   setLogDir(logDir);
 
-  settingsFs = nodeSettingsFileSystem(settingsDir);
+  settingsFs = await createSettingsFs(settingsDir);
   let settings = null;
   try {
     const file = new settingsFs.File(settingsFs.Paths.document, SETTINGS_FILE);
     settings = file.exists ? file.textSync() : null;
-  } catch {
-    settings = null; // unreadable settings -> null (settingsStore silent-degrade parity)
+  } catch (err) {
+    // 加密文件解不开(key 变了/文件被改动)——与损坏 JSON 同口径:回 null。
+    // 不降级成明文以便下次启动还能试对 key。
+    console.error(`[child] 设置读取失败(按无设置处理): ${err?.message ?? err}`);
+    settings = null;
   }
 
   // S6:显式传有效监听地址 127.0.0.1 —— requireToken 按 host 选项判定,

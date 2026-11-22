@@ -31,14 +31,16 @@
 //                     React event handlers intermittently deadlocks, see
 //                     app/lib/desktopBridge.ts header)
 //   main -> child: {type:'op', id, op, args} | {type:'snapshot', id}
-//                  | {type:'settings-save', json} | {type:'shutdown'}
+//                  | {type:'settings-save', json} | {type:'settings-key', key}
+//                  | {type:'shutdown'}
 //   child -> main: {type:'ready', port, settings} | {type:'ack', id}
 //                  | {type:'snapshot', id, snapshot} | {type:'settings-saved'}
-//                  | {type:'error', id?, message}
+//                  | {type:'settings-key-request'} | {type:'error', id?, message}
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage } from 'electron';
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -68,6 +70,29 @@ const pendingOps = new Map(); // op id -> {resolve, reject}
 const pendingSnapshots = new Map(); // snapshot id -> {resolve, reject}
 const pendingSettings = new Map(); // settings-save id -> {resolve, reject}
 let mainWindow = null; // BrowserWindow ref; focused by 'second-instance' below
+// 设置加密 key(base64)。落盘时由 safeStorage(Keychain/DPAPI/libsecret) 封装 ——
+// 明文设置文件从此只有回环的 child 能看到明文。null = 本平台无安全存储。
+let settingsKeyB64 = null;
+
+/** 32 字节设置加密 key:优先读 OS 安全存储封装的 <userData>/settings-key.bin,
+ *  不存在则生成。可直接返回内存里的 base64 —— 只有密文会落到磁盘。 */
+function loadOrCreateSettingsKey() {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  const keyFile = path.join(app.getPath('userData'), 'settings-key.bin');
+  try {
+    return safeStorage.decryptString(readFileSync(keyFile));
+  } catch {
+    /* 不存在/换机后解不开 → 重建(旧设置文件解不开，按无设置处理，见 child) */
+  }
+  const keyB64 = randomBytes(32).toString('base64');
+  try {
+    writeFileSync(keyFile, safeStorage.encryptString(keyB64), { mode: 0o600 });
+  } catch (err) {
+    console.error(`[main] 设置加密 key 落盘失败: ${err instanceof Error ? err.message : String(err)}`);
+    return null; // 不阻断启动:child 会退回明文并告警
+  }
+  return keyB64;
+}
 
 // --- single instance ---------------------------------------------------------
 // Module scope = before whenReady/mkdir/spawn ever run (Electron standard
@@ -133,6 +158,11 @@ function spawnChild(storeDir, settingsDir, logDir) {
           onChildReady();
           onChildReady = null;
         }
+        break;
+      }
+      case 'settings-key-request': {
+        // child 不自己保管钥匙:每次启动向主进程要一次(safeStorage 只能在主进程用)
+        sendChild({ type: 'settings-key', key: settingsKeyB64 });
         break;
       }
       case 'ack': {
@@ -376,6 +406,7 @@ app.whenReady().then(async () => {
   const logDir = path.join(userData, 'logs');
   for (const dir of [storeDir, settingsDir, logDir]) mkdirSync(dir, { recursive: true });
 
+  settingsKeyB64 = loadOrCreateSettingsKey();
   spawnChild(storeDir, settingsDir, logDir);
   registerIpc();
 

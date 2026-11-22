@@ -32,6 +32,16 @@ paths:
   child 落盘),仅 settings-load 冷路径(模块挂载/分析启动)保留 sendSync。
 - 桌面数据目录 userData/store|settings|logs;退出流程 main 发 shutdown →
   child flush+close → 无残留。
+- **设置加密落盘(评审 2026-11-19 P1「明文含 API Key」→ 已关)**:
+  `<userData>/settings/soa-settings.json` 落的是 AES-256-GCM 信封
+  (`{"soa_enc":"aes-256-gcm","v":1,"iv","tag","data"}`,全 base64)。
+  32 字节 key 由 **主进程** 生成并交 `safeStorage`(Keychain/DPAPI/libsecret)
+  封装成 `<userData>/settings-key.bin`;child 每次启动发
+  `{type:'settings-key-request'}` 要一次(3s 超时)。平台无安全存储 →
+  key:null → child 退回明文 + stderr 告警(不自造密钥 = 不自造「锁和钥匙同文件」)。
+  旧明文文件仍可读(首次保存自动升级成信封);错 key/被篡改 → GCM tag 不匹配 →
+  抛 → 按「无设置」处理(不返回半截密钥)。Android 侧仍是应用私有目录明文
+  (0600 + allowBackup 排除),待接 expo-secure-store。
 
 ## 打包布局契约(镜像仓库根,勿改)
 

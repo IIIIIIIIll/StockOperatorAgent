@@ -9,11 +9,11 @@
 //          (桌面桥 renderer → child IPC 的 store-op 分派执行语义);
 //       ④ runner.setStore 注入 → ESM live binding(store 导出同步新值);
 //       ⑤ settingsStore node 分支(注入 node fs 适配)save/load round-trip。
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DailyBar, PerformanceReport, StockRecord } from '../src/store.ts';
-import { createNodeFileStore, nodeSettingsFileSystem } from '../src/store-node.ts';
+import { createNodeFileStore, encryptedSettingsFileSystem, nodeSettingsFileSystem } from '../src/store-node.ts';
 import { setStore, store as runnerStore } from '../app/lib/runner.ts';
 import { createSettingsStore } from '../app/lib/settingsStore.ts';
 
@@ -173,6 +173,18 @@ async function main(): Promise<void> {
       'settingsStore node save/load round-trip',
       settingsStore.load() === '{"switches":{"webSearch":true},"caps":{"searchMax":3}}',
     );
+
+    // ── ⑥ 设置加密落盘(桌面实际路径):与上节同文件形状,但磁盘上是 GCM 信封 ──
+    const edir = join(baseDir, 'settings-enc');
+    const encFs = encryptedSettingsFileSystem(edir, Buffer.alloc(32, 1));
+    const encStore = createSettingsStore(null, encFs);
+    check('加密后端 load(无文件 → null)', encStore.load() === null);
+    const secretJson = '{"keys":{"llm":"sk-probe-secret"}}';
+    check('加密后端 save 成功', encStore.save(secretJson));
+    check('加密后端 load round-trip', encStore.load() === secretJson);
+    const onDisk = readFileSync(join(edir, 'soa-settings.json'), 'utf8');
+    check('磁盘上不含明文 key', !onDisk.includes('sk-probe-secret'));
+    check('磁盘上是 aes-256-gcm 信封', JSON.parse(onDisk).soa_enc === 'aes-256-gcm');
 
     console.log('\n桌面 Node 后端接线探针全部通过');
   } finally {
