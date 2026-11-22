@@ -1,7 +1,8 @@
 # Code Review 2026-11-19 —— 全仓（非 diff）
 
 - 基线：`2da9740`；10 条只读 reviewer 子代理按 seam 并行审，父进程复核每条 P0/P1
-- 原始分 lane 报告：`.scratch/review-r3/lanes/`（gitignored，本地留证）
+- 原始分 lane 报告：`.scratch/review-r3/lanes/`（gitignored，本地留证）；
+  **持久化台账见 [`docs/backlog.md`](./backlog.md)**（clone 后 lanes/ 会消失，以 backlog 为准）
 - 门禁：`tsc --noEmit` 0 错；`vitest run` **1011 passed / 1 skipped**（审前 1008，新增 3 条回归）
 
 ## 结论
@@ -87,7 +88,8 @@
 `webSearch` region 在浏览器分支丢失、snippet 按索引错位配对、meta 单文件全量重写、
 日志换行未净化、`runHistory` 预览吃掉负号、`N/A%`、颜色判据不一致、`warn` 色对比度
 3.3:1、控制器订阅无 dispose、`makeStyles` 每帧重建、三份 lockfile 版本 1.0.0、
-`tools/*.mjs` 不进 typecheck 等）见 `.scratch/review-r3/lanes/`。
+`tools/*.mjs` 不进 typecheck 等）见 [`backlog.md`](./backlog.md)——
+`.scratch/review-r3/lanes/` 是 gitignored 的本地证据，换机器后只剩 backlog 这份台账。
 
 ## 复查方式
 
