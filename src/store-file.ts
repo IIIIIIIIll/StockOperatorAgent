@@ -86,7 +86,9 @@ function getExpoBackend(relBaseDir: string): Promise<ExpoBackend> {
             const dest = new File(path);
             const tmp = new File(`${path}.tmp.${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
             if (!tmp.exists) tmp.create();
-            tmp.write(data);
+            // SDK 58:`write` 是异步的 —— 不 await 就 moveSync,目标会是空文件
+            // (见 src/fsWrite.ts 头注释的安卓实测)。
+            await tmp.write(data);
             tmp.moveSync(dest, { overwrite: true });
           },
           async listDir(): Promise<string[]> {

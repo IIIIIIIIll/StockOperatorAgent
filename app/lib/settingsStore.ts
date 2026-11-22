@@ -11,6 +11,7 @@
 // 壳只能经 _fs 注入 src/store-node.ts 的 nodeSettingsFileSystem()(expo File 面
 // ↔ node fs 面的薄包装)。任何读写失败均不抛出。
 import { isRnEnv, isWebEnv } from '../../src/log.ts';
+import { writeNow } from '../../src/fsWrite.ts';
 import { bridgeStorage } from './desktopBridge.ts';
 import { capabilities } from './capabilities.ts';
 
@@ -32,7 +33,9 @@ export interface SettingsStorageLike {
 export interface RnFileLike {
   readonly exists: boolean;
   create(): void;
-  write(contents: string): void;
+  write(contents: string, options?: { append?: boolean }): void | Promise<void>;
+  /** SDK 58 起的同步写(缺省 = 旧运行时,write 本身同步)。见 src/fsWrite.ts。 */
+  writeSync?(contents: string, options?: { append?: boolean }): void;
   textSync(): string;
   /** expo SDK 57 File.moveSync / node 适配器同名;缺席 → 回退直写(不原子)。 */
   moveSync?(destination: RnFileLike, options?: { overwrite?: boolean }): void;
@@ -112,9 +115,14 @@ export function createSettingsStore(
   }
 
   return {
-    // S7:设置(含 LLM/亿信 API key)以明文存于 localStorage(web)/soa-settings.json
-    // (RN/Node 桌面)——本地优先设计使然,无服务端兜底;系统安全存储(Keychain/
-    // KeyStore)为后续工作,启用前不承诺密钥落盘加密。
+    // S7/评审 2026-11-19:密钥落盘分平台 ——
+    //   · 桌面(Node):soa-settings.json 里是 **AES-256-GCM 信封**,key 由 Electron
+    //     主进程经 safeStorage(Keychain/DPAPI/libsecret)托管并下发(见
+    //     src/store-node.ts encryptedSettingsFileSystem + desktop/main.mjs);
+    //   · Android/iOS:仍为应用私有目录内的明文文件(0600 + allowBackup 排除),
+    //     待接 expo-secure-store 后同口径加密;
+    //   · web:localStorage 明文(浏览器内无可信密钥存储)。
+    // 本模块只负责存取字符串,不参与加解密(加密层在后端适配器里)。
     load(): string | null {
       if (web !== undefined) {
         try {
@@ -146,11 +154,13 @@ export function createSettingsStore(
         if (!file.exists) file.create();
         // CR-30:tmp + moveSync 原子替换——旧实现直写目标,崩溃/断电留下半截
         // JSON → 下次 loadSettings 解断失败走默认值,含 API key 的全部设置静默丢失。
+        // SDK 58(P1):`File.write` 已变成异步,同步 save 里直接调 = 发起即返回,
+        // moveSync 会把**空文件**改成正式设置 —— writeNow 优先走 writeSync。
         const tmp = new fs.File(fs.Paths.document, `${RN_SETTINGS_FILE}.tmp`);
         if (!tmp.exists) tmp.create();
-        tmp.write(s);
+        writeNow(tmp, s);
         if (typeof tmp.moveSync === 'function') tmp.moveSync(file, { overwrite: true });
-        else file.write(s); // 无 move 能力的旧运行时:保持原语义
+        else writeNow(file, s); // 无 move 能力的旧运行时:保持原语义
         return true;
       } catch {
         /* 写入失败 → 交回调用方留痕 */

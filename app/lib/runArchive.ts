@@ -200,7 +200,9 @@ async function createExpoRunFs(): Promise<RunFsAdapter> {
       const dest = new File(root, name);
       const tmp = new File(root, `${name}.tmp.${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
       if (!tmp.exists) tmp.create();
-      tmp.write(data);
+      // SDK 58:`write` 是异步的 —— 不 await 就 moveSync,正文/索引会落成 0 字节
+      // (安卓实测:冷启动「历史正文损坏: Unexpected end of input」)。
+      await tmp.write(data);
       // SDK 57 moveSync 默认不覆盖已存在目标,必须显式 overwrite:true
       tmp.moveSync(dest, { overwrite: true });
     },

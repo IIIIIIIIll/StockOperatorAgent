@@ -9,9 +9,13 @@ declare module 'expo-file-system' {
     readonly exists: boolean;
     readonly size: number;
     create(): void;
-    /** SDK 57 真实签名带 FileWriteOptions:{ append?: boolean }(默认 false = 覆写)。
-     *  日志追加依赖 append:每次只写增量行,不读回整文件。 */
-    write(contents: string, options?: { append?: boolean }): void;
+    /** SDK 58 起 `write` 是**异步**的(返回 Promise);同步写用 `writeSync`。
+     *  旧声明写 `void` 是 SDK 57 的签名 —— 沿用会让所有「写 tmp → moveSync」
+     *  的原子写拿到空文件(安卓 release 实测踩过)。同步调用点统一走
+     *  src/fsWrite.ts 的 writeNow()。
+     *  FileWriteOptions:{ append?: boolean }(默认 false = 覆写),日志追加依赖它。 */
+    write(contents: string, options?: { append?: boolean }): Promise<void>;
+    writeSync(contents: string, options?: { append?: boolean }): void;
     text(): Promise<string>;
     textSync(): string;
     /** SDK 57 真实签名带 RelocationOptions:{ overwrite?: boolean },默认 false

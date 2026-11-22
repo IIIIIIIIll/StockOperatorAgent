@@ -9,6 +9,7 @@
 // 失败静默降级 console,不打断业务——error-handling 降级风格)。
 // 密钥不写日志(settings.ts 已 mask,上报内容与 console 相同)。
 import { envValue } from './env.ts';
+import { writeNow } from './fsWrite.ts';
 
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 export type Platform = 'web' | 'rn' | 'node';
@@ -162,9 +163,10 @@ export interface RnFileLike {
   readonly exists: boolean;
   readonly size: number;
   create(): void;
-  /** SDK 57 真实签名带 FileWriteOptions:{ append?: boolean }(默认 false = 覆写)。
-   *  日志追加必须走 append —— 不能用 textSync()+write(读回整文件再整文件重写)。 */
-  write(contents: string, options?: { append?: boolean }): void;
+  /** SDK ≤57 是同步写;SDK 58 起返回 Promise —— 同步路径必须走 writeSync
+   *  (统一收口在 src/fsWrite.ts 的 writeNow,否则日志会丢写)。 */
+  write(contents: string, options?: { append?: boolean }): void | Promise<void>;
+  writeSync?(contents: string, options?: { append?: boolean }): void;
   textSync(): string;
   moveSync(destination: RnFileLike, options?: { overwrite?: boolean }): void;
 }
@@ -196,7 +198,7 @@ export function makeRnFileTransport(
       }
       if (!file.exists) file.create();
       const line = formatLogLine(new Date(), level, message, 'rn');
-      file.write(`${line}\n`, { append: true });
+      writeNow(file, `${line}\n`, { append: true });
     } catch {
       // 失败静默:console transport 已输出,不打断业务
     }
