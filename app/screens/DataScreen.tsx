@@ -23,6 +23,20 @@ import { useTheme, type Theme } from '../theme';
 const DAILY_TABLE_N = 20;
 const KLINE_N = 60;
 
+/** 涨跌幅配色：NaN（首根无基准）→ 默认色，不下结论。
+ *  从内联嵌套三元提出（oxlint no-nested-ternary），行为逐字节等价。 */
+function pctColor(value: number, theme: Theme): string | undefined {
+  if (Number.isNaN(value)) return undefined;
+  return value >= 0 ? theme.colors.up : theme.colors.down;
+}
+
+/** 日K 量列：cn 原始单位是「手」，hk/us 是「股」——同一列不能混口径。 */
+function fmtVolume(volume: number | null, market: Market): string {
+  if (volume === null) return 'N/A';
+  if (market === 'cn') return `${(volume / 10000).toFixed(1)}万`;
+  return `${(volume / 1e6).toFixed(2)}M`;
+}
+
 export default React.memo(function DataScreen({ stockInformation, dataVersion, ticker, market }: { stockInformation: string; dataVersion?: number; ticker: string; market: Market }) {
   void dataVersion; // 父组件数据就绪信号:触发本组件重渲染以读取 store
   const theme = useTheme();
@@ -46,7 +60,7 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
   // 年度(FY)行:与季度行同日在 performance_reports 的 PK 上相撞,故存在
   // yahoo-annual: meta(见 metaKeys.yahooAnnualKey);cn 不用该键 → 恒 []
   const annualReports = React.useMemo(
-    () => (market !== 'cn' ? parseYahooAnnualReports(store.getMeta(yahooAnnualKey(ticker))) : []),
+    () => (market === 'cn' ? [] : parseYahooAnnualReports(store.getMeta(yahooAnnualKey(ticker)))),
     [ticker, dataVersion, market],
   );
   // 股本结构:web 采集经 webCollect 持久化 meta capitalKey(ticker)(股本结构节文本);
@@ -59,7 +73,7 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
   }, [ticker, dataVersion]); // F18:重采集后 meta 更新 → 换手率列不再 stale
   // hk/us 公司画像/分析师预期(Yahoo 链写 yahoo-profile:;cn 恒 null —— F10 是 cn 源)
   const profile = React.useMemo(
-    () => (market !== 'cn' ? parseYahooProfile(store.getMeta(yahooProfileKey(ticker))) : null),
+    () => (market === 'cn' ? null : parseYahooProfile(store.getMeta(yahooProfileKey(ticker)))),
     [ticker, dataVersion, market],
   );
   // 涨跌幅:由 bars 现算(复用 pipeline changePercentSeries 公式;首根 NaN → N/A)
@@ -104,11 +118,12 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
       // 不参与任何计算;占位取市场本地"今天"(marketToday(market),pipeline 同源),防误导性字面量
       today: bars.length ? bars[bars.length - 1].date : marketToday(market),
     }),
-    ...(market !== 'cn' ? ((stock?.overview ?? {}) as Record<string, number | string>) : {}),
+    ...(market === 'cn' ? {} : ((stock?.overview ?? {}) as Record<string, number | string>)),
   };
 
-  // 概览单行：cn 键集固定；hk/us 额外给股息率/每股收益（Yahoo 概览槽独有的
-  // 两键，旧实现采了但从不展示）
+  // 概览单行：cn 键集固定；hk/us 额外给股息率（Yahoo 概览槽独有的一键，
+  // 旧实现采了但从不展示）。52 周高低/每股收益三市场都有——CN 侧由
+  // composeOverview 从日K 与 F10 补齐（2026-11-19 评审遗留的 N/A 格子）。
   const overviewCells: Array<[string, string]> = [
     ['最新价', fmtNumber(overview.latest_price as number, 2)],
     ['涨跌幅', `${fmtNumber(overview.change_percent as number, 2)}%`],
@@ -119,10 +134,10 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
     // 52 周高低:Yahoo 概览槽(hk/us);cn 概览无此键 → N/A
     ['52周高低', `${fmtNumber(overview.week_52_high as number, 2)} / ${fmtNumber(overview.week_52_low as number, 2)}`],
     ['货币', marketInfo(market).currency],
+    ['每股收益', fmtNumber(Number(overview.eps), 2)],
   ];
   if (market !== 'cn') {
     overviewCells.push(['股息率', `${fmtNumber(Number(overview.dividend_yield) * 100, 2)}%`]);
-    overviewCells.push(['每股收益', fmtNumber(Number(overview.eps), 2)]);
   }
 
   const tail = bars.slice(-DAILY_TABLE_N);
@@ -230,10 +245,10 @@ export default React.memo(function DataScreen({ stockInformation, dataVersion, t
                 <Text style={[styles.cell, { color: b.close >= b.open ? theme.colors.up : theme.colors.down }]}>{b.close.toFixed(2)}</Text>
                 <Text style={styles.cell}>{b.high.toFixed(2)}</Text>
                 <Text style={styles.cell}>{b.low.toFixed(2)}</Text>
-                <Text style={[styles.cell, { color: Number.isNaN(pct) ? undefined : pct >= 0 ? theme.colors.up : theme.colors.down }]}>
+                <Text style={[styles.cell, { color: pctColor(pct, theme) }]}>
                   {Number.isNaN(pct) ? 'N/A' : `${fmtNumber(pct, 2)}%`}
                 </Text>
-                <Text style={styles.cell}>{b.volume === null ? 'N/A' : market === 'cn' ? `${(b.volume / 10000).toFixed(1)}万` : `${(b.volume / 1e6).toFixed(2)}M`}</Text>
+                <Text style={styles.cell}>{fmtVolume(b.volume, market)}</Text>
                 <Text style={styles.cell}>{Number.isNaN(turnover) ? 'N/A' : `${fmtNumber(turnover, 2)}%`}</Text>
               </View>
             );

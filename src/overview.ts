@@ -69,6 +69,25 @@ export function ytdBaseClose(bars: DailyBar[], today: string): number {
   return bars[0].close; // 当年新上市 → 当年首根
 }
 
+/** 52 周高低：`today` 往前 365 天窗口内的日K 极值（未复权口径，与图表同一序列）。
+ *  CN 概览槽原本没有这两键（港美走 Yahoo summaryDetail），DataScreen 对沪深恒
+ *  显示 N/A；而本地日K 已存数千根，不需要新数据源。窗口空（超长停牌/上市不满
+ *  一年且跨年无数据）→ 退回末 250 根交易 bar（约一年交易日数）。 */
+function week52Range(bars: DailyBar[], today: string): { high: number; low: number } {
+  const cutoff = new Date(`${today}T00:00:00Z`);
+  cutoff.setUTCDate(cutoff.getUTCDate() - 365);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const window = bars.filter((b) => b.date >= cutoffDate);
+  const src = window.length ? window : bars.slice(-250);
+  let high = NaN;
+  let low = NaN;
+  for (const b of src) {
+    if (Number.isFinite(b.high) && (Number.isNaN(high) || b.high > high)) high = b.high;
+    if (Number.isFinite(b.low) && (Number.isNaN(low) || b.low < low)) low = b.low;
+  }
+  return { high, low };
+}
+
 export interface OverviewInput {
   ticker: string;
   name: string;
@@ -81,7 +100,9 @@ export interface OverviewInput {
 
 export type OverviewRow = Record<string, number | string>;
 
-/** 由各源原始数据合成 22 列概览（纯函数，不访问网络）。 */
+/** 由各源原始数据合成概览（纯函数，不访问网络）。
+ *  键数：22 列对搬 Python compose_overview + 3 个补齐键（eps / week_52_high /
+ *  week_52_low——原本只有港美有，见下方返回对象的注释）。 */
 export function composeOverview(input: OverviewInput): OverviewRow {
   const { ticker, name, f10, bars, today } = input;
   const snapshot = input.snapshot ?? null;
@@ -118,6 +139,7 @@ export function composeOverview(input: OverviewInput): OverviewRow {
   const changePercent60d = divide(price - close60d, close60d) * 100;
   const ytdClose = ytdBaseClose(bars, today);
   const changePercentYtd = divide(price - ytdClose, ytdClose) * 100;
+  const week52 = week52Range(bars, today);
 
   return {
     ticker: String(ticker),
@@ -142,5 +164,12 @@ export function composeOverview(input: OverviewInput): OverviewRow {
     change_percent_5min: NaN, // pytdx 无
     change_percent_60d: changePercent60d,
     change_percent_ytd: changePercentYtd,
+    // 以下三键原本是港美概览独有（Yahoo summaryDetail / defaultKeyStatistics）；
+    // DataScreen 的「52周高低/每股收益」格子对沪深因此恒为 N/A。两个源本地已有：
+    // 52 周高低取自日K，eps 取自 F10「基本每股收益(元)」（pe_dynamic 的分母同源）。
+    // 股息率仍缺（东财 F10 未接分红接口）—— 不在此列，UI 按市场判定。
+    eps,
+    week_52_high: week52.high,
+    week_52_low: week52.low,
   };
 }

@@ -63,6 +63,37 @@ describe('composeOverview (22 列,对齐 Python compose_overview)', () => {
     expect(eps).toBeGreaterThan(0);
     expect(row.pe_dynamic).toBeCloseTo(38.8 / eps, 6);
     expect(row.pb).toBeCloseTo(38.8 / nwps, 6);
+    // 2026-11-19 评审遗留：cn 概览槽原本没有 eps 键 → DataScreen「每股收益」
+    // 对沪深恒显示 N/A。同一个 F10 值既是 pe_dynamic 的分母，也是概览的 eps。
+    expect(row.eps).toBe(eps);
+  });
+
+  it('52 周高低：today 前 365 天窗口的日K 极值（不靠新数据源）', () => {
+    const row = composeOverview({
+      ticker: '600036', name: '招商银行',
+      snapshot: SNAPSHOT, capital: null,
+      f10, bars: fixture.raw, today: '2026-08-09',
+    });
+    const cutoff = '2025-08-09';
+    const window = fixture.raw.filter((b) => b.date >= cutoff);
+    expect(window.length).toBeGreaterThan(0);
+    const high = Math.max(...window.map((b) => b.high));
+    const low = Math.min(...window.map((b) => b.low));
+    expect(row.week_52_high).toBe(high);
+    expect(row.week_52_low).toBe(low);
+    // 窗口必须真的被裁过：全历史极值不等于 52 周极值（fixture 自 2002 年起）
+    expect(high).toBeLessThan(Math.max(...fixture.raw.map((b) => b.high)));
+  });
+
+  it('52 周窗口为空（超长停牌）→ 退回末 250 根，不给 NaN', () => {
+    const row = composeOverview({
+      ticker: '600036', name: '招商银行',
+      snapshot: SNAPSHOT, capital: null,
+      f10, bars: fixture.raw, today: '2200-01-01', // 全部 bar 都在 365 天窗口外
+    });
+    const tail = fixture.raw.slice(-250);
+    expect(row.week_52_high).toBe(Math.max(...tail.map((b) => b.high)));
+    expect(row.week_52_low).toBe(Math.min(...tail.map((b) => b.low)));
   });
 
   it('pytdx-absent fields are NaN; capital absent → market_cap/turnover NaN', () => {
@@ -111,13 +142,14 @@ describe('composeOverview (22 列,对齐 Python compose_overview)', () => {
     expect(row.change_percent_ytd).toBeCloseTo(((38.8 - prevYearLast!.close) / prevYearLast!.close) * 100, 6);
   });
 
-  it('22 fields, string ticker/name', () => {
+  it('25 fields（22 列对搬 + eps/52周高低 三键补齐）, string ticker/name', () => {
     const row = composeOverview({
       ticker: '600036', name: '招商银行',
       snapshot: SNAPSHOT, capital: null,
       f10, bars: fixture.raw, today: '2026-08-09',
     });
-    expect(Object.keys(row)).toHaveLength(22);
+    expect(Object.keys(row)).toHaveLength(25);
+    expect(Object.keys(row)).toEqual(expect.arrayContaining(['eps', 'week_52_high', 'week_52_low']));
     expect(row.ticker).toBe('600036');
     expect(row.name).toBe('招商银行');
   });
