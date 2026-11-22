@@ -75,18 +75,34 @@ let mainWindow = null; // BrowserWindow ref; focused by 'second-instance' below
 let settingsKeyB64 = null;
 
 /** 32 字节设置加密 key:优先读 OS 安全存储封装的 <userData>/settings-key.bin,
- *  不存在则生成。可直接返回内存里的 base64 —— 只有密文会落到磁盘。 */
-function loadOrCreateSettingsKey() {
-  if (!safeStorage.isEncryptionAvailable()) return null;
+ *  不存在则生成。可直接返回内存里的 base64 —— 只有密文会落到磁盘。
+ *  用异步 API(Electron 45 起 isEncryptionAvailable/encryptString/decryptString
+ *  均已 deprecated)。 */
+async function loadOrCreateSettingsKey() {
+  if (!(await safeStorage.isAsyncEncryptionAvailable())) return null;
+  if (process.platform === 'linux') {
+    // 诊断用:basic_text = 没有真钥匙串(值只是混淆,谈不上安全);
+    // gnome_libsecret / kwallet* 才是真 OS 密钥库。
+    console.log(`[main] 安全存储后端: ${safeStorage.getSelectedStorageBackend()}`);
+  }
   const keyFile = path.join(app.getPath('userData'), 'settings-key.bin');
   try {
-    return safeStorage.decryptString(readFileSync(keyFile));
+    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(readFileSync(keyFile));
+    if (shouldReEncrypt) {
+      // 系统换了 key 或升了安全等级 → 用新 key 重包一次(失败不影响本次启动)
+      try {
+        writeFileSync(keyFile, await safeStorage.encryptStringAsync(result), { mode: 0o600 });
+      } catch (err) {
+        console.error(`[main] 设置 key 重加密失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return result;
   } catch {
     /* 不存在/换机后解不开 → 重建(旧设置文件解不开，按无设置处理，见 child) */
   }
   const keyB64 = randomBytes(32).toString('base64');
   try {
-    writeFileSync(keyFile, safeStorage.encryptString(keyB64), { mode: 0o600 });
+    writeFileSync(keyFile, await safeStorage.encryptStringAsync(keyB64), { mode: 0o600 });
   } catch (err) {
     console.error(`[main] 设置加密 key 落盘失败: ${err instanceof Error ? err.message : String(err)}`);
     return null; // 不阻断启动:child 会退回明文并告警
@@ -406,7 +422,7 @@ app.whenReady().then(async () => {
   const logDir = path.join(userData, 'logs');
   for (const dir of [storeDir, settingsDir, logDir]) mkdirSync(dir, { recursive: true });
 
-  settingsKeyB64 = loadOrCreateSettingsKey();
+  settingsKeyB64 = await loadOrCreateSettingsKey();
   spawnChild(storeDir, settingsDir, logDir);
   registerIpc();
 

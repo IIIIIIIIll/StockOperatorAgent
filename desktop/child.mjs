@@ -225,13 +225,22 @@ async function main() {
 
   settingsFs = await createSettingsFs(settingsDir);
   let settings = null;
+  const settingsFile = new settingsFs.File(settingsFs.Paths.document, SETTINGS_FILE);
   try {
-    const file = new settingsFs.File(settingsFs.Paths.document, SETTINGS_FILE);
-    settings = file.exists ? file.textSync() : null;
+    settings = settingsFile.exists ? settingsFile.textSync() : null;
   } catch (err) {
-    // 加密文件解不开(key 变了/文件被改动)——与损坏 JSON 同口径:回 null。
-    // 不降级成明文以便下次启动还能试对 key。
+    // 加密文件解不开(key 变了 / 文件被改动 / 本次没有 OS 钥匙串)——与损坏 JSON
+    // 同口径回 null。但**绝不能就这样接着以明文写回**:下次一存就把原设置覆盖成
+    // 默认值(含 API Key 全丢)。先挪到旁边留证(文件名带时间戳),再按无设置继续。
     console.error(`[child] 设置读取失败(按无设置处理): ${err?.message ?? err}`);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const keepName = `${SETTINGS_FILE}.unreadable-${stamp}`;
+    try {
+      settingsFile.moveSync(new settingsFs.File(settingsFs.Paths.document, keepName), { overwrite: false });
+      console.error(`[child] 已把读不出的设置另存为 ${keepName}`);
+    } catch (moveErr) {
+      console.error(`[child] 设置备份失败(继续启动,但下次保存会覆盖旧文件): ${moveErr?.message ?? moveErr}`);
+    }
     settings = null;
   }
 

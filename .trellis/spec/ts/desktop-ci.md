@@ -35,12 +35,22 @@ paths:
 - **设置加密落盘(评审 2026-11-19 P1「明文含 API Key」→ 已关)**:
   `<userData>/settings/soa-settings.json` 落的是 AES-256-GCM 信封
   (`{"soa_enc":"aes-256-gcm","v":1,"iv","tag","data"}`,全 base64)。
-  32 字节 key 由 **主进程** 生成并交 `safeStorage`(Keychain/DPAPI/libsecret)
-  封装成 `<userData>/settings-key.bin`;child 每次启动发
-  `{type:'settings-key-request'}` 要一次(3s 超时)。平台无安全存储 →
-  key:null → child 退回明文 + stderr 告警(不自造密钥 = 不自造「锁和钥匙同文件」)。
-  旧明文文件仍可读(首次保存自动升级成信封);错 key/被篡改 → GCM tag 不匹配 →
-  抛 → 按「无设置」处理(不返回半截密钥)。Android 侧仍是应用私有目录明文
+  32 字节 key 由 **主进程** 生成并交 `safeStorage` 封装成
+  `<userData>/settings-key.bin`;child 每次启动发 `{type:'settings-key-request'}`
+  要一次(3s 超时)。平台无安全存储 → key:null → child 退回明文 + stderr 告警
+  (不自造密钥 = 不自造「锁和钥匙同文件」)。
+  旧明文文件仍可读(首次保存自动升级成信封)。
+  **读不出来时不覆盖**:错 key / 被篡改 / 本次无钥匙串 → GCM tag 不匹配 → 把原文件
+  改名为 `soa-settings.json.unreadable-<ISO 时间戳>` 留证,再按「无设置」启动 ——
+  否则下次保存就以默认值盖掉原设置(API Key 全丢)。
+  **必须用异步 API**:Electron 45 起 `isEncryptionAvailable` / `encryptString` /
+  `decryptString` 均已 deprecated(`safeStorage.isAsyncEncryptionAvailable()` /
+  `encryptStringAsync` / `decryptStringAsync`);两者在 Linux 无钥匙串时行为不同 ——
+  同步 API 返回「不可用」(→ 明文),异步 API 落到 `basic_text` 后端(→ 仍然出信封)。
+  `basic_text` 是 Chromium 内置固定密钥,**只是混淆级安全**(挡备份/云同步/顺手看
+  一眼),真密钥库是 Windows DPAPI / macOS Keychain / Linux gnome-libsecret·kwallet;
+  主进程会在 Linux 打印 `安全存储后端:` 便于诊断。
+  Android 侧仍是应用私有目录明文
   (0600 + allowBackup 排除),待接 expo-secure-store。
 
 ## 打包布局契约(镜像仓库根,勿改)
