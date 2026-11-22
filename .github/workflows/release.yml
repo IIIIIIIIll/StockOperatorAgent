@@ -115,6 +115,12 @@ jobs:
           verify "desktop/package.json"    "$(node -p "JSON.parse(require('fs').readFileSync('desktop/package.json','utf8')).version")"
           verify "app/package.json"        "$(node -p "JSON.parse(require('fs').readFileSync('app/package.json','utf8')).version")"
           verify "app/app.json"            "$(node -p "JSON.parse(require('fs').readFileSync('app/app.json','utf8')).expo.version")"
+          # P2(评审 2026-11-19):三份 lockfile 的自身 version 曾停在 1.0.0,而清单
+          # 已是 1.0.4 —— 只改 package.json 不改 lockfile 的发版习惯会让「装的是哪版」
+          # 在审计里说不清。这里与清单同源比对(只比顶层 version,不碰依赖)。
+          verify "package-lock.json"        "$(node -p "JSON.parse(require('fs').readFileSync('package-lock.json','utf8')).version")"
+          verify "desktop/package-lock.json" "$(node -p "JSON.parse(require('fs').readFileSync('desktop/package-lock.json','utf8')).version")"
+          verify "app/package-lock.json"    "$(node -p "JSON.parse(require('fs').readFileSync('app/package-lock.json','utf8')).version")"
 
   # S1(1.0.0 评审):与 ci.yml 同款密钥扫描。故意与 chart:check 重复 ——
   # 「tag 提交在 master 上」已经保证 ci.yml 跑过一遍,但发版路径自己再做一次
@@ -407,11 +413,41 @@ jobs:
           fi
 
       # AAB 侧对称检查:Play 上传包同样不能无签名(上传密钥就是这里的 keystore)。
-      - name: Verify AAB signature (jarsigner)
+      #
+      # 口径(评审 2026-11-09/11-19 遗留「未验 v2/v3 签名方案」的结论):
+      # `.aab` 是 ZIP/JAR,只能用 **JAR 签名(v1 方案)** 签署;APK Signature
+      # Scheme v2/v3 是 apksigner 作用于 **APK** 的方案,Play 收到 AAB 后用自己
+      # 的 app-signing key 重签再分发 —— 上传包里不存在 v2/v3 块可验。所以这里
+      # 能验的只有两件事,且两件都必须验:
+      #   (a) JAR 签名真的存在并通过校验 —— 旧命令 `jarsigner -verify | tail -5`
+      #       丢弃退出码、只看末 5 行,未签名包会打印「jar is unsigned」却照样
+      #       绿;`-strict` 把未签名/警告降级为失败(管道不参与,直接判退出码)。
+      #   (b) 签名者不是 debug 证书 —— 与 APK 侧同一条门禁。
+      - name: Verify AAB signature (jarsigner -strict)
         run: |
           soa_aab=$(ls soa-*.aab | head -1)
-          jarsigner -verify "$soa_aab" | tail -5
-          echo "OK: $soa_aab 已签名"
+          if ! log=$(jarsigner -verify -strict "$soa_aab" 2>&1); then
+            echo "$log" | tail -20
+            echo "::error::$soa_aab 的 JAR 签名校验失败(未签名/内容被改动/证书链不完整)"
+            exit 1
+          fi
+          echo "$log" | tail -5
+          if ! grep -q 'jar verified' <<<"$log"; then
+            echo "::error::jarsigner 未返回「jar verified」—— 包可能未签名"
+            exit 1
+          fi
+
+          certs=$(keytool -printcert -jarfile "$soa_aab" 2>&1)
+          echo "$certs" | head -8
+          if grep -q 'CN=Android Debug' <<<"$certs"; then
+            echo "::warning::AAB 使用 debug 签名(ANDROID_KEYSTORE_B64 未配置?)"
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              echo "::error::tag 发布不得产 debug 签名的 AAB(Play 会把升级链钉在 debug 上传密钥上)"
+              exit 1
+            fi
+          else
+            echo "OK: $soa_aab 已用正式证书签名"
+          fi
 
       # 同 desktop:产物一律上传,由 publish job 统一发布。
       - name: Upload APK/AAB artifact
