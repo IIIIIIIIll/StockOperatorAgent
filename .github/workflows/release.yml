@@ -423,17 +423,24 @@ jobs:
       #       丢弃退出码、只看末 5 行,未签名包会打印「jar is unsigned」却照样
       #       绿;`-strict` 把未签名/警告降级为失败(管道不参与,直接判退出码)。
       #   (b) 签名者不是 debug 证书 —— 与 APK 侧同一条门禁。
-      - name: Verify AAB signature (jarsigner -strict)
+      - name: Verify AAB signature (jarsigner)
         run: |
           soa_aab=$(ls soa-*.aab | head -1)
-          if ! log=$(jarsigner -verify -strict "$soa_aab" 2>&1); then
+          # 不能用 `-strict`:Gradle 签出来的 AAB 每个 entry 都会带一条
+          # 「is signed in JarFile but is not signed in JarInputStream」警告
+          # (JDK 对 manifest 流式校验的固有差异),`-strict` 把它算成 exit 4 ——
+          # 1.0.5 首发就是被这条挡住的。真正的判据是下面两条,缺一不可:
+          #   ① 退出码 0(内容被改动 / 签名结构坏 → 非 0);
+          #   ② 输出含「jar verified」—— 未签名的 jar 退出码也是 0,只会打
+          #      「jar is unsigned」,所以只判退出码等于没判(旧实现的毛病)。
+          if ! log=$(jarsigner -verify "$soa_aab" 2>&1); then
             echo "$log" | tail -20
-            echo "::error::$soa_aab 的 JAR 签名校验失败(未签名/内容被改动/证书链不完整)"
+            echo "::error::$soa_aab 的 JAR 签名校验失败(内容被改动/签名结构损坏)"
             exit 1
           fi
           echo "$log" | tail -5
           if ! grep -q 'jar verified' <<<"$log"; then
-            echo "::error::jarsigner 未返回「jar verified」—— 包可能未签名"
+            echo "::error::jarsigner 未返回「jar verified」—— 包未签名(退出码不可信)"
             exit 1
           fi
 
