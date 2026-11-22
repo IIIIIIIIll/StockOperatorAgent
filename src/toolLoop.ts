@@ -100,7 +100,9 @@ export async function invokeWithTools(
     const toolNames = toolCalls.map((c) => c.name).join(', ');
     warn(`工具轮 ${round + 1}:模型请求工具 ${toolNames},回滚该轮中间文本`);
     onReset?.();
-    safeProgress(progressUpdater, '正在联网搜索。。。');
+    // 进度文案不能写死「联网搜索」:工具集里还有 f10/股东/技术面等非搜索工具,
+    // 用户会看到与实际动作无关的进度(P2 评审 2026-11-19)。
+    safeProgress(progressUpdater, '正在调用工具。。。');
     messages.push(response as BaseMessage);
     const toolByName = new Map(tools.map((t) => [t.name, t]));
     // P2（评审 2026-11-21）：单个工具调用必须可被取消。旧实现直接
@@ -131,12 +133,15 @@ export async function invokeWithTools(
           if (Array.isArray(content)) content = content[0]; // content_and_artifact 形态
         } catch (err) {
           warn(`工具 ${call.name} 执行失败,已降级为占位文本: ${(err as Error).message}`);
-          content = `（联网搜索失败：${(err as Error).message}）`;
+          // 占位文本必须带工具名:写死「联网搜索失败」时,模型看到的是「web_search
+          // 失败」而调用的其实是别的工具 → 会换工具重试、白烧轮次与 token
+          // (P2 评审 2026-11-19)。
+          content = `（${call.name} 执行失败：${(err as Error).message}）`;
         }
       }
       messages.push(new ToolMessage({ content: String(content), tool_call_id: call.id }));
     }
-    safeProgress(progressUpdater, '联网搜索完成。。。');
+    safeProgress(progressUpdater, '工具执行完成。。。');
   }
 
   // 轮数耗尽且模型仍在要工具：追加收尾轮（有界 +1 次 LLM 调用,同样流式）。

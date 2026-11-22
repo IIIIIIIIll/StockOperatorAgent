@@ -86,7 +86,24 @@ describe('tool loop (AC3)', () => {
       }],
     });
     const toolMsg = humanMessages(messages).find((m) => m instanceof ToolMessage) as ToolMessage;
-    expect(String(toolMsg.content)).toBe('（联网搜索失败：boom）');
+    expect(String(toolMsg.content)).toBe('（web_search 执行失败：boom）');
+  });
+
+  it('工具异常占位带真实工具名(不是写死的「联网搜索」)', async () => {
+    // 旧占位把任何工具失败都写成「联网搜索失败」:模型据此换工具重试、白烧轮次。
+    const llm = scriptedLlm([
+      () => toolCall('f10_financials', {}),
+      () => new AIMessage({ content: '回答' }),
+    ]);
+    const { messages } = await invokeWithTools(llm, 'q', {}, {
+      tools: [{
+        name: 'f10_financials',
+        invoke: () => { throw new Error('东财 502'); },
+      }],
+    });
+    const toolMsg = humanMessages(messages).find((m) => m instanceof ToolMessage) as ToolMessage;
+    expect(String(toolMsg.content)).toBe('（f10_financials 执行失败：东财 502）');
+    expect(String(toolMsg.content)).not.toContain('联网搜索');
   });
 
   it('async 工具 invoke:await 解包结果回流(非 [object Promise]);rejection → 占位不 raise', async () => {
@@ -109,7 +126,7 @@ describe('tool loop (AC3)', () => {
     });
     const toolMsgs = humanMessages(messages).filter((m) => m instanceof ToolMessage) as ToolMessage[];
     expect(String(toolMsgs[0].content)).toBe('结果:q1'); // Promise 已解包
-    expect(String(toolMsgs[1].content)).toBe('（联网搜索失败：async-boom）'); // async rejection 被 catch
+    expect(String(toolMsgs[1].content)).toBe('（failing_search 执行失败：async-boom）'); // async rejection 被 catch
     expect(String(toolMsgs[0].content)).not.toContain('[object Promise]');
   });
 
