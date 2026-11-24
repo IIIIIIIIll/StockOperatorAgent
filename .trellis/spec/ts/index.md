@@ -35,6 +35,12 @@ paths:
 - `desktop/` — Electron 壳(main.mjs/preload.cjs/child.mjs,独立 package)。
 - `tools/*.mts` — Node 探针/构建脚本;`test/*.test.ts` — vitest 套件(含
   architecture.test.ts 八条架构断言)。
+- `app/assets/*.png` — 应用图标/启动图;居中校验与修正用
+  `node app/scripts/recenter-icons.mjs [--dry]`(取字形包围盒移到画布中心,亚像素
+  双线性重采样,自带 before/after 偏移打印)。**注意**:2026-11-22 实测 icon.png /
+  android-icon-foreground.png 内容中心比画布中心高 36px(用户反馈“图标不是中心
+  的”)。`app/android/` 是 prebuild 产物(gitignored),改完 assets 需
+  `npx expo prebuild --platform android --no-install` 才会进 APK。
 
 ## 开发前检查(动 TS 层代码前)
 
