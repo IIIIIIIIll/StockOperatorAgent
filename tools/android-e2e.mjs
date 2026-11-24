@@ -8,6 +8,8 @@
 //      (顺带断言无障碍标签存在 —— 那是 a11y 修复的回归点)
 //   ④ 轮询 logcat,等 "[soa info] 分析结束" 出现
 //   ⑤ 断言:0 条 FATAL/AndroidRuntime 崩溃、7 个角色 chip 全部"完成"、最终结论非空
+//   ⑤.5 「决策价位」Tab(2026-11-22):点击后必验标题/价位分布卡片/方向/信心度,
+//        并区分"抽到价位"与"空态提示"两种合法形态(演示占位报告就是空态)
 //   ⑥ 抽屉 → 历史 → 打开该条 → "正在查看历史" → 返回最新(验证 openRun/closeRun)
 //
 // 用法:
@@ -275,6 +277,35 @@ async function main() {
   }
   if (!/分析完成\(\d+ 步\)/.test(texts)) {
     fail('完成态缺失', '未看到「✓ 分析完成(N 步)」');
+  }
+
+  // ⑤.5 「决策价位」Tab(2026-11-22 新增):合成 Tab,与角色开关无关。
+  // 它只消费《最终结论》文本 + store 日K —— 所以这一步同时验证两件事:
+  //   a) Tab 条里真的多了这一项、点了不白屏(2026-11-21 P2 同款回落坑);
+  //   b) 演示占位报告(无 LLM 三键)时走"空态提示"而不是崩/空白。
+  const levelsTab = dumpNodes().find((n) => (n.text ?? '').trim() === '决策价位');
+  if (!levelsTab?.bounds) {
+    fail('找不到「决策价位」Tab', 'Tab 条里没有该 Tab(渲染回归?)');
+  } else {
+    adb('shell', 'input', 'tap', ...center(levelsTab).map(String));
+    await sleep(1500);
+    const levelsTexts = dumpNodes().map((n) => n.text ?? '').join('\n');
+    if (!/决策价位 · /.test(levelsTexts)) {
+      fail('决策价位 Tab 未渲染', '标题「决策价位 · <ticker>」缺失');
+    } else if (!/价位分布/.test(levelsTexts)) {
+      fail('价位图卡片缺失', '未看到「价位分布(近 N 根收盘)」');
+    } else if (!/(报告方向|信心度)/.test(levelsTexts)) {
+      fail('摘要区缺失', '未看到方向/信心度格子');
+    } else {
+      // 两种合法形态:抽到价位(列出数字) 或 空态提示(演示占位报告)
+      const hasEmptyState = /未提取到价位|没有可识别的价位/.test(levelsTexts);
+      const levelRows = (levelsTexts.match(/^[+-]?\d+\.\d{1,2}%$/gm) ?? []).length;
+      if (!hasEmptyState && levelRows === 0) {
+        fail('价位区既没数字也没空态提示', '可能渲染成空白');
+      } else {
+        ok(`决策价位 Tab 渲染(${hasEmptyState ? '空态提示正常' : `列出 ${levelRows} 个价位百分比`})`);
+      }
+    }
   }
 
   // ⑥ 历史:抽屉 → 历史 → 打开该条 → 返回最新(openRun/closeRun)

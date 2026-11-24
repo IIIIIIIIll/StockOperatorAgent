@@ -1,11 +1,13 @@
 ---
-description: 图表数据纯函数与 UI 编排(chartData/chartLayout/IndicatorChart/FinancialTrendChart/analysisController/useAnalysis/App 安全区)
+description: 图表数据纯函数与 UI 编排(chartData/chartLayout/levels/IndicatorChart/FinancialTrendChart/LevelsScreen/analysisController/useAnalysis/App 安全区)
 paths:
   - src/chartData.ts
   - src/chartLayout.ts
+  - src/levels.ts
   - src/format.ts
   - app/components/IndicatorChart.tsx
   - app/components/FinancialTrendChart.tsx
+  - app/screens/LevelsScreen.tsx
   - app/lib/analysisController.ts
   - app/hooks/useAnalysis.ts
   - app/App.tsx
@@ -37,6 +39,39 @@ paths:
 `paneTops` 计算 pane 顶比例(web 两图表组件共用);HTML 侧(WebView 内嵌 JS,
 app/lib/chartHtml.ts / tools/build-chart-view.mts)保持镜像注释;`npm run
 chart:build` 生成、`npm run chart:check` 校验一致性。
+
+`stackLabelYs(targets, minGap, height)` 价签竖向去重叠(决策价位 Tab 用):输入
+按**自上而下**排好的理想 y,单向贪心下推至 minGap,底部溢出则整串上推(首项不
+越 0)。不做双向均衡 —— 那会让价签偏离对应价位线更多。
+
+## 决策价位 Tab(src/levels.ts + app/screens/LevelsScreen.tsx,2026-11-22)
+
+用户需求:把《最终结论》里那堆数字做成**一眼能读的图**(各种操作价位的位置)。
+
+- **Tab 位置**:`tabs = [采集数据, 决策价位, ...角色报告]`(第 2 位,不放末尾 —— 窄屏横向
+  Tab 条要滑动,末尾进不去可视区)。`TabId = 'data' | 'levels' | 角色 stateKey`;
+  `activeRole`/`effectiveTab` 两个派生处**都要**把 'levels' 当静态 Tab 早退,否则
+  点「决策价位」会被回落成 roles[0] 并高亮到第一个角色 Tab 上(2026-11-21 P2 同款坑)。
+- **价位来源纪律**:价位**只能**来自《最终结论》原文(`extractLevels`),背景收盘价
+  来自 store 日K。抽不到就显示空态说抽不到,**绝不**拿均线之类“看起来像价位”的
+  数字冒充报告结论 —— 这个 Tab 的可信度全在这条。
+- **抽取为什么是解析自由文本**:报告是自由 markdown,无 schema;改提示词让它吐
+  JSON 会撞 `test/agents-prompt-golden.test.ts` 的逐字节钉死,且历史归档里的旧
+  报告也拿不到结构化字段。
+- **抽取规则(宁可少抽、不可抽错)**:只解析**结构化行**(表格/列表项/标题),跳过
+  散文段落;只认「关键词之后的那串数字」(买/目标/止损三组词表);排除千分位分组、
+  单位后缀、百分比邻近(±6 字内)、现价本身(±0.1%)、0.5x–1.6x 现价之外;含
+  「空头/做空/看空」的行整行跳过(空方方案不是本报告的执行价位)。目标只留现价
+  上方、防守只留现价下方,每类最多 5 条(留离现价最近的)。每条价位带 ≤48 字
+  **原文片段**,界面可回溯核对。
+- **图表为什么不用 lightweight-charts**:要表达的是“价位之间的相对位置”,不需要
+  K 线/缩放/光标;而 lightweight-charts 在原生端要走 WebView + build-chart-view
+  的 JSON 契约(两套实现 + chart:check)。改用 RN 原生 View 绝对定位:一套代码
+  web/原生同源、零依赖、零构建期契约。左半区近 60 根收盘价面积(opacity 0.16),
+  右侧价签列走 stackLabelYs。
+- **配色**:买=theme.warn(琥珀)、目标=theme.up(红)、防守=theme.down(绿);
+  **现价线用 theme.text 而非 primary** —— 目标线本来就是红,两者都用红会混淆
+  (2026-11-22 截图实测)。
 
 ## 全指标多面板图(app/components/IndicatorChart.tsx,08-13-ts-all-indicator-charts)
 

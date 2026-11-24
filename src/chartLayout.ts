@@ -30,3 +30,30 @@ export function paneTops(panes: PaneStretch[]): number[] {
   }
   return tops;
 }
+
+/**
+ * 价签竖向去重叠(2026-11-22 决策价位 Tab)。
+ *
+ * 问题:报告价位按价格画 y 后会挤在一起(40.36 与 40.45 相差 0.09 元,在 300px
+ * 高的图上不到 2px),文字标签必然叠成一团。
+ *
+ * 做法:输入按**自上而下**(y 升序)排好的理想 y,单向贪心下推 —— 每个标签至少
+ * 比上一个低 minGap;整体超出底部时,把整串标签上推(excess),但首项不低于 0。
+ * 不做双向均衡(那会让标签偏离对应价位线更多,更难读)。
+ *
+ * 返回与输入等长、同序的调整后 y;输入不排序(调用方负责升序)。
+ */
+export function stackLabelYs(targets: number[], minGap: number, height: number): number[] {
+  const out = targets.slice();
+  for (let i = 1; i < out.length; i++) {
+    if (out[i] - out[i - 1] < minGap) out[i] = out[i - 1] + minGap;
+  }
+  if (!out.length || !(height > 0)) return out;
+  // 底部溢出:整串上推,但顶项不得越过 0(标签多于图高时只能接受重叠)
+  const excess = out[out.length - 1] - (height - minGap / 2);
+  if (excess > 0) {
+    const shift = Math.min(excess, Math.max(0, out[0]));
+    for (let i = 0; i < out.length; i++) out[i] -= shift;
+  }
+  return out;
+}

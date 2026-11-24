@@ -11,6 +11,7 @@ import { SafeAreaProvider, useSafeAreaInsets, type EdgeInsets } from 'react-nati
 import ReportContent from './components/ReportContent';
 import ErrorBoundary from './components/ErrorBoundary';
 import DataScreen from './screens/DataScreen';
+import LevelsScreen from './screens/LevelsScreen';
 import SettingsPanel from './screens/SettingsPanel';
 import HistoryPanel from './screens/HistoryPanel';
 import { THEME_HEADING, useTheme, type Theme } from './theme';
@@ -24,7 +25,8 @@ import { formatRunTime } from '../src/runHistory.ts';
 import type { PipelineEvent } from './lib/runner';
 import { capabilities } from './lib/capabilities';
 
-type TabId = 'data' | string; // 'data' 或角色 stateKey
+// 'data' = 采集数据,'levels' = 决策价位(合成 Tab,无角色),其余 = 角色 stateKey
+type TabId = 'data' | 'levels' | (string & {});
 
 /** 模块实例令牌:只有同一模块实例重复挂载（同一次热重载内）才跳过安装。
  *  之前只看 `if (g.__soa) return`，Fast Refresh 后新模块实例会直接返回，
@@ -112,9 +114,11 @@ function AppContent() {
     ? `未配置 LLM 三键(${missing.join('/')})—— 将使用演示占位报告;在 ☰ → 设置 →「LLM(大模型)」填写后保存。`
     : null;
 
-  // 主 Tab 列表:[采集数据] + 角色报告(与 Python tabs = [DATA_TAB_TITLE] + report_tabs() 同序)
+  // 主 Tab 列表:[采集数据] → [决策价位] → 角色报告。决策价位放第 2 位而不是
+  // 末尾:横向 Tab 条在窄屏要滑动,末尾进不去可视区;这张图的价值就在"一眼"。
   const tabs: Array<{ id: TabId; label: string }> = [
     { id: 'data', label: '采集数据' },
+    { id: 'levels', label: '决策价位' },
     ...roles.map((r) => ({ id: r.stateKey!, label: r.tabTitle! })),
   ];
 
@@ -125,11 +129,14 @@ function AppContent() {
   // P1(评审 2026-11-19 L6-1):角色开关被关掉时 activeTab 会指向一个**已不存在**
   // 的角色，而旧渲染分支是 `activeRole ? … : null` → 内容区全白无提示。
   // 退回第一个可用角色；一个都不剩时由下面渲染分支给一句明确说明。
-  const activeRole = activeTab === 'data' ? undefined : (roles.find((r) => r.stateKey === activeTab) ?? roles[0]);
+  const activeRole = activeTab === 'data' || activeTab === 'levels' ? undefined : (roles.find((r) => r.stateKey === activeTab) ?? roles[0]);
   // P2（评审 2026-11-21）：Tab 条要与 activeRole 用**同一套**回落，否则关掉某个
   // 角色开关后内容区渲染的是 roles[0]，Tab 条却没有任何一项高亮（用户看到
   // 「无选中但右侧有内容」）。这里把「实际生效的 tab」单源化。
-  const effectiveTab = activeTab === 'data' ? 'data' : (roles.some((r) => r.stateKey === activeTab) ? activeTab : roles[0]?.stateKey ?? 'data');
+  // 2026-11-22:两个非角色 Tab('data'/'levels')也必须走同一套判定,否则点
+  // 「决策价位」会被回落成 roles[0] 而高亮到第一个角色 Tab 上。
+  const isStaticTab = activeTab === 'data' || activeTab === 'levels';
+  const effectiveTab = isStaticTab ? activeTab : (roles.some((r) => r.stateKey === activeTab) ? activeTab : roles[0]?.stateKey ?? 'data');
   const progress = a.events.filter((e): e is Extract<PipelineEvent, { type: 'progress' }> => e.type === 'progress');
   // 菜单定位:menuSize(onLayout 实测)齐备后经 menuGeometry 约束(右缘 clamp/
   // 高度不足上翻);首帧未实测时退化为锚点原始定位,onLayout 随即回填
@@ -454,6 +461,8 @@ function AppContent() {
             <View style={styles.content}>
               {activeTab === 'data' ? (
                 <DataScreen stockInformation={a.stockInformation} dataVersion={a.dataVersion} ticker={a.lastRunTicker} market={a.market} />
+              ) : activeTab === 'levels' ? (
+                <LevelsScreen finalDecision={a.finalDecision} ticker={a.lastRunTicker} dataVersion={a.dataVersion} />
               ) : activeRole ? (
                 <ReportContent
                   key={activeRole.stateKey!} // F43:按角色 remount → 展开态不跨 看涨/看跌 tab 泄漏

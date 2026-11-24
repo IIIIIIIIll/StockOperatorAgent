@@ -2,7 +2,7 @@
 // 取两组件现有 PANE_STRETCH / CHART_HEIGHT 值,断言 paneTops 输出与
 // 被抽离前的组件内联公式(逐 pane 累加 (CHART_HEIGHT×st)/Σstretch)一致。
 import { describe, expect, it } from 'vitest';
-import { paneTops } from '../src/chartLayout.ts';
+import { paneTops, stackLabelYs } from '../src/chartLayout.ts';
 
 /** 组件内联公式(抽离前):PANE_STRETCH 与 CHART_HEIGHT=Σstretch 时逐项输出。 */
 function inlineTops(stretches: number[], height: number): number[] {
@@ -50,5 +50,32 @@ describe('paneTops (web 两图表组件 pane 顶 y 公共计算)', () => {
   it('空 panes → 空数组;单 pane → [0](零除安全)', () => {
     expect(paneTops([])).toEqual([]);
     expect(paneTops([{ height: 300, stretchFactor: 100 }])).toEqual([0]);
+  });
+});
+
+describe('stackLabelYs (决策价位 Tab 价签去重叠)', () => {
+  it('间距均足够 → 原样返回(不动不该动的标签)', () => {
+    expect(stackLabelYs([0, 40, 80], 15, 320)).toEqual([0, 40, 80]);
+  });
+
+  it('挤在一起的价格 → 逐个下推到 minGap', () => {
+    // 42.64 与 42.44 在 320px 图上只差 2px —— 变成 15/30
+    expect(stackLabelYs([100, 102, 104], 15, 320)).toEqual([100, 115, 130]);
+  });
+
+  it('底部溢出 → 整串上推,同时不越过顶部', () => {
+    // 下推后 [300,315,400];末项 400 > 320-7.5 → 上推 87.5(首项 300 够减)
+    expect(stackLabelYs([300, 302, 400], 15, 320)).toEqual([212.5, 227.5, 312.5]);
+  });
+
+  it('标签多到装不下 → 首项不越过 0(宁可重叠也不跑出画布)', () => {
+    const ys = stackLabelYs(Array.from({ length: 30 }, (_, i) => i), 15, 100);
+    expect(ys[0]).toBeGreaterThanOrEqual(0);
+    expect(ys[29] - ys[28]).toBe(15);
+  });
+
+  it('空输入/高度未知 → 不抛错', () => {
+    expect(stackLabelYs([], 15, 320)).toEqual([]);
+    expect(stackLabelYs([10, 12], 15, 0)).toEqual([10, 25]);
   });
 });
