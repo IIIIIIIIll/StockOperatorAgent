@@ -72,6 +72,14 @@ chart:build` 生成、`npm run chart:check` 校验一致性。
 - **配色**:买=theme.warn(琥珀)、目标=theme.up(红)、防守=theme.down(绿);
   **现价线用 theme.text 而非 primary** —— 目标线本来就是红,两者都用红会混淆
   (2026-11-22 截图实测)。
+- **同价去重只作用于图**:报告里同一个数字可能既是买点又是目标(真机实测 44.16、
+  43.52 都出现过),不去重就是两条线完全重叠 + 价签印两遍。`plot` 按
+  `price.toFixed(2)` 去重(保 entry → target → stop 的首项),**下方明细列表仍保留
+  两条** —— 那是原文里的两条依据,合并等于篡改报告。
+- **`flex: 1` 只能给 ScrollView 的 `style`,不能给 `contentContainerStyle`**:
+  后者会把内容容器高度钉成视口高度,超出的「买点/目标/防守」明细卡片直接裁掉
+  且滑不动。2026-11-25 真机实测:页面 swipe 两次屏幕纹丝不动,明细整块看不见
+  (图表本身看起来正常,所以只截图上半屏发现不了)。DataScreen 的写法是对的参照。
 
 ## 全指标多面板图(app/components/IndicatorChart.tsx,08-13-ts-all-indicator-charts)
 

@@ -110,7 +110,7 @@ export default React.memo(function LevelsScreen({
 
   if (!Number.isFinite(current)) {
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
         <Text style={styles.emptyTitle}>还没有价格数据</Text>
         <Text style={styles.emptyHint}>
           先在「采集数据」运行一次分析(或确认已完成采集),再回来看价位图。
@@ -131,7 +131,7 @@ export default React.memo(function LevelsScreen({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
       <Text style={styles.title}>决策价位 · {ticker}</Text>
 
       {/* 摘要:现价 + 涨跌幅 + 方向 + 信心度 */}
@@ -285,7 +285,12 @@ export default React.memo(function LevelsScreen({
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.md },
+    // flex: 1 只能给 ScrollView 自己(style),**不能给 contentContainerStyle**:
+    // 那会把内容容器的高度钉成视口高度 —— 超出的「买点/目标/防守」明细卡片
+    // 直接裁掉且滑不到。2026-11-25 真机实测:图表下面的明细整块消失,而
+    // 页面根本滑不动(swipe 两次屏幕纹丝不动)。DataScreen 的写法才是对的。
+    screen: { flex: 1, backgroundColor: theme.colors.background },
+    container: { padding: theme.spacing.md },
     title: { fontSize: 18, fontWeight: '700', color: theme.colors.text, marginBottom: theme.spacing.md },
     summary: { flexDirection: 'row', gap: theme.spacing.sm, marginBottom: theme.spacing.md },
     summaryCell: { flex: 1, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, padding: theme.spacing.sm },
