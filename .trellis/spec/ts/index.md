@@ -41,6 +41,11 @@ paths:
   android-icon-foreground.png 内容中心比画布中心高 36px(用户反馈“图标不是中心
   的”)。`app/android/` 是 prebuild 产物(gitignored),改完 assets 需
   `npx expo prebuild --platform android --no-install` 才会进 APK。
+  `favicon.png` 不手改,由 `node app/scripts/make-favicon.mjs [--size 48]` 从
+  `icon.png` 面积平均降采样生成(2026-11-24 前它一直是 Expo 模板默认蓝色「A」,
+  而 `app.json` 的 `web.favicon` 正指向它 —— 浏览器标签页跟着错了很久)。
+  `splash-icon.png` 是 Expo 模板残留,全仓零引用(`app.json` 无 `splash` 键),
+  2026-11-24 已删 —— 别再当“待换的启动图”往里加文件。
 
 ## 开发前检查(动 TS 层代码前)
 
