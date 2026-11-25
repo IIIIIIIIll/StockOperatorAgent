@@ -17,9 +17,12 @@
 //
 // 两种模式 —— 取决于设备上有没有真实 LLM 三键,脚本不替用户决定:
 //   - 演示模式(无键):分析约 5s,报告是占位文本 → 「决策价位」只验到空态。
-//   - 真实模式(设备里存着键):一次完整多智能体分析,模拟器实测 1243s,报告是
+//   - 真实模式(设备里存着键):一次完整多智能体分析,模拟器实测 1151~1243s,报告是
 //     真结论 → 「决策价位」能验到真价位与去重。想跑快就加 `--clear`
-//     (adb shell pm clear,抹掉持久化设置回到演示模式)。
+//     (adb shell pm clear,抹掉持久化设置)。
+// 注意：`--clear` 只抹**设置里存的**键。若构建时烘了 `EXPO_PUBLIC_LLM_*`
+// (`node tools/sync-app-env.mjs` + 重打 APK),键就在 bundle 里 —— 清数据仍会跑
+// 真实分析(2026-11-25 实测踩到)。真要演示模式:清空 app/.env 后重导出/重打包。
 // 前置:
 //   - 一台已连上的设备/模拟器(`adb devices` 里 status=device)
 //   - release APK:cd app/android && ./gradlew :app:assembleRelease
@@ -196,15 +199,16 @@ async function main() {
   }
   ok(`安装 ${APK}`);
 
-  // ①.2 `--clear`:抹掉持久化设置回到演示模式。**必须在授权之前** ——
-  // pm clear 会连带撤销运行时权限,先清后授权才不会留下没权限的状态。
+  // ①.2 `--clear`:抹掉设置里存的键(注:烘进 bundle 的 EXPO_PUBLIC_LLM_* 抹不掉)。
+  // **必须在授权之前** —— pm clear 会连带撤销运行时权限,先清后授权才不会留下没
+  // 权限的状态。
   if (args.includes('--clear')) {
     const cleared = adb('shell', 'pm', 'clear', PKG);
     if (!/Success/.test(cleared.out)) {
       fail('pm clear 失败', cleared.out.slice(-200));
       return;
     }
-    ok('已清应用数据(演示模式)');
+    ok('已清应用数据(设置里的键没了;烘进 bundle 的除外)');
   }
 
   // ①.5 运行期权限预授予(先于冷启动,否则首次启动的对话框会盖住整个 UI)
@@ -339,14 +343,23 @@ async function main() {
       fail('价位图卡片缺失', '未看到「价位分布(近 N 根收盘)」');
     } else if (!/(报告方向|信心度)/.test(levelsTexts)) {
       fail('摘要区缺失', '未看到方向/信心度格子');
+    } else if (/未提取到价位|没有可识别的价位/.test(levelsTexts)) {
+      ok('决策价位 Tab 渲染(空态提示正常)');
     } else {
-      // 两种合法形态:抽到价位(列出数字) 或 空态提示(演示占位报告)
-      const hasEmptyState = /未提取到价位|没有可识别的价位/.test(levelsTexts);
-      const levelRows = (levelsTexts.match(/^[+-]?\d+\.\d{1,2}%$/gm) ?? []).length;
-      if (!hasEmptyState && levelRows === 0) {
-        fail('价位区既没数字也没空态提示', '可能渲染成空白');
+      // 明细在图表**下方**,首屏只能数到摘要里那一个 -0.74% —— 不滑就数,
+      // 旧断言只要 >0 就过,实际只验到摘要行(2026-11-25 实测:未滑动 1 个
+      // 百分比行,滑两屏后 14 个)。先滑两屏再数,顺手把「明细可滚动」也验了
+      // (flex:1 挂在 contentContainerStyle 上时正是滑不动 + 明细被裁)。
+      adb('shell', 'input', 'swipe', '540', '1900', '540', '600', '600');
+      await sleep(800);
+      adb('shell', 'input', 'swipe', '540', '1900', '540', '600', '600');
+      await sleep(1500);
+      const scrolled = dumpNodes().map((n) => n.text ?? '').join('\n');
+      const levelRows = (scrolled.match(/^[+-]?\d+\.\d{1,2}%$/gm) ?? []).length;
+      if (levelRows < 3) {
+        fail('价位明细没滑出来', `两屏后只有 ${levelRows} 个 ±% 行 —— 明细被裁或页面不可滚动`);
       } else {
-        ok(`决策价位 Tab 渲染(${hasEmptyState ? '空态提示正常' : `列出 ${levelRows} 个价位百分比`})`);
+        ok(`决策价位 Tab 渲染(明细 ${levelRows} 个价位)`);
       }
     }
   }
