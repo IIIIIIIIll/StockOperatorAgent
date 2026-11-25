@@ -3,17 +3,23 @@
 //
 // 做什么(全部经 adb,零额外依赖 —— 和 tools/web-e2e.mjs 同款"不引 puppeteer"思路):
 //   ① 安装 release APK(版本号回退时先卸载;release 包内嵌 JS bundle,不依赖 Metro)
-//   ② 冷启动,等 "[soa info] 演示数据载入" 出现(证明 JS 引擎起来且 store 可读)
+//   ② 冷启动,等 "[soa info] 应用启动" 出现(证明 JS 引擎起来且 store 可读)
 //   ③ 从 uiautomator dump 里按 content-desc="开始分析" 找按钮真实坐标并点击
 //      (顺带断言无障碍标签存在 —— 那是 a11y 修复的回归点)
 //   ④ 轮询 logcat,等 "[soa info] 分析结束" 出现
 //   ⑤ 断言:0 条 FATAL/AndroidRuntime 崩溃、7 个角色 chip 全部"完成"、最终结论非空
-//   ⑤.5 「决策价位」Tab(2026-11-22):点击后必验标题/价位分布卡片/方向/信心度,
+//   ⑤.5 「决策价位」Tab(2026-11-24):点击后必验标题/价位分布卡片/方向/信心度,
 //        并区分"抽到价位"与"空态提示"两种合法形态(演示占位报告就是空态)
 //   ⑥ 抽屉 → 历史 → 打开该条 → "正在查看历史" → 返回最新(验证 openRun/closeRun)
 //
 // 用法:
-//   node tools/android-e2e.mjs [--apk <path>] [--serial <adb serial>] [--skip-build-note]
+//   node tools/android-e2e.mjs [--apk <path>] [--serial <adb serial>] [--clear]
+//
+// 两种模式 —— 取决于设备上有没有真实 LLM 三键,脚本不替用户决定:
+//   - 演示模式(无键):分析约 5s,报告是占位文本 → 「决策价位」只验到空态。
+//   - 真实模式(设备里存着键):一次完整多智能体分析,模拟器实测 1243s,报告是
+//     真结论 → 「决策价位」能验到真价位与去重。想跑快就加 `--clear`
+//     (adb shell pm clear,抹掉持久化设置回到演示模式)。
 // 前置:
 //   - 一台已连上的设备/模拟器(`adb devices` 里 status=device)
 //   - release APK:cd app/android && ./gradlew :app:assembleRelease
@@ -190,8 +196,25 @@ async function main() {
   }
   ok(`安装 ${APK}`);
 
+  // ①.2 `--clear`:抹掉持久化设置回到演示模式。**必须在授权之前** ——
+  // pm clear 会连带撤销运行时权限,先清后授权才不会留下没权限的状态。
+  if (args.includes('--clear')) {
+    const cleared = adb('shell', 'pm', 'clear', PKG);
+    if (!/Success/.test(cleared.out)) {
+      fail('pm clear 失败', cleared.out.slice(-200));
+      return;
+    }
+    ok('已清应用数据(演示模式)');
+  }
+
   // ①.5 运行期权限预授予(先于冷启动,否则首次启动的对话框会盖住整个 UI)
   if (grantRuntimePermissions()) ok('预授予通知权限');
+
+  // ①.6 屏幕常亮:模拟器默认 30s 熄屏,熄屏后 Doze 会掐断后台网络 ——
+  // 2026-11-25 实测:修订阶段两个角色 300s 无进展,被应用自己的空闲看门狗中止。
+  // 跑完不还原:脚本本来就在操作这台设备,留常亮比下次又莫名挂住强。
+  adb('shell', 'svc', 'power', 'stayon', 'true');
+  adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
 
   // ② 冷启动
   adb('logcat', '-c');
@@ -236,9 +259,9 @@ async function main() {
 
   // ④⑤ 等分析完成。
   // 上限两种模式差很大:演示模式(无 LLM 键)约 5s;真实 LLM 一次完整多智能体
-  // 分析(8 份报告 + 多次联网搜索)在模拟器上实测 ~730s。旧实现硬钉 180s ——
-  // 设备上残留真实按键时会稳定误报。默认给 30 分钟,可用
-  // SOA_E2E_ANALYSIS_TIMEOUT_MS 覆盖(演示模式调小可以更快失败)。
+  // 分析(8 份报告 + 多次联网搜索)在模拟器上实测 1243s(2026-11-24,此前记的
+  // 730s 偏乐观)。旧实现硬钉 180s —— 设备上残留真实按键时会稳定误报。默认给
+  // 30 分钟,可用 SOA_E2E_ANALYSIS_TIMEOUT_MS 覆盖(演示模式调小可以更快失败)。
   const rawTimeout = process.env.SOA_E2E_ANALYSIS_TIMEOUT_MS;
   const parsedTimeout = Number(rawTimeout ?? 1_800_000);
   if (!Number.isFinite(parsedTimeout) || parsedTimeout <= 0) {
@@ -249,12 +272,32 @@ async function main() {
     return;
   }
   const analysisTimeoutMs = parsedTimeout;
-  const done = await waitForLog('分析结束', analysisTimeoutMs);
-  if (!done) {
+  // 应用自身的空闲看门狗会打「分析已 N 秒无任何进展,已中止等待」并**不再**
+  // 打「分析结束」—— 只等后者的旧实现把这种中止伪装成 30 分钟超时
+  // (2026-11-25 实测:21:20 看门狗中止,脚本却到 21:31 才报「分析未完成」,
+  // 失败原因全埋在 logcat 里)。这里两个信号并行轮询,谁先到就报谁。
+  const analysisDeadline = Date.now() + analysisTimeoutMs;
+  let elapsed = null;
+  let aborted = null;
+  while (Date.now() < analysisDeadline) {
+    const { out } = adb('logcat', '-d', 'ReactNativeJS:*', '*:S');
+    aborted = /\[soa error\] (分析已 \d+ 秒无任何进展[^\n]*)/.exec(out)?.[1] ?? null;
+    if (aborted) break;
+    elapsed = /分析结束:耗时 ([\d.]+)s/.exec(out)?.[1] ?? null;
+    if (elapsed) break;
+    await sleep(2000);
+  }
+  if (aborted) {
+    fail(
+      '分析被空闲看门狗中止',
+      `${aborted} —— 300s 无任何事件,通常是熄屏/断网导致上游请求挂住(脚本已 stayon+WAKEUP)`,
+    );
+    return;
+  }
+  if (!elapsed) {
     fail('分析未完成', `${Math.round(analysisTimeoutMs / 1000)}s 内未见「分析结束」`);
     return;
   }
-  const elapsed = /分析结束:耗时 ([\d.]+)s/.exec(done)?.[1] ?? '?';
   ok(`分析跑完(${elapsed}s)`);
 
   const fresh = adb('logcat', '-d').out;
@@ -279,7 +322,7 @@ async function main() {
     fail('完成态缺失', '未看到「✓ 分析完成(N 步)」');
   }
 
-  // ⑤.5 「决策价位」Tab(2026-11-22 新增):合成 Tab,与角色开关无关。
+  // ⑤.5 「决策价位」Tab(2026-11-24 新增):合成 Tab,与角色开关无关。
   // 它只消费《最终结论》文本 + store 日K —— 所以这一步同时验证两件事:
   //   a) Tab 条里真的多了这一项、点了不白屏(2026-11-21 P2 同款回落坑);
   //   b) 演示占位报告(无 LLM 三键)时走"空态提示"而不是崩/空白。
