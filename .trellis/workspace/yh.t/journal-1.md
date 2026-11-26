@@ -1762,3 +1762,57 @@ Full fresh pre-go-live review (5 subagents): READY, 0 blockers; 2 should-fix + 1
 - 保活超期改原生实现:ACTION_RELEASE_WAKE_LOCK + Handler.postDelayed(当前 90s JS 宽限在后台不触发)
 - SYSTEM_ALERT_WINDOW 仍进 release manifest(prebuild/插件收口)+ privacy-policy 权限章节同步
 - 图表注入仍每次重建整图(chartHtml.ts remove()+createChart),可改 setData 复用
+
+
+## Session 63:「决策价位」Tab + 图标/品牌资产重出 + e2e 打磨,五门禁全绿并推送
+
+**Date**: 2026-11-25(session),2026-11-26(复核 + 记录)
+**Task**: 无 Trellis 任务(按用户需求直做,未开 task 目录)
+**Branch**: `master`
+
+### Summary
+
+一块新功能加一轮真机与 e2e 打磨:「决策价位」Tab —— 把自由 markdown 的《最终结论》事后解析成买点/目标/防守价位,用 RN 原生 View 画成阶梯图;顺带修掉应用图标整体上移 36px、favicon 还是模板蓝色 A、splash-icon 是死文件三处品牌资产问题;e2e 两端补齐「决策价位」断言,并把跑一次十几分钟这件事暴露出的三处脚本缺陷修掉。
+
+### Main Changes
+
+- **`src/levels.ts`(纯函数,零 RN 依赖)**:只解析结构化行(表格/列表项/标题),跳过散文段落;只认「关键词之后的那串数字」;排除千分位分组、单位后缀、邻近百分比、现价本身(±0.1%)、0.5x–1.6x 现价之外的极端锚;含「空头/做空/看空」的行整行跳过;目标只留现价上方、防守只留下方,每类最多 5 条(取离现价最近);每条带 ≤48 字原文片段供回溯。抽不到就出空态,不拿均线冒充当位
+- **`app/screens/LevelsScreen.tsx`(330 行)**:不用 lightweight-charts(要表达的是价位相对位置,且原生端要再走 WebView + build-chart-view 的 JSON 契约)。RN 原生 View 绝对定位,web/原生同源、零依赖、零构建期契约;左半区近 60 根收盘价面积作背景,右侧价签列走新增 `stackLabelYs` 贪心下推去重叠。Tab 放第 2 位(窄屏 Tab 条要滑动,末尾进不去可视区);`activeRole` / `effectiveTab` 两处派生补静态 Tab 早退,否则点新 Tab 会被回落成 roles[0]
+- **修 `flex: 1` 挂错位置**:`<ScrollView contentContainerStyle={styles.container}>` 而 container 带 `flex: 1` → 内容容器高度被钉成视口高度,明细卡片根本没被布局出来(不是滑不到)。改法与 DataScreen 对齐:`flex: 1` 给 ScrollView 的 `style`,contentContainerStyle 只留 padding;空态分支同坑一并改
+- **品牌资产**:新增 `app/scripts/recenter-icons.mjs` —— 从字形覆盖率取包围盒(不透明图从 G 通道反解 alpha),双线性重采样做亚像素平移后按原配色重建(不是整图平移,避免把边缘抗锯齿噪点一起搬走);三个图标现均 offset(0,0)。新增 `app/scripts/make-favicon.mjs` —— 面积平均(box filter)降到 48×48(非整数倍缩放,最近邻丢蜡烛、双线性发糊),favicon 由模板蓝 A 换成品牌图;删掉零引用的模板 `splash-icon.png`
+- **e2e 脚本三项修复**:①`--clear`(`adb shell pm clear`,放在授权之前,它连带撤销运行时权限)—— 设备存着真键时 e2e 跑的是 20 分钟真实分析,不是注释假设的 5 秒演示;②应用自己的空闲看门狗中止 ≠ 超时,旧实现只等「分析结束」,21:20 中止却到 21:31 才报错,现在两信号并行轮询、谁先到报谁;③熄屏 Doze 掐网是中止诱因,启动前 `svc power stayon true` + `KEYEVENT_WAKEUP`
+- **e2e 断言修正**:web 补「决策价位」步骤(标题/价位分布/方向+信心度,区分列出价位与空态);安卓明细断言旧版「>0」被摘要里那一个 -0.74% 满足 = 等于没验,改成先滑两屏再数、少于 3 个直接报错(顺带验了页面可滚动,正是 flex:1 那个回归点);分析上限从写死 90s 改成 `SOA_E2E_ANALYSIS_TIMEOUT_MS`(默认 30 分钟);新增 `--shot <path>`
+- **`tools/sync-app-env.mjs`**:根 `.env` 的 `LLM_*` 同步成 app 侧 `EXPO_PUBLIC_LLM_*`(两个名字手工抄就是两份真相)。实测踩过的坑:`app/.env` 里三个键一直是空值,两端 e2e 静默跑成演示模式(3~4s 占位报告)而真实模式 19 分钟,不比对根本看不出来。工具只打印键名与是否找到、绝不打印值,写 0600
+- **spec 更新**:`ts/chart-ui.md`(同价去重只作用于图 —— 明细必须保留两条,合并等于篡改报告;`flex: 1` 只能给 ScrollView 的 style)、`ts/index.md`
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f96c491` | fix(assets): 应用图标内容偏上 36px —— 取包围盒居中重出 |
+| `4344688` | feat(levels): 新增「决策价位」Tab —— 把最终结论里的价位画成阶梯图 |
+| `7718162` | fix(levels): flex:1 挂在 contentContainerStyle 上,把明细整块裁掉了 |
+| `00b560c` | chore(assets): favicon 换成品牌图,删掉零引用的 splash-icon |
+| `4132822` | test(e2e): --clear 回演示模式、看门狗中止单独报错、启动前屏幕常亮 |
+| `89b8066` | test(e2e): web 补「决策价位」步骤,安卓明细断言改成滑动后计数 |
+| `70b361f` | chore(env): 根 .env 的 LLM 三键同步进 app/.env 的小工具 |
+
+### Testing
+
+- [OK] **2026-11-26 复核,当前树五门禁全绿**:vitest 1097 passed / 1 skipped / 0 failed;`tsc --noEmit` 0 error;`chart:build` + `chart:check` 通过(重生成与源模板一致,工作树仍干净)
+- [OK] **web e2e 通过**(真实 LLM,1304s):页面渲染 10966 字符、chip 7/7 完成、抽屉/设置页、决策价位 Tab 列出 16 个价位,异常与 console.error 0 条
+- [OK] **安卓 e2e 通过**(真实 LLM,1112.6s,release APK):12 步全绿 —— 安装/清数据/预授予通知/启动/市场归位/点击「开始分析」/分析跑完/0 条 FATAL/chip 7 个完成/决策价位 Tab 渲染明细 10 个价位/openRun 复现历史正文/closeRun 恢复实时态
+- [OK] 两端真实 LLM 实测(11-25 当天):web 1178s 明细 14 行、安卓 1255s 明细 13 行
+- [NOTE] 两次 e2e 都走真实分析而非演示模式:APK 与 web bundle 里都搜不到 `sk-` 形态的键(各 0 处),而 `EXPO_PUBLIC_*` 由 babel 构建期内联、变量名本身不会留在产物里 —— 「产物里搜不到键名」不能当作「键没被烘进去」的证据,键的真实来源仍未定位。`app/.env` 的键在本地/模拟器验证可用,发版构建不要带
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 本次 7 个提交此前只在本地,已随本 session 推送 `origin/master`
+- 定位 e2e 真实模式的键来源(设备设置?bundle 内联?服务端代理?),否则每次 e2e 复核固定消耗 ~22 分钟/端
+- 图表每次注入仍整图重建(chartHtml.ts remove()+createChart),可改 setData 复用
+- Session 62 遗留:真机 5 次锁屏/解锁循环验证;保活超期改原生 `ACTION_RELEASE_WAKE_LOCK` + `Handler.postDelayed`;`SYSTEM_ALERT_WINDOW` 仍进 release manifest
+
